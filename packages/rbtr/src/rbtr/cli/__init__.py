@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import threading
+from enum import StrEnum
 from typing import Annotated, Self
 
 import structlog
@@ -111,15 +112,31 @@ from rbtr.logging import configure_logging
 log = structlog.get_logger(__name__)
 
 
-def _normalise_scope(value: str | Scope) -> str | Scope:
-    """Lower-case string scope input so the `--scope` flag is case-insensitive."""
-    return value.lower() if isinstance(value, str) else value
+def _normalise_choice(value: str | Scope | GcMode) -> str | Scope | GcMode:
+    """Accept a choice as typed: any case, dashes or underscores."""
+    return value.lower().replace("-", "_") if isinstance(value, str) else value
 
 
-# Case-insensitive `--scope`: a human may type `all`, `ALL`, or
-# `All`.  Normalisation happens here at the CLI boundary; the wire
-# protocol (`SearchRequest`/`StatusRequest`) stays strict.
-ScopeField = Annotated[Scope, BeforeValidator(_normalise_scope)]
+# Case-insensitive choices: a human may type `all`, `ALL`, or `All`,
+# and `watched-only` for `watched_only`.  Normalisation happens here
+# at the CLI boundary; the wire protocol stays strict.
+ScopeField = Annotated[Scope, BeforeValidator(_normalise_choice)]
+
+
+class KeptSet(StrEnum):
+    """The sets `--keep` can name, each a `GcMode` of the same value.
+
+    `GcMode.KEEP` has no member here: the refs it keeps are named by
+    `--keep-refs`, which is what selects it.
+    """
+
+    WATCHED = "watched"
+    WATCHED_ONLY = "watched_only"
+    HEAD_ONLY = "head_only"
+    ORPHANS = "orphans"
+
+
+KeepField = Annotated[KeptSet, BeforeValidator(_normalise_choice)]
 
 
 # ── Internal server entry point ───────────────────────────────────────
@@ -781,16 +798,15 @@ class Gc(BaseModel):
     Destructive and not undoable — permanently deletes indexed
     commits/chunks. Use --dry-run to preview first.
 
-    Operates on the current repo by default; `--scope all` reclaims
-    across every indexed repo at once, with the default retention or
-    `--watched-only`. Keeping only HEAD, or only named refs, applies
-    to the one repo you name.
+    `--keep` says what a run keeps: `watched` (the default — HEAD,
+    local branches and tags, the watch set and the current worktree),
+    `watched-only`, `head-only`, or `orphans`, which drops no commits
+    and sweeps crashed-build residue. `--keep-refs <refs>` keeps those
+    refs and HEAD instead. Every run sweeps that residue.
 
-    By default keeps the watch set — HEAD, all local branches/tags,
-    and every watched ref (plus the current worktree) — and sweeps
-    crashed-build residue. The alternatives keep only the watch set,
-    only HEAD, or specific refs, or sweep residue only; they cannot be
-    combined with each other.
+    Operates on the current repo by default; `--scope all` reclaims
+    across every indexed repo at once, keeping `watched` or
+    `watched-only` — what each repo can answer in its own terms.
     """
 
     repo_path: str = Field(".", description="Repository path")
@@ -798,18 +814,17 @@ class Gc(BaseModel):
         Scope.WORKSPACE,
         description="GC scope: workspace (this repo) or all (every indexed repo).",
     )
-    watched_only: bool = Field(
-        False,
-        description="Keep only HEAD and watched refs (drop unwatched branches/tags)",
+    keep: KeepField = Field(
+        KeptSet.WATCHED,
+        description=(
+            "What a run keeps: watched (HEAD, local branches/tags and the watch "
+            "set), watched-only, head-only, or orphans (drop no commits, sweep "
+            "crashed-build residue only)."
+        ),
     )
-    keep_head_only: bool = Field(False, description="Keep only HEAD (drop everything else)")
-    keep: CliPositionalArg[list[str]] = Field(
+    keep_refs: list[str] = Field(
         [],
-        description="Keep only these refs plus HEAD; drop the rest",
-    )
-    orphans: bool = Field(
-        False,
-        description="Sweep crashed-build residue only; no commits dropped",
+        description="Keep these refs and HEAD, dropping the rest (comma-separated)",
     )
     dry_run: bool = Field(False, description="Report what would be removed without writing")
     compact: bool = Field(
@@ -817,41 +832,37 @@ class Gc(BaseModel):
         description="Rewrite the index to reclaim freed disk space (--no-compact to skip)",
     )
 
+    @property
+    def mode(self) -> GcMode:
+        """The retention these flags name; refs to keep are their own."""
+        return GcMode.KEEP if self.keep_refs else GcMode(self.keep.value)
+
     @model_validator(mode="after")
     def _check_retention(self) -> Self:
         """A run keeps one set of refs, chosen in terms every repo has.
 
-        Each option below leaves a different set of refs behind, so two
-        of them answer one question twice; resolving that by precedence
-        drops an answer the caller gave. And what a repo keeps when the
-        run covers them all can only be said in its own terms — its
-        HEAD, its watch set — never as a list of refs one of them has.
+        `--keep-refs` names that set outright, so naming it as well as
+        a set to keep says it twice. And what a repo keeps when the run
+        covers them all can only be said in its own terms — its HEAD,
+        its watch set — never as a list of refs one of them has.
         """
-        asked = {
-            "--orphans": self.orphans,
-            "--keep-head-only": self.keep_head_only,
-            "--watched-only": self.watched_only,
-            "refs to keep": bool(self.keep),
-        }
-        named = [flag for flag, given in asked.items() if given]
-        if len(named) > 1:
-            msg = f"a run keeps one set of refs, and {' and '.join(named)} are two"
+        if self.keep_refs and "keep" in self.model_fields_set:
+            msg = f"--keep-refs is the set kept, so --keep {self.keep} says it twice"
             raise ValueError(msg)
-        if self.scope is Scope.ALL and (self.orphans or self.keep_head_only or self.keep):
+        if self.scope is Scope.ALL and self.mode not in (GcMode.WATCHED, GcMode.WATCHED_ONLY):
             msg = (
                 f"a run across every repo keeps each repo's HEAD and watch set; "
-                f"{named[0]} decides what a single repo keeps"
+                f"{self.mode.value} decides what a single repo keeps"
             )
             raise ValueError(msg)
         return self
 
     def cli_cmd(self) -> None:
-        mode, refs = self._resolve_mode()
         resolved_repo = None if self.scope is Scope.ALL else normalise_repo_path(self.repo_path)
         request = GcRequest(
             repo_path=resolved_repo,
-            mode=mode,
-            refs=refs,
+            mode=self.mode,
+            refs=self.keep_refs,
             dry_run=self.dry_run,
             compact=self.compact,
         )
@@ -891,19 +902,6 @@ class Gc(BaseModel):
                 on_progress=lambda _repo_path, done, total: on_repo(done, total),
             )
         emit(response)
-
-    def _resolve_mode(self) -> tuple[GcMode, list[str]]:
-        """Pick the GC mode from the set of flags (at most one is set)."""
-        if self.orphans:
-            return GcMode.ORPHANS, []
-        if self.keep:
-            return GcMode.KEEP, self.keep
-        if self.watched_only:
-            return GcMode.WATCHED_ONLY, []
-        if self.keep_head_only:
-            return GcMode.HEAD_ONLY, []
-        # Default: HEAD + local branches/tags + the watch set.
-        return GcMode.WATCHED, []
 
 
 class SchemaDump(BaseModel):

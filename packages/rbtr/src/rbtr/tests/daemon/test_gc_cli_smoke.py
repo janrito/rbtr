@@ -140,9 +140,9 @@ def test_gc_watched_only_smoke(
     tiny_repo: TinyRepo,
     seeded_repo_id_both_commits: int,
 ) -> None:
-    """`--watched-only` parses and routes; HEAD survives."""
+    """`--keep watched-only` parses and routes; HEAD survives."""
     repo_id = seeded_repo_id_both_commits
-    r = run_cli(["--json", "gc", "--repo-path", str(tiny_repo.path), "--watched-only"])
+    r = run_cli(["--json", "gc", "--repo-path", str(tiny_repo.path), "--keep", "watched-only"])
     assert r.returncode == 0, r.stderr
     assert json.loads(r.stdout)["kind"] == "gc"
     store = IndexStore.from_config(writable=True)
@@ -185,11 +185,11 @@ def test_gc_across_every_repo_keeps_each_watch_set(
     tiny_repo: TinyRepo,
     seeded_repo_id_both_commits: int,
 ) -> None:
-    """`--scope all --watched-only` keeps HEAD and the watch set in every
+    """`--scope all --keep watched-only` keeps HEAD and the watch set in every
     repo, so the unwatched tip of `main` at c2 survives as HEAD while the
     older commit goes."""
     repo_id = seeded_repo_id_both_commits
-    r = run_cli(["--json", "gc", "--scope", "all", "--watched-only"])
+    r = run_cli(["--json", "gc", "--scope", "all", "--keep", "watched-only"])
     assert r.returncode == 0, r.stderr
     assert json.loads(r.stdout)["kind"] == "gc"
 
@@ -201,19 +201,20 @@ def test_gc_across_every_repo_keeps_each_watch_set(
 @pytest.mark.parametrize(
     "args",
     [
-        ["gc", "--orphans", "--watched-only"],
-        ["gc", "--keep-head-only", "main"],
-        ["gc", "--scope", "all", "--keep-head-only"],
-        ["gc", "--scope", "all", "main"],
+        ["gc", "--keep", "orphans", "--keep-refs", "main"],
+        ["gc", "--keep", "head-only", "--keep-refs", "main"],
+        ["gc", "--scope", "all", "--keep", "head-only"],
+        ["gc", "--scope", "all", "--keep-refs", "main"],
     ],
-    ids=["two-retentions", "head-only-and-keep", "everywhere-head-only", "everywhere-keep"],
+    ids=["orphans-and-refs", "head-only-and-refs", "everywhere-head-only", "everywhere-keep"],
 )
 def test_a_contradictory_retention_drops_nothing(
     args: list[str], tiny_repo: TinyRepo, seeded_repo_id_both_commits: int
 ) -> None:
-    """Two retentions keep two different sets of refs, and the sets one
-    repo names cannot be asked of every repo. Either way the run is
-    refused with both commits still indexed."""
+    """`--keep-refs` is the set kept, so naming a set as well says it
+    twice; and the sets naming one repo's refs cannot be asked of every
+    repo. Either way the run is refused with both commits still
+    indexed."""
     r = run_cli([*args, "--repo-path", str(tiny_repo.path)])
 
     assert r.returncode == 2, r.stdout

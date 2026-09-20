@@ -480,7 +480,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       async () => {
         if (!resolved) throw new Error("rbtr CLI not available");
         const args = ["gc"];
-        if (opts.watchedOnly) args.push("--watched-only");
+        if (opts.watchedOnly) args.push("--keep", "watched-only");
         if (opts.dryRun) args.push("--dry-run");
         return runRbtrJson<GcResponse>(pi, resolved, args, { timeout: 120_000 });
       },

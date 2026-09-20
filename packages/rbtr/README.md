@@ -147,8 +147,8 @@ rbtr unwatch --stale --scope all   # ...in every indexed repo
 rbtr unwatch --stale --dry-run     # report, change nothing
 ```
 
-The index those refs built is reclaimed by `rbtr gc
---watched-only`; a plain `rbtr gc` keeps every branch and tag
+The index those refs built is reclaimed by `rbtr gc --keep
+watched-only`; a plain `rbtr gc` keeps every branch and tag
 regardless. A repo whose path is merely unreachable for now is
 left alone: git cannot answer for it, so every ref it watches
 would look stale.
@@ -320,35 +320,35 @@ it permanently deletes indexed commits/chunks. Always preview with
 its own.
 
 ```bash
-rbtr gc                       # this repo (default: keep branches/tags + watch set)
-rbtr gc --scope all           # every indexed repo
-rbtr gc --watched-only        # keep only HEAD and watched refs
-rbtr gc --keep-head-only      # keep only HEAD
-rbtr gc main release          # keep only HEAD plus these refs
-rbtr gc --orphans             # sweep crashed-build residue only
-rbtr gc --no-compact          # skip the disk-reclaiming rewrite
-rbtr gc --dry-run             # preview what would be dropped
+rbtr gc                           # this repo (keeps branches/tags + watch set)
+rbtr gc --scope all               # every indexed repo
+rbtr gc --keep watched-only       # keep only HEAD and watched refs
+rbtr gc --keep head-only          # keep only HEAD
+rbtr gc --keep-refs main,release  # keep only HEAD plus these refs
+rbtr gc --keep orphans            # sweep crashed-build residue only
+rbtr gc --no-compact              # skip the disk-reclaiming rewrite
+rbtr gc --dry-run                 # preview what would be dropped
 ```
 
 `rbtr gc` collects the current repo by default. `--scope all` reclaims
 across **every** indexed repo at once — useful because chunks are shared
-between repos, with the default reclamation or `--watched-only`.
-`--keep-head-only` and a keep list name one repo's refs, so scope
-those with `--repo-path`. (The chunk sweep is global on every gc
+between repos, keeping `watched` or `watched-only`. `head-only`
+and `--keep-refs` name one repo's refs, so scope those with
+`--repo-path`. (The chunk sweep is global on every gc
 regardless, so a plain `rbtr gc` still frees chunks no other repo
 references.)
 
 By default it keeps HEAD, every local branch and tag, and
 every watched ref (plus the current worktree), dropping only
 genuinely unreferenced commits — so a routine gc never
-discards anything still reachable. `--watched-only` keeps
+discards anything still reachable. `--keep watched-only` keeps
 just HEAD and the watch set, dropping unwatched branches and
 tags (the way to reclaim refs you no longer index).
 
-The other modes: `--keep-head-only` keeps only HEAD; `rbtr gc <refs>`
-keeps HEAD plus the listed refs; `--orphans` sweeps residue
-from crashed builds. Each keeps a different set of refs, so two
-at once are refused rather than resolved by precedence.
+The rest: `--keep head-only` keeps only HEAD; `--keep-refs`
+keeps HEAD plus the refs you name; `--keep orphans` sweeps
+residue from crashed builds and drops no commits. A run keeps
+one set, so naming a second is refused.
 
 If the daemon is mid-build or mid-embed when you run it, gc waits
 for that work to commit before it starts — usually a second or two,
@@ -364,7 +364,7 @@ the size change (`index 2.08 GB → 1.28 GB (-800 MB)`). Pass
 collect on its own, and a healthy index does not need it. Two
 situations call for it: the file has grown past what you want
 to give it, or you have stopped indexing refs and want the
-space back (`--watched-only`, after `rbtr unwatch --stale
+space back (`--keep watched-only`, after `rbtr unwatch --stale
 --scope all` has dropped the branches that no longer exist).
 
 Growth is driven by embeddings, one vector per chunk, so the

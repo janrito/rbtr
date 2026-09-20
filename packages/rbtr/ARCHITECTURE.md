@@ -2044,7 +2044,7 @@ lets review run against arbitrary refs, with HEAD as the
 default entry. GC follows suit — `rbtr gc` defaults to
 keeping HEAD, local branches/tags, and the watch set, so it
 never discards anything reachable from a branch
-(`--watched-only` opts into reclaiming unwatched branches).
+(`--keep watched-only` opts into reclaiming unwatched branches).
 See [Watched refs](#watched-refs).
 
 **Exact cosine over approximate NN.** Exact recall
