@@ -534,23 +534,17 @@ class Search(BaseModel):
         weights = None
         if self.alpha is not None and self.beta is not None and self.gamma is not None:
             weights = WeightTriple(alpha=self.alpha, beta=self.beta, gamma=self.gamma)
-        try:
-            request = SearchRequest(
-                repo_path=resolved_repo,
-                query=self.query,
-                limit=self.limit,
-                ref=self.ref,
-                weights=weights,
-                query_kind=self.query_kind,
-                keywords=self.keywords,
-                variants=self.variants,
-                scope=self.scope,
-            )
-        except ValidationError as exc:
-            for err in exc.errors():
-                msg = err["msg"].removeprefix("Value error, ")
-                print_err(f"[red]error:[/] {msg}")
-            sys.exit(2)
+        request = SearchRequest(
+            repo_path=resolved_repo,
+            query=self.query,
+            limit=self.limit,
+            ref=self.ref,
+            weights=weights,
+            query_kind=self.query_kind,
+            keywords=self.keywords,
+            variants=self.variants,
+            scope=self.scope,
+        )
 
         match try_daemon(request):
             case SearchResponse() as resp:
