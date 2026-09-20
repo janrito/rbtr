@@ -1,7 +1,8 @@
-"""End-to-end smoke for the watch-set commands via subprocess.
+"""End-to-end smoke for `watch`, `unwatch` and `forget` via subprocess.
 
-Exercises the inline (no-daemon) prune path: watched refs that no
-longer resolve are removed; HEAD and resolvable refs are kept.
+Drives the inline (no-daemon) path and reads the store afterwards:
+refs join and leave the watch set, repos are registered and
+forgotten, and a contradictory run changes neither.
 """
 
 from __future__ import annotations
