@@ -10,7 +10,7 @@ module-name = "rbtr_lang_less"
 
 [project]
 name = "rbtr-lang-less"
-version = "2026.9.0-dev2"
+version = "2026.9.0-dev3"
 description = "rbtr — Less language plugin"
 readme = "README.md"
 license = "MIT"
@@ -38,9 +38,9 @@ classifiers = [
 ]
 requires-python = ">=3.13"
 dependencies = [
-  "rbtr==2026.9.0-dev2",
+  "rbtr==2026.9.0-dev3",
   # Reuses css_nesting_scope from the css plugin (CSS-family nesting).
-  "rbtr-lang-css==2026.9.0-dev2",
+  "rbtr-lang-css==2026.9.0-dev3",
   "tree-sitter-less",
 ]
 

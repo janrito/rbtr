@@ -10,7 +10,7 @@ module-name = "rbtr_lang_css"
 
 [project]
 name = "rbtr-lang-css"
-version = "2026.9.0-dev2"
+version = "2026.9.0-dev3"
 description = "rbtr — CSS language plugin"
 readme = "README.md"
 license = "MIT"
@@ -38,7 +38,7 @@ classifiers = [
 ]
 requires-python = ">=3.13"
 dependencies = [
-  "rbtr==2026.9.0-dev2",
+  "rbtr==2026.9.0-dev3",
   "tree-sitter-css",
 ]
 
