@@ -52,6 +52,7 @@ from rbtr.daemon.handlers import (
     handle_daemon_config,
     handle_find_refs,
     handle_forget,
+    handle_forget_stale,
     handle_gc,
     handle_list_symbols,
     handle_read_symbol,
@@ -260,6 +261,10 @@ class DaemonServer:
             async with self._write_sem:
                 return await asyncio.to_thread(handle_unwatch, req, store)
 
+        async def _async_forget_stale(req: Any) -> Response:
+            async with self._write_sem:
+                return await asyncio.to_thread(handle_forget_stale, req, store)
+
         async def _async_unwatch_stale(req: Any) -> Response:
             async with self._write_sem:
                 return await asyncio.to_thread(handle_unwatch_stale, req, store)
@@ -292,6 +297,7 @@ class DaemonServer:
                 "unwatch": _async_unwatch,
                 "unwatch_stale": _async_unwatch_stale,
                 "forget": _async_forget,
+                "forget_stale": _async_forget_stale,
                 "watch": _async_watch,
             }
         )

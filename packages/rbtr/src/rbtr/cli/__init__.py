@@ -56,6 +56,7 @@ from rbtr.daemon.handlers import (
     handle_daemon_config,
     handle_find_refs,
     handle_forget,
+    handle_forget_stale,
     handle_gc,
     handle_list_symbols,
     handle_read_symbol,
@@ -74,6 +75,7 @@ from rbtr.daemon.messages import (
     FindRefsResponse,
     ForgetRequest,
     ForgetResponse,
+    ForgetStaleRequest,
     GcRequest,
     GcResponse,
     ListSymbolsRequest,
@@ -378,7 +380,7 @@ class Unwatch(BaseModel):
 
     Names the refs to drop, or finds the ones git can no longer
     resolve with `--stale`.  The index they built stays until
-    `rbtr gc --watched-only` reclaims it.
+    `rbtr gc --keep watched-only` reclaims it.
     """
 
     refs: CliPositionalArg[list[str]] = Field([], description="Refs to stop watching")
@@ -465,17 +467,22 @@ class Forget(BaseModel):
         return self
 
     def cli_cmd(self) -> None:
-        # A vanished checkout cannot be named, so `--stale` carries no repo
-        # path and runs from anywhere, including outside a git repo.
-        request = ForgetRequest(
-            repo_path=None if self.stale else normalise_repo_path(self.repo_path),
-            dry_run=self.dry_run,
+        # A vanished checkout cannot be named, so the stale request carries
+        # no repo path and runs from anywhere, including outside a git repo.
+        request: ForgetRequest | ForgetStaleRequest = (
+            ForgetStaleRequest(dry_run=self.dry_run)
+            if self.stale
+            else ForgetRequest(repo_path=normalise_repo_path(self.repo_path), dry_run=self.dry_run)
         )
         resp = try_daemon(request) if self.daemon else None
         if resp is None:
             store = IndexStore.from_config(writable=True)
             try:
-                resp = handle_forget(request, store)
+                resp = (
+                    handle_forget_stale(request, store)
+                    if isinstance(request, ForgetStaleRequest)
+                    else handle_forget(request, store)
+                )
             finally:
                 store.close()
         match resp:

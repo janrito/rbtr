@@ -20,7 +20,8 @@ export type Request =
   | GcRequest
   | UnwatchRequest
   | UnwatchStaleRequest
-  | ForgetRequest;
+  | ForgetRequest
+  | ForgetStaleRequest;
 /**
  * Breadth of an operation over the shared store.
  *
@@ -235,16 +236,26 @@ export interface UnwatchStaleRequest {
   dry_run?: boolean;
 }
 /**
- * Forget a repo's index (metadata-only; GC reclaims chunks).
+ * Forget the repo at `repo_path` (metadata-only; GC reclaims chunks).
  *
- * A named `repo_path` is forgotten only when its sole watched ref is
- * HEAD. `None` forgets every repo whose checkout is gone instead:
- * such a path no longer normalises, so it can only be found by
- * enumeration, never named. `dry_run` reports without deleting.
+ * Only when its sole watched ref is HEAD — trim the others first.
+ * Forgetting the repos that are gone is `ForgetStaleRequest`.
+ * `dry_run` reports without deleting.
  */
 export interface ForgetRequest {
   kind: "forget";
-  repo_path?: string | null;
+  repo_path: string;
+  dry_run?: boolean;
+}
+/**
+ * Forget every repo whose checkout is gone.
+ *
+ * Such a path no longer normalises, so these repos are found by
+ * enumeration and never named by the caller. `dry_run` reports
+ * without deleting.
+ */
+export interface ForgetStaleRequest {
+  kind: "forget_stale";
   dry_run?: boolean;
 }
 export interface ErrorResponse {

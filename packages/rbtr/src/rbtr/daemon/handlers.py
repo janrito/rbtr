@@ -36,6 +36,7 @@ from rbtr.daemon.messages import (
     FindRefsResponse,
     ForgetRequest,
     ForgetResponse,
+    ForgetStaleRequest,
     GcRequest,
     GcResponse,
     IndexedRef,
@@ -508,16 +509,18 @@ def handle_unwatch_stale(request: UnwatchStaleRequest, store: IndexStore) -> Unw
     return UnwatchResponse(removed=removed, dry_run=request.dry_run)
 
 
-def handle_forget(request: ForgetRequest, store: IndexStore) -> ForgetResponse:
-    """Forget a repo (metadata-only; GC reclaims the chunks).
+def handle_forget_stale(request: ForgetStaleRequest, store: IndexStore) -> ForgetResponse:
+    """Forget the repos whose checkout is gone."""
+    gone = forget_stale_repos(store, dry_run=request.dry_run)
+    return ForgetResponse(forgotten=[repo.repo_path for repo in gone], dry_run=request.dry_run)
 
-    A named repo goes only when its watch set is exactly `{HEAD}` —
-    trim other refs first. An unnamed request forgets the repos whose
-    checkout is gone. `dry_run` reports without deleting.
+
+def handle_forget(request: ForgetRequest, store: IndexStore) -> ForgetResponse:
+    """Forget one repo (metadata-only; GC reclaims the chunks).
+
+    Only when its watch set is exactly `{HEAD}` — trim other refs
+    first. `dry_run` reports without deleting.
     """
-    if request.repo_path is None:
-        gone = forget_stale_repos(store, dry_run=request.dry_run)
-        return ForgetResponse(forgotten=[repo.repo_path for repo in gone], dry_run=request.dry_run)
     target_id = store.get_repo_id(request.repo_path)
     if target_id is None:
         return ForgetResponse(forgotten=[], dry_run=request.dry_run)

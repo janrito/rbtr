@@ -1653,8 +1653,8 @@ build cleanup), keeping removal cheap and uniform with ref removal.
 watched ref; `rbtr forget --stale` forgets every repo whose stored path
 no longer resolves. The latter is **daemon-driven enumeration**, not a
 per-path request: a removed checkout's path cannot be normalised into a
-request, which is why `ForgetRequest.repo_path` is optional and an
-absent one means "the ones that are gone" —
+request, which is why it is a request of its own —
+`ForgetStaleRequest` carries no path, and
 `rbtr.index.watch.forget_stale_repos` walks `list_repos()` and forgets
 the unresolvable ones. Its sibling `remove_stale_refs` answers the other
 question — which of a *live* repo's watched refs git still resolves, in

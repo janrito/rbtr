@@ -342,17 +342,29 @@ class UnwatchStaleRequest(BaseModel):
 
 
 class ForgetRequest(BaseModel):
-    """Forget a repo's index (metadata-only; GC reclaims chunks).
+    """Forget the repo at `repo_path` (metadata-only; GC reclaims chunks).
 
-    A named `repo_path` is forgotten only when its sole watched ref is
-    HEAD. `None` forgets every repo whose checkout is gone instead:
-    such a path no longer normalises, so it can only be found by
-    enumeration, never named. `dry_run` reports without deleting.
+    Only when its sole watched ref is HEAD — trim the others first.
+    Forgetting the repos that are gone is `ForgetStaleRequest`.
+    `dry_run` reports without deleting.
     """
 
     model_config = _STRICT
     kind: Literal["forget"] = "forget"
-    repo_path: str | None = None
+    repo_path: str
+    dry_run: bool = False
+
+
+class ForgetStaleRequest(BaseModel):
+    """Forget every repo whose checkout is gone.
+
+    Such a path no longer normalises, so these repos are found by
+    enumeration and never named by the caller. `dry_run` reports
+    without deleting.
+    """
+
+    model_config = _STRICT
+    kind: Literal["forget_stale"] = "forget_stale"
     dry_run: bool = False
 
 
@@ -369,7 +381,8 @@ Request = Annotated[
     | GcRequest
     | UnwatchRequest
     | UnwatchStaleRequest
-    | ForgetRequest,
+    | ForgetRequest
+    | ForgetStaleRequest,
     Field(discriminator="kind"),
 ]
 
