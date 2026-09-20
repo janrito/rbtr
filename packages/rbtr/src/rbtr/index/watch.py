@@ -1,20 +1,10 @@
 """Editing what the index tracks: watch sets and registered repos.
 
-Three operations, kept apart because they answer different questions.
-`unwatch_refs` drops refs a caller names. `remove_stale_refs` asks a
-live repo which of its watched refs git can still resolve.
-`forget_stale_repos` asks whether a registered repo is there at all.
-Each is the one place its answer is decided; a caller wanting two runs
-both.
-
-All three are bookkeeping about what the index *tracks*.  Reclaiming
-the storage those entries used is `rbtr.index.gc`'s job, which is why
-forgetting a repo here does not sweep its chunks.
-
-A pass covering several repos writes one session per repo rather than
-one spanning all of them: a repo is the consistency boundary, and the
-work is idempotent, so a pass interrupted part-way is finished by
-running it again.
+`unwatch_refs` drops refs a caller names, `remove_stale_refs` drops
+the ones git can no longer resolve, and `forget_stale_repos` drops
+repos whose checkout is gone.  Each writes metadata only; see
+ARCHITECTURE, "Watch-set lifecycle", for how they relate to
+reclamation and why a cross-repo pass writes one session per repo.
 """
 
 from __future__ import annotations

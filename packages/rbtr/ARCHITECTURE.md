@@ -633,6 +633,21 @@ single source the watcher derives builds from;
   for every already-registered repo, so HEAD tracking
   survives the upgrade from the previous HEAD-only poll.
 
+`rbtr.index.watch` holds the three edits to that record:
+`unwatch_refs` for refs a caller names, `remove_stale_refs`
+for the ones git can no longer resolve, `forget_stale_repos`
+for repos whose checkout is gone. All three change what the
+index *tracks* and nothing it stores — the chunks they orphan
+are reclaimed by [garbage collection](#garbage-collection),
+which is why forgetting a repo reports no statistics.
+
+A pass covering several repos opens one write session per
+repo rather than one spanning all of them. A repo is the
+consistency boundary: a session per repo keeps an unrelated
+repo's rows out of the transaction, and both operations are
+idempotent, so a pass interrupted part-way is finished by
+running it again.
+
 Requests and responses are pydantic models discriminated on
 a `kind` field (`messages.py`). The daemon writes a status
 file to `runtime_dir` on startup; `DaemonClient` reads it
