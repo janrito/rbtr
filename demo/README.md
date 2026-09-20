@@ -21,7 +21,7 @@ just demo                              # record all
 just demo-one demo/index-search.tape   # record one
 ```
 
-Output lands in `demo/output/` (checked into git).
+vhs writes each GIF to `demo/output/`.
 
 ## Demos
 
