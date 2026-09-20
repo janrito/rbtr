@@ -173,3 +173,37 @@ def test_forget_stale_forgets_vanished_repos(tmp_path: Path, isolated_db: Path) 
         assert store.get_repo_id(gone) is None
     finally:
         store.close()
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["unwatch", "main", "--stale"],
+        ["unwatch"],
+        ["unwatch", "main", "--scope", "all"],
+        ["forget", "--stale"],
+    ],
+    ids=["named-and-stale", "neither", "named-everywhere", "stale-and-named-repo"],
+)
+def test_a_contradictory_run_changes_nothing(
+    args: list[str], repo_with_stale_watch: str, vanished_repo: str
+) -> None:
+    """Asking for two things at once is refused before any write.
+
+    Each invocation names a ref *and* the rule that finds refs, or
+    names neither, or asks one repo's question of every repo. The
+    watch set and the registrations must be exactly as they were.
+    """
+    r = run_cli([*args, "--no-daemon", "--repo-path", repo_with_stale_watch])
+
+    assert r.returncode == 2, r.stdout
+    store = IndexStore.from_config(writable=False)
+    try:
+        assert store.list_watched_refs(store.resolve_repo(repo_with_stale_watch)) == [
+            "HEAD",
+            "gone-branch",
+            "main",
+        ]
+        assert store.get_repo_id(vanished_repo) is not None
+    finally:
+        store.close()

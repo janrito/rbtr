@@ -198,9 +198,29 @@ def test_gc_across_every_repo_keeps_each_watch_set(
     assert store.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c1)) is False
 
 
-def test_gc_across_every_repo_rejects_a_repo_scoped_mode() -> None:
-    """Keeping only HEAD, or only named refs, is something you ask of one
-    repo: `--scope all` with either is refused before any work."""
-    r = run_cli(["gc", "--scope", "all", "--keep-head-only"])
-    assert r.returncode == 2
-    assert "single repo" in r.stderr
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["gc", "--orphans", "--watched-only"],
+        ["gc", "--keep-head-only", "main"],
+        ["gc", "--scope", "all", "--keep-head-only"],
+        ["gc", "--scope", "all", "main"],
+    ],
+    ids=["two-retentions", "head-only-and-keep", "everywhere-head-only", "everywhere-keep"],
+)
+def test_a_contradictory_retention_drops_nothing(
+    args: list[str], tiny_repo: TinyRepo, seeded_repo_id_both_commits: int
+) -> None:
+    """Two retentions keep two different sets of refs, and the sets one
+    repo names cannot be asked of every repo. Either way the run is
+    refused with both commits still indexed."""
+    r = run_cli([*args, "--repo-path", str(tiny_repo.path)])
+
+    assert r.returncode == 2, r.stdout
+    store = IndexStore.from_config(writable=False)
+    try:
+        for sha in (tiny_repo.c1, tiny_repo.c2):
+            at = SnapshotRef(repo_id=seeded_repo_id_both_commits, snapshot_sha=sha)
+            assert store.has_indexed(at=at) is True
+    finally:
+        store.close()

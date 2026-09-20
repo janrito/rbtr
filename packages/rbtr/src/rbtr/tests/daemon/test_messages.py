@@ -49,3 +49,21 @@ def test_unwatch_rejects_a_request_naming_no_refs() -> None:
     with pytest.raises(ValidationError) as excinfo:
         request_adapter.validate_json(raw)
     assert "at least 1 item" in str(excinfo.value)
+
+
+def test_named_refs_and_the_stale_rule_cannot_be_asked_for_together() -> None:
+    """The two ways of choosing refs are two requests, so no request
+    can carry both — a caller must pick before it reaches the daemon."""
+    raw = b'{"kind":"unwatch","repo_path":"/r","refs":["main"],"stale":true}'
+    with pytest.raises(ValidationError) as excinfo:
+        request_adapter.validate_json(raw)
+    assert "stale" in str(excinfo.value)
+
+
+def test_a_scope_cannot_be_asked_of_named_refs() -> None:
+    """Breadth belongs to the stale rule: a named ref is watched in the
+    one repo the request names."""
+    raw = b'{"kind":"unwatch","repo_path":"/r","refs":["main"],"scope":"all"}'
+    with pytest.raises(ValidationError) as excinfo:
+        request_adapter.validate_json(raw)
+    assert "scope" in str(excinfo.value)
