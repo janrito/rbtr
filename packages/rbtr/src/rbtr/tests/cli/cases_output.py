@@ -15,6 +15,7 @@ from pytest_cases import case
 
 from rbtr.daemon.dto import SearchHitOut
 from rbtr.daemon.messages import (
+    ForgetResponse,
     GcResponse,
     IndexedRef,
     SearchResponse,
@@ -271,6 +272,26 @@ def case_unwatch_dry_run_speaks_conditionally() -> RenderScenario:
         model=UnwatchResponse(removed={"/work/alpha": ["gone-branch"]}, dry_run=True),
         expected=("would stop watching", "gone-branch"),
         forbidden=("stopped watching",),
+    )
+
+
+@case(tags=["forget"])
+def case_forget_names_each_repo_and_points_at_gc() -> RenderScenario:
+    """A forgotten repo is named in full, with the reclaim hint."""
+    return RenderScenario(
+        model=ForgetResponse(forgotten=["/work/deleted", "/work/gone"], dry_run=False),
+        expected=("forgot", "/work/deleted", "/work/gone", "rbtr gc"),
+        forbidden=("would",),
+    )
+
+
+@case(tags=["forget"])
+def case_forget_dry_run_offers_no_reclaim_hint() -> RenderScenario:
+    """A preview has freed nothing, so there is nothing to reclaim."""
+    return RenderScenario(
+        model=ForgetResponse(forgotten=["/work/deleted"], dry_run=True),
+        expected=("would forget", "/work/deleted"),
+        forbidden=("rbtr gc",),
     )
 
 

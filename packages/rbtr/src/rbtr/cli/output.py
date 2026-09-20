@@ -33,6 +33,7 @@ from rbtr.daemon.messages import (
     ChangedSymbolsResponse,
     DaemonConfigResponse,
     FindRefsResponse,
+    ForgetResponse,
     GcResponse,
     IndexedRef,
     ListSymbolsResponse,
@@ -223,6 +224,8 @@ def _print_rich(model: BaseModel) -> None:
             _render_gc_response(model)
         case UnwatchResponse():
             _render_unwatch_response(model)
+        case ForgetResponse():
+            _render_forget_response(model)
         case _:
             msg = f"No rich renderer for {type(model).__name__}"
             raise TypeError(msg)
@@ -569,6 +572,18 @@ def _render_unwatch_response(response: UnwatchResponse) -> None:
         # Whole path, as `status` prints it: these are other repos, so a
         # path relative to the cwd names them worse.
         _out.print(f"[green]{stopped}[/]  {', '.join(refs)} [dim]in {repo_path}[/]")
+
+
+def _render_forget_response(response: ForgetResponse) -> None:
+    """One line per repo forgotten, then where the space goes."""
+    if not response.forgotten:
+        _out.print("[dim]nothing to forget[/]")
+        return
+    verb = "would forget" if response.dry_run else "forgot"
+    for repo_path in response.forgotten:
+        _out.print(f"[green]{verb}[/]  {repo_path}")
+    if not response.dry_run:
+        _out.print("[dim]   run `rbtr gc` to reclaim the freed space[/]")
 
 
 def _render_gc_response(response: GcResponse) -> None:
