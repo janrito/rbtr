@@ -201,12 +201,12 @@ def test_gc_across_every_repo_keeps_each_watch_set(
 @pytest.mark.parametrize(
     "args",
     [
-        ["gc", "--keep", "orphans", "--keep-refs", "main"],
+        ["gc", "--keep", "everything", "--keep-refs", "main"],
         ["gc", "--keep", "head-only", "--keep-refs", "main"],
         ["gc", "--scope", "all", "--keep", "head-only"],
         ["gc", "--scope", "all", "--keep-refs", "main"],
     ],
-    ids=["orphans-and-refs", "head-only-and-refs", "everywhere-head-only", "everywhere-keep"],
+    ids=["everything-and-refs", "head-only-and-refs", "everywhere-head-only", "everywhere-keep"],
 )
 def test_a_contradictory_retention_drops_nothing(
     args: list[str], tiny_repo: TinyRepo, seeded_repo_id_both_commits: int

@@ -124,16 +124,18 @@ ScopeField = Annotated[Scope, BeforeValidator(_normalise_choice)]
 
 
 class KeptSet(StrEnum):
-    """The sets `--keep` can name, each a `GcMode` of the same value.
+    """The sets `--keep` can name, each a `GcMode` it selects.
 
     `GcMode.KEEP` has no member here: the refs it keeps are named by
-    `--keep-refs`, which is what selects it.
+    `--keep-refs`, which is what selects it.  `EVERYTHING` is
+    `GcMode.ORPHANS` said as what survives it — every commit, since
+    it sweeps crashed-build residue alone.
     """
 
     WATCHED = "watched"
     WATCHED_ONLY = "watched_only"
     HEAD_ONLY = "head_only"
-    ORPHANS = "orphans"
+    EVERYTHING = "everything"
 
 
 KeepField = Annotated[KeptSet, BeforeValidator(_normalise_choice)]
@@ -818,8 +820,8 @@ class Gc(BaseModel):
         KeptSet.WATCHED,
         description=(
             "What a run keeps: watched (HEAD, local branches/tags and the watch "
-            "set), watched-only, head-only, or orphans (drop no commits, sweep "
-            "crashed-build residue only)."
+            "set), watched-only, head-only, or everything (every commit; sweeps "
+            "crashed-build residue alone)."
         ),
     )
     keep_refs: list[str] = Field(
@@ -835,7 +837,11 @@ class Gc(BaseModel):
     @property
     def mode(self) -> GcMode:
         """The retention these flags name; refs to keep are their own."""
-        return GcMode.KEEP if self.keep_refs else GcMode(self.keep.value)
+        if self.keep_refs:
+            return GcMode.KEEP
+        if self.keep is KeptSet.EVERYTHING:
+            return GcMode.ORPHANS
+        return GcMode(self.keep.value)
 
     @model_validator(mode="after")
     def _check_retention(self) -> Self:
