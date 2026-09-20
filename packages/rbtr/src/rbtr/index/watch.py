@@ -25,14 +25,16 @@ from rbtr.git import HEAD_REF, normalise_repo_path, resolve_ref
 from rbtr.index.store import IndexStore
 
 
-def unwatch_refs(store: IndexStore, *, repo_path: str, refs: list[str]) -> dict[str, list[str]]:
+def unwatch_refs(
+    store: IndexStore, *, repo_path: str, refs: list[str], dry_run: bool
+) -> dict[str, list[str]]:
     """Stop watching the named refs in one repo.
 
     `HEAD` is refused **before any delete**, so a call naming it
     alongside others changes nothing.  Refs that were not watched are
     reported as removed all the same: the caller asked for them to be
     gone, and they are.  A repo that was never indexed watches nothing,
-    so nothing is removed.
+    so nothing is removed.  Under *dry_run* nothing is written.
     """
     if HEAD_REF in refs:
         msg = "HEAD cannot be removed from the watch set"
@@ -40,8 +42,9 @@ def unwatch_refs(store: IndexStore, *, repo_path: str, refs: list[str]) -> dict[
     repo_id = store.get_repo_id(repo_path)
     if repo_id is None:
         return {}
-    with store.session() as session:
-        session.remove_watched_refs(repo_id, refs)
+    if not dry_run:
+        with store.session() as session:
+            session.remove_watched_refs(repo_id, refs)
     return {repo_path: refs}
 
 

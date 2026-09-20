@@ -485,7 +485,9 @@ def handle_unwatch(request: UnwatchRequest, store: IndexStore) -> UnwatchRespons
             store, repo_path=request.repo_path, scope=request.scope, dry_run=request.dry_run
         )
         if request.stale
-        else unwatch_refs(store, repo_path=request.repo_path, refs=request.refs)
+        else unwatch_refs(
+            store, repo_path=request.repo_path, refs=request.refs, dry_run=request.dry_run
+        )
     )
     log.info(
         "watched_refs_removed",

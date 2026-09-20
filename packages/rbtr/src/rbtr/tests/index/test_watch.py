@@ -102,7 +102,7 @@ def test_removing_refs_dry_run_reports_without_writing(
 
 
 def test_named_refs_are_dropped_and_the_rest_kept(stale_store: IndexStore, fake_repo: str) -> None:
-    removed = unwatch_refs(stale_store, repo_path=fake_repo, refs=["main"])
+    removed = unwatch_refs(stale_store, repo_path=fake_repo, refs=["main"], dry_run=False)
 
     assert removed == {fake_repo: ["main"]}
     assert stale_store.list_watched_refs(stale_store.resolve_repo(fake_repo)) == [
@@ -111,13 +111,23 @@ def test_named_refs_are_dropped_and_the_rest_kept(stale_store: IndexStore, fake_
     ]
 
 
+def test_dropping_named_refs_dry_run_reports_without_writing(
+    stale_store: IndexStore, fake_repo: str
+) -> None:
+    """A preview of an explicit unwatch leaves the watch set alone."""
+    removed = unwatch_refs(stale_store, repo_path=fake_repo, refs=["main"], dry_run=True)
+
+    assert removed == {fake_repo: ["main"]}
+    assert "main" in stale_store.list_watched_refs(stale_store.resolve_repo(fake_repo))
+
+
 def test_a_repo_that_was_never_indexed_is_left_unregistered(
     stale_store: IndexStore, vanished_repo: str, tmp_path: Path
 ) -> None:
     """Unwatching in an unknown repo drops nothing and registers nothing."""
     unknown = str(tmp_path / "never-indexed")
 
-    assert unwatch_refs(stale_store, repo_path=unknown, refs=["main"]) == {}
+    assert unwatch_refs(stale_store, repo_path=unknown, refs=["main"], dry_run=False) == {}
     assert stale_store.get_repo_id(unknown) is None
 
 
@@ -126,7 +136,7 @@ def test_head_is_refused_before_anything_is_dropped(
 ) -> None:
     """A request naming HEAD alongside others changes nothing at all."""
     with pytest.raises(RbtrError, match="HEAD"):
-        unwatch_refs(stale_store, repo_path=fake_repo, refs=["main", "HEAD"])
+        unwatch_refs(stale_store, repo_path=fake_repo, refs=["main", "HEAD"], dry_run=False)
 
     assert stale_store.list_watched_refs(stale_store.resolve_repo(fake_repo)) == [
         "HEAD",
