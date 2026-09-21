@@ -19,7 +19,7 @@ dependencies = [
   "pydantic-settings[toml]>=2.12",
   "dvc",
   "minijinja>=2.0",
-  "polars>=1.0",
+  "polars>=2.0",
   "dataframely>=2.9.1",
   "optuna>=4.0",
   "pydantic-ai>=2.0.0",
