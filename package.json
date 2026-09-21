@@ -1,7 +1,7 @@
 {
   "name": "rbtr",
   "private": true,
-  "workspaces": ["packages/pi-rbtr"],
+  "workspaces": ["packages/pi-rbtr", "skills/review-github-pr"],
   "//": "graphql is held at ^16 for graphql-inspector: under graphql 17, assertValidSchema rejects GitHub's public schema (8 fields deprecate an interface field that is not deprecated), and validate() asserts the schema before reading any document, so every query fails. The CLI itself accepts ^16.0.0 || ^17.0.0.",
   "engines": {
     "node": ">=22.19.0"
