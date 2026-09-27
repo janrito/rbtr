@@ -15,13 +15,20 @@
   "engines": {
     "node": ">=22.19.0"
   },
-  "keywords": ["pi-package"],
-  "files": ["extensions", "README.md"],
+  "keywords": [
+    "pi-package"
+  ],
+  "files": [
+    "extensions",
+    "README.md"
+  ],
   "publishConfig": {
     "access": "public"
   },
   "pi": {
-    "extensions": ["./extensions"]
+    "extensions": [
+      "./extensions"
+    ]
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
@@ -30,14 +37,14 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.5",
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*",
+    "@earendil-works/pi-coding-agent": "^0.87.1",
+    "@earendil-works/pi-tui": "^0.87.1",
     "json-schema-to-typescript": "^15.0.4",
-    "typebox": "*",
+    "typebox": "^1.3.34",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   },
   "dependencies": {
-    "zeromq": "^6.5.0"
+    "zeromq": "^6.8.0"
   }
 }
