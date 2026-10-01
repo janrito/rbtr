@@ -287,7 +287,7 @@ def _render_scored_result(search_hit: SearchHitOut) -> None:
     # Code preview — skip for single-line chunks (header is enough).
     # Split on "\n" (not splitlines) so offsets agree with the pi
     # renderer and with `match_line_offset`.
-    lines = search_hit.content.split("\n")
+    lines = search_hit.preview.text.split("\n")
     if len(lines) > 1:
         max_preview = 4
         anchor = search_hit.match_line_offset

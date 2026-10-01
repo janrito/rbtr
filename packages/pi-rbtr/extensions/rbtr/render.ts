@@ -222,10 +222,10 @@ export function renderSearchResult(
 
     const terms = r.matched_terms ?? [];
     if (options.expanded) {
-      const { window, start } = previewWindow(r.content, r.match_line_offset, 4);
+      const { window, start } = previewWindow(r.preview.text, r.match_line_offset, 4);
       if (start > 0) {
         // Show the chunk's signature line for orientation, then the gap.
-        const signature = r.content.split("\n")[0] ?? "";
+        const signature = r.preview.text.split("\n")[0] ?? "";
         lines.push(`  ${highlightTerms(theme, signature, terms)}`);
         lines.push(theme.fg("dim", "  …"));
       }
@@ -236,7 +236,7 @@ export function renderSearchResult(
     } else if (r.match_line_offset != null) {
       // Surface the matched line so the collapsed view shows “that
       // bit” without expanding.
-      const anchorLine = r.content.split("\n")[r.match_line_offset] ?? "";
+      const anchorLine = r.preview.text.split("\n")[r.match_line_offset] ?? "";
       lines.push(`  ${highlightTerms(theme, anchorLine, terms)}`);
     }
   }

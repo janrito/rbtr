@@ -9,6 +9,7 @@ import json
 
 import pytest
 
+from rbtr.config import config
 from rbtr.daemon.dto import RefOut, SearchHitOut, SearchSignals, SymbolOut
 from rbtr.domain.models import Chunk, ChunkKind, ImportMeta, QueryKind, ScoredChunk
 
@@ -99,6 +100,32 @@ def scored_chunk() -> ScoredChunk:
         kind_boost=1.0,
         file_penalty=1.0,
     )
+
+
+@pytest.fixture
+def long_scored_chunk(scored_chunk: ScoredChunk) -> ScoredChunk:
+    """A hit whose body runs well past the preview cap."""
+    body = "\n".join(f"    line_{i} = {i}" for i in range(200))
+    return scored_chunk.model_copy(
+        update={"content": f"def wide():\n{body}", "line_start": 1, "line_end": 201}
+    )
+
+
+def test_short_hit_previews_whole_body(scored_chunk: ScoredChunk) -> None:
+    """A body inside the cap arrives entire, and says so."""
+    preview = SearchHitOut.from_scored(scored_chunk).preview
+    assert preview.text == scored_chunk.content
+    assert preview.clipped is False
+    assert preview.total_lines == 1
+
+
+def test_long_hit_is_clipped_and_reports_its_length(long_scored_chunk: ScoredChunk) -> None:
+    """A body past the cap is cut, and carries the length it was cut from."""
+    preview = SearchHitOut.from_scored(long_scored_chunk).preview
+    assert preview.clipped is True
+    assert preview.total_lines == 201
+    assert len(preview.text.splitlines()) == config.search_preview_lines
+    assert preview.text.startswith("def wide():")
 
 
 def test_search_hit_keeps_single_score_only(scored_chunk: ScoredChunk) -> None:

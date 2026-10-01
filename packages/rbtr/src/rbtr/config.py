@@ -268,6 +268,14 @@ Disable in tests or resource-constrained environments.",
         ge=1,
         description="Cap on a search request's expansion keywords; the excess is dropped.",
     )
+    search_preview_lines: int = Field(
+        default=20,
+        ge=1,
+        description=(
+            "Lines of a symbol's body a search hit carries. A hit longer than "
+            "this is clipped and says so; read-symbol returns the whole body."
+        ),
+    )
     search_weights: dict[QueryKind, WeightTriple] = Field(
         default={
             QueryKind.CONCEPT: WeightTriple(alpha=0.50, beta=0.40, gamma=0.10),

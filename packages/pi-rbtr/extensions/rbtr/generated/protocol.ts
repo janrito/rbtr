@@ -310,6 +310,11 @@ export interface SearchResponse {
  * Carries the single final `score`. The ranking-signal breakdown
  * (`signals`) is included only when the search requests `explain`,
  * keeping the default payload low-noise.
+ *
+ * The body arrives as a `Preview` — enough to judge the hit against
+ * the query, and a flag when there is more. A result set is a dozen
+ * hits, so whole bodies here cost an agent more context than the
+ * answer is worth.
  */
 export interface SearchHitOut {
   name: string;
@@ -317,7 +322,7 @@ export interface SearchHitOut {
   file_paths: string[];
   scope?: string;
   language?: string;
-  content: string;
+  preview: Preview;
   line_start: number;
   line_end: number;
   match_line_offset?: number | null;
@@ -326,6 +331,22 @@ export interface SearchHitOut {
   repo_path?: string | null;
   score: number;
   signals?: SearchSignals | null;
+}
+/**
+ * As much of a symbol's body as a search hit carries.
+ *
+ * `clipped` says whether `text` is the whole body, and `total_lines`
+ * how long that body is, so a caller can tell a short symbol from the
+ * head of a long one and knows to call `read-symbol` for the rest.
+ *
+ * Built only by `from_content`, which derives all three together: a
+ * preview that reported itself whole while holding clipped text would
+ * have an agent edit a fragment believing it had the function.
+ */
+export interface Preview {
+  text: string;
+  clipped: boolean;
+  total_lines: number;
 }
 /**
  * Structured import data extracted by tree-sitter.

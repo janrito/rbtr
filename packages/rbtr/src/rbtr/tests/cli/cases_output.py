@@ -13,7 +13,8 @@ from dataclasses import dataclass
 from pydantic import BaseModel
 from pytest_cases import case
 
-from rbtr.daemon.dto import SearchHitOut
+from rbtr.config import config
+from rbtr.daemon.dto import Preview, SearchHitOut
 from rbtr.daemon.messages import (
     ForgetResponse,
     GcResponse,
@@ -42,7 +43,7 @@ def _hit(*, repo_path: str | None) -> SearchHitOut:
         file_paths=["src/main.py"],
         kind=ChunkKind.FUNCTION,
         name="main",
-        content="def main(): ...",
+        preview=Preview.from_content("def main(): ...", limit=config.search_preview_lines),
         line_start=1,
         line_end=1,
         score=0.9,
@@ -92,7 +93,7 @@ f = 7
         kind=ChunkKind.FUNCTION,
         name="big",
         language="python",
-        content=content,
+        preview=Preview.from_content(content, limit=config.search_preview_lines),
         line_start=1,
         line_end=9,
         score=0.9,
@@ -118,7 +119,7 @@ def visible_top():
         kind=ChunkKind.FUNCTION,
         name="top",
         language="python",
-        content=content,
+        preview=Preview.from_content(content, limit=config.search_preview_lines),
         line_start=1,
         line_end=3,
         score=0.9,

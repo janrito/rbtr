@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
+from rbtr.config import config
 from rbtr.domain.models import Chunk, ChunkKind, EdgeKind, ImportMeta, ScoredChunk
 
 _STRICT = ConfigDict(extra="forbid")
@@ -93,6 +94,34 @@ class SymbolOut(BaseModel):
         )
 
 
+class Preview(BaseModel):
+    """As much of a symbol's body as a search hit carries.
+
+    `clipped` says whether `text` is the whole body, and `total_lines`
+    how long that body is, so a caller can tell a short symbol from the
+    head of a long one and knows to call `read-symbol` for the rest.
+
+    Built only by `from_content`, which derives all three together: a
+    preview that reported itself whole while holding clipped text would
+    have an agent edit a fragment believing it had the function.
+    """
+
+    model_config = _STRICT
+
+    text: str
+    clipped: bool
+    total_lines: int
+
+    @classmethod
+    def from_content(cls, content: str, *, limit: int) -> Preview:
+        lines = content.splitlines()
+        return cls(
+            text="\n".join(lines[:limit]),
+            clipped=len(lines) > limit,
+            total_lines=len(lines),
+        )
+
+
 class SearchSignals(BaseModel):
     """The per-signal ranking breakdown behind a hit's fused `score`.
 
@@ -134,6 +163,11 @@ class SearchHitOut(BaseModel):
     Carries the single final `score`. The ranking-signal breakdown
     (`signals`) is included only when the search requests `explain`,
     keeping the default payload low-noise.
+
+    The body arrives as a `Preview` — enough to judge the hit against
+    the query, and a flag when there is more. A result set is a dozen
+    hits, so whole bodies here cost an agent more context than the
+    answer is worth.
     """
 
     model_config = _STRICT
@@ -143,7 +177,7 @@ class SearchHitOut(BaseModel):
     file_paths: list[str]
     scope: str = ""
     language: str = ""
-    content: str
+    preview: Preview
     line_start: int
     line_end: int
     match_line_offset: int | None = Field(default=None, exclude_if=lambda v: v is None)
@@ -162,7 +196,7 @@ class SearchHitOut(BaseModel):
             file_paths=sc.file_paths,
             scope=sc.scope,
             language=sc.language,
-            content=sc.content,
+            preview=Preview.from_content(sc.content, limit=config.search_preview_lines),
             line_start=sc.line_start,
             line_end=sc.line_end,
             match_line_offset=sc.match_line_offset,
