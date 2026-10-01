@@ -49,6 +49,8 @@ function registeredTools(): Map<string, ToolDef> {
     on: () => {},
     registerCommand: () => {},
     registerTool: (def: ToolDef) => tools.set(def.name, def),
+    getActiveTools: () => [],
+    setActiveTools: () => {},
   } as unknown as Parameters<typeof rbtrIndexExtension>[0];
   rbtrIndexExtension(pi);
   return tools;
@@ -198,4 +200,62 @@ describe("rbtr_watch reply", () => {
       expect(Check(tool.outputSchema, result.structuredContent)).toBe(true);
     },
   );
+});
+
+describe.each([
+  [
+    "rbtr_status",
+    { scope: "workspace" },
+    "status",
+    {
+      kind: "status",
+      db_path: "/db",
+      db_size_bytes: 1,
+      indexed_refs: [],
+      watched: [],
+      active_build: null,
+      active_embed: null,
+    },
+  ],
+  [
+    "rbtr_gc",
+    {},
+    "gc",
+    {
+      kind: "gc",
+      repos_collected: 1,
+      snapshots_dropped: 0,
+      file_snapshots_dropped: 0,
+      edges_dropped: 0,
+      chunks_freed: 0,
+      size_before_bytes: 0,
+      size_after_bytes: 0,
+      elapsed_seconds: 0.1,
+      dry_run: true,
+    },
+  ],
+])("%s reply", (name, params, requestKind, response) => {
+  test("is rbtr's response as JSON, matching the tool's output schema", async () => {
+    sendMock.mockResolvedValueOnce(response);
+    const tool = registeredTools().get(name);
+    if (!tool) throw new Error(`${name} not registered`);
+    const result = await tool.execute("id", params, signal, noop, ctx);
+    expect(sendMock).toHaveBeenLastCalledWith(expect.objectContaining({ kind: requestKind }));
+    expect(JSON.parse(result.content.map((p) => p.text).join(""))).toEqual(response);
+    expect(result.structuredContent).toEqual(response);
+    expect(Check(tool.outputSchema, result.structuredContent)).toBe(true);
+  });
+});
+
+describe("rbtr_index_tools reply", () => {
+  test("names the tools it loaded, as JSON matching the tool's output schema", async () => {
+    const tool = registeredTools().get("rbtr_index_tools");
+    if (!tool) throw new Error("rbtr_index_tools not registered");
+    const result = await tool.execute("id", {}, signal, noop, ctx);
+    const loaded = { kind: "tools_loaded", tools: ["rbtr_status", "rbtr_gc"] };
+    expect(JSON.parse(result.content.map((p) => p.text).join(""))).toEqual(loaded);
+    expect(result.structuredContent).toEqual(loaded);
+    expect(Check(tool.outputSchema, result.structuredContent)).toBe(true);
+    expect(Check(tool.outputSchema, { kind: "tools_loaded" })).toBe(false);
+  });
 });

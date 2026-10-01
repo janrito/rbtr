@@ -77,6 +77,15 @@ instead of, and the tools that find code are listed first.
 Shapes, not fixtures — the line numbers and scores below move
 with the code they describe.
 
+Every tool replies with one JSON object, rbtr's own response, in
+the shape its output schema declares; codemode scripts receive the
+same object as a structured value. An empty result has the same
+shape with an empty list. A read names the snapshot it read as
+`resolved` (its SHA, and whether that was the ref asked for, `head`,
+the dirty working tree, or the latest indexed commit because the
+one asked for is not indexed yet), and echoes its scoping paths,
+repo-relative.
+
 **`rbtr_search`** — query in, scored results out:
 
 ```json
@@ -84,7 +93,7 @@ with the code they describe.
   {"name": "fuse_scores", "kind": "function", "file_paths": ["src/rbtr/index/search.py"],
    "line_start": 298, "line_end": 380, "score": 0.49,
    "preview": {"text": "def fuse_scores(...):\n    ...", "clipped": true, "total_lines": 83}}
-]}
+], "resolved": {"sha": "4a6a6ffc…", "source": "head"}}
 ```
 
 A hit carries the first 20 lines of the symbol. A longer one
@@ -100,7 +109,7 @@ The per-signal ranking breakdown is omitted by default; pass
 {"kind": "read_symbol", "chunks": [
   {"name": "fuse_scores", "kind": "function", "file_path": "src/rbtr/index/search.py",
    "line_start": 298, "line_end": 380, "content": "def fuse_scores(...):\n    ..."}
-]}
+], "resolved": {"sha": "4a6a6ffc…", "source": "head"}, "file_paths": null}
 ```
 
 **`rbtr_list_symbols`** — file path in, TOC out:
@@ -109,7 +118,7 @@ The per-signal ranking breakdown is omitted by default; pass
 {"kind": "list_symbols", "chunks": [
   {"name": "_name_score_expr", "kind": "function", "line_start": 44, "line_end": 86},
   {"name": "fuse_scores", "kind": "function", "line_start": 298, "line_end": 380}
-]}
+], "resolved": {"sha": "4a6a6ffc…", "source": "head"}, "file_path": "src/rbtr/index/search.py"}
 ```
 
 **`rbtr_find_refs`** — symbol name in, referring symbols out:
@@ -118,15 +127,34 @@ The per-signal ranking breakdown is omitted by default; pass
 {"kind": "find_refs", "refs": [
   {"name": "from rbtr.index.store import IndexStore", "kind": "import",
    "file_path": "src/rbtr/daemon/watcher.py", "line_start": 30, "edge": "imports"}
-]}
+], "resolved": {"sha": "4a6a6ffc…", "source": "head"}, "file_paths": null}
 ```
 
 **`rbtr_changed_symbols`** — two refs in, changed symbols out:
 
 ```json
-{"kind": "changed_symbols", "chunks": [
-  {"name": "resolveCommand", "kind": "function", "file_path": "exec.ts", "line_start": 34}
+{"kind": "changed_symbols", "changes": [
+  {"chunk": {"name": "resolveCommand", "kind": "function", "file_path": "exec.ts", "line_start": 34, "line_end": 70},
+   "change": "modified"}
+], "base_sha": "5ba5a78c…", "head_sha": "4a6a6ffc…", "file_paths": null}
+```
+
+**`rbtr_watch`** — refs in, the watch set out:
+
+```json
+{"kind": "watch_set", "watched": [
+  {"ref": "HEAD", "sha": "4a6a6ffc…", "indexed": true},
+  {"ref": "main", "sha": "9e51a463…", "indexed": false}
 ]}
+```
+
+An unindexed ref is built in the background; the footer shows
+progress.
+
+**An error** — rbtr's code and message, flagged as an error:
+
+```json
+{"kind": "error", "code": "index_not_built", "message": "Ref 'main' is not indexed — run rbtr watch first"}
 ```
 
 ### Footer

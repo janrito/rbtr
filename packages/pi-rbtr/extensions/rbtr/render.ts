@@ -2,9 +2,7 @@
  * Renderers and text formatters for rbtr tools.
  *
  * Each tool gets a compact renderCall (one-liner) and a
- * renderResult (collapsed/expanded views), plus the plain-text
- * formatter it returns to the model where it has one
- * (renderStatusText).
+ * renderResult (collapsed/expanded views).
  *
  * Two sources of payload:
  *   - details.response — the typed rbtr response the tool packed
@@ -449,37 +447,6 @@ export function renderIndexResult(result: ToolResult, options: { isPartial: bool
 
 // ── Status ──────────────────────────────────────────────────────
 
-/**
- * Render a `StatusResponse` as multi-line text for the LLM.
- *
- * Output is derived solely from the response model — no
- * external state.  Mirrors the Python CLI shape so the model
- * sees the same information regardless of transport.
- */
-export function renderStatusText(status: StatusResponse): string {
-  const lines: string[] = [];
-  const indexed = status.indexed_refs ?? [];
-  if (indexed.length === 0) {
-    lines.push("No index found at the configured path.");
-  } else {
-    const total = indexed[0].total;
-    lines.push(`Index: ${humanCount(total)} symbols (${status.db_path})`);
-    lines.push("Refs:");
-    for (const ref of indexed) {
-      lines.push(`  ${formatIndexedRef(ref)}`);
-    }
-  }
-  lines.push(...formatWatched(status.watched ?? []));
-  const job = status.active_build;
-  if (job) lines.push(formatActiveBuild(job));
-  const ej = status.active_embed;
-  if (ej) lines.push(formatActiveEmbed(ej));
-  if (!job && !ej && indexed.length > 0) {
-    lines.push("No active build.");
-  }
-  return lines.join("\n");
-}
-
 export function renderStatusCall(_args: Record<string, unknown>, theme: Theme): Text {
   return new Text(theme.fg("toolTitle", theme.bold("rbtr_status")), 0, 0);
 }
@@ -487,9 +454,8 @@ export function renderStatusCall(_args: Record<string, unknown>, theme: Theme): 
 export function renderStatusResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
   if (options.isPartial) return new Text(theme.fg("muted", "Checking…"), 0, 0);
 
-  // Daemon path packs a StatusResponse on details.response.
-  const details = result.details as { fromDaemon?: boolean; response?: StatusResponse } | undefined;
-  const response = details?.fromDaemon ? details.response : undefined;
+  const packed = responseOf(result);
+  const response = packed?.kind === "status" ? packed : undefined;
 
   const lines: string[] = [];
   const indexed = response?.indexed_refs ?? [];

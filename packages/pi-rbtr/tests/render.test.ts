@@ -17,7 +17,6 @@ import {
   renderIndexResult,
   renderSearchResult,
   renderStatusResult,
-  renderStatusText,
 } from "../extensions/rbtr/render.js";
 
 // Minimal theme: styling is identity so assertions see raw text.
@@ -134,7 +133,13 @@ describe("formatWatched", () => {
   });
 });
 
-describe("renderStatusText", () => {
+describe("renderStatusResult", () => {
+  function statusLines(response: StatusResponse): string[] {
+    return renderStatusResult(daemonResult(response), { isPartial: false }, plainTheme)
+      .render(1000)
+      .map((line) => line.trimEnd());
+  }
+
   // One response covering every embed state a ref can be in: fully
   // embedded, partly, not at all, and an empty snapshot.
   const status: StatusResponse = {
@@ -158,18 +163,17 @@ describe("renderStatusText", () => {
   };
 
   test("renders one line per ref, in the shape the TUI uses", () => {
-    const lines = renderStatusText(status).split("\n");
-    expect(lines).toContain("Index: 1.2k symbols (/db)");
-    expect(lines).toContain("  aaaaaaaaaaaa (HEAD, main)  1.2k indexed  1.2k embedded ✓");
-    expect(lines).toContain("  bbbbbbbbbbbb  1.2k indexed  512 embedded (43%)");
-    expect(lines).toContain("  cccccccccccc  1.2k indexed  not embedded");
-    expect(lines).toContain("  dddddddddddd  0 indexed  0 embedded ✓");
+    const lines = statusLines(status);
+    expect(lines).toContain("aaaaaaaaaaaa (HEAD, main)  1.2k indexed  1.2k embedded ✓");
+    expect(lines).toContain("bbbbbbbbbbbb  1.2k indexed  512 embedded (43%)");
+    expect(lines).toContain("cccccccccccc  1.2k indexed  not embedded");
+    expect(lines).toContain("dddddddddddd  0 indexed  0 embedded ✓");
   });
 
   test("reports the running build and embed pass", () => {
-    const lines = renderStatusText(status).split("\n");
-    expect(lines).toContain("Building: eeeeeeeeeeee — chunking 3/10 (30%) — 1m05s");
-    expect(lines).toContain("Embedding: eeeeeeeeeeee — 5/20 (25%) — 12s");
+    const lines = statusLines(status);
+    expect(lines).toContain("⟳ Building: eeeeeeeeeeee — chunking 3/10 (30%) — 1m05s");
+    expect(lines).toContain("\u21BB Embedding: eeeeeeeeeeee — 5/20 (25%) — 12s");
   });
 
   test("suppresses the percentage when the job has no total yet", () => {
@@ -184,20 +188,11 @@ describe("renderStatusText", () => {
         elapsed_seconds: 2,
       },
     };
-    expect(renderStatusText(starting).split("\n")).toContain("Building: ffffffffffff — walking 0/0 — 2s");
+    expect(statusLines(starting)).toContain("⟳ Building: ffffffffffff — walking 0/0 — 2s");
   });
 
   test("says the index is missing when no ref is indexed", () => {
-    expect(renderStatusText({ kind: "status" })).toBe("No index found at the configured path.");
-  });
-
-  test("says an indexed repo has nothing running", () => {
-    const idle: StatusResponse = {
-      kind: "status",
-      db_path: "/db",
-      indexed_refs: [{ sha: "a".repeat(40), names: ["HEAD"], total: 10, embedded: 10 }],
-    };
-    expect(renderStatusText(idle).split("\n")).toContain("No active build.");
+    expect(statusLines({ kind: "status" })).toContain("✗ No index found");
   });
 
   test("pads the seconds on the minute boundary", () => {
@@ -205,7 +200,7 @@ describe("renderStatusText", () => {
       kind: "status",
       active_embed: { repo_path: "/repo", ref: "f".repeat(40), current: 1, total: 2, elapsed_seconds: 60 },
     };
-    expect(renderStatusText(justOverAMinute).split("\n")).toContain("Embedding: ffffffffffff — 1/2 (50%) — 1m00s");
+    expect(statusLines(justOverAMinute)).toContain("\u21BB Embedding: ffffffffffff — 1/2 (50%) — 1m00s");
   });
 });
 

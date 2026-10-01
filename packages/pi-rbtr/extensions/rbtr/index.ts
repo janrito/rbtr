@@ -70,7 +70,6 @@ import {
   renderSearchResult,
   renderStatusCall,
   renderStatusResult,
-  renderStatusText,
 } from "./render.js";
 import { loadSettings, type RbtrIndexSettings, saveProjectSettings } from "./settings.js";
 import { LOADER, ON_REQUEST, startingTools, withOnRequest } from "./tool-set.js";
@@ -162,13 +161,10 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     throw err;
   }
 
-  async function queryIndexStatus(
-    repo: string,
-    scope: "workspace" | "all" = "workspace",
-  ): Promise<StatusResponse | null> {
+  async function queryIndexStatus(repo: string): Promise<StatusResponse | null> {
     if (session.available) {
       try {
-        return await session.send({ kind: "status", repo_path: repo, scope });
+        return await session.send({ kind: "status", repo_path: repo });
       } catch (err) {
         if (err instanceof RbtrDaemonError) return null;
         // transport — fall through to CLI
@@ -176,8 +172,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     }
     if (!resolved) return null;
     try {
-      const args = scope === "all" ? ["status", "--scope", "all"] : ["status"];
-      return await runRbtrJson<StatusResponse>(pi, resolved, args, { timeout: 5000 });
+      return await runRbtrJson<StatusResponse>(pi, resolved, ["status"], { timeout: 5000 });
     } catch {
       return null;
     }
@@ -959,18 +954,15 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       "Call rbtr_index_tools when you need to check whether indexing has finished, or the user asks to reclaim index space.",
     ],
     parameters: Type.Object({}),
+    outputSchema: Type.Object(
+      { kind: Type.Literal("tools_loaded"), tools: Type.Array(Type.String()) },
+      { additionalProperties: false },
+    ),
 
     async execute() {
       pi.setActiveTools(withOnRequest(pi.getActiveTools()));
-      return {
-        content: [
-          {
-            type: "text",
-            text: "Loaded rbtr_status (what is indexed, and whether a build is still running) and rbtr_gc (reclaim index space; destructive, only on the user's request).",
-          },
-        ],
-        details: { loaded: [...ON_REQUEST] },
-      };
+      const loaded = { kind: "tools_loaded", tools: [...ON_REQUEST] };
+      return { content: [{ type: "text", text: JSON.stringify(loaded) }], structuredContent: loaded, details: loaded };
     },
   });
 
@@ -988,21 +980,25 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         }),
       ),
     }),
+    outputSchema: replySchema("StatusResponse", "ErrorResponse"),
     renderCall: (args, theme) => renderStatusCall(args, theme),
     renderResult: (result, options, theme) => renderStatusResult(result, options, theme),
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      if (!cliAvailable) {
-        throw new Error("rbtr CLI not available. Install with: uv tool install rbtr");
+      const scope = params.scope ?? "workspace";
+      try {
+        const status = await withFallback<StatusResponse>(
+          () => session.send({ kind: "status", repo_path: ctx.cwd, scope }),
+          () => {
+            if (!resolved) throw new Error("rbtr CLI not available");
+            const args = scope === "all" ? ["status", "--scope", "all"] : ["status"];
+            return runRbtrJson<StatusResponse>(pi, resolved, args, { timeout: 5000 });
+          },
+        );
+        return toolResult(status);
+      } catch (err) {
+        return mapDaemonError(err);
       }
-      const status = await queryIndexStatus(ctx.cwd, params.scope ?? "workspace");
-      if (!status) {
-        throw new Error("Failed to check index status");
-      }
-      return {
-        content: [{ type: "text", text: renderStatusText(status) }],
-        details: { fromDaemon: true, response: status },
-      };
     },
   });
 
@@ -1026,24 +1022,20 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         }),
       ),
     }),
+    outputSchema: replySchema("GcResponse", "ErrorResponse"),
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      if (!cliAvailable) {
-        throw new Error("rbtr CLI not available. Install with: uv tool install rbtr");
-      }
       // Dry-run by default: a careless call previews; deleting needs a
       // deliberate dry_run=false after the user has confirmed.
-      const res = await triggerGc(ctx, {
-        watchedOnly: params.watched_only ?? false,
-        dryRun: params.dry_run ?? true,
-      });
-      const text = res.dry_run
-        ? `Dry run: would drop ${res.snapshots_dropped} snapshot(s) and free ${res.chunks_freed} chunk(s) across ${res.repos_collected} repo(s). Nothing was deleted — confirm with the user, then call again with dry_run=false to apply.`
-        : `Dropped ${res.snapshots_dropped} snapshot(s); freed ${res.chunks_freed} chunk(s) across ${res.repos_collected} repo(s).`;
-      return {
-        content: [{ type: "text", text }],
-        details: { fromDaemon: true, response: res },
-      };
+      try {
+        const res = await triggerGc(ctx, {
+          watchedOnly: params.watched_only ?? false,
+          dryRun: params.dry_run ?? true,
+        });
+        return toolResult(res);
+      } catch (err) {
+        return mapDaemonError(err);
+      }
     },
   });
 }

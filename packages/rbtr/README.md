@@ -129,7 +129,8 @@ rbtr watch main release       # watch several refs independently
 ```
 
 A moving ref (branch) tracks its tip; a bare SHA settles after
-one build.
+one build. It prints the watch set: each ref, the SHA it
+resolves to, and whether that is indexed or pending.
 
 What you watch and what is stored are separate things, and so are
 the commands that change them: `rbtr unwatch` and `rbtr forget`
@@ -389,8 +390,15 @@ proportionally. `rbtr status --scope all` shows the split.
 Example from `rbtr search --json`:
 
 ```json
-{"kind":"search","results":[{"name":"fuse_scores","kind":"function","file_path":"src/rbtr/index/search.py","score":0.49,...}]}
+{"kind":"search","results":[{"name":"fuse_scores","kind":"function","file_paths":["src/rbtr/index/search.py"],"score":0.49,...}],"resolved":{"sha":"4a6a6ffc…","source":"head"}}
 ```
+
+A read names the snapshot it read as `resolved`: its SHA, and
+how it was chosen — the ref you named (`requested`), `head`,
+the dirty working tree (`worktree`), or the latest indexed
+commit when the one asked for is not indexed yet
+(`latest_indexed`). Reads scoped with `--file-path` echo the
+paths they used, repo-relative.
 
 See [Daemon protocol][arch-daemon-protocol]
 for the full response models.

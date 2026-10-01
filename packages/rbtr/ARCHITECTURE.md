@@ -894,7 +894,8 @@ A concrete search exchange:
 ```json
 → {"kind": "search", "repo_path": "/path/to/repo", "query": "retry logic", "limit": 10}
 ← {"kind": "search", "results": [{"name": "retry_with_backoff", "kind": "function",
-    "file_path": "src/client.py", "line_start": 12, "line_end": 30, "score": 0.87}]}
+    "file_paths": ["src/client.py"], "line_start": 12, "line_end": 30, "score": 0.87}],
+   "resolved": {"sha": "abc123…", "source": "head"}}
 ```
 
 A progress notification (PUB):
