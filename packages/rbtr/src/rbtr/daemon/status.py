@@ -134,7 +134,16 @@ def uptime_seconds(started_at: str) -> float:
 
 
 def is_pid_alive(pid: int) -> bool:
-    """Check whether a process with *pid* exists."""
+    """Check whether a process with *pid* exists and has not exited.
+
+    A child of this process that has exited is reaped here, so it counts
+    as gone rather than lingering as a zombie that signals still reach.
+    """
+    try:
+        if os.waitpid(pid, os.WNOHANG)[0] == pid:
+            return False
+    except ChildProcessError:
+        pass  # not this process's child
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
