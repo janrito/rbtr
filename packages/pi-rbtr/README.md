@@ -47,15 +47,18 @@ Eight tools, registered automatically on session start:
 | `rbtr_status`          | Check whether the index exists and how many symbols it contains                                                               |
 | `rbtr_gc`              | Reclaim index storage. **Destructive**; previews as a dry run unless told otherwise                                           |
 
-The extension also injects a system prompt note so the agent
-knows the index is available without being told.
+The extension also adds a one-line note to the system prompt, so
+the agent knows the index is there without being told: rbtr tools
+to find code by meaning, structure or name, grep for exact
+strings. Each tool's description leads with what it is used
+instead of, and the tools that find code are listed first.
 
 ### When to use which tool
 
 - **Concept query** ("how does authentication work") →
   `rbtr_search` with `keywords` and `variants`. More precise
-  than grep for semantic queries. The LLM generates expansion
-  terms automatically via `promptGuidelines`.
+  than grep for semantic queries. The model writes the expansion
+  terms itself, prompted by the tool's description and parameters.
 - **Known symbol** ("read the source of `fuse_scores`") →
   `rbtr_read_symbol`. Faster than finding the file and reading it.
 - **File structure** ("what's in `config.py`?") →
