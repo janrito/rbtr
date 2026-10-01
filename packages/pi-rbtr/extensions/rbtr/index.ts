@@ -158,12 +158,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
   function mapDaemonError(err: unknown): ToolReturn {
     if (err instanceof RbtrDaemonError) {
-      // A missing ref is fixed by indexing it, so say how.
-      const hint = err.code === "index_not_built" ? " Call rbtr_watch with that ref, then retry." : "";
-      return {
-        content: [{ type: "text", text: `${err.code}: ${err.message}${hint}` }],
-        details: { errorCode: err.code, message: err.message },
-      };
+      return { ...toolResult({ kind: "error", code: err.code, message: err.message }), isError: true };
     }
     throw err;
   }

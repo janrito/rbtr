@@ -144,8 +144,8 @@ and `rbtr_gc` (`tool-set.ts`). The loader,
 to check a build or reclaim space. `rbtr_watch` stays
 active, because indexing refs before a review is an
 ordinary request. A read tool whose ref is not indexed
-replies `index_not_built` with a line telling the model
-to call `rbtr_watch`.
+replies rbtr's `index_not_built` error, whose message says
+to watch the ref first.
 
 Open models reach for tools they were trained on, mostly
 `bash`: with the shipped text, `deepseek-v4-flash` made

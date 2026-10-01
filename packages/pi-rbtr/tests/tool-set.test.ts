@@ -19,7 +19,6 @@ vi.mock("../extensions/rbtr/daemon-session.js", () => ({
   DaemonUnavailableError: class extends Error {},
 }));
 
-import { RbtrDaemonError } from "../extensions/rbtr/daemon-client.js";
 import rbtrIndexExtension from "../extensions/rbtr/index.js";
 import { startingTools } from "../extensions/rbtr/tool-set.js";
 
@@ -83,28 +82,5 @@ describe("rbtr_index_tools", () => {
     expect(setActiveTools).toHaveBeenCalledWith(expect.arrayContaining(["rbtr_status", "rbtr_gc", "rbtr_search"]));
     expect(text).toContain("rbtr_status");
     expect(text).toContain("rbtr_gc");
-  });
-});
-
-describe("a ref that is not indexed", () => {
-  test("the reply tells the model to call rbtr_watch", async () => {
-    const { tools } = extension(startingTools(ALL));
-    sendMock.mockRejectedValueOnce(
-      new RbtrDaemonError({
-        kind: "error",
-        code: "index_not_built",
-        message: "Ref 'main' is not indexed — run rbtr watch first",
-      }),
-    );
-    const text = await run(tools.get("rbtr_changed_symbols"), { base: "main", head: "HEAD" });
-    expect(text).toContain("Ref 'main' is not indexed");
-    expect(text).toContain("Call rbtr_watch");
-  });
-
-  test("any other error gets no such hint", async () => {
-    const { tools } = extension(startingTools(ALL));
-    sendMock.mockRejectedValueOnce(new RbtrDaemonError({ kind: "error", code: "invalid_request", message: "bad" }));
-    const text = await run(tools.get("rbtr_changed_symbols"), { base: "main", head: "HEAD" });
-    expect(text).not.toContain("Call rbtr_watch");
   });
 });

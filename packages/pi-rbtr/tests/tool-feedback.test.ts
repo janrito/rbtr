@@ -4,7 +4,8 @@
  * Drives the real `execute` closures with a captured `pi` and a mocked
  * `DaemonSession`: every reply, empty or not, is rbtr's response as
  * JSON, carried as the structured result and matching the tool's
- * declared output schema.
+ * declared output schema. An error is rbtr's `ErrorResponse`, flagged
+ * as an error.
  */
 
 import { Check } from "typebox/schema";
@@ -22,6 +23,7 @@ vi.mock("../extensions/rbtr/daemon-session.js", () => ({
   DaemonUnavailableError: class extends Error {},
 }));
 
+import { RbtrDaemonError } from "../extensions/rbtr/daemon-client.js";
 import rbtrIndexExtension from "../extensions/rbtr/index.js";
 
 interface ToolDef {
@@ -37,6 +39,7 @@ interface ToolDef {
     content: Array<{ type: string; text: string }>;
     details: Record<string, unknown>;
     structuredContent?: unknown;
+    isError?: boolean;
   }>;
 }
 
@@ -133,6 +136,24 @@ describe.each([
     const result = await tool.execute("id", params, signal, noop, ctx);
     expect(JSON.parse(result.content.map((p) => p.text).join(""))).toEqual(response);
     expect(result.structuredContent).toEqual(response);
+    expect(Check(tool.outputSchema, result.structuredContent)).toBe(true);
+  });
+
+  test("with an error, is rbtr's error response as JSON, flagged as an error", async () => {
+    const error = {
+      kind: "error",
+      code: "index_not_built",
+      message: "Ref 'main' is not indexed — run rbtr watch first",
+    };
+    sendMock.mockRejectedValueOnce(
+      new RbtrDaemonError({ kind: "error", code: "index_not_built", message: error.message }),
+    );
+    const tool = registeredTools().get(name);
+    if (!tool) throw new Error(`${name} not registered`);
+    const result = await tool.execute("id", params, signal, noop, ctx);
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content.map((p) => p.text).join(""))).toEqual(error);
+    expect(result.structuredContent).toEqual(error);
     expect(Check(tool.outputSchema, result.structuredContent)).toBe(true);
   });
 
