@@ -153,28 +153,33 @@ Ref = Annotated[str, StringConstraints(pattern=r"^\S+$")]
 RefList = Annotated[list[Ref], BeforeValidator(_unwrap_json_list)]
 
 
-def _to_repo_relative(value: list[str] | None, info: ValidationInfo) -> list[str] | None:
-    """Normalise scoping paths to repo-root-relative POSIX form.
+def _repo_relative(path: str, info: ValidationInfo) -> str:
+    """Normalise a path to repo-root-relative POSIX form.
 
     Chunk `file_path`s are stored repo-root-relative with POSIX
-    separators, so scoping matches them exactly. Absolute paths are made
-    relative to the request's `repo_path`; a leading `./` is stripped.
-    Paths outside the repo root simply won't match any chunk. `None` or
-    an empty list passes through unchanged.
+    separators, so a normalised path matches them exactly. An absolute
+    path is made relative to the request's `repo_path`; a leading `./`
+    is stripped. A path outside the repo root simply won't match any
+    chunk.
 
     Relies on `repo_path` being declared before the annotated field so
     it is present in `info.data` by the time this runs.
     """
+    repo_path = info.data["repo_path"]
+    return PurePath(os.path.relpath(path, repo_path) if os.path.isabs(path) else path).as_posix()
+
+
+def _to_repo_relative(value: list[str] | None, info: ValidationInfo) -> list[str] | None:
+    """Normalise each scoping path; `None` or an empty list passes through."""
     if not value:
         return value
-    repo_path = info.data["repo_path"]
-    return [
-        PurePath(os.path.relpath(p, repo_path) if os.path.isabs(p) else p).as_posix() for p in value
-    ]
+    return [_repo_relative(p, info) for p in value]
 
 
-# Scoping paths, normalised to repo-root-relative POSIX form at validation
-# time so handlers can match them against stored chunk paths directly.
+# A path, and scoping paths, normalised to repo-root-relative POSIX form
+# at validation time so handlers can match them against stored chunk
+# paths directly.
+RepoRelativePath = Annotated[str, AfterValidator(_repo_relative)]
 RepoRelativePaths = Annotated[
     list[str] | None, BeforeValidator(_unwrap_json_list), AfterValidator(_to_repo_relative)
 ]
@@ -268,7 +273,7 @@ class ListSymbolsRequest(BaseModel):
     model_config = _STRICT
     kind: Literal["list_symbols"] = "list_symbols"
     repo_path: str
-    file_path: str
+    file_path: RepoRelativePath
     ref: str | None = None
 
 

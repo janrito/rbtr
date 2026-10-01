@@ -227,6 +227,27 @@ def case_list_symbols() -> MessageScenario:
 
 
 @case(tags=["request"])
+def case_list_symbols_file_path_absolute() -> MessageScenario:
+    """`list_symbols` normalises its one path as the others do their list."""
+    return MessageScenario(
+        raw=b'{"kind":"list_symbols","repo_path":"/r","file_path":"/r/src/app.py"}',
+        adapter=request_adapter,
+        expected_type=ListSymbolsRequest,
+        checks={"file_path": "src/app.py"},
+    )
+
+
+@case(tags=["request"])
+def case_list_symbols_file_path_dot_slash() -> MessageScenario:
+    return MessageScenario(
+        raw=b'{"kind":"list_symbols","repo_path":"/r","file_path":"./src/app.py"}',
+        adapter=request_adapter,
+        expected_type=ListSymbolsRequest,
+        checks={"file_path": "src/app.py"},
+    )
+
+
+@case(tags=["request"])
 def case_find_refs() -> MessageScenario:
     return MessageScenario(
         raw=b'{"kind":"find_refs","repo_path":"/r","symbol":"load_config"}',

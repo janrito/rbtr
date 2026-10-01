@@ -324,6 +324,18 @@ def test_list_symbols(running_daemon: DaemonServer, fake_repo: str, daemon_commi
     assert resp.file_path == "src/config.py"
 
 
+def test_list_symbols_absolute_path_end_to_end(
+    running_daemon: DaemonServer, fake_repo: str
+) -> None:
+    """An absolute path outlines the file, and the reply names it repo-relative."""
+    abs_path = str(Path(fake_repo) / "src/config.py")
+    with DaemonClient(running_daemon.runtime_dir) as client:
+        resp = client.send(ListSymbolsRequest(repo_path=fake_repo, file_path=abs_path))
+    assert isinstance(resp, ListSymbolsResponse)
+    assert {c.name for c in resp.chunks} >= {"load_config"}
+    assert resp.file_path == "src/config.py"
+
+
 def test_list_symbols_carries_no_source(running_daemon: DaemonServer, fake_repo: str) -> None:
     """An outline names symbols and spans them; bodies come from read-symbol."""
     with DaemonClient(running_daemon.runtime_dir) as client:
