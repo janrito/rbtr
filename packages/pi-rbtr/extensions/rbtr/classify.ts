@@ -22,21 +22,23 @@ export interface DaemonFailure {
 
 /**
  * Classify a failed `rbtr daemon …` invocation from its exit
- * code and stderr into an actionable category and message.
+ * code and its error text (rbtr's `ErrorResponse` message, or
+ * stderr when it printed none) into an actionable category and
+ * message.
  *
  * Only `missing-cli` should disable rbtr for the session; the
  * others are transient and must not be reported as a missing
  * CLI.
  */
-export function classifyDaemonFailure(code: number | null, stderr: string): DaemonFailure {
-  const text = stderr.toLowerCase();
+export function classifyDaemonFailure(code: number | null, reason: string): DaemonFailure {
+  const text = reason.toLowerCase();
   if (code === 127 || text.includes("command not found") || text.includes("no such file") || text.includes("enoent")) {
     return { kind: "missing-cli", message: "rbtr CLI not found. Install with: uv tool install rbtr" };
   }
   if (text.includes("locked by another process") || text.includes("database is locked")) {
     return { kind: "db-locked", message: "rbtr index temporarily unavailable (database busy); will retry." };
   }
-  return { kind: "transient", message: stderr.trim() || `rbtr daemon command failed (exit ${code ?? "?"}).` };
+  return { kind: "transient", message: reason.trim() || `rbtr daemon command failed (exit ${code ?? "?"}).` };
 }
 
 export type StartupDecision =

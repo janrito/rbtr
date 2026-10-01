@@ -52,7 +52,7 @@ export const sendScenarios: readonly SendScenario[] = [
     expected: { kind: "success", response: { kind: "ok" } },
   },
   {
-    name: "error response raises RbtrDaemonError with code",
+    name: "error response raises RbtrReplyError with code",
     request: { kind: "status", repo_path: "/nope" },
     daemonResponse: {
       kind: "error",

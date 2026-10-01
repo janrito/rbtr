@@ -90,9 +90,8 @@ def test_every_response_kind_has_a_renderer(
     stdout is not a terminal and so takes the JSON path — a response
     model with no rich case raises only in a real terminal.
 
-    `ErrorResponse` is excluded: every command matches it and prints
-    the message to stderr before exiting non-zero, so it never reaches
-    `emit`.
+    `ErrorResponse` is excluded: every command reports it through
+    `fail`, which exits, so it never reaches `emit`.
     """
     covered = {type(model) for model in one_of_each_response}
     assert covered == set(get_args(get_args(Response)[0])) - {ErrorResponse}

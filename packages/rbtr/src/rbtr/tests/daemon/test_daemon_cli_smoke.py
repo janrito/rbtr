@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from rbtr.config import Config
+from rbtr.daemon.messages import ErrorResponse
 from rbtr.daemon.status import is_pid_alive, read_status
 from rbtr.index.store import IndexStore
 from rbtr.tests.conftest import run_cli
@@ -131,7 +132,9 @@ def test_start_with_db_lock_held_exits_cleanly(
         result = run_cli(["daemon", "start"])
         assert time.monotonic() - started >= 15
         assert result.returncode == 1, result.stderr
-        assert "Another process holds the index lock" in " ".join(result.stderr.split())
+        # Piped, so the error is an `ErrorResponse` on stdout.
+        message = ErrorResponse.model_validate_json(result.stdout).message
+        assert "Another process holds the index lock" in " ".join(message.split())
     finally:
         store.close()
         run_cli(["daemon", "stop"])

@@ -18,9 +18,8 @@ import { Container, type SettingItem, SettingsList } from "@earendil-works/pi-tu
 import { Type } from "typebox";
 
 import { classifyDaemonFailure, decideStartupDecision } from "./classify.js";
-import { RbtrDaemonError } from "./daemon-client.js";
 import { DaemonSession, DaemonUnavailableError, type ReconcileResult } from "./daemon-session.js";
-import { type ResolvedCommand, resolveCommand, runRbtrJson } from "./exec.js";
+import { errorReply, type ResolvedCommand, resolveCommand, runRbtrJson } from "./exec.js";
 import { Footer } from "./footer.js";
 import type {
   ChangedSymbolsResponse,
@@ -36,6 +35,7 @@ import type {
   WatchResponse,
   WatchSetResponse,
 } from "./generated/protocol.js";
+import { RbtrReplyError } from "./reply-error.js";
 
 const require = createRequire(import.meta.url);
 const { version: EXTENSION_VERSION } = require("../../package.json") as { version: string };
@@ -131,7 +131,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
   /**
    * Try the daemon path, fall back to the CLI callback on
-   * transport failure.  Propagates ``RbtrDaemonError`` from the
+   * transport failure.  Propagates ``RbtrReplyError`` from the
    * daemon untouched — that is an actionable reply, not a
    * transport problem.
    */
@@ -140,7 +140,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       try {
         return await fromDaemon();
       } catch (err) {
-        if (err instanceof RbtrDaemonError) throw err;
+        if (err instanceof RbtrReplyError) throw err;
         if (err instanceof DaemonUnavailableError) {
           // Transport failure — fall through to CLI.
         } else {
@@ -155,7 +155,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   }
 
   function mapDaemonError(err: unknown): ToolReturn {
-    if (err instanceof RbtrDaemonError) {
+    if (err instanceof RbtrReplyError) {
       return { ...toolResult({ kind: "error", code: err.code, message: err.message }), isError: true };
     }
     throw err;
@@ -166,7 +166,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       try {
         return await session.send({ kind: "status", repo_path: repo });
       } catch (err) {
-        if (err instanceof RbtrDaemonError) return null;
+        if (err instanceof RbtrReplyError) return null;
         // transport — fall through to CLI
       }
     }
@@ -251,7 +251,9 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             timeout: 15_000,
           });
           if (result.code !== 0) {
-            throw new Error(classifyDaemonFailure(result.code, result.stderr ?? "").message);
+            // Under --json rbtr prints its error on stdout; a crash leaves only stderr.
+            const reason = errorReply(result.stdout)?.message ?? result.stderr ?? "";
+            throw new Error(classifyDaemonFailure(result.code, reason).message);
           }
         },
       });

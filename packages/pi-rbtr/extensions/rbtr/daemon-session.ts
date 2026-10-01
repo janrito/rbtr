@@ -15,7 +15,7 @@ import type { Notification, Request, Response } from "./generated/protocol.js";
 /**
  * A transport-level failure talking to the daemon — socket
  * refused, send/recv timeout, JSON parse.  Distinct from
- * ``RbtrDaemonError`` which means the daemon replied with a
+ * ``RbtrReplyError`` which means the daemon replied with a
  * typed error code.
  */
 export class DaemonUnavailableError extends Error {
@@ -105,7 +105,7 @@ export class DaemonSession {
    * ``send``), so a failure here means the daemon is gone or
    * wedged.  The one refresh-and-retry covers the common case:
    * a daemon that restarted has a new endpoint, and the request
-   * that failed was never served.  ``RbtrDaemonError`` from the
+   * that failed was never served.  ``RbtrReplyError`` from the
    * daemon itself is propagated as-is — the caller decides what
    * to do with it.
    */
@@ -120,7 +120,7 @@ export class DaemonSession {
     try {
       return (await send(request, { rpcEndpoint: this.rpcEndpoint })) as ResponseFor<R["kind"]>;
     } catch (err) {
-      if (err instanceof Error && err.name === "RbtrDaemonError") {
+      if (err instanceof Error && err.name === "RbtrReplyError") {
         throw err;
       }
       this.status = null;
@@ -131,7 +131,7 @@ export class DaemonSession {
       try {
         return (await send(request, { rpcEndpoint: this.rpcEndpoint })) as ResponseFor<R["kind"]>;
       } catch (err2) {
-        if (err2 instanceof Error && err2.name === "RbtrDaemonError") {
+        if (err2 instanceof Error && err2.name === "RbtrReplyError") {
           throw err2;
         }
         throw new DaemonUnavailableError(err2);

@@ -21,6 +21,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 from rbtr.cli import Watch
+from rbtr.daemon.messages import ErrorResponse
 from rbtr.domain.models import SnapshotRef
 from rbtr.errors import RbtrError
 from rbtr.git import normalise_repo_path
@@ -96,7 +97,10 @@ def test_index_refuses_inline_build_when_db_is_locked(
         result = run_cli(["watch", "--repo-path", repo_path])
 
         assert result.returncode == 1, result.stderr
-        assert "locked by another process" in result.stderr
+        # Piped, so the error is an `ErrorResponse` on stdout.
+        assert (
+            "locked by another process" in ErrorResponse.model_validate_json(result.stdout).message
+        )
         assert "Falling back to inline execution" not in result.stderr
     finally:
         store.close()

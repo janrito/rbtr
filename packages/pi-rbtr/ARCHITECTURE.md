@@ -79,7 +79,7 @@ All CLI calls go through `pi.exec()`, which returns
 | Condition                  | Behaviour                                                                                                                                            |
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Daemon start/restart fails | `classifyDaemonFailure` sorts it into `missing-cli` (install instructions, rbtr disabled), `db-locked`, or `transient`; reconcile carries the reason |
-| Non-zero exit              | `runRbtr` throws with stderr content                                                                                                                 |
+| Non-zero exit              | `runRbtr` throws rbtr's `ErrorResponse`, printed on stdout under `--json`, as `RbtrReplyError`; with none printed, an error carrying stderr          |
 | Timeout                    | `pi.exec()` kills the process; `runRbtr` throws                                                                                                      |
 
 ### Validation
@@ -184,7 +184,8 @@ the schema it declares as `outputSchema`:
    model, the same value as `structuredContent` for codemode
    scripts, and the response on `details.response` for the
    renderer.
-3. An `RbtrDaemonError` is packed the same way, as rbtr's
+3. An `RbtrReplyError`, from the daemon or the CLI's JSON
+   output, is packed the same way, as rbtr's
    `ErrorResponse`, with `isError` set; pi still hands scripts
    the structured value.
 
@@ -213,7 +214,7 @@ fromCli)`:
 
 - If `session.available`, try the daemon callback. A
   `DaemonUnavailableError` (transport failure) falls
-  through to the CLI; an `RbtrDaemonError` (an actionable
+  through to the CLI; an `RbtrReplyError` (an actionable
   reply from the daemon, e.g. "not indexed") is re-thrown
   untouched and returned as rbtr's `ErrorResponse`.
 - Otherwise — or after a daemon transport failure — run

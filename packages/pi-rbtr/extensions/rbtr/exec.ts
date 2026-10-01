@@ -16,6 +16,9 @@ import { spawnSync } from "node:child_process";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
+import type { ErrorResponse } from "./generated/protocol.js";
+import { RbtrReplyError } from "./reply-error.js";
+
 export interface ResolvedCommand {
   executable: string;
   baseArgs: string[];
@@ -75,8 +78,27 @@ export interface RbtrExecResult {
 }
 
 /**
+ * The `ErrorResponse` a failed `rbtr --json` command printed on stdout,
+ * or `null` when it printed none (it crashed, or never ran).
+ */
+export function errorReply(stdout: string): ErrorResponse | null {
+  try {
+    const parsed: unknown = JSON.parse(stdout);
+    return isErrorResponse(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function isErrorResponse(value: unknown): value is ErrorResponse {
+  return typeof value === "object" && value !== null && "kind" in value && value.kind === "error";
+}
+
+/**
  * Run an rbtr subcommand and return raw output.
- * Throws on non-zero exit code or if the command is not found.
+ * Throws on non-zero exit code or if the command is not found: an
+ * `RbtrReplyError` when rbtr printed its `ErrorResponse`, otherwise an
+ * error carrying stderr.
  */
 export async function runRbtr(
   pi: ExtensionAPI,
@@ -96,6 +118,8 @@ export async function runRbtr(
   }
 
   if (result.code !== 0) {
+    const reply = errorReply(result.stdout);
+    if (reply) throw new RbtrReplyError(reply);
     const msg = result.stderr?.trim() || `rbtr exited with code ${result.code}`;
     throw new Error(msg);
   }

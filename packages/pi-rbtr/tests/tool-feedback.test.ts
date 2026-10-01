@@ -23,8 +23,8 @@ vi.mock("../extensions/rbtr/daemon-session.js", () => ({
   DaemonUnavailableError: class extends Error {},
 }));
 
-import { RbtrDaemonError } from "../extensions/rbtr/daemon-client.js";
 import rbtrIndexExtension from "../extensions/rbtr/index.js";
+import { RbtrReplyError } from "../extensions/rbtr/reply-error.js";
 
 interface ToolDef {
   name: string;
@@ -148,7 +148,7 @@ describe.each([
       message: "Ref 'main' is not indexed — run rbtr watch first",
     };
     sendMock.mockRejectedValueOnce(
-      new RbtrDaemonError({ kind: "error", code: "index_not_built", message: error.message }),
+      new RbtrReplyError({ kind: "error", code: "index_not_built", message: error.message }),
     );
     const tool = registeredTools().get(name);
     if (!tool) throw new Error(`${name} not registered`);
@@ -187,7 +187,7 @@ describe("rbtr_watch reply", () => {
     async (_name, params, requestKind, response) => {
       if (response.kind === "error")
         sendMock.mockRejectedValueOnce(
-          new RbtrDaemonError({ kind: "error", code: "internal", message: headRefused.message }),
+          new RbtrReplyError({ kind: "error", code: "internal", message: headRefused.message }),
         );
       else sendMock.mockResolvedValueOnce(response);
       const tool = registeredTools().get("rbtr_watch");

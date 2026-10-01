@@ -16,6 +16,7 @@ import sys
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
+from typing import NoReturn
 
 from pydantic import BaseModel, ValidationError
 from pydantic.json_schema import JsonSchemaValue
@@ -32,6 +33,8 @@ from rbtr.daemon.messages import (
     ChangedSymbol,
     ChangedSymbolsResponse,
     DaemonConfigResponse,
+    ErrorCode,
+    ErrorResponse,
     FindRefsResponse,
     ForgetResponse,
     GcResponse,
@@ -48,6 +51,7 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.status import DaemonStatusReport
 from rbtr.domain.models import ChangeKind
+from rbtr.errors import ExitCode, RbtrError
 
 # Shared change vocabulary with the pi/TUI renderer: sigil + rich
 # style per change kind, and the added→modified→removed order.
@@ -97,21 +101,49 @@ def print_err(msg: str) -> None:
     _err.print(msg)
 
 
-def print_rejected_arguments(exc: ValidationError) -> None:
-    """Report arguments a command model refused, one line each.
+def fail(error: ErrorResponse | RbtrError, exit_code: ExitCode = ExitCode.FAILED) -> NoReturn:
+    """Report an error and exit with *exit_code*.
+
+    JSON mode writes it to stdout as an `ErrorResponse`, as any response
+    is written; TTY mode prints its message in red on stderr.  An
+    `RbtrError` carries its own `error_code`.
+    """
+    match error:
+        case ErrorResponse():
+            response = error
+        case RbtrError():
+            response = ErrorResponse(code=ErrorCode(error.error_code), message=str(error))
+    if _json_output():
+        sys.stdout.write(response.model_dump_json())
+        sys.stdout.write("\n")
+    else:
+        print_err(f"[red]error:[/] {response.message}")
+    sys.exit(exit_code)
+
+
+def reject_arguments(exc: ValidationError) -> NoReturn:
+    """Report arguments a command model refused, one each, and exit.
 
     Names the field as the command line spells it, the rule it broke,
     and the value that broke it, which may have come from a flag, the
     environment, or the config file.  A rule spanning several fields is
     given the whole model's arguments as its input, which is the
-    command the user just typed, so that is left unsaid.
+    command the user just typed, so that is left unsaid.  JSON mode
+    writes one `invalid_request` `ErrorResponse` naming them all.
     """
+    rejected: list[tuple[str, str]] = []
     for err in exc.errors():
         where = ".".join(str(part) for part in err["loc"]).replace("_", "-")
         why = err["msg"].removeprefix("Value error, ")
         received = err.get("input")
-        value = "" if isinstance(received, Mapping) else f" [dim](received {received!r})[/]"
-        print_err(f"[red]error:[/] {where}: {why}{value}" if where else f"[red]error:[/] {why}")
+        value = "" if isinstance(received, Mapping) else f" (received {received!r})"
+        rejected.append((f"{where}: {why}" if where else why, value))
+    if _json_output():
+        message = "; ".join(f"{rule}{value}" for rule, value in rejected)
+        fail(ErrorResponse(code=ErrorCode.INVALID_REQUEST, message=message), ExitCode.ERROR)
+    for rule, value in rejected:
+        print_err(f"[red]error:[/] {rule}[dim]{value}[/]")
+    sys.exit(ExitCode.ERROR)
 
 
 def print_json_schema(schema: JsonSchemaValue) -> None:

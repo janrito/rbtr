@@ -386,6 +386,8 @@ proportionally. `rbtr status --scope all` shows the split.
 - **TTY**: rich-formatted text with syntax highlighting.
 - **Piped / `--json`**: a single JSON object — the full response
   model, serialised in one pass (the same shape the daemon returns).
+  An error is one too: `{"kind":"error","code":…,"message":…}` on
+  stdout, with a non-zero exit code.
 
 Example from `rbtr search --json`:
 
