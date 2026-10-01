@@ -36,16 +36,16 @@ pi install -l ./packages/pi-rbtr
 
 Eight tools, registered automatically on session start:
 
-| Tool                   | Description                                                                                                              |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `rbtr_search`          | Search by name, keyword, or concept (BM25 + semantic + name fusion). Optional `keywords`/`variants` for query expansion. |
-| `rbtr_read_symbol`     | Read a symbol's full source by name                                                                                      |
-| `rbtr_list_symbols`    | Structural table of contents for a file                                                                                  |
-| `rbtr_find_refs`       | Find references via the dependency graph (imports, docs)                                                                 |
-| `rbtr_changed_symbols` | Symbols that changed between two git refs                                                                                |
-| `rbtr_watch`           | Watch refs and keep them indexed (background, incremental)                                                               |
-| `rbtr_status`          | Check whether the index exists and how many symbols it contains                                                          |
-| `rbtr_gc`              | Reclaim index storage. **Destructive**; previews as a dry run unless told otherwise                                      |
+| Tool                   | Description                                                                                                                   |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `rbtr_search`          | Search by name, keyword, or concept (BM25 + semantic + name fusion). Returns a 20-line preview per hit, flagged when clipped. |
+| `rbtr_read_symbol`     | Read a symbol's full source by name                                                                                           |
+| `rbtr_list_symbols`    | Structural table of contents for a file                                                                                       |
+| `rbtr_find_refs`       | Find references via the dependency graph (imports, docs)                                                                      |
+| `rbtr_changed_symbols` | Symbols that changed between two git refs                                                                                     |
+| `rbtr_watch`           | Watch refs and keep them indexed (background, incremental)                                                                    |
+| `rbtr_status`          | Check whether the index exists and how many symbols it contains                                                               |
+| `rbtr_gc`              | Reclaim index storage. **Destructive**; previews as a dry run unless told otherwise                                           |
 
 The extension also injects a system prompt note so the agent
 knows the index is available without being told.
@@ -76,10 +76,15 @@ with the code they describe.
 
 ```json
 {"kind": "search", "results": [
-  {"name": "fuse_scores", "kind": "function", "file_path": "src/rbtr/index/search.py",
-   "line_start": 298, "line_end": 380, "content": "def fuse_scores(...):\n    ...", "score": 0.49}
+  {"name": "fuse_scores", "kind": "function", "file_paths": ["src/rbtr/index/search.py"],
+   "line_start": 298, "line_end": 380, "score": 0.49,
+   "preview": {"text": "def fuse_scores(...):\n    ...", "clipped": true, "total_lines": 83}}
 ]}
 ```
+
+A hit carries the first 20 lines of the symbol. A longer one
+is `clipped` and reports `total_lines`; `rbtr_read_symbol`
+returns the whole body.
 
 The per-signal ranking breakdown is omitted by default; pass
 `explain: true` to include a nested `signals` object.

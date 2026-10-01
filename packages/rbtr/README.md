@@ -182,6 +182,12 @@ single ranked result. See
 [ARCHITECTURE.md][arch-search-fusion]
 for the fusion algorithm.
 
+A hit carries the first 20 lines of the symbol, enough to
+judge it against the query. A longer symbol is marked as
+clipped and reports its full length; `rbtr read-symbol`
+fetches the whole body. Set `RBTR_SEARCH_PREVIEW_LINES`
+to change the cap.
+
 [arch-search-fusion]: https://github.com/janrito/rbtr/blob/main/packages/rbtr/ARCHITECTURE.md#search-fusion
 
 Supply `--keywords` and `--variants` (both repeatable) to

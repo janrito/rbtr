@@ -795,7 +795,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     name: "rbtr_search",
     label: "rbtr search",
     description:
-      "Semantic + symbol-aware search over the repository's code index. Takes a `query` string and optional `keywords`/`variants` for query expansion. Ranks functions, classes, methods, and other structural chunks by relevance (embeddings + full-text fused). Returns scored hits with file path, line, kind, name, and full source content.",
+      "Semantic + symbol-aware search over the repository's code index. Takes a `query` string and optional `keywords`/`variants` for query expansion. Ranks functions, classes, methods, and other structural chunks by relevance (embeddings + full-text fused). Returns scored hits with file path, line, kind, name, and a preview of the source. A hit longer than the preview is marked `clipped` with the body's `total_lines`; call rbtr_read_symbol for the whole thing.",
     promptSnippet: "Semantic code search by intent: 'how retries are handled', 'where embeddings happen'",
     promptGuidelines: [
       "Prefer rbtr_search over grep for concept-shaped questions: 'how does X work', 'where is Y handled', 'find the code that does Z'. It understands meaning, not just substrings — 'retry logic' finds 'backoff' and 'reconnect attempts', grep would miss them.",
