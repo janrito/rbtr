@@ -124,9 +124,34 @@ Each tool defines two prompt fields:
   "Guidelines" section, teaching the LLM when and how
   to use the tool.
 
-The `before_agent_start` event appends a general note
+The `before_agent_start` event appends a one-line note
 about index availability to the system prompt, so the
 LLM knows it can use the tools without being told.
+
+### What the model reads first
+
+pi lists tools in the prompt in the order they are
+registered, so the five tools that find code are
+registered first, then `rbtr_watch`, the loader and the
+housekeeping tools. Each description leads with what the
+tool is for and what it is used instead of, usually grep,
+and each tool keeps at most two guidelines. Details about
+arguments live in the parameter descriptions.
+
+At session start the extension deactivates `rbtr_status`
+and `rbtr_gc` (`tool-set.ts`). The loader,
+`rbtr_index_tools`, activates them when the model needs
+to check a build or reclaim space. `rbtr_watch` stays
+active, because indexing refs before a review is an
+ordinary request. A read tool whose ref is not indexed
+replies `index_not_built` with a line telling the model
+to call `rbtr_watch`.
+
+Open models reach for tools they were trained on, mostly
+`bash`: with the shipped text, `deepseek-v4-flash` made
+1.8% of its tool calls through rbtr. Leading with what
+each tool replaces tripled that. The measurements are in
+`rbtr-agent-eval`'s screen of tool use.
 
 ### Output contract
 

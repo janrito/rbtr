@@ -34,7 +34,8 @@ pi install -l ./packages/pi-rbtr
 
 ## What the agent gets
 
-Eight tools, registered automatically on session start:
+Nine tools, registered automatically on session start. `rbtr_status` and `rbtr_gc` start
+inactive; `rbtr_index_tools` loads them when the agent needs them:
 
 | Tool                   | Description                                                                                                                   |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
@@ -44,6 +45,7 @@ Eight tools, registered automatically on session start:
 | `rbtr_find_refs`       | Find references via the dependency graph (imports, docs)                                                                      |
 | `rbtr_changed_symbols` | Symbols that changed between two git refs                                                                                     |
 | `rbtr_watch`           | Watch refs and keep them indexed (background, incremental)                                                                    |
+| `rbtr_index_tools`     | Load `rbtr_status` and `rbtr_gc`, which start inactive                                                                        |
 | `rbtr_status`          | Check whether the index exists and how many symbols it contains                                                               |
 | `rbtr_gc`              | Reclaim index storage. **Destructive**; previews as a dry run unless told otherwise                                           |
 

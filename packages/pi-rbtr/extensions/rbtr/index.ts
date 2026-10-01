@@ -70,6 +70,7 @@ import {
   shortSha,
 } from "./render.js";
 import { loadSettings, type RbtrIndexSettings, saveProjectSettings } from "./settings.js";
+import { LOADER, ON_REQUEST, startingTools, withOnRequest } from "./tool-set.js";
 
 // ── Tool result shape ─────────────────────────────────────────
 
@@ -173,8 +174,10 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
   function mapDaemonError(err: unknown): ToolReturn {
     if (err instanceof RbtrDaemonError) {
+      // A missing ref is fixed by indexing it, so say how.
+      const hint = err.code === "index_not_built" ? " Call rbtr_watch with that ref, then retry." : "";
       return {
-        content: [{ type: "text", text: `${err.code}: ${err.message}` }],
+        content: [{ type: "text", text: `${err.code}: ${err.message}${hint}` }],
         details: { errorCode: err.code, message: err.message },
       };
     }
@@ -205,6 +208,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   // ── Session lifecycle ───────────────────────────────────────
 
   pi.on("session_start", async (_event, ctx) => {
+    pi.setActiveTools(startingTools(pi.getActiveTools()));
     settings = loadSettings(ctx.cwd);
     resolved = resolveCommand(settings.command);
     footer = new Footer(ctx);
@@ -989,7 +993,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     name: "rbtr_watch",
     label: "rbtr watch",
     description:
-      "Index refs so the other rbtr tools can read them: a branch, tag or SHA, such as a PR branch and its base before a review. HEAD and the working tree are indexed automatically. Returns at once; indexing continues in the background, and rbtr_status shows its progress. `remove` stops watching refs; `remove_stale` drops refs that no longer resolve. Safe to call repeatedly.",
+      "Index refs so the other rbtr tools can read them: a branch, tag or SHA, such as a PR branch and its base before a review. HEAD and the working tree are indexed automatically. Returns at once; indexing continues in the background, and rbtr_status (loaded by rbtr_index_tools) shows its progress. `remove` stops watching refs; `remove_stale` drops refs that no longer resolve. Safe to call repeatedly.",
     promptSnippet: "Index refs, such as a PR branch and its base, so the rbtr tools can read them",
     promptGuidelines: [
       "Use rbtr_watch when the user asks for refs to be indexed, or when an rbtr tool replies that a ref is not indexed.",
@@ -1096,6 +1100,31 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
           },
         ],
         details: { status: "started", refs },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: LOADER,
+    label: "rbtr index tools",
+    description:
+      "Load the tools that inspect and clean up the rbtr index: rbtr_status (what is indexed, and whether a build is still running) and rbtr_gc (reclaim disk space; destructive, only on the user's request).",
+    promptSnippet: "Load rbtr_status and rbtr_gc, to inspect the index or reclaim its disk space",
+    promptGuidelines: [
+      "Call rbtr_index_tools when you need to check whether indexing has finished, or the user asks to reclaim index space.",
+    ],
+    parameters: Type.Object({}),
+
+    async execute() {
+      pi.setActiveTools(withOnRequest(pi.getActiveTools()));
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Loaded rbtr_status (what is indexed, and whether a build is still running) and rbtr_gc (reclaim index space; destructive, only on the user's request).",
+          },
+        ],
+        details: { loaded: [...ON_REQUEST] },
       };
     },
   });

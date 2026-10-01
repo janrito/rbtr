@@ -36,7 +36,7 @@ function registeredTools(): ToolDef[] {
 }
 
 const FINDING = ["rbtr_search", "rbtr_read_symbol", "rbtr_find_refs", "rbtr_changed_symbols", "rbtr_list_symbols"];
-const HOUSEKEEPING = ["rbtr_watch", "rbtr_status", "rbtr_gc"];
+const HOUSEKEEPING = ["rbtr_watch", "rbtr_index_tools", "rbtr_status", "rbtr_gc"];
 
 describe("prompt text", () => {
   test("the tools that find code are registered before the housekeeping tools", () => {
