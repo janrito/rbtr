@@ -430,22 +430,42 @@ class WatchResponse(BaseModel):
 
 
 class SearchResponse(BaseModel):
+    """Search hits, with the snapshot searched.
+
+    `resolved` is `None` under `scope: all`, which searches every
+    indexed repo at its latest indexed commit; each hit then names
+    its repo.
+    """
+
     model_config = _STRICT
     kind: Literal["search"] = "search"
     results: list[SearchHitOut]
+    resolved: ResolvedRef | None
     query_kind: QueryKind | None = Field(default=None, exclude_if=lambda v: v is None)
 
 
 class ReadSymbolResponse(BaseModel):
+    """A symbol's definitions, with the snapshot read and the paths scoped to.
+
+    `file_paths` is the request's scoping, repo-relative; `None` when
+    the request named none.
+    """
+
     model_config = _STRICT
     kind: Literal["read_symbol"] = "read_symbol"
     chunks: list[SymbolOut]
+    resolved: ResolvedRef
+    file_paths: list[str] | None
 
 
 class ListSymbolsResponse(BaseModel):
+    """A file's outline, with the snapshot read and the path outlined."""
+
     model_config = _STRICT
     kind: Literal["list_symbols"] = "list_symbols"
     chunks: list[SymbolRefOut]
+    resolved: ResolvedRef
+    file_path: str
 
 
 class FindRefsResponse(BaseModel):
@@ -471,9 +491,18 @@ class ChangedSymbol(BaseModel):
 
 
 class ChangedSymbolsResponse(BaseModel):
+    """The symbol-level diff, with the commits compared and the paths scoped to.
+
+    `file_paths` is the request's scoping, repo-relative; `None` when
+    the request named none.
+    """
+
     model_config = _STRICT
     kind: Literal["changed_symbols"] = "changed_symbols"
     changes: list[ChangedSymbol]
+    base_sha: str
+    head_sha: str
+    file_paths: list[str] | None
 
 
 class ActiveJob(BaseModel):

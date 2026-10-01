@@ -50,18 +50,21 @@ def test_emit_renders_repo_attribution(scenario: RenderScenario, rendered: Strin
 
 
 @pytest.fixture
-def one_of_each_response() -> tuple[BaseModel, ...]:
+def resolved() -> ResolvedRef:
+    return ResolvedRef(sha="abc", source=RefSource.HEAD)
+
+
+@pytest.fixture
+def one_of_each_response(resolved: ResolvedRef) -> tuple[BaseModel, ...]:
     """An empty instance of every response `emit` can be handed."""
     return (
         OkResponse(),
         WatchResponse(resolved_refs=[], stats=IndexStats(), errors=[]),
-        SearchResponse(results=[]),
-        ReadSymbolResponse(chunks=[]),
-        ListSymbolsResponse(chunks=[]),
-        FindRefsResponse(
-            refs=[], resolved=ResolvedRef(sha="abc", source=RefSource.HEAD), file_paths=None
-        ),
-        ChangedSymbolsResponse(changes=[]),
+        SearchResponse(results=[], resolved=None),
+        ReadSymbolResponse(chunks=[], resolved=resolved, file_paths=None),
+        ListSymbolsResponse(chunks=[], resolved=resolved, file_path="a.py"),
+        FindRefsResponse(refs=[], resolved=resolved, file_paths=None),
+        ChangedSymbolsResponse(changes=[], base_sha="abc", head_sha="def", file_paths=None),
         StatusResponse(db_path="/db"),
         DaemonConfigResponse(rbtr_version="0", config={}, plugins=[]),
         GcResponse(

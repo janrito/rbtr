@@ -1,17 +1,3 @@
-/**
- * Echo the arguments a tool actually received.
- *
- * When a call returns nothing useful, appending the received arguments
- * to the message lets the model diagnose a mis-shaped argument *from
- * context* — a stringified array, a wrong ref, a typo'd path — without
- * the tool guessing at any specific failure mode. General transparency,
- * not error-pattern fishing.
- */
-export function echoArgs(args: Record<string, unknown>, keys: readonly string[]): string {
-  const shown = keys.filter((key) => args[key] !== undefined).map((key) => `${key}=${JSON.stringify(args[key])}`);
-  return shown.length === 0 ? "" : `\n\nArguments received: ${shown.join(", ")}`;
-}
-
 function parseJsonStringArray(text: string): string[] | null {
   const trimmed = text.trim();
   if (!trimmed.startsWith("[")) return null;

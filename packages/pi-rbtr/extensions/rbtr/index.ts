@@ -13,12 +13,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { relative, resolve } from "node:path";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import {
-  DEFAULT_MAX_BYTES,
-  DEFAULT_MAX_LINES,
-  getSettingsListTheme,
-  truncateHead,
-} from "@earendil-works/pi-coding-agent";
+import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import { Container, type SettingItem, SettingsList } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
@@ -28,10 +23,14 @@ import { DaemonSession, DaemonUnavailableError, type ReconcileResult } from "./d
 import { type ResolvedCommand, resolveCommand, runRbtr, runRbtrJson } from "./exec.js";
 import { Footer } from "./footer.js";
 import type {
+  ChangedSymbolsResponse,
   FindRefsResponse,
   GcMode,
   GcResponse,
+  ListSymbolsResponse,
+  ReadSymbolResponse,
   Response,
+  SearchResponse,
   StatusResponse,
   UnwatchResponse,
   WatchResponse,
@@ -51,7 +50,7 @@ const { version: EXTENSION_VERSION } = require("../../package.json") as { versio
 const READ_CLI_TIMEOUT_MS = 150_000;
 
 import { block, type IndexLookups, readFacts, searchFacts } from "./annotate.js";
-import { commandRefs, decodeStringList, echoArgs } from "./args.js";
+import { commandRefs, decodeStringList } from "./args.js";
 import { replySchema } from "./output-schema.js";
 import {
   footerLabel,
@@ -88,24 +87,6 @@ type ToolReturn = AgentToolResult<Record<string, unknown>>;
 function toolResult(response: Response): ToolReturn {
   const text = JSON.stringify(response);
   return { content: [{ type: "text", text }], structuredContent: JSON.parse(text), details: { response } };
-}
-
-/** Pack raw CLI stdout for the LLM + renderer. */
-function toolResultFromCli(stdout: string, extra: Record<string, unknown>): ToolReturn {
-  const truncation = truncateHead(stdout, {
-    maxLines: DEFAULT_MAX_LINES,
-    maxBytes: DEFAULT_MAX_BYTES,
-  });
-  let content = truncation.content;
-  if (truncation.truncated) {
-    content +=
-      `\n\n[Output truncated: showing ${truncation.outputLines} of ` +
-      `${truncation.totalLines} lines. Use --limit or rbtr_read_symbol for details.]`;
-  }
-  return {
-    content: [{ type: "text", text: content }],
-    details: { fromCli: true, truncated: truncation.truncated, ...extra },
-  };
 }
 
 // ── Extension ─────────────────────────────────────────────────
@@ -675,15 +656,16 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         }),
       ),
     }),
+    outputSchema: replySchema("SearchResponse", "ErrorResponse"),
     renderCall: (args, theme) => renderSearchCall(args, theme),
     renderResult: (result, options, theme) => renderSearchResult(result, options, theme),
 
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       if (!params.query) throw new Error("Missing required parameter `query`. Example: {query: 'retry logic'}");
       try {
-        return await withFallback<ToolReturn>(
-          async () => {
-            const resp = await session.send({
+        const resp = await withFallback<SearchResponse>(
+          () =>
+            session.send({
               kind: "search",
               repo_path: ctx.cwd,
               query: params.query,
@@ -692,42 +674,17 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
               ...(params.keywords !== undefined ? { keywords: params.keywords } : {}),
               ...(params.variants !== undefined ? { variants: params.variants } : {}),
               ...(params.scope !== undefined ? { scope: params.scope } : {}),
-            });
-            if (resp.results.length === 0) {
-              return {
-                content: [
-                  {
-                    type: "text",
-                    text: `No results found.${echoArgs(params, ["query", "ref", "keywords", "variants", "scope"])}`,
-                  },
-                ],
-                details: { fromDaemon: true, response: resp },
-              };
-            }
-            return toolResult(resp);
-          },
-          async () => {
+            }),
+          () => {
             if (!resolved) throw new Error("rbtr CLI not available");
             const args = ["search", params.query];
             if (params.ref !== undefined) args.push("--ref", params.ref);
             if (params.limit !== undefined) args.push("--limit", String(params.limit));
             if (params.scope !== undefined) args.push("--scope", params.scope);
-            const result = await runRbtr(pi, resolved, args, { signal, timeout: READ_CLI_TIMEOUT_MS });
-            const text = result.stdout.trim();
-            if (!text) {
-              return {
-                content: [
-                  {
-                    type: "text",
-                    text: `No results found.${echoArgs(params, ["query", "ref", "keywords", "variants", "scope"])}`,
-                  },
-                ],
-                details: { fromCli: true, results: [] },
-              };
-            }
-            return toolResultFromCli(text, { query: params.query, limit: params.limit });
+            return runRbtrJson<SearchResponse>(pi, resolved, args, { signal, timeout: READ_CLI_TIMEOUT_MS });
           },
         );
+        return toolResult(resp);
       } catch (err) {
         return mapDaemonError(err);
       }
@@ -761,55 +718,31 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         }),
       ),
     }),
+    outputSchema: replySchema("ReadSymbolResponse", "ErrorResponse"),
     renderCall: (args, theme) => renderReadSymbolCall(args, theme),
     renderResult: (result, options, theme) => renderReadSymbolResult(result, options, theme),
 
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       if (!params.symbol) throw new Error("Missing required parameter `symbol`. Example: {symbol: 'MyClass.method'}");
       try {
-        return await withFallback<ToolReturn>(
-          async () => {
-            const resp = await session.send({
+        const resp = await withFallback<ReadSymbolResponse>(
+          () =>
+            session.send({
               kind: "read_symbol",
               repo_path: ctx.cwd,
               symbol: params.symbol,
               ...(params.ref !== undefined ? { ref: params.ref } : {}),
               ...(params.file_paths !== undefined ? { file_paths: params.file_paths } : {}),
-            });
-            if (resp.chunks.length === 0) {
-              return {
-                content: [
-                  {
-                    type: "text",
-                    text: `Symbol not found: ${params.symbol}${echoArgs(params, ["ref", "file_paths"])}`,
-                  },
-                ],
-                details: { fromDaemon: true, response: resp, symbol: params.symbol },
-              };
-            }
-            return toolResult(resp);
-          },
-          async () => {
+            }),
+          () => {
             if (!resolved) throw new Error("rbtr CLI not available");
             const readArgs = ["read-symbol", params.symbol];
             if (params.ref !== undefined) readArgs.push("--ref", params.ref);
             for (const fp of params.file_paths ?? []) readArgs.push("--file-path", fp);
-            const result = await runRbtr(pi, resolved, readArgs, { signal, timeout: READ_CLI_TIMEOUT_MS });
-            const text = result.stdout.trim();
-            if (!text) {
-              return {
-                content: [
-                  {
-                    type: "text",
-                    text: `Symbol not found: ${params.symbol}${echoArgs(params, ["ref", "file_paths"])}`,
-                  },
-                ],
-                details: { fromCli: true, symbol: params.symbol, found: false },
-              };
-            }
-            return toolResultFromCli(text, { symbol: params.symbol, found: true });
+            return runRbtrJson<ReadSymbolResponse>(pi, resolved, readArgs, { signal, timeout: READ_CLI_TIMEOUT_MS });
           },
         );
+        return toolResult(resp);
       } catch (err) {
         return mapDaemonError(err);
       }
@@ -891,6 +824,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         }),
       ),
     }),
+    outputSchema: replySchema("ChangedSymbolsResponse", "ErrorResponse"),
     renderCall: (args, theme) => renderChangedSymbolsCall(args, theme),
     renderResult: (result, options, theme) => renderChangedSymbolsResult(result, options, theme),
 
@@ -901,51 +835,26 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         );
       }
       try {
-        return await withFallback<ToolReturn>(
-          async () => {
-            const resp = await session.send({
+        const resp = await withFallback<ChangedSymbolsResponse>(
+          () =>
+            session.send({
               kind: "changed_symbols",
               repo_path: ctx.cwd,
               base: params.base,
               head: params.head,
               ...(params.file_paths !== undefined ? { file_paths: params.file_paths } : {}),
-            });
-            if (resp.changes.length === 0) {
-              return {
-                content: [
-                  {
-                    type: "text",
-                    text: `No changed symbols between ${params.base} and ${params.head}${echoArgs(params, ["file_paths"])}`,
-                  },
-                ],
-                details: { fromDaemon: true, response: resp },
-              };
-            }
-            return toolResult(resp);
-          },
-          async () => {
+            }),
+          () => {
             if (!resolved) throw new Error("rbtr CLI not available");
             const changedArgs = ["changed-symbols", params.base, params.head];
             for (const fp of params.file_paths ?? []) changedArgs.push("--file-path", fp);
-            const result = await runRbtr(pi, resolved, changedArgs, {
+            return runRbtrJson<ChangedSymbolsResponse>(pi, resolved, changedArgs, {
               signal,
               timeout: READ_CLI_TIMEOUT_MS,
             });
-            const text = result.stdout.trim();
-            if (!text) {
-              return {
-                content: [
-                  {
-                    type: "text",
-                    text: `No changed symbols between ${params.base} and ${params.head}${echoArgs(params, ["file_paths"])}`,
-                  },
-                ],
-                details: { fromCli: true, base: params.base, head: params.head, found: false },
-              };
-            }
-            return toolResultFromCli(text, { base: params.base, head: params.head, found: true });
           },
         );
+        return toolResult(resp);
       } catch (err) {
         return mapDaemonError(err);
       }
@@ -968,6 +877,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         }),
       ),
     }),
+    outputSchema: replySchema("ListSymbolsResponse", "ErrorResponse"),
     renderCall: (args, theme) => renderListSymbolsCall(args, theme),
     renderResult: (result, options, theme) => renderListSymbolsResult(result, options, theme),
 
@@ -975,40 +885,25 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       if (!params.file)
         throw new Error("Missing required parameter `file`. Example: {file: 'src/rbtr/index/search.py'}");
       try {
-        return await withFallback<ToolReturn>(
-          async () => {
-            const resp = await session.send({
+        const resp = await withFallback<ListSymbolsResponse>(
+          () =>
+            session.send({
               kind: "list_symbols",
               repo_path: ctx.cwd,
               file_path: params.file,
               ...(params.ref !== undefined ? { ref: params.ref } : {}),
-            });
-            if (resp.chunks.length === 0) {
-              return {
-                content: [{ type: "text", text: `No symbols found in: ${params.file}` }],
-                details: { fromDaemon: true, response: resp },
-              };
-            }
-            return toolResult(resp);
-          },
-          async () => {
+            }),
+          () => {
             if (!resolved) throw new Error("rbtr CLI not available");
             const listArgs = ["list-symbols", params.file];
             if (params.ref !== undefined) listArgs.push("--ref", params.ref);
-            const result = await runRbtr(pi, resolved, listArgs, {
+            return runRbtrJson<ListSymbolsResponse>(pi, resolved, listArgs, {
               signal,
               timeout: READ_CLI_TIMEOUT_MS,
             });
-            const text = result.stdout.trim();
-            if (!text) {
-              return {
-                content: [{ type: "text", text: `No symbols found in: ${params.file}` }],
-                details: { fromCli: true, file: params.file, found: false },
-              };
-            }
-            return toolResultFromCli(text, { file: params.file, found: true });
           },
         );
+        return toolResult(resp);
       } catch (err) {
         return mapDaemonError(err);
       }

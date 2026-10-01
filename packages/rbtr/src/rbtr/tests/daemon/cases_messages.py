@@ -344,7 +344,7 @@ def case_build_index_response() -> MessageScenario:
 @case(tags=["response"])
 def case_search_response() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"search","results":[]}',
+        raw=b'{"kind":"search","results":[],"resolved":{"sha":"abc","source":"head"}}',
         adapter=response_adapter,
         expected_type=SearchResponse,
         checks={"results": []},
@@ -354,7 +354,7 @@ def case_search_response() -> MessageScenario:
 @case(tags=["response"])
 def case_search_response_with_query_kind() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"search","results":[],"query_kind":"concept"}',
+        raw=b'{"kind":"search","results":[],"resolved":null,"query_kind":"concept"}',
         adapter=response_adapter,
         expected_type=SearchResponse,
         checks={"query_kind": "concept"},
@@ -364,7 +364,7 @@ def case_search_response_with_query_kind() -> MessageScenario:
 @case(tags=["response"])
 def case_read_symbol_response() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"read_symbol","chunks":[]}',
+        raw=b'{"kind":"read_symbol","chunks":[],"resolved":{"sha":"abc","source":"head"},"file_paths":null}',
         adapter=response_adapter,
         expected_type=ReadSymbolResponse,
         checks={"chunks": []},
@@ -374,7 +374,7 @@ def case_read_symbol_response() -> MessageScenario:
 @case(tags=["response"])
 def case_list_symbols_response() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"list_symbols","chunks":[]}',
+        raw=b'{"kind":"list_symbols","chunks":[],"resolved":{"sha":"abc","source":"head"},"file_path":"a.py"}',
         adapter=response_adapter,
         expected_type=ListSymbolsResponse,
         checks={"chunks": []},
@@ -394,7 +394,7 @@ def case_find_refs_response() -> MessageScenario:
 @case(tags=["response"])
 def case_changed_symbols_response() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"changed_symbols","changes":[]}',
+        raw=b'{"kind":"changed_symbols","changes":[],"base_sha":"abc","head_sha":"def","file_paths":null}',
         adapter=response_adapter,
         expected_type=ChangedSymbolsResponse,
         checks={"changes": []},

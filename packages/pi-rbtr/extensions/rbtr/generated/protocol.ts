@@ -68,6 +68,16 @@ export type ChunkKind =
   | "api_endpoint"
   | "raw_chunk";
 /**
+ * How a read chose the snapshot it read.
+ *
+ * `REQUESTED`      — the ref the caller named.
+ * `HEAD`           — no ref named and a clean working tree: HEAD.
+ * `WORKTREE`       — no ref named and a dirty, indexed working tree.
+ * `LATEST_INDEXED` — the snapshot the ref names is not indexed or
+ *                    does not resolve, so the latest indexed commit.
+ */
+export type RefSource = "requested" | "head" | "worktree" | "latest_indexed";
+/**
  * Query processing tier.
  *
  * `CONCEPT`    — natural-language question ("how does fusion work").
@@ -79,16 +89,6 @@ export type QueryKind = "concept" | "identifier" | "code";
  * Kind of relationship between chunks.
  */
 export type EdgeKind = "calls" | "imports" | "inherits" | "documents" | "configures";
-/**
- * How a read chose the snapshot it read.
- *
- * `REQUESTED`      — the ref the caller named.
- * `HEAD`           — no ref named and a clean working tree: HEAD.
- * `WORKTREE`       — no ref named and a dirty, indexed working tree.
- * `LATEST_INDEXED` — the snapshot the ref names is not indexed or
- *                    does not resolve, so the latest indexed commit.
- */
-export type RefSource = "requested" | "head" | "worktree" | "latest_indexed";
 /**
  * How a symbol changed between two indexed commits.
  */
@@ -309,9 +309,17 @@ export interface IndexStats {
   embedded_chunks?: number;
   elapsed_seconds?: number;
 }
+/**
+ * Search hits, with the snapshot searched.
+ *
+ * `resolved` is `None` under `scope: all`, which searches every
+ * indexed repo at its latest indexed commit; each hit then names
+ * its repo.
+ */
 export interface SearchResponse {
   kind: "search";
   results: SearchHitOut[];
+  resolved: ResolvedRef | null;
   query_kind?: QueryKind | null;
 }
 /**
@@ -389,9 +397,24 @@ export interface SearchSignals {
   fusion: number;
   reranker: number;
 }
+/**
+ * The snapshot a read used: its SHA, and how it was chosen.
+ */
+export interface ResolvedRef {
+  sha: string;
+  source: RefSource;
+}
+/**
+ * A symbol's definitions, with the snapshot read and the paths scoped to.
+ *
+ * `file_paths` is the request's scoping, repo-relative; `None` when
+ * the request named none.
+ */
 export interface ReadSymbolResponse {
   kind: "read_symbol";
   chunks: SymbolOut[];
+  resolved: ResolvedRef;
+  file_paths: string[] | null;
 }
 /**
  * A symbol and its source, as returned by read-symbol.
@@ -411,9 +434,14 @@ export interface SymbolOut {
   line_end: number;
   metadata?: ImportMeta | null;
 }
+/**
+ * A file's outline, with the snapshot read and the path outlined.
+ */
 export interface ListSymbolsResponse {
   kind: "list_symbols";
   chunks: SymbolRefOut[];
+  resolved: ResolvedRef;
+  file_path: string;
 }
 /**
  * Where a symbol is, without its body.
@@ -461,15 +489,17 @@ export interface RefOut {
   edge: EdgeKind;
 }
 /**
- * The snapshot a read used: its SHA, and how it was chosen.
+ * The symbol-level diff, with the commits compared and the paths scoped to.
+ *
+ * `file_paths` is the request's scoping, repo-relative; `None` when
+ * the request named none.
  */
-export interface ResolvedRef {
-  sha: string;
-  source: RefSource;
-}
 export interface ChangedSymbolsResponse {
   kind: "changed_symbols";
   changes: ChangedSymbol[];
+  base_sha: string;
+  head_sha: string;
+  file_paths: string[] | null;
 }
 /**
  * One changed symbol: where it is plus how it changed.

@@ -183,12 +183,15 @@ def handle_search(
     `_dispatch` turns it into an "index is building" message when a
     build is active.
     """
+    resolved: ResolvedRef | None = None
     if request.scope == Scope.ALL:
         refs = store.list_latest_refs()
         repo_paths = {r.repo_id: r.repo_path for r in store.list_repos()}
     else:
         repo_id = store.resolve_repo(request.repo_path)
-        refs = [_resolve_read_ref(store, request.repo_path, repo_id, request.ref).at]
+        read = _resolve_read_ref(store, request.repo_path, repo_id, request.ref)
+        refs = [read.at]
+        resolved = ResolvedRef(sha=read.at.snapshot_sha, source=read.source)
         repo_paths = None
     override = QueryKind(request.query_kind) if request.query_kind else None
     results = search(
@@ -209,6 +212,7 @@ def handle_search(
     query_kind = override or (results[0].query_kind if results else None)
     return SearchResponse(
         results=[SearchHitOut.from_scored(r, explain=request.explain) for r in results],
+        resolved=resolved,
         query_kind=query_kind if request.explain else None,
     )
 
@@ -223,16 +227,24 @@ def _scope_chunks(chunks: list[Chunk], file_paths: list[str] | None) -> list[Chu
 
 def handle_read_symbol(request: ReadSymbolRequest, store: IndexStore) -> ReadSymbolResponse:
     repo_id = store.resolve_repo(request.repo_path)
-    at = _resolve_read_ref(store, request.repo_path, repo_id, request.ref, require_indexed=True).at
-    scoped = _scope_chunks(store.match_by_name(request.symbol, at=at), request.file_paths)
-    return ReadSymbolResponse(chunks=[SymbolOut.from_chunk(c) for c in scoped])
+    read = _resolve_read_ref(store, request.repo_path, repo_id, request.ref, require_indexed=True)
+    scoped = _scope_chunks(store.match_by_name(request.symbol, at=read.at), request.file_paths)
+    return ReadSymbolResponse(
+        chunks=[SymbolOut.from_chunk(c) for c in scoped],
+        resolved=ResolvedRef(sha=read.at.snapshot_sha, source=read.source),
+        file_paths=request.file_paths,
+    )
 
 
 def handle_list_symbols(request: ListSymbolsRequest, store: IndexStore) -> ListSymbolsResponse:
     repo_id = store.resolve_repo(request.repo_path)
-    at = _resolve_read_ref(store, request.repo_path, repo_id, request.ref, require_indexed=True).at
-    chunks = store.get_chunks(at=at, file_path=request.file_path)
-    return ListSymbolsResponse(chunks=[SymbolRefOut.from_chunk(c) for c in chunks])
+    read = _resolve_read_ref(store, request.repo_path, repo_id, request.ref, require_indexed=True)
+    chunks = store.get_chunks(at=read.at, file_path=request.file_path)
+    return ListSymbolsResponse(
+        chunks=[SymbolRefOut.from_chunk(c) for c in chunks],
+        resolved=ResolvedRef(sha=read.at.snapshot_sha, source=read.source),
+        file_path=request.file_path,
+    )
 
 
 def handle_find_refs(request: FindRefsRequest, store: IndexStore) -> FindRefsResponse:
@@ -289,7 +301,9 @@ def handle_changed_symbols(
         ChangedSymbol(chunk=SymbolRefOut.from_chunk(chunk), change=change)
         for chunk, change in changed_to_symbols(frame)
     ]
-    return ChangedSymbolsResponse(changes=changes)
+    return ChangedSymbolsResponse(
+        changes=changes, base_sha=base, head_sha=head, file_paths=request.file_paths
+    )
 
 
 type SnapshotStatusFn = Callable[[str], tuple[ActiveJob | None, ActiveJob | None]]

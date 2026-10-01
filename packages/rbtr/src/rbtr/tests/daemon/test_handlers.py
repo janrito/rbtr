@@ -172,13 +172,15 @@ def test_search_query_kind_override_without_expansion(
 # ── Read symbol ──────────────────────────────────────────────────────
 
 
-def test_read_symbol(running_daemon: DaemonServer, fake_repo: str) -> None:
+def test_read_symbol(running_daemon: DaemonServer, fake_repo: str, daemon_commit: str) -> None:
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(ReadSymbolRequest(repo_path=fake_repo, symbol="load_config"))
     assert isinstance(resp, ReadSymbolResponse)
     assert len(resp.chunks) >= 1
     names = {c.name for c in resp.chunks}
     assert "load_config" in names
+    assert resp.resolved == ResolvedRef(sha=daemon_commit, source=RefSource.HEAD)
+    assert resp.file_paths is None
 
 
 def test_read_symbol_returns_variable(running_daemon: DaemonServer, fake_repo: str) -> None:
@@ -281,6 +283,7 @@ def test_read_symbol_file_paths_absolute_end_to_end(
     assert isinstance(resp, ReadSymbolResponse)
     assert len(resp.chunks) >= 1
     assert all(c.file_path == "src/config.py" for c in resp.chunks)
+    assert resp.file_paths == ["src/config.py"]
 
 
 def test_read_symbol_implicit_falls_back_when_head_unindexed(
@@ -302,12 +305,14 @@ def test_read_symbol_implicit_falls_back_when_head_unindexed(
         resp = client.send(ReadSymbolRequest(repo_path=fake_repo, symbol="load_config"))
     assert isinstance(resp, ReadSymbolResponse)
     assert len(resp.chunks) >= 1
+    # The response says it read an older commit, not the HEAD asked for.
+    assert resp.resolved == ResolvedRef(sha=daemon_commit, source=RefSource.LATEST_INDEXED)
 
 
 # ── List symbols ─────────────────────────────────────────────────────
 
 
-def test_list_symbols(running_daemon: DaemonServer, fake_repo: str) -> None:
+def test_list_symbols(running_daemon: DaemonServer, fake_repo: str, daemon_commit: str) -> None:
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(ListSymbolsRequest(repo_path=fake_repo, file_path="src/config.py"))
     assert isinstance(resp, ListSymbolsResponse)
@@ -315,6 +320,8 @@ def test_list_symbols(running_daemon: DaemonServer, fake_repo: str) -> None:
     names = {c.name for c in resp.chunks}
     assert "load_config" in names
     assert "MAX_SIZE" in names
+    assert resp.resolved == ResolvedRef(sha=daemon_commit, source=RefSource.HEAD)
+    assert resp.file_path == "src/config.py"
 
 
 def test_list_symbols_carries_no_source(running_daemon: DaemonServer, fake_repo: str) -> None:

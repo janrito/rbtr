@@ -7,10 +7,10 @@
  * (renderStatusText).
  *
  * Two sources of payload:
- *   - details.response — typed response from the daemon
- *                        (preferred path; no parsing).
- *   - content[].text   — one JSON response object, from the CLI
- *                        fallback path (the same shape, serialised).
+ *   - details.response — the typed rbtr response the tool packed
+ *                        (preferred; no parsing).
+ *   - content[].text   — the same response serialised, for results
+ *                        that carry no `details.response`.
  */
 
 import type { AgentToolResult, Theme } from "@earendil-works/pi-coding-agent";

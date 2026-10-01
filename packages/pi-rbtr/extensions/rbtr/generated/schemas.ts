@@ -64,11 +64,16 @@ export const PROTOCOL_DEFS = {
   },
   ChangedSymbolsResponse: {
     additionalProperties: false,
+    description:
+      "The symbol-level diff, with the commits compared and the paths scoped to.\n\n`file_paths` is the request's scoping, repo-relative; `None` when\nthe request named none.",
     properties: {
       kind: { const: "changed_symbols", default: "changed_symbols", type: "string" },
       changes: { items: { $ref: "#/$defs/ChangedSymbol" }, type: "array" },
+      base_sha: { type: "string" },
+      head_sha: { type: "string" },
+      file_paths: { anyOf: [{ items: { type: "string" }, type: "array" }, { type: "null" }] },
     },
-    required: ["changes", "kind"],
+    required: ["changes", "base_sha", "head_sha", "file_paths", "kind"],
     title: "ChangedSymbolsResponse",
     type: "object",
   },
@@ -365,11 +370,14 @@ export const PROTOCOL_DEFS = {
   },
   ListSymbolsResponse: {
     additionalProperties: false,
+    description: "A file's outline, with the snapshot read and the path outlined.",
     properties: {
       kind: { const: "list_symbols", default: "list_symbols", type: "string" },
       chunks: { items: { $ref: "#/$defs/SymbolRefOut" }, type: "array" },
+      resolved: { $ref: "#/$defs/ResolvedRef" },
+      file_path: { type: "string" },
     },
-    required: ["chunks", "kind"],
+    required: ["chunks", "resolved", "file_path", "kind"],
     title: "ListSymbolsResponse",
     type: "object",
   },
@@ -438,11 +446,15 @@ export const PROTOCOL_DEFS = {
   },
   ReadSymbolResponse: {
     additionalProperties: false,
+    description:
+      "A symbol's definitions, with the snapshot read and the paths scoped to.\n\n`file_paths` is the request's scoping, repo-relative; `None` when\nthe request named none.",
     properties: {
       kind: { const: "read_symbol", default: "read_symbol", type: "string" },
       chunks: { items: { $ref: "#/$defs/SymbolOut" }, type: "array" },
+      resolved: { $ref: "#/$defs/ResolvedRef" },
+      file_paths: { anyOf: [{ items: { type: "string" }, type: "array" }, { type: "null" }] },
     },
-    required: ["chunks", "kind"],
+    required: ["chunks", "resolved", "file_paths", "kind"],
     title: "ReadSymbolResponse",
     type: "object",
   },
@@ -552,12 +564,15 @@ export const PROTOCOL_DEFS = {
   },
   SearchResponse: {
     additionalProperties: false,
+    description:
+      "Search hits, with the snapshot searched.\n\n`resolved` is `None` under `scope: all`, which searches every\nindexed repo at its latest indexed commit; each hit then names\nits repo.",
     properties: {
       kind: { const: "search", default: "search", type: "string" },
       results: { items: { $ref: "#/$defs/SearchHitOut" }, type: "array" },
+      resolved: { anyOf: [{ $ref: "#/$defs/ResolvedRef" }, { type: "null" }] },
       query_kind: { anyOf: [{ $ref: "#/$defs/QueryKind" }, { type: "null" }], default: null },
     },
-    required: ["results", "kind"],
+    required: ["results", "resolved", "kind"],
     title: "SearchResponse",
     type: "object",
   },
