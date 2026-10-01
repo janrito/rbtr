@@ -15,6 +15,7 @@ import pytest
 import structlog
 
 from rbtr.daemon.client import DaemonClient
+from rbtr.daemon.dto import ResolvedRef
 from rbtr.daemon.handlers import (
     handle_daemon_config,
     handle_gc,
@@ -43,7 +44,7 @@ from rbtr.daemon.messages import (
     WatchRequest,
 )
 from rbtr.daemon.server import DaemonServer
-from rbtr.domain.models import EdgeKind, GcMode, QueryKind
+from rbtr.domain.models import EdgeKind, GcMode, QueryKind, RefSource
 from rbtr.errors import RbtrError
 from rbtr.index.store import IndexStore
 
@@ -348,7 +349,7 @@ def test_list_symbols_unindexed_ref_errors(
 # ── Find refs ────────────────────────────────────────────────────────
 
 
-def test_find_refs(running_daemon: DaemonServer, fake_repo: str) -> None:
+def test_find_refs(running_daemon: DaemonServer, fake_repo: str, daemon_commit: str) -> None:
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(FindRefsRequest(repo_path=fake_repo, symbol="load_config"))
     assert isinstance(resp, FindRefsResponse)
@@ -356,6 +357,9 @@ def test_find_refs(running_daemon: DaemonServer, fake_repo: str) -> None:
     # The reference resolves to the importing chunk in src/app.py.
     assert resp.refs[0].edge == EdgeKind.IMPORTS
     assert resp.refs[0].file_path == "src/app.py"
+    # No ref named, clean tree: the read says it used HEAD.
+    assert resp.resolved == ResolvedRef(sha=daemon_commit, source=RefSource.HEAD)
+    assert resp.file_paths is None
 
 
 def test_find_refs_unindexed_ref_errors(
@@ -374,13 +378,19 @@ def test_find_refs_with_file_paths(running_daemon: DaemonServer, fake_repo: str)
     """`file_paths` narrows name resolution before edges are queried."""
     with DaemonClient(running_daemon.runtime_dir) as client:
         scoped = client.send(
-            FindRefsRequest(repo_path=fake_repo, symbol="load_config", file_paths=["src/config.py"])
+            FindRefsRequest(
+                repo_path=fake_repo,
+                symbol="load_config",
+                file_paths=[f"{fake_repo}/src/config.py"],
+            )
         )
         elsewhere = client.send(
             FindRefsRequest(repo_path=fake_repo, symbol="load_config", file_paths=["src/app.py"])
         )
     assert isinstance(scoped, FindRefsResponse)
     assert len(scoped.refs) >= 1
+    # The response names the paths it scoped to, repo-relative.
+    assert scoped.file_paths == ["src/config.py"]
     assert isinstance(elsewhere, FindRefsResponse)
     assert len(elsewhere.refs) == 0
 

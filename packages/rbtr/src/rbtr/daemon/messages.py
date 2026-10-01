@@ -32,7 +32,14 @@ from pydantic.json_schema import JsonSchemaValue, models_json_schema
 from pydantic_core import from_json
 
 from rbtr.config import WeightTriple, config
-from rbtr.daemon.dto import PluginInfo, RefOut, SearchHitOut, SymbolOut, SymbolRefOut
+from rbtr.daemon.dto import (
+    PluginInfo,
+    RefOut,
+    ResolvedRef,
+    SearchHitOut,
+    SymbolOut,
+    SymbolRefOut,
+)
 from rbtr.daemon.status import DaemonStatusReport
 from rbtr.domain.models import (
     ChangeKind,
@@ -442,9 +449,17 @@ class ListSymbolsResponse(BaseModel):
 
 
 class FindRefsResponse(BaseModel):
+    """References to a symbol, with the snapshot read and the paths scoped to.
+
+    `file_paths` is the request's scoping, repo-relative; `None` when
+    the request named none.
+    """
+
     model_config = _STRICT
     kind: Literal["find_refs"] = "find_refs"
     refs: list[RefOut]
+    resolved: ResolvedRef
+    file_paths: list[str] | None
 
 
 class ChangedSymbol(BaseModel):

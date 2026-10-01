@@ -79,14 +79,14 @@ function tryParseResponse(text: string): Response | undefined {
 /**
  * Return the ``payloadKey`` array of the response for *responseKind*.
  *
- * Both transports carry one JSON response object: the daemon path
- * exposes it on ``result.details.response``; the CLI fallback prints it
- * to stdout (captured as the tool content text). Either way we narrow
- * the same generated ``Response`` union and read its list field.
+ * A tool result carries one JSON response object: on
+ * ``result.details.response`` when the tool packed it there, otherwise
+ * as the content text. Either way we narrow the same generated
+ * ``Response`` union and read its list field.
  */
 export function extractPayload<T>(result: ToolResult, responseKind: Response["kind"], payloadKey: string): T[] {
-  const details = result.details as { fromDaemon?: boolean; response?: Response } | undefined;
-  const response = details?.fromDaemon ? details.response : tryParseResponse(getContentText(result));
+  const details = result.details as { response?: Response } | undefined;
+  const response = details?.response ?? tryParseResponse(getContentText(result));
   if (response?.kind !== responseKind) return [];
   const value = (response as unknown as Record<string, unknown>)[payloadKey];
   return Array.isArray(value) ? (value as T[]) : [];

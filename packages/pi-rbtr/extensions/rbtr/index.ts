@@ -12,7 +12,7 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { relative, resolve } from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   DEFAULT_MAX_BYTES,
   DEFAULT_MAX_LINES,
@@ -28,6 +28,7 @@ import { DaemonSession, DaemonUnavailableError, type ReconcileResult } from "./d
 import { type ResolvedCommand, resolveCommand, runRbtr, runRbtrJson } from "./exec.js";
 import { Footer } from "./footer.js";
 import type {
+  FindRefsResponse,
   GcMode,
   GcResponse,
   Response,
@@ -51,6 +52,7 @@ const READ_CLI_TIMEOUT_MS = 150_000;
 
 import { block, type IndexLookups, readFacts, searchFacts } from "./annotate.js";
 import { commandRefs, decodeStringList, echoArgs } from "./args.js";
+import { replySchema } from "./output-schema.js";
 import {
   footerLabel,
   formatElapsed,
@@ -77,17 +79,15 @@ import { LOADER, ON_REQUEST, startingTools, withOnRequest } from "./tool-set.js"
 
 // ── Tool result shape ─────────────────────────────────────────
 
-interface ToolReturn {
-  content: Array<{ type: "text"; text: string }>;
-  details: Record<string, unknown>;
-}
+type ToolReturn = AgentToolResult<Record<string, unknown>>;
 
-/** Pack a typed daemon response for the LLM + renderer. */
-function toolResultFromDaemon(response: Response): ToolReturn {
-  return {
-    content: [{ type: "text", text: JSON.stringify(response) }],
-    details: { fromDaemon: true, response },
-  };
+/**
+ * Pack an rbtr response: its JSON for the model, the same value as the
+ * structured result for scripts, and the response for the renderer.
+ */
+function toolResult(response: Response): ToolReturn {
+  const text = JSON.stringify(response);
+  return { content: [{ type: "text", text }], structuredContent: JSON.parse(text), details: { response } };
 }
 
 /** Pack raw CLI stdout for the LLM + renderer. */
@@ -704,7 +704,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
                 details: { fromDaemon: true, response: resp },
               };
             }
-            return toolResultFromDaemon(resp);
+            return toolResult(resp);
           },
           async () => {
             if (!resolved) throw new Error("rbtr CLI not available");
@@ -787,7 +787,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
                 details: { fromDaemon: true, response: resp, symbol: params.symbol },
               };
             }
-            return toolResultFromDaemon(resp);
+            return toolResult(resp);
           },
           async () => {
             if (!resolved) throw new Error("rbtr CLI not available");
@@ -842,55 +842,31 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         }),
       ),
     }),
+    outputSchema: replySchema("FindRefsResponse", "ErrorResponse"),
     renderCall: (args, theme) => renderFindRefsCall(args, theme),
     renderResult: (result, options, theme) => renderFindRefsResult(result, options, theme),
 
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       if (!params.symbol) throw new Error("Missing required parameter `symbol`. Example: {symbol: 'MyClass.method'}");
       try {
-        return await withFallback<ToolReturn>(
-          async () => {
-            const resp = await session.send({
+        const resp = await withFallback<FindRefsResponse>(
+          () =>
+            session.send({
               kind: "find_refs",
               repo_path: ctx.cwd,
               symbol: params.symbol,
               ...(params.ref !== undefined ? { ref: params.ref } : {}),
               ...(params.file_paths !== undefined ? { file_paths: params.file_paths } : {}),
-            });
-            if (resp.refs.length === 0) {
-              return {
-                content: [
-                  {
-                    type: "text",
-                    text: `No references found for: ${params.symbol}${echoArgs(params, ["ref", "file_paths"])}`,
-                  },
-                ],
-                details: { fromDaemon: true, response: resp },
-              };
-            }
-            return toolResultFromDaemon(resp);
-          },
-          async () => {
+            }),
+          () => {
             if (!resolved) throw new Error("rbtr CLI not available");
             const findArgs = ["find-refs", params.symbol];
             if (params.ref !== undefined) findArgs.push("--ref", params.ref);
             for (const fp of params.file_paths ?? []) findArgs.push("--file-path", fp);
-            const result = await runRbtr(pi, resolved, findArgs, { signal, timeout: READ_CLI_TIMEOUT_MS });
-            const text = result.stdout.trim();
-            if (!text) {
-              return {
-                content: [
-                  {
-                    type: "text",
-                    text: `No references found for: ${params.symbol}${echoArgs(params, ["ref", "file_paths"])}`,
-                  },
-                ],
-                details: { fromCli: true, symbol: params.symbol, found: false },
-              };
-            }
-            return toolResultFromCli(text, { symbol: params.symbol, found: true });
+            return runRbtrJson<FindRefsResponse>(pi, resolved, findArgs, { signal, timeout: READ_CLI_TIMEOUT_MS });
           },
         );
+        return toolResult(resp);
       } catch (err) {
         return mapDaemonError(err);
       }
@@ -945,7 +921,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
                 details: { fromDaemon: true, response: resp },
               };
             }
-            return toolResultFromDaemon(resp);
+            return toolResult(resp);
           },
           async () => {
             if (!resolved) throw new Error("rbtr CLI not available");
@@ -1013,7 +989,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
                 details: { fromDaemon: true, response: resp },
               };
             }
-            return toolResultFromDaemon(resp);
+            return toolResult(resp);
           },
           async () => {
             if (!resolved) throw new Error("rbtr CLI not available");

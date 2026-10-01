@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from pytest_cases import parametrize_with_cases
 
 from rbtr.cli.output import emit
+from rbtr.daemon.dto import ResolvedRef
 from rbtr.daemon.messages import (
     ChangedSymbolsResponse,
     DaemonConfigResponse,
@@ -31,7 +32,7 @@ from rbtr.daemon.messages import (
     UnwatchResponse,
     WatchResponse,
 )
-from rbtr.domain.models import IndexStats
+from rbtr.domain.models import IndexStats, RefSource
 
 from .cases_output import RenderScenario
 
@@ -57,7 +58,9 @@ def one_of_each_response() -> tuple[BaseModel, ...]:
         SearchResponse(results=[]),
         ReadSymbolResponse(chunks=[]),
         ListSymbolsResponse(chunks=[]),
-        FindRefsResponse(refs=[]),
+        FindRefsResponse(
+            refs=[], resolved=ResolvedRef(sha="abc", source=RefSource.HEAD), file_paths=None
+        ),
         ChangedSymbolsResponse(changes=[]),
         StatusResponse(db_path="/db"),
         DaemonConfigResponse(rbtr_version="0", config={}, plugins=[]),

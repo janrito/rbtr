@@ -15,7 +15,7 @@ import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.daemon.handlers import _resolve_read_ref
-from rbtr.domain.models import SnapshotRef
+from rbtr.domain.models import RefSource, SnapshotRef
 from rbtr.errors import IndexNotBuiltError
 from rbtr.git import worktree_tree_sha
 from rbtr.index.store import IndexStore
@@ -96,7 +96,8 @@ def test_resolve_read_ref(
         "FEATURE_SHA": feature_sha,
         "TREE_SHA": tree_sha,
     }
-    assert result.snapshot_sha == expected_map[ref_scenario.expected]
+    assert result.at.snapshot_sha == expected_map[ref_scenario.expected]
+    assert result.source == ref_scenario.expected_source
 
 
 # ── require_indexed gating ───────────────────────────────────────────
@@ -132,7 +133,8 @@ def test_implicit_unindexed_head_falls_back_to_latest_indexed(
 
     result = _resolve_read_ref(store, repo.workdir, repo_id, None, require_indexed=True)
 
-    assert result == SnapshotRef(repo_id=repo_id, snapshot_sha=older)
+    assert result.at == SnapshotRef(repo_id=repo_id, snapshot_sha=older)
+    assert result.source == RefSource.LATEST_INDEXED
 
 
 def test_implicit_unindexed_head_nothing_indexed_errors(

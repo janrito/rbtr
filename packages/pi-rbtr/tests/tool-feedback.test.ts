@@ -7,6 +7,7 @@
  * received are echoed back so a malformed argument is visible in context.
  */
 
+import { Check } from "typebox/schema";
 import { describe, expect, test, vi } from "vitest";
 
 const { sendMock } = vi.hoisted(() => ({ sendMock: vi.fn() }));
@@ -25,13 +26,18 @@ import rbtrIndexExtension from "../extensions/rbtr/index.js";
 
 interface ToolDef {
   name: string;
+  outputSchema: Parameters<typeof Check>[0];
   execute: (
     id: string,
     params: Record<string, unknown>,
     signal: AbortSignal,
     onUpdate: () => void,
     ctx: { cwd: string },
-  ) => Promise<{ content: Array<{ type: string; text: string }>; details: Record<string, unknown> }>;
+  ) => Promise<{
+    content: Array<{ type: string; text: string }>;
+    details: Record<string, unknown>;
+    structuredContent?: unknown;
+  }>;
 }
 
 function registeredTools(): Map<string, ToolDef> {
@@ -83,11 +89,33 @@ describe("search / find_refs empty-result feedback", () => {
     expect(text).toContain("Arguments received: query=");
     expect(text).toContain("keywords=");
   });
+});
 
-  test("find_refs echoes file_paths on no results", async () => {
-    sendMock.mockResolvedValueOnce({ kind: "find_refs", refs: [] });
-    const text = await runTool("rbtr_find_refs", { symbol: "load_config", file_paths: ['["src/a.py"]'] });
-    expect(text).toContain("No references found for: load_config");
-    expect(text).toContain("Arguments received: file_paths=");
+describe("rbtr_find_refs reply", () => {
+  const resolved = { sha: "a".repeat(40), source: "head" };
+  const ref = {
+    name: "from config import load_config",
+    kind: "import",
+    file_path: "src/app.py",
+    line_start: 1,
+    edge: "imports",
+  };
+
+  test.each([
+    ["references", { kind: "find_refs", refs: [ref], resolved, file_paths: null }],
+    ["no references", { kind: "find_refs", refs: [], resolved, file_paths: ["src/a.py"] }],
+  ])("with %s, is the daemon's response as JSON, matching the tool's output schema", async (_name, response) => {
+    sendMock.mockResolvedValueOnce(response);
+    const tool = registeredTools().get("rbtr_find_refs");
+    if (!tool) throw new Error("rbtr_find_refs not registered");
+    const result = await tool.execute("id", { symbol: "load_config" }, signal, noop, ctx);
+    expect(JSON.parse(result.content.map((p) => p.text).join(""))).toEqual(response);
+    expect(result.structuredContent).toEqual(response);
+    expect(Check(tool.outputSchema, result.structuredContent)).toBe(true);
+  });
+
+  test("its output schema rejects a response without the snapshot it read", () => {
+    const tool = registeredTools().get("rbtr_find_refs");
+    expect(Check(tool?.outputSchema ?? {}, { kind: "find_refs", refs: [], file_paths: null })).toBe(false);
   });
 });

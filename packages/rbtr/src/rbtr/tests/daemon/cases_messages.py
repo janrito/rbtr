@@ -384,10 +384,10 @@ def case_list_symbols_response() -> MessageScenario:
 @case(tags=["response"])
 def case_find_refs_response() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"find_refs","refs":[]}',
+        raw=b'{"kind":"find_refs","refs":[],"resolved":{"sha":"abc","source":"head"},"file_paths":null}',
         adapter=response_adapter,
         expected_type=FindRefsResponse,
-        checks={"refs": []},
+        checks={"refs": [], "file_paths": None},
     )
 
 

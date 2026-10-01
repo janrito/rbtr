@@ -18,13 +18,21 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import structlog
 
 from rbtr import get_version
 from rbtr.config import config
-from rbtr.daemon.dto import PluginInfo, RefOuts, SearchHitOut, SymbolOut, SymbolRefOut
+from rbtr.daemon.dto import (
+    PluginInfo,
+    RefOuts,
+    ResolvedRef,
+    SearchHitOut,
+    SymbolOut,
+    SymbolRefOut,
+)
 from rbtr.daemon.messages import (
     ActiveJob,
     ChangedSymbol,
@@ -61,6 +69,7 @@ from rbtr.domain.models import (
     Chunk,
     GcMode,
     QueryKind,
+    RefSource,
     Repo,
     SnapshotCounts,
     SnapshotRange,
@@ -96,6 +105,14 @@ def resolve_refs(repo_path: str, refs: list[str]) -> list[str]:
     return [resolve_ref(repo_path, ref) for ref in refs]
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ResolvedRead:
+    """The snapshot a read resolved to, and how it was chosen."""
+
+    at: SnapshotRef
+    source: RefSource
+
+
 def _resolve_read_ref(
     store: IndexStore,
     repo_path: str,
@@ -103,7 +120,7 @@ def _resolve_read_ref(
     requested_ref: str | None,
     *,
     require_indexed: bool = False,
-) -> SnapshotRef:
+) -> ResolvedRead:
     """Resolve a ref for read operations to the snapshot it names.
 
     When *requested_ref* is `None`, prefers the worktree's tree SHA
@@ -122,26 +139,28 @@ def _resolve_read_ref(
       build is still finalising), and only errors when the repo has
       no indexed commits at all. So an older indexed version of a
       symbol is preferred over an error.
+
+    The result says which of these choices was made (`RefSource`).
     """
 
     explicit = requested_ref is not None
     if requested_ref is None:
         if (dirty := store.indexed_worktree_ref(repo_path, repo_id)) is not None:
-            return dirty
+            return ResolvedRead(at=dirty, source=RefSource.WORKTREE)
         requested_ref = HEAD_REF
     try:
         sha = resolve_ref(repo_path, requested_ref)
     except RbtrError:
         if requested_ref == HEAD_REF and (latest := store.latest_indexed_ref(repo_id)) is not None:
-            return latest
+            return ResolvedRead(at=latest, source=RefSource.LATEST_INDEXED)
         msg = f"Cannot resolve ref '{requested_ref}' in {repo_path}"
         raise RbtrError(msg) from None
     at = SnapshotRef(repo_id=repo_id, snapshot_sha=sha)
     if require_indexed and not store.has_indexed(at=at):
         if not explicit and (latest := store.latest_indexed_ref(repo_id)) is not None:
-            return latest
+            return ResolvedRead(at=latest, source=RefSource.LATEST_INDEXED)
         _require_indexed(store, at, requested_ref)
-    return at
+    return ResolvedRead(at=at, source=RefSource.REQUESTED if explicit else RefSource.HEAD)
 
 
 # ── Read-only handlers ───────────────────────────────────────────────
@@ -169,7 +188,7 @@ def handle_search(
         repo_paths = {r.repo_id: r.repo_path for r in store.list_repos()}
     else:
         repo_id = store.resolve_repo(request.repo_path)
-        refs = [_resolve_read_ref(store, request.repo_path, repo_id, request.ref)]
+        refs = [_resolve_read_ref(store, request.repo_path, repo_id, request.ref).at]
         repo_paths = None
     override = QueryKind(request.query_kind) if request.query_kind else None
     results = search(
@@ -204,25 +223,29 @@ def _scope_chunks(chunks: list[Chunk], file_paths: list[str] | None) -> list[Chu
 
 def handle_read_symbol(request: ReadSymbolRequest, store: IndexStore) -> ReadSymbolResponse:
     repo_id = store.resolve_repo(request.repo_path)
-    at = _resolve_read_ref(store, request.repo_path, repo_id, request.ref, require_indexed=True)
+    at = _resolve_read_ref(store, request.repo_path, repo_id, request.ref, require_indexed=True).at
     scoped = _scope_chunks(store.match_by_name(request.symbol, at=at), request.file_paths)
     return ReadSymbolResponse(chunks=[SymbolOut.from_chunk(c) for c in scoped])
 
 
 def handle_list_symbols(request: ListSymbolsRequest, store: IndexStore) -> ListSymbolsResponse:
     repo_id = store.resolve_repo(request.repo_path)
-    at = _resolve_read_ref(store, request.repo_path, repo_id, request.ref, require_indexed=True)
+    at = _resolve_read_ref(store, request.repo_path, repo_id, request.ref, require_indexed=True).at
     chunks = store.get_chunks(at=at, file_path=request.file_path)
     return ListSymbolsResponse(chunks=[SymbolRefOut.from_chunk(c) for c in chunks])
 
 
 def handle_find_refs(request: FindRefsRequest, store: IndexStore) -> FindRefsResponse:
     repo_id = store.resolve_repo(request.repo_path)
-    at = _resolve_read_ref(store, request.repo_path, repo_id, request.ref, require_indexed=True)
-    chunks = _scope_chunks(store.match_by_name(request.symbol, at=at), request.file_paths)
-    frame = store.inbound_refs([chunk.id for chunk in chunks], at=at)
+    read = _resolve_read_ref(store, request.repo_path, repo_id, request.ref, require_indexed=True)
+    chunks = _scope_chunks(store.match_by_name(request.symbol, at=read.at), request.file_paths)
+    frame = store.inbound_refs([chunk.id for chunk in chunks], at=read.at)
     refs = RefOuts.validate_python(frame.to_dicts())
-    return FindRefsResponse(refs=refs)
+    return FindRefsResponse(
+        refs=refs,
+        resolved=ResolvedRef(sha=read.at.snapshot_sha, source=read.source),
+        file_paths=request.file_paths,
+    )
 
 
 def _require_indexed(store: IndexStore, at: SnapshotRef, requested_ref: str) -> None:

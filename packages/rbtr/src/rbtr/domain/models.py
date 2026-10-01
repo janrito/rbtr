@@ -65,6 +65,22 @@ class ChangeKind(StrEnum):
     REMOVED = "removed"
 
 
+class RefSource(StrEnum):
+    """How a read chose the snapshot it read.
+
+    `REQUESTED`      — the ref the caller named.
+    `HEAD`           — no ref named and a clean working tree: HEAD.
+    `WORKTREE`       — no ref named and a dirty, indexed working tree.
+    `LATEST_INDEXED` — the snapshot the ref names is not indexed or
+                       does not resolve, so the latest indexed commit.
+    """
+
+    REQUESTED = "requested"
+    HEAD = "head"
+    WORKTREE = "worktree"
+    LATEST_INDEXED = "latest_indexed"
+
+
 class EdgeKind(StrEnum):
     """Kind of relationship between chunks."""
 

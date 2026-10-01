@@ -18,7 +18,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from rbtr.config import config
-from rbtr.domain.models import Chunk, ChunkKind, EdgeKind, ImportMeta, ScoredChunk
+from rbtr.domain.models import Chunk, ChunkKind, EdgeKind, ImportMeta, RefSource, ScoredChunk
 
 _STRICT = ConfigDict(extra="forbid")
 
@@ -206,6 +206,15 @@ class SearchHitOut(BaseModel):
             score=sc.score,
             signals=SearchSignals.from_scored(sc) if explain else None,
         )
+
+
+class ResolvedRef(BaseModel):
+    """The snapshot a read used: its SHA, and how it was chosen."""
+
+    model_config = _STRICT
+
+    sha: str
+    source: RefSource
 
 
 class RefOut(BaseModel):

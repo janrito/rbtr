@@ -80,6 +80,16 @@ export type QueryKind = "concept" | "identifier" | "code";
  */
 export type EdgeKind = "calls" | "imports" | "inherits" | "documents" | "configures";
 /**
+ * How a read chose the snapshot it read.
+ *
+ * `REQUESTED`      — the ref the caller named.
+ * `HEAD`           — no ref named and a clean working tree: HEAD.
+ * `WORKTREE`       — no ref named and a dirty, indexed working tree.
+ * `LATEST_INDEXED` — the snapshot the ref names is not indexed or
+ *                    does not resolve, so the latest indexed commit.
+ */
+export type RefSource = "requested" | "head" | "worktree" | "latest_indexed";
+/**
  * How a symbol changed between two indexed commits.
  */
 export type ChangeKind = "added" | "modified" | "removed";
@@ -423,9 +433,17 @@ export interface SymbolRefOut {
   line_end: number;
   metadata?: ImportMeta | null;
 }
+/**
+ * References to a symbol, with the snapshot read and the paths scoped to.
+ *
+ * `file_paths` is the request's scoping, repo-relative; `None` when
+ * the request named none.
+ */
 export interface FindRefsResponse {
   kind: "find_refs";
   refs: RefOut[];
+  resolved: ResolvedRef;
+  file_paths: string[] | null;
 }
 /**
  * A reference to the queried symbol, resolved to its referrer.
@@ -441,6 +459,13 @@ export interface RefOut {
   file_path: string;
   line_start: number;
   edge: EdgeKind;
+}
+/**
+ * The snapshot a read used: its SHA, and how it was chosen.
+ */
+export interface ResolvedRef {
+  sha: string;
+  source: RefSource;
 }
 export interface ChangedSymbolsResponse {
   kind: "changed_symbols";
