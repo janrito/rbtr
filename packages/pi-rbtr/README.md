@@ -157,6 +157,22 @@ progress.
 {"kind": "error", "code": "index_not_built", "message": "Ref 'main' is not indexed — run rbtr watch first"}
 ```
 
+### With codemode
+
+pi's `codemode` tool runs model-written JavaScript that calls other
+tools. The rbtr tools declare their output schemas, so a script gets
+each reply as a typed value — `refs`, `resolved`, or an error's
+`code` — without parsing text, and can chain lookups and send the
+model only what it needs. codemode is off by default; to turn it on:
+
+```json
+{ "defaultTools": ["+codemode"] }
+```
+
+in `~/.pi/agent/settings.json`, or a project's `.pi/settings.json`.
+While it is on, each rbtr tool's description carries its script
+declaration, about 1,000 tokens across the tools.
+
 ### Footer
 
 The extension shows index state in the pi footer:
