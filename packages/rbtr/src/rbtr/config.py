@@ -244,9 +244,10 @@ Slowed down to avoid flooding the queue with duplicates.  Only used by the daemo
     )
     daemon_start_timeout: float = Field(
         default=60.0,
-        description="Backstop seconds to wait for a spawned daemon to bind "
-        "its sockets before giving up.  Only trips on a genuine hang; a "
-        "slow cold start under load binds well within this.",
+        description="Backstop seconds to wait for a spawned daemon, or the "
+        "process holding the index lock, to bind its sockets before giving "
+        "up.  Only trips on a genuine hang or a lock holder that never "
+        "serves; a slow cold start under load binds well within this.",
     )
     warmup: bool = Field(
         default=True,

@@ -112,20 +112,26 @@ def test_daemon_left_running_is_killed_by_fixture_teardown(
     orphan_pids.append(status.pid)
 
 
-def test_start_with_db_lock_held_exits_cleanly(isolated_db: Path) -> None:
+def test_start_with_db_lock_held_exits_cleanly(
+    isolated_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A start that cannot acquire the DuckDB lock fails honestly.
 
     Holding the exclusive lock in-process makes the spawned
-    `daemon serve` die on the lock, so `start_daemon` raises
-    `RbtrError`.  The command must catch it and exit 1 (its own
+    `daemon serve` exit on the lock, and no daemon ever serves, so
+    `start_daemon` raises `RbtrError` at the deadline, naming the
+    lock.  The command must catch it and exit 1 (its own
     handler) — not let it escape to the global handler as exit 2,
     which is what the pre-fix `except RuntimeError` did.
     """
+    monkeypatch.setenv("RBTR_DAEMON_START_TIMEOUT", "15")
     store = IndexStore.from_config(writable=True)  # take the exclusive lock
     try:
+        started = time.monotonic()
         result = run_cli(["daemon", "start"])
+        assert time.monotonic() - started >= 15
         assert result.returncode == 1, result.stderr
-        assert "Daemon failed to start" in result.stderr
+        assert "Another process holds the index lock" in " ".join(result.stderr.split())
     finally:
         store.close()
         run_cli(["daemon", "stop"])

@@ -47,6 +47,7 @@ from rbtr.cli.output import (
 )
 from rbtr.config import Config, WeightTriple, config
 from rbtr.daemon.client import (
+    SERVE_EXIT_INDEX_LOCKED,
     live_status,
     start_daemon,
     stop_daemon,
@@ -161,6 +162,10 @@ class DaemonServe(BaseModel):
         print_banner()
         try:
             store = IndexStore.from_config(writable=True)
+        except IndexLockedError:
+            # Another process holds the index; the store logged it.  The
+            # code tells `start_daemon` to wait for that process's daemon.
+            sys.exit(SERVE_EXIT_INDEX_LOCKED)
         except RbtrError:
             # The parent redirects our stderr to DEVNULL, so record why
             # the daemon couldn't open the index (e.g. a schema refuse)

@@ -803,11 +803,15 @@ subscriber knows whether work on it is still due.
 
 The daemon is **single and global** per `data_dir`: `serve` takes
 DuckDB's exclusive lock (via `IndexStore.from_config`) before
-binding its sockets, so a second `serve` racing it dies on the
-lock. `start_daemon()` tolerates this rather than coordinating it
-— it treats any live daemon as ready, so concurrent callers
-converge on the winner and a losing spawn is terminated. The
-double-spawn is cheap, so no parent-side start lock is needed.
+binding its sockets, so a second `serve` racing it exits on the
+lock with `SERVE_EXIT_INDEX_LOCKED`. `start_daemon()` tolerates
+this rather than coordinating it: it treats any live daemon as
+ready, so concurrent callers converge on the winner and a losing
+spawn is terminated. The winner holds the lock through its whole
+startup and writes its status file last, seconds later under
+load, so a caller whose spawn exited with that code keeps waiting
+until `daemon_start_timeout`. The double-spawn is cheap, so no
+parent-side start lock is needed.
 
 Stopping is asked for from outside the loop — a signal, or
 `request_shutdown` from another thread. The flag is a plain
