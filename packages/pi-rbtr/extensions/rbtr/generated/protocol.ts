@@ -57,6 +57,7 @@ export type ErrorCode =
   | "index_in_progress"
   | "repo_not_found"
   | "index_locked"
+  | "daemon_busy"
   | "internal";
 /**
  * Kind of indexed chunk.

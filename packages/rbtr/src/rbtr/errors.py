@@ -101,3 +101,5 @@ class DaemonBusyError(RbtrError):
     can refuse to silently fall back to inline mode -- inline reads
     would contend for DuckDB's process-level WAL lock.
     """
+
+    error_code: str = "daemon_busy"

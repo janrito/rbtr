@@ -913,6 +913,8 @@ Error responses carry a `code` field:
 - `repo_not_found` — the repo path isn't registered.
 - `index_locked` — another process holds the index's write
   lock; retry once it has let go.
+- `daemon_busy` — the daemon is running but did not reply
+  within the client's wait; retry later.
 - `invalid_request` — malformed or missing fields; the message
   names each offending field and the value it received, so a
   caller can see how an argument was mis-shaped.
