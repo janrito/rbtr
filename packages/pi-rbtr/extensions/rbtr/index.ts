@@ -9,7 +9,9 @@
  * Placement: .pi/extensions/rbtr/index.ts
  */
 
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { relative, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   DEFAULT_MAX_BYTES,
@@ -47,6 +49,7 @@ const { version: EXTENSION_VERSION } = require("../../package.json") as { versio
  */
 const READ_CLI_TIMEOUT_MS = 150_000;
 
+import { block, type IndexLookups, readFacts, searchFacts } from "./annotate.js";
 import { commandRefs, decodeStringList, echoArgs } from "./args.js";
 import {
   footerLabel,
@@ -142,7 +145,7 @@ function notifyReconcile(ctx: ExtensionContext, result: ReconcileResult): void {
 export default function rbtrIndexExtension(pi: ExtensionAPI) {
   const session = new DaemonSession();
   let resolved: ResolvedCommand | null = null;
-  let settings: RbtrIndexSettings = { command: "rbtr", autoIndex: true };
+  let settings: RbtrIndexSettings = { command: "rbtr", autoIndex: true, annotate: true };
   let cliAvailable = false;
   let footer: Footer | null = null;
   let healthTimer: ReturnType<typeof setInterval> | null = null;
@@ -204,6 +207,47 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       return null;
     }
   }
+
+  // ── Index facts in bash and read output ────────────────────
+
+  // Files already given an outline this session; a second read of one
+  // gets none.
+  const outlined = new Set<string>();
+
+  function lookups(cwd: string): IndexLookups {
+    return {
+      readSymbol: (symbol) => session.send({ kind: "read_symbol", repo_path: cwd, symbol }),
+      findRefs: (symbol) => session.send({ kind: "find_refs", repo_path: cwd, symbol }),
+      search: (query) => session.send({ kind: "search", repo_path: cwd, query, limit: 3 }),
+      listSymbols: (file_path) => session.send({ kind: "list_symbols", repo_path: cwd, file_path }),
+    };
+  }
+
+  // Daemon only: a CLI fallback would start a process per annotated call.
+  // Any failure leaves the tool's output as it was.
+  pi.on("tool_result", async (event, ctx) => {
+    if (!settings.annotate || !session.available || event.isError) return;
+    let lines: string[] = [];
+    try {
+      const { command, path, offset } = event.input;
+      if (event.toolName === "bash" && typeof command === "string") {
+        const output = event.content.map((part) => (part.type === "text" ? part.text : "")).join("");
+        lines = await searchFacts(lookups(ctx.cwd), command, output);
+      } else if (event.toolName === "read" && typeof path === "string" && offset === undefined) {
+        const absolute = resolve(ctx.cwd, path);
+        if (outlined.has(absolute)) return;
+        outlined.add(absolute);
+        const lineCount = readFileSync(absolute, "utf8").split("\n").length;
+        lines = await readFacts(lookups(ctx.cwd), relative(ctx.cwd, absolute), lineCount);
+      }
+    } catch {
+      return;
+    }
+    const text = block(lines);
+    if (text === null) return;
+    // pi drops a tool's details unless the handler returns them.
+    return { content: [...event.content, { type: "text", text: `\n\n${text}` }], details: event.details };
+  });
 
   // ── Session lifecycle ───────────────────────────────────────
 

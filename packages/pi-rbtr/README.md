@@ -162,14 +162,42 @@ overrides global:
 ```json
 {
   "command": "rbtr",
-  "autoIndex": true
+  "autoIndex": true,
+  "annotate": true
 }
 ```
 
-| Key         | Default  | Description                                      |
-| ----------- | -------- | ------------------------------------------------ |
-| `command`   | `"rbtr"` | How to invoke the CLI (see below)                |
-| `autoIndex` | `true`   | Auto-index on session start when no index exists |
+| Key         | Default  | Description                                                                             |
+| ----------- | -------- | --------------------------------------------------------------------------------------- |
+| `command`   | `"rbtr"` | How to invoke the CLI (see below)                                                       |
+| `autoIndex` | `true`   | Auto-index on session start when no index exists                                        |
+| `annotate`  | `true`   | Append index facts to `bash` searches and to the first read of a large file (see below) |
+
+### Index facts in `bash` and `read` output
+
+Agents often keep to `bash` and `read` even with the rbtr
+tools available, so with `annotate` on, the extension
+appends what the index knows to those tools' output, in a
+block headed `[rbtr index]` of at most ten lines:
+
+```text
+$ grep -rn "def union" django
+django/db/models/query.py:939:    def union(self, *other_qs, all=False):
+
+[rbtr index]
+used by: django/db/models/sql/compiler.py, django/db/models/__init__.py
+```
+
+- After a `grep`, `rg`, `ag` or `git grep` for a name (`union`,
+  `QuerySet.union`, `def union`): where it is defined, unless
+  the output already shows it, and which files import it.
+- After a search for a phrase: the index's three best
+  matches.
+- After the first read of a file of 200 lines or more: its
+  outline, with line ranges.
+
+Nothing is appended when the index has nothing to add, when
+the tool failed, or when the daemon is not running.
 
 ### CLI invocation modes
 

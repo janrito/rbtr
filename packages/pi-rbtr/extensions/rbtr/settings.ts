@@ -13,11 +13,14 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 export interface RbtrIndexSettings {
   command: string;
   autoIndex: boolean;
+  /** Append index facts to `bash` searches and large-file reads. */
+  annotate: boolean;
 }
 
 const DEFAULTS: RbtrIndexSettings = {
   command: "rbtr",
   autoIndex: true,
+  annotate: true,
 };
 
 const CONFIG_FILENAME = "rbtr-index.json";

@@ -153,6 +153,24 @@ Open models reach for tools they were trained on, mostly
 each tool replaces tripled that. The measurements are in
 `rbtr-agent-eval`'s screen of tool use.
 
+### Facts in the tools the agent already uses
+
+Leading with what each tool replaces still left most of an
+open model's calls in `bash`. So a `tool_result` handler
+(`annotate.ts`) appends index facts to the output of `bash`
+searches and large-file reads: the agent keeps its habits,
+and the index's answer arrives with them. The block is
+capped at ten lines and skipped when it would repeat the
+output, because every line costs tokens on every call.
+
+The facts come from the daemon only. A CLI fallback would
+start a process for each annotated call, and the hook runs
+on every `bash` and `read`. Any failure returns nothing, so
+the tool's own output is never lost. The handler returns the
+tool's `details` with its `content`, because pi drops a
+tool's details when a handler replaces the content without
+them.
+
 ### Output contract
 
 Query tools (`search`, `read-symbol`, `list-symbols`,
