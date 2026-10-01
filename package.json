@@ -9,6 +9,6 @@
     "@biomejs/biome": "^2.5.14",
     "@graphql-inspector/cli": "4.0.3",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.1"
   }
 }
