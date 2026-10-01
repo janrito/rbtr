@@ -7,7 +7,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
-    "@graphql-inspector/cli": "4.0.3",
+    "@graphql-inspector/cli": "7.0.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
   }
