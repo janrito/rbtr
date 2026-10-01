@@ -37,6 +37,7 @@ export type Response =
   | ErrorResponse
   | OkResponse
   | WatchResponse
+  | WatchSetResponse
   | SearchResponse
   | ReadSymbolResponse
   | ListSymbolsResponse
@@ -50,7 +51,14 @@ export type Response =
 /**
  * Error codes for the daemon protocol.
  */
-export type ErrorCode = "invalid_request" | "index_not_built" | "index_in_progress" | "repo_not_found" | "internal";
+export type ErrorCode =
+  | "invalid_request"
+  | "index_not_built"
+  | "index_in_progress"
+  | "repo_not_found"
+  | "index_locked"
+  | "daemon_busy"
+  | "internal";
 /**
  * Kind of indexed chunk.
  */
@@ -67,6 +75,16 @@ export type ChunkKind =
   | "test_function"
   | "api_endpoint"
   | "raw_chunk";
+/**
+ * How a read chose the snapshot it read.
+ *
+ * `REQUESTED`      — the ref the caller named.
+ * `HEAD`           — no ref named and a clean working tree: HEAD.
+ * `WORKTREE`       — no ref named and a dirty, indexed working tree.
+ * `LATEST_INDEXED` — the snapshot the ref names is not indexed or
+ *                    does not resolve, so the latest indexed commit.
+ */
+export type RefSource = "requested" | "head" | "worktree" | "latest_indexed";
 /**
  * Query processing tier.
  *
@@ -299,9 +317,41 @@ export interface IndexStats {
   embedded_chunks?: number;
   elapsed_seconds?: number;
 }
+/**
+ * The repo's watch set after a watch request.
+ *
+ * Each ref with the SHA it resolves to now and whether that SHA is
+ * indexed; an unindexed one is built by the worker in the background.
+ */
+export interface WatchSetResponse {
+  kind: "watch_set";
+  watched: WatchedRef[];
+}
+/**
+ * A ref the daemon keeps indexed, and whether it is indexed yet.
+ *
+ * `sha` is the ref's current resolution (`None` when it no longer
+ * resolves, e.g. a deleted branch). `indexed` is true once that SHA
+ * has an `indexed_snapshots` row; false means *pending* (just added,
+ * or its tip moved and a rebuild is due).
+ */
+export interface WatchedRef {
+  ref: string;
+  sha?: string | null;
+  indexed?: boolean;
+  repo_path?: string | null;
+}
+/**
+ * Search hits, with the snapshot searched.
+ *
+ * `resolved` is `None` under `scope: all`, which searches every
+ * indexed repo at its latest indexed commit; each hit then names
+ * its repo.
+ */
 export interface SearchResponse {
   kind: "search";
   results: SearchHitOut[];
+  resolved: ResolvedRef | null;
   query_kind?: QueryKind | null;
 }
 /**
@@ -310,6 +360,11 @@ export interface SearchResponse {
  * Carries the single final `score`. The ranking-signal breakdown
  * (`signals`) is included only when the search requests `explain`,
  * keeping the default payload low-noise.
+ *
+ * The body arrives as a `Preview` — enough to judge the hit against
+ * the query, and a flag when there is more. A result set is a dozen
+ * hits, so whole bodies here cost an agent more context than the
+ * answer is worth.
  */
 export interface SearchHitOut {
   name: string;
@@ -317,7 +372,7 @@ export interface SearchHitOut {
   file_paths: string[];
   scope?: string;
   language?: string;
-  content: string;
+  preview: Preview;
   line_start: number;
   line_end: number;
   match_line_offset?: number | null;
@@ -326,6 +381,22 @@ export interface SearchHitOut {
   repo_path?: string | null;
   score: number;
   signals?: SearchSignals | null;
+}
+/**
+ * As much of a symbol's body as a search hit carries.
+ *
+ * `clipped` says whether `text` is the whole body, and `total_lines`
+ * how long that body is, so a caller can tell a short symbol from the
+ * head of a long one and knows to call `read-symbol` for the rest.
+ *
+ * Built only by `from_content`, which derives all three together: a
+ * preview that reported itself whole while holding clipped text would
+ * have an agent edit a fragment believing it had the function.
+ */
+export interface Preview {
+  text: string;
+  clipped: boolean;
+  total_lines: number;
 }
 /**
  * Structured import data extracted by tree-sitter.
@@ -358,12 +429,31 @@ export interface SearchSignals {
   fusion: number;
   reranker: number;
 }
+/**
+ * The snapshot a read used: its SHA, and how it was chosen.
+ */
+export interface ResolvedRef {
+  sha: string;
+  source: RefSource;
+}
+/**
+ * A symbol's definitions, with the snapshot read and the paths scoped to.
+ *
+ * `file_paths` is the request's scoping, repo-relative; `None` when
+ * the request named none.
+ */
 export interface ReadSymbolResponse {
   kind: "read_symbol";
   chunks: SymbolOut[];
+  resolved: ResolvedRef;
+  file_paths: string[] | null;
 }
 /**
- * A symbol as returned by read-symbol, list-symbols, changed-symbols.
+ * A symbol and its source, as returned by read-symbol.
+ *
+ * The one read shape that carries a body. `list-symbols` and
+ * `changed-symbols` return `SymbolRefOut`; a search hit carries a
+ * capped `Preview`.
  */
 export interface SymbolOut {
   name: string;
@@ -376,13 +466,44 @@ export interface SymbolOut {
   line_end: number;
   metadata?: ImportMeta | null;
 }
+/**
+ * A file's outline, with the snapshot read and the path outlined.
+ */
 export interface ListSymbolsResponse {
   kind: "list_symbols";
-  chunks: SymbolOut[];
+  chunks: SymbolRefOut[];
+  resolved: ResolvedRef;
+  file_path: string;
 }
+/**
+ * Where a symbol is, without its body.
+ *
+ * What `list-symbols` and `changed-symbols` return: enough to name a
+ * symbol, place it, and fetch it with `read-symbol` next. It holds no
+ * `content` field, so an outline cannot carry a file's source however
+ * it is constructed.
+ */
+export interface SymbolRefOut {
+  name: string;
+  kind: ChunkKind;
+  file_path: string;
+  scope?: string;
+  language?: string;
+  line_start: number;
+  line_end: number;
+  metadata?: ImportMeta | null;
+}
+/**
+ * References to a symbol, with the snapshot read and the paths scoped to.
+ *
+ * `file_paths` is the request's scoping, repo-relative; `None` when
+ * the request named none.
+ */
 export interface FindRefsResponse {
   kind: "find_refs";
   refs: RefOut[];
+  resolved: ResolvedRef;
+  file_paths: string[] | null;
 }
 /**
  * A reference to the queried symbol, resolved to its referrer.
@@ -399,15 +520,24 @@ export interface RefOut {
   line_start: number;
   edge: EdgeKind;
 }
+/**
+ * The symbol-level diff, with the commits compared and the paths scoped to.
+ *
+ * `file_paths` is the request's scoping, repo-relative; `None` when
+ * the request named none.
+ */
 export interface ChangedSymbolsResponse {
   kind: "changed_symbols";
   changes: ChangedSymbol[];
+  base_sha: string;
+  head_sha: string;
+  file_paths: string[] | null;
 }
 /**
- * One changed symbol: its chunk plus how it changed.
+ * One changed symbol: where it is plus how it changed.
  */
 export interface ChangedSymbol {
-  chunk: SymbolOut;
+  chunk: SymbolRefOut;
   change: ChangeKind;
 }
 export interface StatusResponse {
@@ -427,20 +557,6 @@ export interface IndexedRef {
   names?: string[];
   total: number;
   embedded: number;
-  repo_path?: string | null;
-}
-/**
- * A ref the daemon keeps indexed, and whether it is indexed yet.
- *
- * `sha` is the ref's current resolution (`None` when it no longer
- * resolves, e.g. a deleted branch). `indexed` is true once that SHA
- * has an `indexed_snapshots` row; false means *pending* (just added,
- * or its tip moved and a rebuild is due).
- */
-export interface WatchedRef {
-  ref: string;
-  sha?: string | null;
-  indexed?: boolean;
   repo_path?: string | null;
 }
 /**

@@ -39,11 +39,12 @@ from rich_argparse import RichHelpFormatter
 
 from rbtr.cli.output import (
     emit,
+    fail,
     print_banner,
     print_err,
     print_json_schema,
-    print_rejected_arguments,
     progress_reporter,
+    reject_arguments,
 )
 from rbtr.config import Config, WeightTriple, config
 from rbtr.daemon.client import (
@@ -71,6 +72,7 @@ from rbtr.daemon.messages import (
     ChangedSymbolsResponse,
     DaemonConfigRequest,
     DaemonConfigResponse,
+    ErrorCode,
     ErrorResponse,
     FindRefsRequest,
     FindRefsResponse,
@@ -94,12 +96,13 @@ from rbtr.daemon.messages import (
     UnwatchStaleRequest,
     WatchRequest,
     WatchResponse,
+    WatchSetResponse,
     protocol_json_schema,
 )
 from rbtr.daemon.server import DaemonServer
 from rbtr.daemon.status import DaemonStatusReport, uptime_seconds as _uptime_seconds
 from rbtr.domain.models import GcMode
-from rbtr.errors import IndexLockedError, RbtrError
+from rbtr.errors import ExitCode, IndexLockedError, IndexNotBuiltError, RbtrError
 from rbtr.git import HEAD_REF, normalise_repo_path, resolve_ref
 from rbtr.index.build import build_index
 from rbtr.index.embed import embed_index
@@ -161,6 +164,10 @@ class DaemonServe(BaseModel):
         print_banner()
         try:
             store = IndexStore.from_config(writable=True)
+        except IndexLockedError:
+            # Another process holds the index; the store logged it.  The
+            # code tells `start_daemon` to wait for that process's daemon.
+            sys.exit(ExitCode.INDEX_LOCKED)
         except RbtrError:
             # The parent redirects our stderr to DEVNULL, so record why
             # the daemon couldn't open the index (e.g. a schema refuse)
@@ -193,8 +200,7 @@ class DaemonStart(BaseModel):
         try:
             start_daemon(allow_missing_plugins=self.allow_missing_plugins)
         except RbtrError as exc:
-            print_err(f"[red]error:[/] {exc}")
-            sys.exit(1)
+            fail(exc)
 
         emit(OkResponse())
 
@@ -210,8 +216,7 @@ class DaemonStop(BaseModel):
         try:
             stop_daemon()
         except RbtrError as exc:
-            print_err(f"[red]error:[/] {exc}")
-            sys.exit(1)
+            fail(exc)
 
         emit(OkResponse())
 
@@ -307,9 +312,8 @@ class Watch(BaseModel):
             try:
                 self._run_inline(resolved_repo, [resolve_ref(resolved_repo, r) for r in self.refs])
             except IndexLockedError as locked:
-                print_err(f"[red]error:[/] {locked}")
-                print_err("[dim]Inline indexing needs that same lock, so it was not attempted.[/]")
-                sys.exit(1)
+                message = f"{locked} Inline indexing needs that same lock, so it was not attempted."
+                fail(ErrorResponse(code=ErrorCode(locked.error_code), message=message))
             return
 
         self._report_watch(try_daemon(request), started=True)
@@ -320,15 +324,17 @@ class Watch(BaseModel):
         match resp:
             case WatchResponse():
                 emit(resp)
-            case OkResponse():
-                print_err(f"[green]Watching:[/] {', '.join(self.refs)}{suffix}")
-                print_err("[dim]Indexing in background; run `rbtr status` to track.[/]")
-            case ErrorResponse(message=msg):
-                print_err(f"[red]error:[/] {msg}")
-                sys.exit(1)
+            case WatchSetResponse():
+                emit(resp)
+                print_err(f"[dim]Indexing in background{suffix}; run `rbtr status` to track.[/]")
+            case ErrorResponse() as err:
+                fail(err)
             case _:
-                print_err("[red]error:[/] daemon did not record the watch")
-                sys.exit(1)
+                fail(
+                    ErrorResponse(
+                        code=ErrorCode.INTERNAL, message="daemon did not record the watch"
+                    )
+                )
 
     def _run_inline(
         self,
@@ -450,12 +456,10 @@ class Unwatch(BaseModel):
         match resp:
             case UnwatchResponse():
                 emit(resp)
-            case ErrorResponse(message=msg):
-                print_err(f"[red]error:[/] {msg}")
-                sys.exit(1)
+            case ErrorResponse() as err:
+                fail(err)
             case _:
-                print_err(f"[red]error:[/] unexpected response: {resp}")
-                sys.exit(1)
+                fail(ErrorResponse(code=ErrorCode.INTERNAL, message=f"unexpected response: {resp}"))
 
 
 class Forget(BaseModel):
@@ -507,12 +511,10 @@ class Forget(BaseModel):
         match resp:
             case ForgetResponse():
                 emit(resp)
-            case ErrorResponse(message=msg):
-                print_err(f"[red]error:[/] {msg}")
-                sys.exit(1)
+            case ErrorResponse() as err:
+                fail(err)
             case _:
-                print_err(f"[red]error:[/] unexpected response: {resp}")
-                sys.exit(1)
+                fail(ErrorResponse(code=ErrorCode.INTERNAL, message=f"unexpected response: {resp}"))
 
 
 class Search(BaseModel):
@@ -575,9 +577,8 @@ class Search(BaseModel):
         match try_daemon(request):
             case SearchResponse() as resp:
                 emit(resp)
-            case ErrorResponse(message=msg):
-                print_err(f"[red]error:[/] {msg}")
-                sys.exit(1)
+            case ErrorResponse() as err:
+                fail(err)
             case None:
                 store = IndexStore.from_config()
 
@@ -593,15 +594,13 @@ class Search(BaseModel):
                     )
                     emit(resp)
                 except RbtrError as exc:
-                    print_err(f"[red]error:[/] {exc}")
-                    sys.exit(1)
+                    fail(exc)
                 finally:
                     embedder.close()
                     if reranker is not None:
                         reranker.close()
             case resp:
-                print_err(f"[red]error:[/] unexpected response: {resp}")
-                sys.exit(1)
+                fail(ErrorResponse(code=ErrorCode.INTERNAL, message=f"unexpected response: {resp}"))
 
 
 class ReadSymbol(BaseModel):
@@ -628,20 +627,17 @@ class ReadSymbol(BaseModel):
         match try_daemon(request):
             case ReadSymbolResponse() as resp:
                 emit(resp)
-            case ErrorResponse(message=msg):
-                print_err(f"[red]error:[/] {msg}")
-                sys.exit(1)
+            case ErrorResponse() as err:
+                fail(err)
             case None:
                 store = IndexStore.from_config()
 
                 try:
                     emit(handle_read_symbol(request, store))
                 except RbtrError as exc:
-                    print_err(f"[red]error:[/] {exc}")
-                    sys.exit(1)
+                    fail(exc)
             case resp:
-                print_err(f"[red]error:[/] unexpected response: {resp}")
-                sys.exit(1)
+                fail(ErrorResponse(code=ErrorCode.INTERNAL, message=f"unexpected response: {resp}"))
 
 
 class ListSymbols(BaseModel):
@@ -664,20 +660,17 @@ class ListSymbols(BaseModel):
         match try_daemon(request):
             case ListSymbolsResponse() as resp:
                 emit(resp)
-            case ErrorResponse(message=msg):
-                print_err(f"[red]error:[/] {msg}")
-                sys.exit(1)
+            case ErrorResponse() as err:
+                fail(err)
             case None:
                 store = IndexStore.from_config()
 
                 try:
                     emit(handle_list_symbols(request, store))
                 except RbtrError as exc:
-                    print_err(f"[red]error:[/] {exc}")
-                    sys.exit(1)
+                    fail(exc)
             case resp:
-                print_err(f"[red]error:[/] unexpected response: {resp}")
-                sys.exit(1)
+                fail(ErrorResponse(code=ErrorCode.INTERNAL, message=f"unexpected response: {resp}"))
 
 
 class FindRefs(BaseModel):
@@ -704,20 +697,17 @@ class FindRefs(BaseModel):
         match try_daemon(request):
             case FindRefsResponse() as resp:
                 emit(resp)
-            case ErrorResponse(message=msg):
-                print_err(f"[red]error:[/] {msg}")
-                sys.exit(1)
+            case ErrorResponse() as err:
+                fail(err)
             case None:
                 store = IndexStore.from_config()
 
                 try:
                     emit(handle_find_refs(request, store))
                 except RbtrError as exc:
-                    print_err(f"[red]error:[/] {exc}")
-                    sys.exit(1)
+                    fail(exc)
             case resp:
-                print_err(f"[red]error:[/] unexpected response: {resp}")
-                sys.exit(1)
+                fail(ErrorResponse(code=ErrorCode.INTERNAL, message=f"unexpected response: {resp}"))
 
 
 class ChangedSymbols(BaseModel):
@@ -742,20 +732,17 @@ class ChangedSymbols(BaseModel):
         match try_daemon(request):
             case ChangedSymbolsResponse() as resp:
                 emit(resp)
-            case ErrorResponse(message=msg):
-                print_err(f"[red]error:[/] {msg}")
-                sys.exit(1)
+            case ErrorResponse() as err:
+                fail(err)
             case None:
                 store = IndexStore.from_config()
 
                 try:
                     emit(handle_changed_symbols(request, store))
                 except RbtrError as exc:
-                    print_err(f"[red]error:[/] {exc}")
-                    sys.exit(1)
+                    fail(exc)
             case resp:
-                print_err(f"[red]error:[/] unexpected response: {resp}")
-                sys.exit(1)
+                fail(ErrorResponse(code=ErrorCode.INTERNAL, message=f"unexpected response: {resp}"))
 
 
 class Status(BaseModel):
@@ -774,24 +761,25 @@ class Status(BaseModel):
         match try_daemon(request):
             case StatusResponse() as resp:
                 emit(resp)
-            case ErrorResponse(message=msg):
-                print_err(f"[red]error:[/] {msg}")
-                sys.exit(1)
+            case ErrorResponse() as err:
+                fail(err)
             case None:
                 db = config.db_path
                 if not db.exists():
                     emit(StatusResponse())
                     return
-                store = IndexStore(db)
+                try:
+                    store = IndexStore(db)
+                except IndexNotBuiltError:
+                    emit(StatusResponse())  # the file exists, the index does not
+                    return
 
                 try:
                     emit(handle_status(request, store))
                 except RbtrError as exc:
-                    print_err(f"[red]error:[/] {exc}")
-                    sys.exit(1)
+                    fail(exc)
             case resp:
-                print_err(f"[red]error:[/] unexpected response: {resp}")
-                sys.exit(1)
+                fail(ErrorResponse(code=ErrorCode.INTERNAL, message=f"unexpected response: {resp}"))
 
 
 class Gc(BaseModel):
@@ -876,9 +864,8 @@ class Gc(BaseModel):
         match try_daemon(request):
             case GcResponse() as resp:
                 emit(resp)
-            case ErrorResponse(message=msg):
-                print_err(f"[red]error:[/] {msg}")
-                sys.exit(1)
+            case ErrorResponse() as err:
+                fail(err)
             case None:
                 # No daemon: this process holds DuckDB's exclusive lock, so
                 # compaction's connection swap is safe here (allow_compact).
@@ -887,11 +874,9 @@ class Gc(BaseModel):
                 try:
                     self._run_inline(request, store)
                 except RbtrError as exc:
-                    print_err(f"[red]error:[/] {exc}")
-                    sys.exit(1)
+                    fail(exc)
             case resp:
-                print_err(f"[red]error:[/] unexpected response: {resp}")
-                sys.exit(1)
+                fail(ErrorResponse(code=ErrorCode.INTERNAL, message=f"unexpected response: {resp}"))
 
     @staticmethod
     def _run_inline(request: GcRequest, store: IndexStore) -> None:
@@ -936,12 +921,10 @@ class ConfigCmd(BaseModel):
             case None:
                 print_err("[dim]daemon not running — showing local config[/]")
                 emit(handle_daemon_config(DaemonConfigRequest()))
-            case ErrorResponse(message=msg):
-                print_err(f"[red]error:[/] {msg}")
-                sys.exit(1)
+            case ErrorResponse() as err:
+                fail(err)
             case resp:
-                print_err(f"[red]error:[/] unexpected response: {resp}")
-                sys.exit(1)
+                fail(ErrorResponse(code=ErrorCode.INTERNAL, message=f"unexpected response: {resp}"))
 
 
 # ── Root command ─────────────────────────────────────────────────────
@@ -1004,8 +987,6 @@ def main() -> None:
     try:
         CliApp.run(Rbtr, cli_settings_source=cli_source)
     except RbtrError as exc:
-        print_err(f"[red]error:[/] {exc}")
-        sys.exit(2)
+        fail(exc, ExitCode.ERROR)
     except ValidationError as exc:
-        print_rejected_arguments(exc)
-        sys.exit(2)
+        reject_arguments(exc)

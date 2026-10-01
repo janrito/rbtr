@@ -9,23 +9,26 @@ import { classifyDaemonFailure, decideStartupDecision } from "../extensions/rbtr
 import type { StatusResponse } from "../extensions/rbtr/generated/protocol.js";
 
 describe("classifyDaemonFailure", () => {
+  const locked = { kind: "error", code: "index_locked", message: "Another process holds the index lock" } as const;
+  const other = { kind: "error", code: "internal", message: "Daemon failed to start within 5 s." } as const;
+
   test.each([
-    [127, "rbtr: command not found", "missing-cli"],
-    [1, "spawn rbtr ENOENT", "missing-cli"],
-    [2, "error: Index database is locked by another process.", "db-locked"],
-    [2, "error: Daemon failed to start within 5 s.", "transient"],
-    [1, "", "transient"],
-  ] as const)("code=%i stderr=%j -> %s", (code, stderr, kind) => {
-    expect(classifyDaemonFailure(code, stderr).kind).toBe(kind);
+    [127, null, "rbtr: command not found", "missing-cli"],
+    [1, null, "spawn rbtr ENOENT", "missing-cli"],
+    [1, locked, "", "db-locked"],
+    [1, other, "", "transient"],
+    [1, null, "", "transient"],
+  ] as const)("code=%i reply=%j stderr=%j -> %s", (code, reply, stderr, kind) => {
+    expect(classifyDaemonFailure(code, reply, stderr).kind).toBe(kind);
   });
 
-  test("transient failure carries the stderr as its message", () => {
-    const failure = classifyDaemonFailure(2, "error: Daemon failed to start within 5 s.");
-    expect(failure.message).toContain("Daemon failed to start");
+  test("transient failure carries rbtr's message, or stderr when it printed none", () => {
+    expect(classifyDaemonFailure(1, other, "").message).toContain("Daemon failed to start");
+    expect(classifyDaemonFailure(1, null, "Traceback …").message).toContain("Traceback");
   });
 
   test("missing-cli message gives install instructions", () => {
-    expect(classifyDaemonFailure(127, "command not found").message).toContain("uv tool install rbtr");
+    expect(classifyDaemonFailure(127, null, "command not found").message).toContain("uv tool install rbtr");
   });
 });
 

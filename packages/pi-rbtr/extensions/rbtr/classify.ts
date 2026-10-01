@@ -8,7 +8,7 @@
  * driven by these verdicts.
  */
 
-import type { StatusResponse } from "./generated/protocol.js";
+import type { ErrorResponse, StatusResponse } from "./generated/protocol.js";
 
 export type DaemonFailureKind =
   | "missing-cli" // the rbtr command itself could not be run
@@ -21,22 +21,25 @@ export interface DaemonFailure {
 }
 
 /**
- * Classify a failed `rbtr daemon …` invocation from its exit
- * code and stderr into an actionable category and message.
+ * Classify a failed `rbtr daemon …` invocation into an actionable
+ * category and message, from its exit code, the `ErrorResponse`
+ * rbtr printed (`null` when it printed none), and its stderr.
  *
+ * A command that never ran leaves only stderr and its exit code.
  * Only `missing-cli` should disable rbtr for the session; the
  * others are transient and must not be reported as a missing
  * CLI.
  */
-export function classifyDaemonFailure(code: number | null, stderr: string): DaemonFailure {
+export function classifyDaemonFailure(code: number | null, reply: ErrorResponse | null, stderr: string): DaemonFailure {
   const text = stderr.toLowerCase();
   if (code === 127 || text.includes("command not found") || text.includes("no such file") || text.includes("enoent")) {
     return { kind: "missing-cli", message: "rbtr CLI not found. Install with: uv tool install rbtr" };
   }
-  if (text.includes("locked by another process") || text.includes("database is locked")) {
+  if (reply?.code === "index_locked") {
     return { kind: "db-locked", message: "rbtr index temporarily unavailable (database busy); will retry." };
   }
-  return { kind: "transient", message: stderr.trim() || `rbtr daemon command failed (exit ${code ?? "?"}).` };
+  const message = reply?.message ?? stderr.trim();
+  return { kind: "transient", message: message || `rbtr daemon command failed (exit ${code ?? "?"}).` };
 }
 
 export type StartupDecision =

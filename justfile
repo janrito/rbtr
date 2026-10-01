@@ -72,14 +72,14 @@ typecheck-py:
 typecheck-ts:
     npm exec -- tsc -p packages/pi-rbtr --noEmit
 
-# Regenerate the pi-rbtr TypeScript protocol types from the
-# Python models (via `rbtr schema-dump`).  The generated file is
-# committed, so CI (and local `just check`) runs this before
+# Regenerate the pi-rbtr TypeScript protocol types and their JSON
+# Schema from the Python models (via `rbtr schema-dump`).  The
+# generated files are committed, so CI (and local `just check`) runs this before
 
 # `git diff --exit-code` fails on any drift.
 schema-check:
     cd packages/pi-rbtr && node scripts/gen-types.ts
-    git diff --exit-code packages/pi-rbtr/extensions/rbtr/generated/protocol.ts
+    git diff --exit-code packages/pi-rbtr/extensions/rbtr/generated/protocol.ts packages/pi-rbtr/extensions/rbtr/generated/schemas.ts
 
 validate-graphql:
     curl -sf "https://docs.github.com/public/fpt/schema.docs.graphql" -o /tmp/github-schema.graphql

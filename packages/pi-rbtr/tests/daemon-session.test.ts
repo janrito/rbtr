@@ -7,9 +7,8 @@
  */
 
 import { describe, expect, test } from "vitest";
-
-import { RbtrDaemonError } from "../extensions/rbtr/daemon-client.js";
 import { DaemonSession, DaemonUnavailableError } from "../extensions/rbtr/daemon-session.js";
+import { RbtrReplyError } from "../extensions/rbtr/reply-error.js";
 import { sessionScenarios } from "./daemon-session.cases.js";
 import { startFakeDaemon } from "./helpers/fake-daemon.js";
 
@@ -35,7 +34,7 @@ describe("DaemonSession.send", () => {
     expect(daemon.received).toEqual([request]);
   });
 
-  test("ErrorResponse from the daemon surfaces as RbtrDaemonError", async () => {
+  test("ErrorResponse from the daemon surfaces as RbtrReplyError", async () => {
     await using daemon = await startFakeDaemon({
       reply: {
         kind: "error",
@@ -47,7 +46,7 @@ describe("DaemonSession.send", () => {
 
     await expect(session.send({ kind: "status", repo_path: "/nope" })).rejects.toSatisfy(
       (err: unknown) =>
-        err instanceof RbtrDaemonError && err.code === "repo_not_found" && err.message.includes("not a git repository"),
+        err instanceof RbtrReplyError && err.code === "repo_not_found" && err.message.includes("not a git repository"),
     );
   });
 

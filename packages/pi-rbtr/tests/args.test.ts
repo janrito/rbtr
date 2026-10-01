@@ -1,11 +1,10 @@
 /**
- * Tests for echoArgs — the transparency helper that lets the model see
- * the arguments a tool actually received (extensions/rbtr/args.ts).
+ * Tests for the argument helpers in extensions/rbtr/args.ts.
  */
 
 import { describe, expect, test } from "vitest";
 
-import { decodeStringList, echoArgs } from "../extensions/rbtr/args.js";
+import { commandRefs, decodeStringList } from "../extensions/rbtr/args.js";
 
 describe("decodeStringList", () => {
   test("passes native arrays through", () => {
@@ -32,22 +31,13 @@ describe("decodeStringList", () => {
   });
 });
 
-describe("echoArgs", () => {
-  test("is empty when none of the keys are present", () => {
-    expect(echoArgs({ symbol: "x" }, ["file_paths"])).toBe("");
-    expect(echoArgs({}, ["query", "keywords"])).toBe("");
+describe("commandRefs", () => {
+  test("takes each whitespace-separated word as a ref", () => {
+    expect(commandRefs("main  feature-x\t v1.2")).toEqual(["main", "feature-x", "v1.2"]);
   });
 
-  test("echoes present args verbatim as JSON, so malformations are visible", () => {
-    // A double-encoded file_paths surfaces exactly as received.
-    expect(echoArgs({ file_paths: ['["src/a.py"]'] }, ["file_paths"])).toBe(
-      '\n\nArguments received: file_paths=["[\\"src/a.py\\"]"]',
-    );
-  });
-
-  test("includes only the named keys that are defined", () => {
-    expect(echoArgs({ query: "retry", scope: undefined, keywords: ["a"] }, ["query", "scope", "keywords"])).toBe(
-      '\n\nArguments received: query="retry", keywords=["a"]',
-    );
+  test("gives no refs for empty arguments, so the default applies", () => {
+    expect(commandRefs("")).toEqual([]);
+    expect(commandRefs("   ")).toEqual([]);
   });
 });

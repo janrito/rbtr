@@ -2,15 +2,13 @@
  * Renderers and text formatters for rbtr tools.
  *
  * Each tool gets a compact renderCall (one-liner) and a
- * renderResult (collapsed/expanded views), plus the plain-text
- * formatter it returns to the model where it has one
- * (renderStatusText).
+ * renderResult (collapsed/expanded views).
  *
  * Two sources of payload:
- *   - details.response — typed response from the daemon
- *                        (preferred path; no parsing).
- *   - content[].text   — one JSON response object, from the CLI
- *                        fallback path (the same shape, serialised).
+ *   - details.response — the typed rbtr response the tool packed
+ *                        (preferred; no parsing).
+ *   - content[].text   — the same response serialised, for results
+ *                        that carry no `details.response`.
  */
 
 import type { AgentToolResult, Theme } from "@earendil-works/pi-coding-agent";
@@ -76,17 +74,22 @@ function tryParseResponse(text: string): Response | undefined {
   }
 }
 
+/** The rbtr response a tool result carries, packed or serialised. */
+function responseOf(result: ToolResult): Response | undefined {
+  const details = result.details as { response?: Response } | undefined;
+  return details?.response ?? tryParseResponse(getContentText(result));
+}
+
 /**
  * Return the ``payloadKey`` array of the response for *responseKind*.
  *
- * Both transports carry one JSON response object: the daemon path
- * exposes it on ``result.details.response``; the CLI fallback prints it
- * to stdout (captured as the tool content text). Either way we narrow
- * the same generated ``Response`` union and read its list field.
+ * A tool result carries one JSON response object: on
+ * ``result.details.response`` when the tool packed it there, otherwise
+ * as the content text. Either way we narrow the same generated
+ * ``Response`` union and read its list field.
  */
 export function extractPayload<T>(result: ToolResult, responseKind: Response["kind"], payloadKey: string): T[] {
-  const details = result.details as { fromDaemon?: boolean; response?: Response } | undefined;
-  const response = details?.fromDaemon ? details.response : tryParseResponse(getContentText(result));
+  const response = responseOf(result);
   if (response?.kind !== responseKind) return [];
   const value = (response as unknown as Record<string, unknown>)[payloadKey];
   return Array.isArray(value) ? (value as T[]) : [];
@@ -222,10 +225,10 @@ export function renderSearchResult(
 
     const terms = r.matched_terms ?? [];
     if (options.expanded) {
-      const { window, start } = previewWindow(r.content, r.match_line_offset, 4);
+      const { window, start } = previewWindow(r.preview.text, r.match_line_offset, 4);
       if (start > 0) {
         // Show the chunk's signature line for orientation, then the gap.
-        const signature = r.content.split("\n")[0] ?? "";
+        const signature = r.preview.text.split("\n")[0] ?? "";
         lines.push(`  ${highlightTerms(theme, signature, terms)}`);
         lines.push(theme.fg("dim", "  …"));
       }
@@ -236,7 +239,7 @@ export function renderSearchResult(
     } else if (r.match_line_offset != null) {
       // Surface the matched line so the collapsed view shows “that
       // bit” without expanding.
-      const anchorLine = r.content.split("\n")[r.match_line_offset] ?? "";
+      const anchorLine = r.preview.text.split("\n")[r.match_line_offset] ?? "";
       lines.push(`  ${highlightTerms(theme, anchorLine, terms)}`);
     }
   }
@@ -427,52 +430,22 @@ export function renderIndexCall(args: Record<string, unknown>, theme: Theme): Te
 export function renderIndexResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
   if (options.isPartial) return new Text(theme.fg("muted", "Indexing…"), 0, 0);
 
-  const details = result.details as { status?: string } | undefined;
-  switch (details?.status) {
-    case "started":
-      return new Text(theme.fg("success", "✓ Indexing queued"), 0, 0);
-    case "up_to_date":
-      return new Text(theme.fg("success", "✓ Index up to date"), 0, 0);
-    case "in_progress":
-      return new Text(theme.fg("muted", "⟳ Build already in progress"), 0, 0);
+  const response = responseOf(result);
+  switch (response?.kind) {
+    case "watch_set":
+      return new Text(formatWatched(response.watched).join("\n"), 0, 0);
+    case "watch":
+      return new Text(theme.fg("success", `✓ Indexed ${response.resolved_refs.map(shortSha).join(", ")}`), 0, 0);
+    case "unwatch": {
+      const refs = Object.values(response.removed ?? {}).flat();
+      const text = refs.length > 0 ? `✓ Stopped watching ${refs.join(", ")}` : "No watched refs removed";
+      return new Text(theme.fg("success", text), 0, 0);
+    }
   }
-
-  const text = getContentText(result);
-  return new Text(theme.fg("dim", text), 0, 0);
+  return new Text(theme.fg("dim", getContentText(result)), 0, 0);
 }
 
 // ── Status ──────────────────────────────────────────────────────
-
-/**
- * Render a `StatusResponse` as multi-line text for the LLM.
- *
- * Output is derived solely from the response model — no
- * external state.  Mirrors the Python CLI shape so the model
- * sees the same information regardless of transport.
- */
-export function renderStatusText(status: StatusResponse): string {
-  const lines: string[] = [];
-  const indexed = status.indexed_refs ?? [];
-  if (indexed.length === 0) {
-    lines.push("No index found at the configured path.");
-  } else {
-    const total = indexed[0].total;
-    lines.push(`Index: ${humanCount(total)} symbols (${status.db_path})`);
-    lines.push("Refs:");
-    for (const ref of indexed) {
-      lines.push(`  ${formatIndexedRef(ref)}`);
-    }
-  }
-  lines.push(...formatWatched(status.watched ?? []));
-  const job = status.active_build;
-  if (job) lines.push(formatActiveBuild(job));
-  const ej = status.active_embed;
-  if (ej) lines.push(formatActiveEmbed(ej));
-  if (!job && !ej && indexed.length > 0) {
-    lines.push("No active build.");
-  }
-  return lines.join("\n");
-}
 
 export function renderStatusCall(_args: Record<string, unknown>, theme: Theme): Text {
   return new Text(theme.fg("toolTitle", theme.bold("rbtr_status")), 0, 0);
@@ -481,9 +454,8 @@ export function renderStatusCall(_args: Record<string, unknown>, theme: Theme): 
 export function renderStatusResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
   if (options.isPartial) return new Text(theme.fg("muted", "Checking…"), 0, 0);
 
-  // Daemon path packs a StatusResponse on details.response.
-  const details = result.details as { fromDaemon?: boolean; response?: StatusResponse } | undefined;
-  const response = details?.fromDaemon ? details.response : undefined;
+  const packed = responseOf(result);
+  const response = packed?.kind === "status" ? packed : undefined;
 
   const lines: string[] = [];
   const indexed = response?.indexed_refs ?? [];

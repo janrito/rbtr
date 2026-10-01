@@ -16,6 +16,7 @@ import sys
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
+from typing import NoReturn
 
 from pydantic import BaseModel, ValidationError
 from pydantic.json_schema import JsonSchemaValue
@@ -27,11 +28,13 @@ from rich.table import Table
 from rich.text import Text
 
 from rbtr.config import config
-from rbtr.daemon.dto import RefOut, SearchHitOut, SymbolOut
+from rbtr.daemon.dto import RefOut, SearchHitOut, SymbolOut, SymbolRefOut
 from rbtr.daemon.messages import (
     ChangedSymbol,
     ChangedSymbolsResponse,
     DaemonConfigResponse,
+    ErrorCode,
+    ErrorResponse,
     FindRefsResponse,
     ForgetResponse,
     GcResponse,
@@ -44,9 +47,11 @@ from rbtr.daemon.messages import (
     UnwatchResponse,
     WatchedRef,
     WatchResponse,
+    WatchSetResponse,
 )
 from rbtr.daemon.status import DaemonStatusReport
 from rbtr.domain.models import ChangeKind
+from rbtr.errors import ExitCode, RbtrError
 
 # Shared change vocabulary with the pi/TUI renderer: sigil + rich
 # style per change kind, and the added→modified→removed order.
@@ -96,21 +101,49 @@ def print_err(msg: str) -> None:
     _err.print(msg)
 
 
-def print_rejected_arguments(exc: ValidationError) -> None:
-    """Report arguments a command model refused, one line each.
+def fail(error: ErrorResponse | RbtrError, exit_code: ExitCode = ExitCode.FAILED) -> NoReturn:
+    """Report an error and exit with *exit_code*.
+
+    JSON mode writes it to stdout as an `ErrorResponse`, as any response
+    is written; TTY mode prints its message in red on stderr.  An
+    `RbtrError` carries its own `error_code`.
+    """
+    match error:
+        case ErrorResponse():
+            response = error
+        case RbtrError():
+            response = ErrorResponse(code=ErrorCode(error.error_code), message=str(error))
+    if _json_output():
+        sys.stdout.write(response.model_dump_json())
+        sys.stdout.write("\n")
+    else:
+        print_err(f"[red]error:[/] {response.message}")
+    sys.exit(exit_code)
+
+
+def reject_arguments(exc: ValidationError) -> NoReturn:
+    """Report arguments a command model refused, one each, and exit.
 
     Names the field as the command line spells it, the rule it broke,
     and the value that broke it, which may have come from a flag, the
     environment, or the config file.  A rule spanning several fields is
     given the whole model's arguments as its input, which is the
-    command the user just typed, so that is left unsaid.
+    command the user just typed, so that is left unsaid.  JSON mode
+    writes one `invalid_request` `ErrorResponse` naming them all.
     """
+    rejected: list[tuple[str, str]] = []
     for err in exc.errors():
         where = ".".join(str(part) for part in err["loc"]).replace("_", "-")
         why = err["msg"].removeprefix("Value error, ")
         received = err.get("input")
-        value = "" if isinstance(received, Mapping) else f" [dim](received {received!r})[/]"
-        print_err(f"[red]error:[/] {where}: {why}{value}" if where else f"[red]error:[/] {why}")
+        value = "" if isinstance(received, Mapping) else f" (received {received!r})"
+        rejected.append((f"{where}: {why}" if where else why, value))
+    if _json_output():
+        message = "; ".join(f"{rule}{value}" for rule, value in rejected)
+        fail(ErrorResponse(code=ErrorCode.INVALID_REQUEST, message=message), ExitCode.ERROR)
+    for rule, value in rejected:
+        print_err(f"[red]error:[/] {rule}[dim]{value}[/]")
+    sys.exit(ExitCode.ERROR)
 
 
 def print_json_schema(schema: JsonSchemaValue) -> None:
@@ -204,6 +237,8 @@ def _print_rich(model: BaseModel) -> None:
             _out.print("[green]ok[/]")
         case WatchResponse():
             _render_build_index_response(model)
+        case WatchSetResponse():
+            _render_watch_set_response(model)
         case SearchResponse():
             _render_search_response(model)
         case ReadSymbolResponse():
@@ -258,7 +293,7 @@ def _render_read_symbol_response(response: ReadSymbolResponse) -> None:
 
 def _render_list_symbols_response(response: ListSymbolsResponse) -> None:
     for c in response.chunks:
-        _render_chunk(c, compact=True)
+        _render_symbol_ref(c)
 
 
 def _render_find_refs_response(response: FindRefsResponse) -> None:
@@ -287,7 +322,7 @@ def _render_scored_result(search_hit: SearchHitOut) -> None:
     # Code preview — skip for single-line chunks (header is enough).
     # Split on "\n" (not splitlines) so offsets agree with the pi
     # renderer and with `match_line_offset`.
-    lines = search_hit.content.split("\n")
+    lines = search_hit.preview.text.split("\n")
     if len(lines) > 1:
         max_preview = 4
         anchor = search_hit.match_line_offset
@@ -326,19 +361,19 @@ def _render_scored_result(search_hit: SearchHitOut) -> None:
     _out.print()  # blank line between results
 
 
-def _render_chunk(symbol: SymbolOut, *, compact: bool = False) -> None:
-    path = _short_path(symbol.file_path)
+def _render_symbol_ref(ref: SymbolRefOut) -> None:
+    """One line per symbol — the outline shape."""
+    t = Text()
+    t.append(f"  {ref.line_start:>4}-{ref.line_end:<4}", style="dim")
+    t.append(f"  {ref.kind:<10}", style="cyan")
+    t.append(ref.name)
+    if ref.scope:
+        t.append(f"  ({ref.scope})", style="dim")
+    _out.print(t)
 
-    if compact:
-        # One-line summary for list-symbols / changed-symbols
-        t = Text()
-        t.append(f"  {symbol.line_start:>4}-{symbol.line_end:<4}", style="dim")
-        t.append(f"  {symbol.kind:<10}", style="cyan")
-        t.append(symbol.name)
-        if symbol.scope:
-            t.append(f"  ({symbol.scope})", style="dim")
-        _out.print(t)
-        return
+
+def _render_chunk(symbol: SymbolOut) -> None:
+    path = _short_path(symbol.file_path)
 
     # Full view for read-symbol — same header structure as search
     t = Text()
@@ -504,6 +539,12 @@ def _render_status_response(response: StatusResponse) -> None:
         _out.print(
             f"[magenta]↻[/]  Embedding: {ej.ref[:12]} — {ej.current}/{ej.total}{pct} — {elapsed}"
         )
+
+
+def _render_watch_set_response(response: WatchSetResponse) -> None:
+    _out.print("[dim]watching:[/]")
+    for w in response.watched:
+        _out.print(f"   {_fmt_watched(w)}")
 
 
 def _fmt_watched(w: WatchedRef) -> str:

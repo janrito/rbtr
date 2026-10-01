@@ -79,9 +79,8 @@ All CLI calls go through `pi.exec()`, which returns
 | Condition                  | Behaviour                                                                                                                                            |
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Daemon start/restart fails | `classifyDaemonFailure` sorts it into `missing-cli` (install instructions, rbtr disabled), `db-locked`, or `transient`; reconcile carries the reason |
-| Non-zero exit              | `runRbtr` throws with stderr content                                                                                                                 |
+| Non-zero exit              | `runRbtr` throws rbtr's `ErrorResponse`, printed on stdout under `--json`, as `RbtrReplyError`; with none printed, an error carrying stderr          |
 | Timeout                    | `pi.exec()` kills the process; `runRbtr` throws                                                                                                      |
-| Empty output               | Callers handle gracefully (e.g. "no results")                                                                                                        |
 
 ### Validation
 
@@ -124,28 +123,84 @@ Each tool defines two prompt fields:
   "Guidelines" section, teaching the LLM when and how
   to use the tool.
 
-The `before_agent_start` event appends a general note
+The `before_agent_start` event appends a one-line note
 about index availability to the system prompt, so the
 LLM knows it can use the tools without being told.
 
+### What the model reads first
+
+pi lists tools in the prompt in the order they are
+registered, so the five tools that find code are
+registered first, then `rbtr_watch`, the loader and the
+housekeeping tools. Each description leads with what the
+tool is for and what it is used instead of, usually grep,
+and each tool keeps at most two guidelines. Details about
+arguments live in the parameter descriptions.
+
+At session start the extension deactivates `rbtr_status`
+and `rbtr_gc` (`tool-set.ts`). The loader,
+`rbtr_index_tools`, activates them when the model needs
+to check a build or reclaim space. `rbtr_watch` stays
+active, because indexing refs before a review is an
+ordinary request. A read tool whose ref is not indexed
+replies rbtr's `index_not_built` error, whose message says
+to watch the ref first.
+
+Open models reach for tools they were trained on, mostly
+`bash`: with the shipped text, `deepseek-v4-flash` made
+1.8% of its tool calls through rbtr. Leading with what
+each tool replaces tripled that. The measurements are in
+`rbtr-agent-eval`'s screen of tool use.
+
+### Facts in the tools the agent already uses
+
+Leading with what each tool replaces still left most of an
+open model's calls in `bash`. So a `tool_result` handler
+(`annotate.ts`) appends index facts to the output of `bash`
+searches and large-file reads: the agent keeps its habits,
+and the index's answer arrives with them. The block is
+capped at ten lines and skipped when it would repeat the
+output, because every line costs tokens on every call.
+
+The facts come from the daemon only. A CLI fallback would
+start a process for each annotated call, and the hook runs
+on every `bash` and `read`. Any failure returns nothing, so
+the tool's own output is never lost. The handler returns the
+tool's `details` and `structuredContent` with its `content`,
+because pi drops both when a handler replaces the content
+without them. Calls another tool made, such as a codemode
+script's, carry `parentToolCallId` and are left alone: their
+results go to the script, not the model.
+
 ### Output contract
 
-Query tools (`search`, `read-symbol`, `list-symbols`,
-`find-refs`, `changed-symbols`) follow the same pattern:
+Every tool replies with one JSON object that validates against
+the schema it declares as `outputSchema`:
 
-1. Dispatch via `withFallback` — the daemon RPC for the
-   subcommand, with `runRbtr()` as the CLI fallback.
-2. If the result is empty, return a "not found" message that
-   echoes the arguments the tool received (`echoArgs`), so a
-   mis-shaped argument is visible in context for the model to
-   correct.
-3. Otherwise, truncate to pi's limits (50 KB / 2000 lines)
-   and return the raw JSON response object as content.
+1. Dispatch via `withFallback<T>` — the daemon RPC, with
+   `runRbtrJson()` as the CLI fallback. Both return the parsed
+   rbtr response, empty results included.
+2. `toolResult()` packs it: the JSON text as `content` for the
+   model, the same value as `structuredContent` for codemode
+   scripts, and the response on `details.response` for the
+   renderer.
+3. An `RbtrReplyError`, from the daemon or the CLI's JSON
+   output, is packed the same way, as rbtr's
+   `ErrorResponse`, with `isError` set; pi still hands scripts
+   the structured value.
 
-The raw JSON response is sent to the LLM as tool content.
-The LLM parses JSON natively — no reformatting needed. The
-custom renderers parse the same JSON object for TUI
-display.
+Replies rbtr composes use rbtr's schemas. `scripts/gen-types.ts`
+turns `rbtr schema-dump` into `generated/protocol.ts` (types)
+and `generated/schemas.ts` (the same definitions as JSON Schema,
+`PROTOCOL_DEFS`), and `replySchema()` builds a tool's
+`outputSchema` from the response kinds it can return.
+`rbtr_index_tools` is the one reply pi-rbtr composes; its
+TypeBox schema sits in its registration.
+
+A read reports what rbtr resolved — the snapshot it read
+(`resolved`: SHA and how it was chosen) and its scoping paths,
+repo-relative — so a call that fell back to an older commit or
+scoped to the wrong path shows it in the reply itself.
 
 `rbtr_search` accepts optional `keywords` and `variants`
 parameters for query expansion. The session LLM generates
@@ -159,9 +214,9 @@ fromCli)`:
 
 - If `session.available`, try the daemon callback. A
   `DaemonUnavailableError` (transport failure) falls
-  through to the CLI; an `RbtrDaemonError` (an actionable
+  through to the CLI; an `RbtrReplyError` (an actionable
   reply from the daemon, e.g. "not indexed") is re-thrown
-  untouched and surfaces to the LLM as the tool result.
+  untouched and returned as rbtr's `ErrorResponse`.
 - Otherwise — or after a daemon transport failure — run
   the CLI callback, provided `cliAvailable`. With neither
   transport it throws "rbtr CLI not available" with install
@@ -188,13 +243,15 @@ is an answer it can use.
 
 ### Triggering a build
 
-`triggerIndex(ctx, ...refs)` requests a build through
+`watchRefs(ctx, refs)` requests a build through
 `withFallback`: the daemon path sends `{kind: "watch",
-repo_path, refs}`; the CLI fallback spawns `rbtr watch
-<refs>`. Refs default to `["HEAD"]`. The footer shows an
-animated "indexing…" spinner while the request is in
-flight; on failure it switches to "indexing failed" and
-the user is notified.
+repo_path, refs}` and gets back the watch set; the CLI
+fallback spawns `rbtr watch <refs>`. Refs default to
+`["HEAD"]`. The footer shows an animated "indexing…" spinner
+while the request is in flight, and "indexing failed" on
+failure. `rbtr_watch` returns the reply; `triggerIndex`, used
+at session start and by `/rbtr-index`, notifies the user of a
+failure instead.
 
 The extension holds no build state of its own — no promise,
 no "already running" flag. The daemon owns build scheduling
@@ -204,7 +261,7 @@ through the PUB subscription (`progress`, `ready`,
 notifications), not a local promise chain. An `embed_ended`
 carries the outcome, because a run that stood aside for a
 build leaves work due and must not read as finished. The same
-mechanism powers `triggerUnwatch`, `triggerRemoveStale`,
+mechanism powers `unwatch`, `removeStale`,
 and `triggerGc` — each a `withFallback` over a daemon RPC
 with a CLI fallback. Both unwatch paths send an `unwatch`,
 naming refs or asking for `stale: true`: which refs are
@@ -246,14 +303,6 @@ Both functions receive the pi `Theme` object for
 consistent styling. `renderResult` receives an
 `AgentToolResult<unknown>` — the same object returned by
 the tool's `execute` function.
-
-`render.ts` also holds the plain-text formatter a tool
-returns to the model, where it has one: `renderStatusText`
-sits beside `renderStatusResult` and both build their lines
-from the same helpers. Housing the two renderers of one
-response apart does not work — the shared lines drift, and
-the model and the user are told the same figure in two
-shapes.
 
 ### Call-line arguments
 
@@ -332,6 +381,13 @@ Reformatting would lose information or add size. The custom
 renderers handle human-readable display independently.
 The CLI emits the same single response object the daemon
 returns, so both transports converge on one shape.
+
+Prose replies for empty results, echoing the arguments the tool
+received, do not work beside codemode: a script's `JSON.parse`
+fails on them, and in a trial on pi 0.99.1 the model spent a
+turn wrapping the call in `try`/`catch`. The echo also only
+repeated what the model sent. rbtr reports what it resolved
+instead, which the model cannot know otherwise.
 
 ### Daemon-first, CLI fallback
 

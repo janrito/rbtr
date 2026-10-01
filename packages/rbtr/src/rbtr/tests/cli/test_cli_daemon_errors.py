@@ -21,6 +21,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 from rbtr.cli import Watch
+from rbtr.daemon.messages import ErrorCode, ErrorResponse
 from rbtr.domain.models import SnapshotRef
 from rbtr.errors import RbtrError
 from rbtr.git import normalise_repo_path
@@ -76,6 +77,7 @@ def test_index_falls_back_to_inline_when_start_fails(
 def test_index_refuses_inline_build_when_db_is_locked(
     repo_path: str,
     isolated_db: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A locked DB makes `rbtr watch` fail honestly, not fall back.
 
@@ -88,12 +90,17 @@ def test_index_refuses_inline_build_when_db_is_locked(
     `start_daemon`: the contention being pinned is between processes,
     so the sibling test's in-process mocks cannot express it.
     """
+    # The start waits for the lock holder to serve; this one never will.
+    monkeypatch.setenv("RBTR_DAEMON_START_TIMEOUT", "3")
     store = IndexStore.from_config(writable=True)  # take the exclusive lock
     try:
         result = run_cli(["watch", "--repo-path", repo_path])
 
         assert result.returncode == 1, result.stderr
-        assert "locked by another process" in result.stderr
+        # Piped, so the error is an `ErrorResponse` on stdout.
+        error = ErrorResponse.model_validate_json(result.stdout)
+        assert error.code == ErrorCode.INDEX_LOCKED
+        assert "locked by another process" in error.message
         assert "Falling back to inline execution" not in result.stderr
     finally:
         store.close()

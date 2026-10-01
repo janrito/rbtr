@@ -46,8 +46,9 @@ of relying on convention.
 The two words name the same thing from either side of the
 API boundary. Internally it is a **chunk**: content-addressed,
 keyed by a hash of its own bytes, and shared between every
-repo that holds those bytes. On the wire it is a **symbol**
-(`SymbolOut`), because that is what a caller navigates by.
+repo that holds those bytes. On the wire it is a **symbol**,
+because that is what a caller navigates by — in one of several
+shapes, according to how much of it the command returns.
 `rbtr.daemon.dto` is where one becomes the other, dropping the
 persistence detail on the way out — see
 [Storage models vs API DTOs](#storage-models-vs-api-dtos).
@@ -803,11 +804,15 @@ subscriber knows whether work on it is still due.
 
 The daemon is **single and global** per `data_dir`: `serve` takes
 DuckDB's exclusive lock (via `IndexStore.from_config`) before
-binding its sockets, so a second `serve` racing it dies on the
-lock. `start_daemon()` tolerates this rather than coordinating it
-— it treats any live daemon as ready, so concurrent callers
-converge on the winner and a losing spawn is terminated. The
-double-spawn is cheap, so no parent-side start lock is needed.
+binding its sockets, so a second `serve` racing it exits on the
+lock with `ExitCode.INDEX_LOCKED`. `start_daemon()` tolerates
+this rather than coordinating it: it treats any live daemon as
+ready, so concurrent callers converge on the winner and a losing
+spawn is terminated. The winner holds the lock through its whole
+startup and writes its status file last, seconds later under
+load, so a caller whose spawn exited with that code keeps waiting
+until `daemon_start_timeout`. The double-spawn is cheap, so no
+parent-side start lock is needed.
 
 Stopping is asked for from outside the loop — a signal, or
 `request_shutdown` from another thread. The flag is a plain
@@ -889,7 +894,8 @@ A concrete search exchange:
 ```json
 → {"kind": "search", "repo_path": "/path/to/repo", "query": "retry logic", "limit": 10}
 ← {"kind": "search", "results": [{"name": "retry_with_backoff", "kind": "function",
-    "file_path": "src/client.py", "line_start": 12, "line_end": 30, "score": 0.87}]}
+    "file_paths": ["src/client.py"], "line_start": 12, "line_end": 30, "score": 0.87}],
+   "resolved": {"sha": "abc123…", "source": "head"}}
 ```
 
 A progress notification (PUB):
@@ -905,6 +911,10 @@ Error responses carry a `code` field:
 - `index_in_progress` — a build is running; retry after
   the `ready` notification.
 - `repo_not_found` — the repo path isn't registered.
+- `index_locked` — another process holds the index's write
+  lock; retry once it has let go.
+- `daemon_busy` — the daemon is running but did not reply
+  within the client's wait; retry later.
 - `invalid_request` — malformed or missing fields; the message
   names each offending field and the value it received, so a
   caller can see how an argument was mis-shaped.
@@ -1136,12 +1146,25 @@ persistence detail — identity hashes (`id`, `blob_sha`), the
 embedding, the full ranking-signal breakdown, an
 always-present `metadata` bag — that no caller needs and that
 adds noise and tokens to an agent's context. Handlers instead
-project to output DTOs in `rbtr.daemon.dto` (`SymbolOut`,
-`SearchHitOut`, `RefOut`): a curated, low-noise public
-contract. The boundary is also a vocabulary shift: the
+project to output DTOs in `rbtr.daemon.dto` (`SymbolRefOut`,
+`SymbolOut`, `SearchHitOut`, `RefOut`): a curated, low-noise
+public contract. The boundary is also a vocabulary shift: the
 internal unit is a content-addressed `chunk`, but the public
-API speaks of `symbol`s (`SymbolOut`) — the term agents
-actually navigate by. Empty `metadata` and null `repo_path` are omitted,
+API speaks of `symbol`s — the term agents actually navigate by.
+
+How much source a shape carries follows from what its command
+is for. `read-symbol` returns a body, in `SymbolOut`; that is
+the command whose whole job is to fetch one. `search` returns
+a capped preview, enough to judge a hit's relevance. Anything
+that enumerates — `list-symbols`, `changed-symbols` — returns
+`SymbolRefOut`: a name, a place, a span, and no `content` field
+to put a body in. An outline of a large file would otherwise
+cost an agent more context than reading the file, which is the
+opposite of what it is asked for. Each shape is its own type
+rather than one type with an optional body, so the wrong
+payload cannot be assembled by accident.
+
+Empty `metadata` and null `repo_path` are omitted,
 as is the preview anchor (`match_line_offset`, `matched_terms`)
 when the hit has no literal match; the nine search signals
 collapse to a single `score` unless

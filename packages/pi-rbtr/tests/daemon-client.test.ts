@@ -6,7 +6,8 @@
 
 import { describe, expect, test } from "vitest";
 
-import { RbtrDaemonError, send } from "../extensions/rbtr/daemon-client.js";
+import { send } from "../extensions/rbtr/daemon-client.js";
+import { RbtrReplyError } from "../extensions/rbtr/reply-error.js";
 import { sendScenarios } from "./daemon-client.cases.js";
 import { startFakeDaemon } from "./helpers/fake-daemon.js";
 
@@ -17,9 +18,7 @@ describe("send", () => {
     if (expected.kind === "throws") {
       await expect(send(request, { rpcEndpoint: daemon.endpoint })).rejects.toSatisfy(
         (err: unknown) =>
-          err instanceof RbtrDaemonError &&
-          err.code === expected.code &&
-          err.message.includes(expected.messageContains),
+          err instanceof RbtrReplyError && err.code === expected.code && err.message.includes(expected.messageContains),
       );
     } else {
       const response = await send(request, { rpcEndpoint: daemon.endpoint });

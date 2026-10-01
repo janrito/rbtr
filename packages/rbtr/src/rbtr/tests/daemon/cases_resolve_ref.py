@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from rbtr.domain.models import RefSource
+
 
 @dataclass(frozen=True)
 class RefScenario:
@@ -21,6 +23,8 @@ class RefScenario:
     tree_sha_indexed: bool = False
     # Symbolic name for the expected return value.
     expected: str = "HEAD_SHA"
+    # How the read is expected to have chosen its snapshot.
+    expected_source: RefSource = RefSource.HEAD
 
 
 def case_none_with_dirty_indexed() -> RefScenario:
@@ -30,6 +34,7 @@ def case_none_with_dirty_indexed() -> RefScenario:
         dirty_worktree=True,
         tree_sha_indexed=True,
         expected="TREE_SHA",
+        expected_source=RefSource.WORKTREE,
     )
 
 
@@ -57,6 +62,7 @@ def case_head_explicit() -> RefScenario:
         dirty_worktree=True,
         tree_sha_indexed=True,
         expected="HEAD_SHA",
+        expected_source=RefSource.REQUESTED,
     )
 
 
@@ -65,4 +71,5 @@ def case_branch_name() -> RefScenario:
     return RefScenario(
         requested_ref="feature",
         expected="FEATURE_SHA",
+        expected_source=RefSource.REQUESTED,
     )

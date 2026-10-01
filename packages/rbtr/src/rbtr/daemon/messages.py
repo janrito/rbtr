@@ -32,7 +32,14 @@ from pydantic.json_schema import JsonSchemaValue, models_json_schema
 from pydantic_core import from_json
 
 from rbtr.config import WeightTriple, config
-from rbtr.daemon.dto import PluginInfo, RefOut, SearchHitOut, SymbolOut
+from rbtr.daemon.dto import (
+    PluginInfo,
+    RefOut,
+    ResolvedRef,
+    SearchHitOut,
+    SymbolOut,
+    SymbolRefOut,
+)
 from rbtr.daemon.status import DaemonStatusReport
 from rbtr.domain.models import (
     ChangeKind,
@@ -54,6 +61,8 @@ class ErrorCode(StrEnum):
     INDEX_NOT_BUILT = "index_not_built"
     INDEX_IN_PROGRESS = "index_in_progress"
     REPO_NOT_FOUND = "repo_not_found"
+    INDEX_LOCKED = "index_locked"
+    DAEMON_BUSY = "daemon_busy"
     INTERNAL = "internal"
 
 
@@ -146,28 +155,33 @@ Ref = Annotated[str, StringConstraints(pattern=r"^\S+$")]
 RefList = Annotated[list[Ref], BeforeValidator(_unwrap_json_list)]
 
 
-def _to_repo_relative(value: list[str] | None, info: ValidationInfo) -> list[str] | None:
-    """Normalise scoping paths to repo-root-relative POSIX form.
+def _repo_relative(path: str, info: ValidationInfo) -> str:
+    """Normalise a path to repo-root-relative POSIX form.
 
     Chunk `file_path`s are stored repo-root-relative with POSIX
-    separators, so scoping matches them exactly. Absolute paths are made
-    relative to the request's `repo_path`; a leading `./` is stripped.
-    Paths outside the repo root simply won't match any chunk. `None` or
-    an empty list passes through unchanged.
+    separators, so a normalised path matches them exactly. An absolute
+    path is made relative to the request's `repo_path`; a leading `./`
+    is stripped. A path outside the repo root simply won't match any
+    chunk.
 
     Relies on `repo_path` being declared before the annotated field so
     it is present in `info.data` by the time this runs.
     """
+    repo_path = info.data["repo_path"]
+    return PurePath(os.path.relpath(path, repo_path) if os.path.isabs(path) else path).as_posix()
+
+
+def _to_repo_relative(value: list[str] | None, info: ValidationInfo) -> list[str] | None:
+    """Normalise each scoping path; `None` or an empty list passes through."""
     if not value:
         return value
-    repo_path = info.data["repo_path"]
-    return [
-        PurePath(os.path.relpath(p, repo_path) if os.path.isabs(p) else p).as_posix() for p in value
-    ]
+    return [_repo_relative(p, info) for p in value]
 
 
-# Scoping paths, normalised to repo-root-relative POSIX form at validation
-# time so handlers can match them against stored chunk paths directly.
+# A path, and scoping paths, normalised to repo-root-relative POSIX form
+# at validation time so handlers can match them against stored chunk
+# paths directly.
+RepoRelativePath = Annotated[str, AfterValidator(_repo_relative)]
 RepoRelativePaths = Annotated[
     list[str] | None, BeforeValidator(_unwrap_json_list), AfterValidator(_to_repo_relative)
 ]
@@ -261,7 +275,7 @@ class ListSymbolsRequest(BaseModel):
     model_config = _STRICT
     kind: Literal["list_symbols"] = "list_symbols"
     repo_path: str
-    file_path: str
+    file_path: RepoRelativePath
     ref: str | None = None
 
 
@@ -423,42 +437,79 @@ class WatchResponse(BaseModel):
 
 
 class SearchResponse(BaseModel):
+    """Search hits, with the snapshot searched.
+
+    `resolved` is `None` under `scope: all`, which searches every
+    indexed repo at its latest indexed commit; each hit then names
+    its repo.
+    """
+
     model_config = _STRICT
     kind: Literal["search"] = "search"
     results: list[SearchHitOut]
+    resolved: ResolvedRef | None
     query_kind: QueryKind | None = Field(default=None, exclude_if=lambda v: v is None)
 
 
 class ReadSymbolResponse(BaseModel):
+    """A symbol's definitions, with the snapshot read and the paths scoped to.
+
+    `file_paths` is the request's scoping, repo-relative; `None` when
+    the request named none.
+    """
+
     model_config = _STRICT
     kind: Literal["read_symbol"] = "read_symbol"
     chunks: list[SymbolOut]
+    resolved: ResolvedRef
+    file_paths: list[str] | None
 
 
 class ListSymbolsResponse(BaseModel):
+    """A file's outline, with the snapshot read and the path outlined."""
+
     model_config = _STRICT
     kind: Literal["list_symbols"] = "list_symbols"
-    chunks: list[SymbolOut]
+    chunks: list[SymbolRefOut]
+    resolved: ResolvedRef
+    file_path: str
 
 
 class FindRefsResponse(BaseModel):
+    """References to a symbol, with the snapshot read and the paths scoped to.
+
+    `file_paths` is the request's scoping, repo-relative; `None` when
+    the request named none.
+    """
+
     model_config = _STRICT
     kind: Literal["find_refs"] = "find_refs"
     refs: list[RefOut]
+    resolved: ResolvedRef
+    file_paths: list[str] | None
 
 
 class ChangedSymbol(BaseModel):
-    """One changed symbol: its chunk plus how it changed."""
+    """One changed symbol: where it is plus how it changed."""
 
     model_config = _STRICT
-    chunk: SymbolOut
+    chunk: SymbolRefOut
     change: ChangeKind
 
 
 class ChangedSymbolsResponse(BaseModel):
+    """The symbol-level diff, with the commits compared and the paths scoped to.
+
+    `file_paths` is the request's scoping, repo-relative; `None` when
+    the request named none.
+    """
+
     model_config = _STRICT
     kind: Literal["changed_symbols"] = "changed_symbols"
     changes: list[ChangedSymbol]
+    base_sha: str
+    head_sha: str
+    file_paths: list[str] | None
 
 
 class ActiveJob(BaseModel):
@@ -553,6 +604,18 @@ class GcResponse(BaseModel):
     dry_run: bool = False
 
 
+class WatchSetResponse(BaseModel):
+    """The repo's watch set after a watch request.
+
+    Each ref with the SHA it resolves to now and whether that SHA is
+    indexed; an unindexed one is built by the worker in the background.
+    """
+
+    model_config = _STRICT
+    kind: Literal["watch_set"] = "watch_set"
+    watched: list[WatchedRef]
+
+
 class UnwatchResponse(BaseModel):
     """Refs no longer watched, keyed by the repo that watched them.
 
@@ -584,6 +647,7 @@ Response = Annotated[
     ErrorResponse
     | OkResponse
     | WatchResponse
+    | WatchSetResponse
     | SearchResponse
     | ReadSymbolResponse
     | ListSymbolsResponse

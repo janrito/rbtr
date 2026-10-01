@@ -40,7 +40,7 @@ from rbtr.daemon.messages import (
     response_adapter,
 )
 from rbtr.daemon.status import DaemonStatus, is_pid_alive, read_status, remove_status
-from rbtr.errors import DaemonBusyError, RbtrError
+from rbtr.errors import DaemonBusyError, ExitCode, IndexLockedError, RbtrError
 
 log = structlog.get_logger(__name__)
 
@@ -73,11 +73,14 @@ def start_daemon(*, allow_missing_plugins: bool = False) -> DaemonStatus:
     Concurrency-safe: if a daemon is already running (a
     concurrent caller won the race), it is reused instead of
     spawning a second `serve`.  If our own spawn loses the race,
-    we terminate it and return the winner.
+    we terminate it and return the winner.  A spawn that exits
+    with `ExitCode.INDEX_LOCKED` lost the index lock to another
+    process; we keep waiting for that process's daemon to become
+    ready, until `config.daemon_start_timeout`.
 
     Returns the daemon status on success. Raises `RbtrError`
-    if the spawned daemon exits without one becoming ready, or
-    does not bind within the backstop timeout.
+    if the spawned daemon exits for any other reason without one
+    becoming ready, or if none is ready within the timeout.
     """
     config.runtime_dir.mkdir(parents=True, exist_ok=True)
     config.log_dir.mkdir(parents=True, exist_ok=True)
@@ -139,12 +142,12 @@ def start_daemon(*, allow_missing_plugins: bool = False) -> DaemonStatus:
     # terminate our redundant serve (it would otherwise die on
     # the DuckDB lock) and return the winner.
     #
-    # Give up only when our spawned child actually exits (real
-    # failure, or we lost the race and the winner's status file
-    # lags -- hence the short grace).  The deadline is a backstop
-    # against a child that wedges before binding, not the normal
-    # path: a slow cold start under load still binds within it.
-    grace_after_exit = 5  # 100 ms ticks to let a racing winner appear
+    # Give up early only when our spawned child exits for a reason
+    # other than a lost lock.  The winner holds the lock through its
+    # whole startup and writes its status file last, which takes
+    # seconds under load, so a lost lock waits for it.  The deadline
+    # is a backstop against a child that wedges before binding, or a
+    # lock holder that never serves.
     deadline = time.monotonic() + config.daemon_start_timeout
     while time.monotonic() < deadline:
         time.sleep(0.1)
@@ -153,15 +156,20 @@ def start_daemon(*, allow_missing_plugins: bool = False) -> DaemonStatus:
             if status.pid != proc.pid and proc.poll() is None:
                 proc.terminate()
             return status
-        if proc.poll() is not None:
-            if grace_after_exit <= 0:
-                msg = (
-                    f"Daemon failed to start. "
-                    f"Check {config.daemon_log} and {config.daemon_stderr} for the reason."
-                )
-                raise RbtrError(msg)
-            grace_after_exit -= 1
+        if proc.poll() not in (None, ExitCode.INDEX_LOCKED):
+            msg = (
+                f"Daemon failed to start. "
+                f"Check {config.daemon_log} and {config.daemon_stderr} for the reason."
+            )
+            raise RbtrError(msg)
 
+    if proc.poll() == ExitCode.INDEX_LOCKED:
+        msg = (
+            f"Another process holds the index lock, and no daemon became ready "
+            f"within {config.daemon_start_timeout:g}s. `rbtr daemon status` shows "
+            f"whether a daemon is running."
+        )
+        raise IndexLockedError(msg)
     proc.terminate()
     msg = (
         f"Daemon did not become ready within {config.daemon_start_timeout:g}s. "

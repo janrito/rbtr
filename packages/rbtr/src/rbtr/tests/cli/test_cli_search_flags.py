@@ -20,7 +20,9 @@ def empty_repo(tmp_path: Path) -> str:
 
 
 def test_search_forwards_expansion_flags(empty_repo: str, mocker: MockerFixture) -> None:
-    captured = mocker.patch("rbtr.cli.try_daemon", return_value=SearchResponse(results=[]))
+    captured = mocker.patch(
+        "rbtr.cli.try_daemon", return_value=SearchResponse(results=[], resolved=None)
+    )
     command = Search.model_validate(
         {
             "query": "load_config",

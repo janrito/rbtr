@@ -9,30 +9,33 @@
  * Placement: .pi/extensions/rbtr/index.ts
  */
 
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import {
-  DEFAULT_MAX_BYTES,
-  DEFAULT_MAX_LINES,
-  getSettingsListTheme,
-  truncateHead,
-} from "@earendil-works/pi-coding-agent";
+import { relative, resolve } from "node:path";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import { Container, type SettingItem, SettingsList } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
 import { classifyDaemonFailure, decideStartupDecision } from "./classify.js";
-import { RbtrDaemonError } from "./daemon-client.js";
 import { DaemonSession, DaemonUnavailableError, type ReconcileResult } from "./daemon-session.js";
-import { type ResolvedCommand, resolveCommand, runRbtr, runRbtrJson } from "./exec.js";
+import { errorReply, type ResolvedCommand, resolveCommand, runRbtrJson } from "./exec.js";
 import { Footer } from "./footer.js";
 import type {
+  ChangedSymbolsResponse,
+  FindRefsResponse,
   GcMode,
   GcResponse,
+  ListSymbolsResponse,
+  ReadSymbolResponse,
   Response,
+  SearchResponse,
   StatusResponse,
   UnwatchResponse,
   WatchResponse,
+  WatchSetResponse,
 } from "./generated/protocol.js";
+import { RbtrReplyError } from "./reply-error.js";
 
 const require = createRequire(import.meta.url);
 const { version: EXTENSION_VERSION } = require("../../package.json") as { version: string };
@@ -47,11 +50,12 @@ const { version: EXTENSION_VERSION } = require("../../package.json") as { versio
  */
 const READ_CLI_TIMEOUT_MS = 150_000;
 
-import { decodeStringList, echoArgs } from "./args.js";
+import { block, type IndexLookups, readFacts, searchFacts } from "./annotate.js";
+import { commandRefs, decodeStringList } from "./args.js";
+import { replySchema } from "./output-schema.js";
 import {
   footerLabel,
   formatElapsed,
-  formatJobCounts,
   renderChangedSymbolsCall,
   renderChangedSymbolsResult,
   renderFindRefsCall,
@@ -66,42 +70,21 @@ import {
   renderSearchResult,
   renderStatusCall,
   renderStatusResult,
-  renderStatusText,
-  shortSha,
 } from "./render.js";
 import { loadSettings, type RbtrIndexSettings, saveProjectSettings } from "./settings.js";
+import { LOADER, ON_REQUEST, startingTools, withOnRequest } from "./tool-set.js";
 
 // ── Tool result shape ─────────────────────────────────────────
 
-interface ToolReturn {
-  content: Array<{ type: "text"; text: string }>;
-  details: Record<string, unknown>;
-}
+type ToolReturn = AgentToolResult<Record<string, unknown>>;
 
-/** Pack a typed daemon response for the LLM + renderer. */
-function toolResultFromDaemon(response: Response): ToolReturn {
-  return {
-    content: [{ type: "text", text: JSON.stringify(response) }],
-    details: { fromDaemon: true, response },
-  };
-}
-
-/** Pack raw CLI stdout for the LLM + renderer. */
-function toolResultFromCli(stdout: string, extra: Record<string, unknown>): ToolReturn {
-  const truncation = truncateHead(stdout, {
-    maxLines: DEFAULT_MAX_LINES,
-    maxBytes: DEFAULT_MAX_BYTES,
-  });
-  let content = truncation.content;
-  if (truncation.truncated) {
-    content +=
-      `\n\n[Output truncated: showing ${truncation.outputLines} of ` +
-      `${truncation.totalLines} lines. Use --limit or rbtr_read_symbol for details.]`;
-  }
-  return {
-    content: [{ type: "text", text: content }],
-    details: { fromCli: true, truncated: truncation.truncated, ...extra },
-  };
+/**
+ * Pack an rbtr response: its JSON for the model, the same value as the
+ * structured result for scripts, and the response for the renderer.
+ */
+function toolResult(response: Response): ToolReturn {
+  const text = JSON.stringify(response);
+  return { content: [{ type: "text", text }], structuredContent: JSON.parse(text), details: { response } };
 }
 
 // ── Extension ─────────────────────────────────────────────────
@@ -141,14 +124,14 @@ function notifyReconcile(ctx: ExtensionContext, result: ReconcileResult): void {
 export default function rbtrIndexExtension(pi: ExtensionAPI) {
   const session = new DaemonSession();
   let resolved: ResolvedCommand | null = null;
-  let settings: RbtrIndexSettings = { command: "rbtr", autoIndex: true };
+  let settings: RbtrIndexSettings = { command: "rbtr", autoIndex: true, annotate: true };
   let cliAvailable = false;
   let footer: Footer | null = null;
   let healthTimer: ReturnType<typeof setInterval> | null = null;
 
   /**
    * Try the daemon path, fall back to the CLI callback on
-   * transport failure.  Propagates ``RbtrDaemonError`` from the
+   * transport failure.  Propagates ``RbtrReplyError`` from the
    * daemon untouched — that is an actionable reply, not a
    * transport problem.
    */
@@ -157,7 +140,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       try {
         return await fromDaemon();
       } catch (err) {
-        if (err instanceof RbtrDaemonError) throw err;
+        if (err instanceof RbtrReplyError) throw err;
         if (err instanceof DaemonUnavailableError) {
           // Transport failure — fall through to CLI.
         } else {
@@ -172,39 +155,80 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   }
 
   function mapDaemonError(err: unknown): ToolReturn {
-    if (err instanceof RbtrDaemonError) {
-      return {
-        content: [{ type: "text", text: `${err.code}: ${err.message}` }],
-        details: { errorCode: err.code, message: err.message },
-      };
+    if (err instanceof RbtrReplyError) {
+      return { ...toolResult({ kind: "error", code: err.code, message: err.message }), isError: true };
     }
     throw err;
   }
 
-  async function queryIndexStatus(
-    repo: string,
-    scope: "workspace" | "all" = "workspace",
-  ): Promise<StatusResponse | null> {
+  async function queryIndexStatus(repo: string): Promise<StatusResponse | null> {
     if (session.available) {
       try {
-        return await session.send({ kind: "status", repo_path: repo, scope });
+        return await session.send({ kind: "status", repo_path: repo });
       } catch (err) {
-        if (err instanceof RbtrDaemonError) return null;
+        if (err instanceof RbtrReplyError) return null;
         // transport — fall through to CLI
       }
     }
     if (!resolved) return null;
     try {
-      const args = scope === "all" ? ["status", "--scope", "all"] : ["status"];
-      return await runRbtrJson<StatusResponse>(pi, resolved, args, { timeout: 5000 });
+      return await runRbtrJson<StatusResponse>(pi, resolved, ["status"], { timeout: 5000 });
     } catch {
       return null;
     }
   }
 
+  // ── Index facts in bash and read output ────────────────────
+
+  // Files already given an outline this session; a second read of one
+  // gets none.
+  const outlined = new Set<string>();
+
+  function lookups(cwd: string): IndexLookups {
+    return {
+      readSymbol: (symbol) => session.send({ kind: "read_symbol", repo_path: cwd, symbol }),
+      findRefs: (symbol) => session.send({ kind: "find_refs", repo_path: cwd, symbol }),
+      search: (query) => session.send({ kind: "search", repo_path: cwd, query, limit: 3 }),
+      listSymbols: (file_path) => session.send({ kind: "list_symbols", repo_path: cwd, file_path }),
+    };
+  }
+
+  // Daemon only: a CLI fallback would start a process per annotated call.
+  // Any failure leaves the tool's output as it was.
+  pi.on("tool_result", async (event, ctx) => {
+    // A call another tool made (a codemode script) returns to that tool,
+    // not to the model.
+    if (!settings.annotate || !session.available || event.isError || event.parentToolCallId) return;
+    let lines: string[] = [];
+    try {
+      const { command, path, offset } = event.input;
+      if (event.toolName === "bash" && typeof command === "string") {
+        const output = event.content.map((part) => (part.type === "text" ? part.text : "")).join("");
+        lines = await searchFacts(lookups(ctx.cwd), command, output);
+      } else if (event.toolName === "read" && typeof path === "string" && offset === undefined) {
+        const absolute = resolve(ctx.cwd, path);
+        if (outlined.has(absolute)) return;
+        outlined.add(absolute);
+        const lineCount = readFileSync(absolute, "utf8").split("\n").length;
+        lines = await readFacts(lookups(ctx.cwd), relative(ctx.cwd, absolute), lineCount);
+      }
+    } catch {
+      return;
+    }
+    const text = block(lines);
+    if (text === null) return;
+    // pi drops a tool's details and structured result unless the handler returns them.
+    return {
+      content: [...event.content, { type: "text", text: `\n\n${text}` }],
+      details: event.details,
+      structuredContent: event.structuredContent,
+    };
+  });
+
   // ── Session lifecycle ───────────────────────────────────────
 
   pi.on("session_start", async (_event, ctx) => {
+    pi.setActiveTools(startingTools(pi.getActiveTools()));
     settings = loadSettings(ctx.cwd);
     resolved = resolveCommand(settings.command);
     footer = new Footer(ctx);
@@ -227,7 +251,9 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             timeout: 15_000,
           });
           if (result.code !== 0) {
-            throw new Error(classifyDaemonFailure(result.code, result.stderr ?? "").message);
+            // Under --json rbtr prints its error on stdout; a crash leaves only stderr.
+            const failure = classifyDaemonFailure(result.code, errorReply(result.stdout), result.stderr ?? "");
+            throw new Error(failure.message);
           }
         },
       });
@@ -396,60 +422,57 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     return {
       systemPrompt:
         event.systemPrompt +
-        "\n\nThis repository has an rbtr structural code index available. " +
-        "Prefer the rbtr_* tools over grep + read for code navigation:\n" +
-        '- Concept-shaped questions ("how is X handled", "where does Y happen", "find the retry logic") → rbtr_search. ' +
-        "It understands meaning, not just substrings.\n" +
-        "- Known symbol by name → rbtr_read_symbol. No file path needed.\n" +
-        "- File outline before loading → rbtr_list_symbols.\n" +
-        "- Callers / doc mentions of a symbol → rbtr_find_refs.\n" +
-        "- Structural diff between refs (for PR review) → rbtr_changed_symbols.\n" +
-        "Keep grep for literal strings (error messages, config keys, regexes) and use `read` for full-file reads; " +
-        "rbtr_* tools are for structure. When a concept-question arises, reach for rbtr_search first.",
+        "\n\nThis repository has an rbtr code index. Use the rbtr_* tools to find code by meaning, structure or name; use grep for exact strings.",
     };
   });
 
   /**
-   * Submit a build to the daemon (or via CLI fallback).
+   * Watch refs (daemon first, CLI fallback) and return rbtr's reply.
    *
-   * Fire-and-forget: the daemon returns OkResponse immediately
-   * and runs the build on its internal queue.  Progress updates
-   * arrive via PUB notifications (wired in Phase 8.4).
+   * The daemon replies with the watch set at once and builds in the
+   * background; progress arrives via PUB notifications.  The CLI's
+   * inline build replies with what it built.  A failure marks the
+   * footer and propagates.
    */
-  async function triggerIndex(ctx: ExtensionContext, ...refs: string[]): Promise<void> {
-    const targetRefs = refs.length > 0 ? refs : ["HEAD"];
+  async function watchRefs(ctx: ExtensionContext, refs: readonly string[]): Promise<WatchSetResponse | WatchResponse> {
+    const targetRefs = refs.length > 0 ? [...refs] : ["HEAD"];
     footer?.setSpinner("muted", (frame) => `rbtr: ${frame} indexing…`);
     try {
-      await withFallback(
-        async () => {
-          // The extension always builds the 'full' variant (the default).
-          // The 'stripped' variant is benchmark-only, driven by rbtr-eval.
-          await session.send({ kind: "watch", repo_path: ctx.cwd, refs: targetRefs });
-        },
-        async () => {
+      return await withFallback<WatchSetResponse | WatchResponse>(
+        // The extension always builds the 'full' variant (the default).
+        // The 'stripped' variant is benchmark-only, driven by rbtr-eval.
+        () => session.send({ kind: "watch", repo_path: ctx.cwd, refs: targetRefs }),
+        () => {
           if (!resolved) throw new Error("rbtr CLI not available");
-          const args = ["watch"];
-          for (const r of targetRefs) args.push(r);
-          await runRbtrJson<WatchResponse>(pi, resolved, args, { timeout: 600_000 });
+          return runRbtrJson<WatchSetResponse | WatchResponse>(pi, resolved, ["watch", ...targetRefs], {
+            timeout: 600_000,
+          });
         },
       );
     } catch (err) {
       footer?.setStatic("error", "rbtr: indexing failed");
+      throw err;
+    }
+  }
+
+  /** Watch refs for the session start and `/rbtr-index`, telling the user if it fails. */
+  async function triggerIndex(ctx: ExtensionContext, ...refs: string[]): Promise<void> {
+    try {
+      await watchRefs(ctx, refs);
+    } catch (err) {
       ctx.ui.notify(`Indexing failed: ${err instanceof Error ? err.message : String(err)}`, "error");
     }
   }
 
   // Stop watching the given refs (daemon path, CLI fallback).  The
   // protocol takes at least one ref: unwatching nothing is a mis-shaped
-  // call, and finding the stale ones is `triggerRemoveStale`.
-  async function triggerUnwatch(ctx: ExtensionContext, refs: [string, ...string[]]): Promise<void> {
-    await withFallback(
-      async () => {
-        await session.send({ kind: "unwatch", repo_path: ctx.cwd, refs });
-      },
-      async () => {
+  // call, and finding the stale ones is `removeStale`.  rbtr refuses HEAD.
+  function unwatch(ctx: ExtensionContext, refs: [string, ...string[]]): Promise<UnwatchResponse> {
+    return withFallback<UnwatchResponse>(
+      () => session.send({ kind: "unwatch", repo_path: ctx.cwd, refs }),
+      () => {
         if (!resolved) throw new Error("rbtr CLI not available");
-        await runRbtr(pi, resolved, ["unwatch", ...refs], { timeout: 60_000 });
+        return runRbtrJson<UnwatchResponse>(pi, resolved, ["unwatch", ...refs], { timeout: 60_000 });
       },
     );
   }
@@ -457,17 +480,14 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   // Drop watched refs that no longer resolve (e.g. deleted branches).
   // Which refs those are is rbtr's to decide, so this asks rather than
   // working it out here; HEAD is never removed.
-  async function triggerRemoveStale(ctx: ExtensionContext): Promise<string[]> {
-    const removed = await withFallback(
-      async () => session.send({ kind: "unwatch_stale", repo_path: ctx.cwd }),
-      async () => {
+  function removeStale(ctx: ExtensionContext): Promise<UnwatchResponse> {
+    return withFallback<UnwatchResponse>(
+      () => session.send({ kind: "unwatch_stale", repo_path: ctx.cwd }),
+      () => {
         if (!resolved) throw new Error("rbtr CLI not available");
-        return runRbtrJson<UnwatchResponse>(pi, resolved, ["unwatch", "--stale"], {
-          timeout: 60_000,
-        });
+        return runRbtrJson<UnwatchResponse>(pi, resolved, ["unwatch", "--stale"], { timeout: 60_000 });
       },
     );
-    return Object.values(removed.removed ?? {}).flat();
   }
 
   async function triggerGc(
@@ -511,14 +531,15 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   });
 
   pi.registerCommand("rbtr-index", {
-    description: "Index the repository (or rebuild the index)",
-    handler: async (_args, ctx) => {
+    description: "Index the repository, or the given refs: /rbtr-index main feature-x",
+    handler: async (args, ctx) => {
       if (!cliAvailable) {
         ctx.ui.notify("rbtr CLI not available", "error");
         return;
       }
-      await triggerIndex(ctx);
-      ctx.ui.notify("Indexing started. Progress in the footer.", "info");
+      const refs = commandRefs(args);
+      await triggerIndex(ctx, ...refs);
+      ctx.ui.notify(`Indexing ${refs.length > 0 ? refs.join(", ") : "HEAD"}. Progress in the footer.`, "info");
     },
   });
 
@@ -593,222 +614,14 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   // ── Tools ──────────────────────────────────────────────────
 
   pi.registerTool({
-    name: "rbtr_watch",
-    label: "rbtr watch",
-    description:
-      "Manage the rbtr watch set: keep the given refs (branch, tag, or SHA) indexed so the other rbtr_* tools work. With no refs it watches HEAD. `remove` stops watching refs; `remove_stale` drops refs that no longer resolve. Safe to call repeatedly.",
-    promptSnippet: "Watch refs for the rbtr code index (`remove` / `remove_stale` to stop)",
-    promptGuidelines: [
-      "Call rbtr_watch when the user asks to (re)index or watch a specific ref, or when another rbtr_* tool returns a 'not indexed' error. The daemon keeps watched refs (HEAD by default) indexed automatically — you rarely need this for HEAD.",
-      "Each positional ref is an independent watch target the daemon keeps current; a branch tracks its tip, a bare SHA settles after one build. HEAD is always watched and cannot be removed.",
-      "When you begin substantive work on a branch, watch its base too (the default branch it forked from), not just HEAD — so you can later review the branch with rbtr_changed_symbols without a cold index.",
-      "When a watched branch has been merged or no longer resolves (e.g. after a merge), suggest the user stop watching it — `remove_stale` for deleted branches, or `remove` for a specific ref. This only trims the watch set; it doesn't delete index data. (Tidying every repo at once is `rbtr unwatch --stale --scope all`, and forgetting deleted checkouts is `rbtr forget --stale`.)",
-      "This is fire-and-forget: the tool returns immediately. Use rbtr_status to see progress and the current watch set.",
-    ],
-    parameters: Type.Object({
-      refs: Type.Optional(
-        Type.Array(Type.String(), {
-          description:
-            "Refs to watch and index (default: ['HEAD']). Each ref is an independent watch target: " +
-            'pass every ref as a separate array element, e.g. ["main", "HEAD"] — never a single ' +
-            'space-joined string like "main HEAD".',
-        }),
-      ),
-      remove: Type.Optional(Type.Boolean({ description: "Stop watching the given refs (HEAD cannot be removed)." })),
-      remove_stale: Type.Optional(
-        Type.Boolean({ description: "Stop watching refs that no longer resolve (e.g. deleted branches)." }),
-      ),
-    }),
-    renderCall: (args, theme) => renderIndexCall(args, theme),
-    renderResult: (result, options, theme) => renderIndexResult(result, options, theme),
-
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      if (!cliAvailable) {
-        throw new Error("rbtr CLI not available. Install with: uv tool install rbtr");
-      }
-      // Decode refs in case the provider delivered the array as a
-      // JSON-encoded string, so the up-to-date check and message below
-      // operate on the real refs (the daemon decodes its copy too).
-      const decodedRefs = decodeStringList(params.refs);
-      const refs: [string, ...string[]] = decodedRefs.length > 0 ? [decodedRefs[0], ...decodedRefs.slice(1)] : ["HEAD"];
-
-      if (params.remove_stale) {
-        const pruned = await triggerRemoveStale(ctx);
-        return {
-          content: [
-            {
-              type: "text",
-              text: pruned.length > 0 ? `Stopped watching stale refs: ${pruned.join(", ")}.` : "No stale watched refs.",
-            },
-          ],
-          details: { status: "remove_stale", pruned },
-        };
-      }
-      if (params.remove) {
-        if (refs.includes("HEAD")) {
-          return {
-            content: [{ type: "text", text: "HEAD cannot be removed from the watch set." }],
-            details: { status: "rejected", refs },
-          };
-        }
-        await triggerUnwatch(ctx, refs);
-        return {
-          content: [{ type: "text", text: `Stopped watching: ${refs.join(", ")}.` }],
-          details: { status: "removed", refs },
-        };
-      }
-
-      // Check current state first so we can give the LLM an
-      // actionable answer instead of blindly queueing a build.
-      // The daemon already dedupes duplicate submits (phase 9.2);
-      // this just turns that silent deduplication into a clear
-      // signal.
-      const status = await queryIndexStatus(ctx.cwd);
-
-      if (status?.active_build && status.active_build.repo_path === ctx.cwd) {
-        const j = status.active_build;
-        return {
-          content: [
-            {
-              type: "text",
-              text:
-                `A build is already in progress for this repository at ${shortSha(j.ref)} ` +
-                `(${j.phase} ${formatJobCounts(j)}). No new build was queued. ` +
-                `Use rbtr_status to check progress.`,
-            },
-          ],
-          details: { status: "in_progress", refs, activeJob: j },
-        };
-      }
-
-      // If asking for HEAD and HEAD is already indexed, say so
-      // rather than pretending to queue a redundant build.
-      if (refs.length === 1 && refs[0] === "HEAD" && status?.indexed_refs && status.indexed_refs.length > 0) {
-        const headRef = status.indexed_refs.find((r) => (r.names ?? []).includes("HEAD"));
-        if (headRef) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Index is up to date for HEAD (${shortSha(headRef.sha)}). No action taken.`,
-              },
-            ],
-            details: { status: "up_to_date", refs, head: headRef.sha },
-          };
-        }
-      }
-
-      await triggerIndex(ctx, ...refs);
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Indexing queued for refs ${refs.join(", ")}. Progress is shown in the footer. Use rbtr_status to check when complete.`,
-          },
-        ],
-        details: { status: "started", refs },
-      };
-    },
-  });
-
-  pi.registerTool({
-    name: "rbtr_status",
-    label: "rbtr status",
-    description:
-      "Report the state of the rbtr index for this repository: total symbols, which commits are indexed, any build currently running (phase + progress + elapsed), and pending queue entries.",
-    promptSnippet: "Inspect rbtr code-index state: totals, indexed commits, active build, queue",
-    promptGuidelines: [
-      "Call rbtr_status when you need to know whether the index is ready, whether a build you just queued is done, or which refs are indexed (e.g. before rbtr_changed_symbols).",
-      "If the reply shows 'Building: ...' with phase/progress, a build is live — don't re-queue it; either wait and re-check, or answer the user without the index for now.",
-      "If 'Indexed commits: none' and no active job, the user has never completed an index; tell them to run rbtr_watch (or it will happen automatically at session start unless disabled).",
-      "Leave `scope` as the default 'workspace' (the current repo) unless you specifically need to see other indexed repos. Set `scope: 'all'` only to confirm which other projects are indexed before a deliberate cross-repo rbtr_search — i.e. when the user's task spans sibling checkouts, a split monorepo, or an explicit cross-project question.",
-    ],
-    parameters: Type.Object({
-      scope: Type.Optional(
-        Type.Union([Type.Literal("workspace"), Type.Literal("all")], {
-          description: "Status breadth: 'workspace' (current repo, default) or 'all' (every indexed repo).",
-        }),
-      ),
-    }),
-    renderCall: (args, theme) => renderStatusCall(args, theme),
-    renderResult: (result, options, theme) => renderStatusResult(result, options, theme),
-
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      if (!cliAvailable) {
-        throw new Error("rbtr CLI not available. Install with: uv tool install rbtr");
-      }
-      const status = await queryIndexStatus(ctx.cwd, params.scope ?? "workspace");
-      if (!status) {
-        throw new Error("Failed to check index status");
-      }
-      return {
-        content: [{ type: "text", text: renderStatusText(status) }],
-        details: { fromDaemon: true, response: status },
-      };
-    },
-  });
-
-  pi.registerTool({
-    name: "rbtr_gc",
-    label: "rbtr gc",
-    description:
-      "⚠ DESTRUCTIVE, IRREVERSIBLE. Permanently deletes indexed data (commits, chunks, embeddings) from the rbtr index — there is no undo. Runs as a dry-run preview by default; only pass dry_run=false when the user has EXPLICITLY asked to delete index data. By default keeps HEAD, all local branches/tags, and the watch set (drops only unreferenced commits); watched_only also drops unwatched branches/tags.",
-    promptSnippet: "Garbage-collect the rbtr index (⚠ destructive; reclaim storage)",
-    promptGuidelines: [
-      "⚠ Destructive and irreversible. Only call rbtr_gc when the user has EXPLICITLY asked to reclaim index space or drop refs — never speculatively, never to 'tidy up' on your own initiative, never as a side-effect of another task.",
-      "It runs as a dry-run preview by default. Show the user what it would drop and get their explicit confirmation; pass dry_run=false ONLY after they confirm they want the deletion applied.",
-      "The default mode never drops anything reachable from a branch or the watch set; watched_only=true additionally drops unwatched branches/tags. The daemon never GCs automatically — nothing is deleted unless you call this.",
-    ],
-    parameters: Type.Object({
-      watched_only: Type.Optional(
-        Type.Boolean({ description: "Keep only HEAD and watched refs (drop unwatched branches/tags)." }),
-      ),
-      dry_run: Type.Optional(
-        Type.Boolean({
-          description:
-            "Preview without deleting. Defaults to true (safe); set false ONLY after explicit user confirmation to actually delete.",
-        }),
-      ),
-    }),
-
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      if (!cliAvailable) {
-        throw new Error("rbtr CLI not available. Install with: uv tool install rbtr");
-      }
-      // Dry-run by default: a careless call previews; deleting needs a
-      // deliberate dry_run=false after the user has confirmed.
-      const res = await triggerGc(ctx, {
-        watchedOnly: params.watched_only ?? false,
-        dryRun: params.dry_run ?? true,
-      });
-      const text = res.dry_run
-        ? `Dry run: would drop ${res.snapshots_dropped} snapshot(s) and free ${res.chunks_freed} chunk(s) across ${res.repos_collected} repo(s). Nothing was deleted — confirm with the user, then call again with dry_run=false to apply.`
-        : `Dropped ${res.snapshots_dropped} snapshot(s); freed ${res.chunks_freed} chunk(s) across ${res.repos_collected} repo(s).`;
-      return {
-        content: [{ type: "text", text }],
-        details: { fromDaemon: true, response: res },
-      };
-    },
-  });
-
-  pi.registerTool({
     name: "rbtr_search",
     label: "rbtr search",
     description:
-      "Semantic + symbol-aware search over the repository's code index. Takes a `query` string and optional `keywords`/`variants` for query expansion. Ranks functions, classes, methods, and other structural chunks by relevance (embeddings + full-text fused). Returns scored hits with file path, line, kind, name, and full source content.",
-    promptSnippet: "Semantic code search by intent: 'how retries are handled', 'where embeddings happen'",
+      "Find code by what it does or by name ('where are retries handled', 'the function that parses the config'): use it instead of grep when you don't know the exact text. It matches meaning: 'retry logic' also finds 'backoff' and 'reconnect'. Returns ranked functions, classes and methods with file, line and a preview of the source; a hit marked `clipped` has more lines, which rbtr_read_symbol returns. Pass `keywords` (synonyms) and, for a question in words, `variants` (rephrasings) to widen the match.",
+    promptSnippet: "Find code by meaning or by name, when you don't know the exact text to grep for",
     promptGuidelines: [
-      "Prefer rbtr_search over grep for concept-shaped questions: 'how does X work', 'where is Y handled', 'find the code that does Z'. It understands meaning, not just substrings — 'retry logic' finds 'backoff' and 'reconnect attempts', grep would miss them.",
-      "Use grep when the user gives you a literal string or identifier that must match exactly (an error message, a regex, a configuration key, an import path).",
-      "Use rbtr_read_symbol (not rbtr_search) when you already know a symbol name and want its full source.",
-      "Chain: rbtr_search finds candidates → pass the `name` field from a hit as the `symbol` parameter to rbtr_read_symbol for the full source → rbtr_find_refs for callers and docs.",
-      "Scores are meaningful relative to the top result. A big drop-off after the first few hits means the tail is probably noise.",
-      "For concept queries (natural language like 'how does idle unload work'): provide `keywords` (3-5 synonym identifiers or alternative terms, e.g. ['timeout', 'evict', 'unload_model']) and `variants` (1-2 rephrases using different terminology, e.g. ['when does the model get released from memory']).",
-      "For identifier queries (symbol names like `fuse_scores`): optionally provide `keywords` only (alternative names the symbol might have, e.g. ['merge_scores', 'combine_results']). Omit `variants`.",
-      "For code fragments (e.g. `for item in self._cache`): omit both `keywords` and `variants`.",
-      "Leave `scope` as the default 'workspace' for almost every search: the user is working in this repo and wants answers from it. 'workspace' searches only the current project.",
-      "Only set `scope: 'all'` (search every indexed repo, merged into one ranked list with each hit labelled by repo) when the task genuinely spans repos: the user is working across sibling checkouts of one system (e.g. a frontend and its backend), a monorepo that was split into separate checkouts, or has explicitly asked how this project integrates with or depends on another indexed one. Cross-repo results pull in code from unrelated projects and dilute relevance, so do not reach for 'all' just because a 'workspace' search came back thin — refine the query first.",
-      "Pass `ref` to search a specific indexed snapshot (e.g. a PR branch tip). The ref must already be indexed — use rbtr_watch to watch it first. When omitted, searches the working tree if dirty, HEAD if clean.",
+      "Use rbtr_search instead of grep to find where something is handled or implemented; keep grep for exact strings such as error messages and config keys.",
+      "Pass a hit's `name` to rbtr_read_symbol for its full source, and to rbtr_find_refs for what uses it.",
     ],
     parameters: Type.Object({
       query: Type.String({ description: "Search query" }),
@@ -837,15 +650,16 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         }),
       ),
     }),
+    outputSchema: replySchema("SearchResponse", "ErrorResponse"),
     renderCall: (args, theme) => renderSearchCall(args, theme),
     renderResult: (result, options, theme) => renderSearchResult(result, options, theme),
 
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       if (!params.query) throw new Error("Missing required parameter `query`. Example: {query: 'retry logic'}");
       try {
-        return await withFallback<ToolReturn>(
-          async () => {
-            const resp = await session.send({
+        const resp = await withFallback<SearchResponse>(
+          () =>
+            session.send({
               kind: "search",
               repo_path: ctx.cwd,
               query: params.query,
@@ -854,42 +668,17 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
               ...(params.keywords !== undefined ? { keywords: params.keywords } : {}),
               ...(params.variants !== undefined ? { variants: params.variants } : {}),
               ...(params.scope !== undefined ? { scope: params.scope } : {}),
-            });
-            if (resp.results.length === 0) {
-              return {
-                content: [
-                  {
-                    type: "text",
-                    text: `No results found.${echoArgs(params, ["query", "ref", "keywords", "variants", "scope"])}`,
-                  },
-                ],
-                details: { fromDaemon: true, response: resp },
-              };
-            }
-            return toolResultFromDaemon(resp);
-          },
-          async () => {
+            }),
+          () => {
             if (!resolved) throw new Error("rbtr CLI not available");
             const args = ["search", params.query];
             if (params.ref !== undefined) args.push("--ref", params.ref);
             if (params.limit !== undefined) args.push("--limit", String(params.limit));
             if (params.scope !== undefined) args.push("--scope", params.scope);
-            const result = await runRbtr(pi, resolved, args, { signal, timeout: READ_CLI_TIMEOUT_MS });
-            const text = result.stdout.trim();
-            if (!text) {
-              return {
-                content: [
-                  {
-                    type: "text",
-                    text: `No results found.${echoArgs(params, ["query", "ref", "keywords", "variants", "scope"])}`,
-                  },
-                ],
-                details: { fromCli: true, results: [] },
-              };
-            }
-            return toolResultFromCli(text, { query: params.query, limit: params.limit });
+            return runRbtrJson<SearchResponse>(pi, resolved, args, { signal, timeout: READ_CLI_TIMEOUT_MS });
           },
         );
+        return toolResult(resp);
       } catch (err) {
         return mapDaemonError(err);
       }
@@ -900,15 +689,10 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     name: "rbtr_read_symbol",
     label: "rbtr read-symbol",
     description:
-      "Fetch the full source of a named symbol (function, class, method, constant) from the code index. Takes a `symbol` string — just the name, no file path needed (e.g. 'fuse_scores', 'HttpClient.retry').",
-    promptSnippet: "Read a symbol's source by name: 'fuse_scores', 'HttpClient.retry'",
+      "Read the full source of a function, class, method or constant by name, with no file path or line numbers: 'fuse_scores', 'HttpClient.retry'. Use it instead of grep then read whenever you know the name. Try the plain name first; qualify it ('module.Class.method') or pass `file_paths` when several symbols share it. 'Symbol not found' means the index has no such name at that ref: fall back to grep.",
+    promptSnippet: "Read a function, class or method's source by name, instead of grep then read",
     promptGuidelines: [
-      "Use rbtr_read_symbol when you have a symbol name and want its source. Much more precise than grep + read — no guessing at line numbers, no page-through.",
-      "Symbol names come as: bare name (`fuse_scores`), class-qualified (`HttpClient.retry`), or module-qualified (`rbtr.index.search.fuse_scores`). The index stores whatever the language's tree-sitter parser emits; try the plain name first, then qualify if there are collisions.",
-      "Typical chain: rbtr_search → pick a hit → pass its `name` field as the `symbol` parameter to rbtr_read_symbol for the full body. Then rbtr_find_refs on the same name to see callers.",
-      "If the tool returns 'Symbol not found', the symbol either doesn't exist at the indexed ref or lives in a file type the parser doesn't cover; fall back to grep + read.",
-      "Pass file_paths to disambiguate a name that exists in several files — only symbols defined in the listed files are returned.",
-      "Pass `ref` to read from a specific indexed snapshot (e.g. a PR branch tip). The ref must already be indexed — use rbtr_watch to watch it first. When omitted, reads from the working tree if dirty, HEAD if clean.",
+      "Use rbtr_read_symbol instead of grep and read whenever you know the name of the function, class or method you want to see.",
     ],
     parameters: Type.Object({
       symbol: Type.String({
@@ -928,55 +712,31 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         }),
       ),
     }),
+    outputSchema: replySchema("ReadSymbolResponse", "ErrorResponse"),
     renderCall: (args, theme) => renderReadSymbolCall(args, theme),
     renderResult: (result, options, theme) => renderReadSymbolResult(result, options, theme),
 
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       if (!params.symbol) throw new Error("Missing required parameter `symbol`. Example: {symbol: 'MyClass.method'}");
       try {
-        return await withFallback<ToolReturn>(
-          async () => {
-            const resp = await session.send({
+        const resp = await withFallback<ReadSymbolResponse>(
+          () =>
+            session.send({
               kind: "read_symbol",
               repo_path: ctx.cwd,
               symbol: params.symbol,
               ...(params.ref !== undefined ? { ref: params.ref } : {}),
               ...(params.file_paths !== undefined ? { file_paths: params.file_paths } : {}),
-            });
-            if (resp.chunks.length === 0) {
-              return {
-                content: [
-                  {
-                    type: "text",
-                    text: `Symbol not found: ${params.symbol}${echoArgs(params, ["ref", "file_paths"])}`,
-                  },
-                ],
-                details: { fromDaemon: true, response: resp, symbol: params.symbol },
-              };
-            }
-            return toolResultFromDaemon(resp);
-          },
-          async () => {
+            }),
+          () => {
             if (!resolved) throw new Error("rbtr CLI not available");
             const readArgs = ["read-symbol", params.symbol];
             if (params.ref !== undefined) readArgs.push("--ref", params.ref);
             for (const fp of params.file_paths ?? []) readArgs.push("--file-path", fp);
-            const result = await runRbtr(pi, resolved, readArgs, { signal, timeout: READ_CLI_TIMEOUT_MS });
-            const text = result.stdout.trim();
-            if (!text) {
-              return {
-                content: [
-                  {
-                    type: "text",
-                    text: `Symbol not found: ${params.symbol}${echoArgs(params, ["ref", "file_paths"])}`,
-                  },
-                ],
-                details: { fromCli: true, symbol: params.symbol, found: false },
-              };
-            }
-            return toolResultFromCli(text, { symbol: params.symbol, found: true });
+            return runRbtrJson<ReadSymbolResponse>(pi, resolved, readArgs, { signal, timeout: READ_CLI_TIMEOUT_MS });
           },
         );
+        return toolResult(resp);
       } catch (err) {
         return mapDaemonError(err);
       }
@@ -987,15 +747,10 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     name: "rbtr_find_refs",
     label: "rbtr find-refs",
     description:
-      "Walk the dependency graph to find every place a symbol is imported or mentioned in docs. Takes a `symbol` string (same format as rbtr_read_symbol). Returns structural edges (source → target, kind=imports|docs), not text matches.",
-    promptSnippet: "Find who imports / documents a symbol via the index's dependency graph",
+      "Find what imports or documents a symbol, from the index's dependency graph: the files and symbols that depend on it. Use it instead of grepping for a name when you need to know what a change would affect. Returns edges (source, target, kind `imports` or `docs`), not text matches; grep finds occurrences inside strings and comments.",
+    promptSnippet: "Find what imports or documents a symbol, to see what a change would affect",
     promptGuidelines: [
-      "Use rbtr_find_refs for impact analysis: 'what would break if I change X', 'is X documented anywhere'.",
-      "This is structural, not textual: edge kinds ('imports', 'docs') give you intent, not raw string occurrences. Prefer this to grep when asking a graph-shaped question.",
-      "Use grep when you need every raw occurrence of an identifier including inside strings / comments / unsupported file types.",
-      "Chain after rbtr_search or rbtr_read_symbol: you've identified the symbol, now find who depends on it.",
-      "Pass file_paths to disambiguate a name that exists in several files — references are resolved only against symbols defined in the listed files.",
-      "Pass `ref` to query references at a specific indexed snapshot (e.g. a PR branch tip). The ref must already be indexed — use rbtr_watch to watch it first. When omitted, reads from the working tree if dirty, HEAD if clean.",
+      "Use rbtr_find_refs instead of grep before changing a function or class, to find the code that depends on it.",
     ],
     parameters: Type.Object({
       symbol: Type.String({
@@ -1014,55 +769,31 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         }),
       ),
     }),
+    outputSchema: replySchema("FindRefsResponse", "ErrorResponse"),
     renderCall: (args, theme) => renderFindRefsCall(args, theme),
     renderResult: (result, options, theme) => renderFindRefsResult(result, options, theme),
 
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       if (!params.symbol) throw new Error("Missing required parameter `symbol`. Example: {symbol: 'MyClass.method'}");
       try {
-        return await withFallback<ToolReturn>(
-          async () => {
-            const resp = await session.send({
+        const resp = await withFallback<FindRefsResponse>(
+          () =>
+            session.send({
               kind: "find_refs",
               repo_path: ctx.cwd,
               symbol: params.symbol,
               ...(params.ref !== undefined ? { ref: params.ref } : {}),
               ...(params.file_paths !== undefined ? { file_paths: params.file_paths } : {}),
-            });
-            if (resp.refs.length === 0) {
-              return {
-                content: [
-                  {
-                    type: "text",
-                    text: `No references found for: ${params.symbol}${echoArgs(params, ["ref", "file_paths"])}`,
-                  },
-                ],
-                details: { fromDaemon: true, response: resp },
-              };
-            }
-            return toolResultFromDaemon(resp);
-          },
-          async () => {
+            }),
+          () => {
             if (!resolved) throw new Error("rbtr CLI not available");
             const findArgs = ["find-refs", params.symbol];
             if (params.ref !== undefined) findArgs.push("--ref", params.ref);
             for (const fp of params.file_paths ?? []) findArgs.push("--file-path", fp);
-            const result = await runRbtr(pi, resolved, findArgs, { signal, timeout: READ_CLI_TIMEOUT_MS });
-            const text = result.stdout.trim();
-            if (!text) {
-              return {
-                content: [
-                  {
-                    type: "text",
-                    text: `No references found for: ${params.symbol}${echoArgs(params, ["ref", "file_paths"])}`,
-                  },
-                ],
-                details: { fromCli: true, symbol: params.symbol, found: false },
-              };
-            }
-            return toolResultFromCli(text, { symbol: params.symbol, found: true });
+            return runRbtrJson<FindRefsResponse>(pi, resolved, findArgs, { signal, timeout: READ_CLI_TIMEOUT_MS });
           },
         );
+        return toolResult(resp);
       } catch (err) {
         return mapDaemonError(err);
       }
@@ -1073,14 +804,10 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     name: "rbtr_changed_symbols",
     label: "rbtr changed-symbols",
     description:
-      "Structural diff between two git refs: which functions, classes, or methods were added, modified, or removed. Takes `base` and `head` ref strings (branch name, tag, or SHA). Higher signal than a line diff for reviewing or understanding a branch.",
-    promptSnippet: "Symbol-level diff between two refs, for PR review / branch understanding",
+      "Diff two refs by symbol: which functions, classes and methods a branch added, changed or removed. Use it to review or summarise a branch instead of reading the whole line diff; use git diff for exact lines and for files that are not code. Both refs must be indexed: watch them first with rbtr_watch.",
+    promptSnippet: "Which functions, classes and methods a branch added, changed or removed",
     promptGuidelines: [
-      "Use rbtr_changed_symbols for code review and branch-understanding questions ('what did this PR change', 'summarise the work on this branch'). It gives you a short list of changed symbols instead of a huge patch to read.",
-      "Both refs must be indexed. When you set out to review or understand a branch, watch both refs up front — call rbtr_watch with the working ref and its base (usually the default branch it forked from; check the repo, don't assume a name). HEAD is watched automatically. If the tool still errors 'not indexed', index the missing ref and retry.",
-      "Use git diff when you need the exact line-level changes or when you need to see non-code changes (config, data files). Use rbtr_changed_symbols when the question is about code structure.",
-      "Chain: rbtr_changed_symbols → rbtr_read_symbol on the most interesting entries for the new body → rbtr_find_refs to see callers that might need updating.",
-      "Pass file_paths to scope the diff to specific files — only changes in the listed files are reported.",
+      "Use rbtr_changed_symbols to review a branch or PR: call rbtr_watch with the branch and its base first, then diff them.",
     ],
     parameters: Type.Object({
       base: Type.String({ description: "Base ref (branch name, tag, or SHA). Must be indexed." }),
@@ -1091,6 +818,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         }),
       ),
     }),
+    outputSchema: replySchema("ChangedSymbolsResponse", "ErrorResponse"),
     renderCall: (args, theme) => renderChangedSymbolsCall(args, theme),
     renderResult: (result, options, theme) => renderChangedSymbolsResult(result, options, theme),
 
@@ -1101,51 +829,26 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         );
       }
       try {
-        return await withFallback<ToolReturn>(
-          async () => {
-            const resp = await session.send({
+        const resp = await withFallback<ChangedSymbolsResponse>(
+          () =>
+            session.send({
               kind: "changed_symbols",
               repo_path: ctx.cwd,
               base: params.base,
               head: params.head,
               ...(params.file_paths !== undefined ? { file_paths: params.file_paths } : {}),
-            });
-            if (resp.changes.length === 0) {
-              return {
-                content: [
-                  {
-                    type: "text",
-                    text: `No changed symbols between ${params.base} and ${params.head}${echoArgs(params, ["file_paths"])}`,
-                  },
-                ],
-                details: { fromDaemon: true, response: resp },
-              };
-            }
-            return toolResultFromDaemon(resp);
-          },
-          async () => {
+            }),
+          () => {
             if (!resolved) throw new Error("rbtr CLI not available");
             const changedArgs = ["changed-symbols", params.base, params.head];
             for (const fp of params.file_paths ?? []) changedArgs.push("--file-path", fp);
-            const result = await runRbtr(pi, resolved, changedArgs, {
+            return runRbtrJson<ChangedSymbolsResponse>(pi, resolved, changedArgs, {
               signal,
               timeout: READ_CLI_TIMEOUT_MS,
             });
-            const text = result.stdout.trim();
-            if (!text) {
-              return {
-                content: [
-                  {
-                    type: "text",
-                    text: `No changed symbols between ${params.base} and ${params.head}${echoArgs(params, ["file_paths"])}`,
-                  },
-                ],
-                details: { fromCli: true, base: params.base, head: params.head, found: false },
-              };
-            }
-            return toolResultFromCli(text, { base: params.base, head: params.head, found: true });
           },
         );
+        return toolResult(resp);
       } catch (err) {
         return mapDaemonError(err);
       }
@@ -1156,14 +859,9 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     name: "rbtr_list_symbols",
     label: "rbtr list-symbols",
     description:
-      "Structural table of contents for a single file. Takes a `file` path relative to repo root (e.g. 'src/rbtr/index/search.py'). Lists every function, class, and method with its line range. Cheap overview of a file's shape without loading its full source.",
-    promptSnippet: "File outline: every function/class/method with line ranges (no source)",
-    promptGuidelines: [
-      "Use rbtr_list_symbols before reading a large file. A few KB of structure tells you whether the content you need is actually in this file before you pay to load it.",
-      "Good starting point when a user asks 'what's in file X' or 'walk me through X.py' — list symbols, then rbtr_read_symbol on the ones that matter.",
-      "Don't use it for small files (<200 lines); just read them.",
-      "Pass `ref` to list symbols at a specific indexed snapshot (e.g. a PR branch tip). The ref must already be indexed — use rbtr_watch to watch it first. When omitted, reads from the working tree if dirty, HEAD if clean.",
-    ],
+      "Outline one file: every function, class and method with its line range, without the source. Use it instead of reading a large file end to end to find the part you need, then read that range or call rbtr_read_symbol. Takes a `file` path relative to the repository root.",
+    promptSnippet: "Outline a file's functions, classes and methods with their line ranges",
+    promptGuidelines: ["Use rbtr_list_symbols on a large file before reading it, to find which part to read."],
     parameters: Type.Object({
       file: Type.String({ description: "File path relative to the repo root (e.g. 'src/rbtr/index/search.py')." }),
       ref: Type.Optional(
@@ -1173,6 +871,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         }),
       ),
     }),
+    outputSchema: replySchema("ListSymbolsResponse", "ErrorResponse"),
     renderCall: (args, theme) => renderListSymbolsCall(args, theme),
     renderResult: (result, options, theme) => renderListSymbolsResult(result, options, theme),
 
@@ -1180,40 +879,162 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       if (!params.file)
         throw new Error("Missing required parameter `file`. Example: {file: 'src/rbtr/index/search.py'}");
       try {
-        return await withFallback<ToolReturn>(
-          async () => {
-            const resp = await session.send({
+        const resp = await withFallback<ListSymbolsResponse>(
+          () =>
+            session.send({
               kind: "list_symbols",
               repo_path: ctx.cwd,
               file_path: params.file,
               ...(params.ref !== undefined ? { ref: params.ref } : {}),
-            });
-            if (resp.chunks.length === 0) {
-              return {
-                content: [{ type: "text", text: `No symbols found in: ${params.file}` }],
-                details: { fromDaemon: true, response: resp },
-              };
-            }
-            return toolResultFromDaemon(resp);
-          },
-          async () => {
+            }),
+          () => {
             if (!resolved) throw new Error("rbtr CLI not available");
             const listArgs = ["list-symbols", params.file];
             if (params.ref !== undefined) listArgs.push("--ref", params.ref);
-            const result = await runRbtr(pi, resolved, listArgs, {
+            return runRbtrJson<ListSymbolsResponse>(pi, resolved, listArgs, {
               signal,
               timeout: READ_CLI_TIMEOUT_MS,
             });
-            const text = result.stdout.trim();
-            if (!text) {
-              return {
-                content: [{ type: "text", text: `No symbols found in: ${params.file}` }],
-                details: { fromCli: true, file: params.file, found: false },
-              };
-            }
-            return toolResultFromCli(text, { file: params.file, found: true });
           },
         );
+        return toolResult(resp);
+      } catch (err) {
+        return mapDaemonError(err);
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "rbtr_watch",
+    label: "rbtr watch",
+    description:
+      "Index refs so the other rbtr tools can read them: a branch, tag or SHA, such as a PR branch and its base before a review. HEAD and the working tree are indexed automatically. Returns at once; indexing continues in the background, and rbtr_status (loaded by rbtr_index_tools) shows its progress. `remove` stops watching refs; `remove_stale` drops refs that no longer resolve. Safe to call repeatedly.",
+    promptSnippet: "Index refs, such as a PR branch and its base, so the rbtr tools can read them",
+    promptGuidelines: [
+      "Use rbtr_watch when the user asks for refs to be indexed, or when an rbtr tool replies that a ref is not indexed.",
+    ],
+    parameters: Type.Object({
+      refs: Type.Optional(
+        Type.Array(Type.String(), {
+          description:
+            "Refs to watch and index (default: ['HEAD']). Each ref is an independent watch target: " +
+            'pass every ref as a separate array element, e.g. ["main", "HEAD"] — never a single ' +
+            'space-joined string like "main HEAD".',
+        }),
+      ),
+      remove: Type.Optional(Type.Boolean({ description: "Stop watching the given refs (HEAD cannot be removed)." })),
+      remove_stale: Type.Optional(
+        Type.Boolean({ description: "Stop watching refs that no longer resolve (e.g. deleted branches)." }),
+      ),
+    }),
+    outputSchema: replySchema("WatchSetResponse", "WatchResponse", "UnwatchResponse", "ErrorResponse"),
+    renderCall: (args, theme) => renderIndexCall(args, theme),
+    renderResult: (result, options, theme) => renderIndexResult(result, options, theme),
+
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      // Decode refs in case the provider delivered the array as a
+      // JSON-encoded string (the daemon decodes its copy too).
+      const decodedRefs = decodeStringList(params.refs);
+      const refs: [string, ...string[]] = decodedRefs.length > 0 ? [decodedRefs[0], ...decodedRefs.slice(1)] : ["HEAD"];
+      try {
+        if (params.remove_stale) return toolResult(await removeStale(ctx));
+        if (params.remove) return toolResult(await unwatch(ctx, refs));
+        return toolResult(await watchRefs(ctx, refs));
+      } catch (err) {
+        return mapDaemonError(err);
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: LOADER,
+    label: "rbtr index tools",
+    description:
+      "Load the tools that inspect and clean up the rbtr index: rbtr_status (what is indexed, and whether a build is still running) and rbtr_gc (reclaim disk space; destructive, only on the user's request).",
+    promptSnippet: "Load rbtr_status and rbtr_gc, to inspect the index or reclaim its disk space",
+    promptGuidelines: [
+      "Call rbtr_index_tools when you need to check whether indexing has finished, or the user asks to reclaim index space.",
+    ],
+    parameters: Type.Object({}),
+    outputSchema: Type.Object(
+      { kind: Type.Literal("tools_loaded"), tools: Type.Array(Type.String()) },
+      { additionalProperties: false },
+    ),
+
+    async execute() {
+      pi.setActiveTools(withOnRequest(pi.getActiveTools()));
+      const loaded = { kind: "tools_loaded", tools: [...ON_REQUEST] };
+      return { content: [{ type: "text", text: JSON.stringify(loaded) }], structuredContent: loaded, details: loaded };
+    },
+  });
+
+  pi.registerTool({
+    name: "rbtr_status",
+    label: "rbtr status",
+    description:
+      "Report the rbtr index for this repository: symbol totals, which commits are indexed, the build running now with its progress, and queued work. `scope: 'all'` covers every indexed repository.",
+    promptSnippet: "Check what the rbtr index holds, and whether a build is still running",
+    promptGuidelines: ["Use rbtr_status to check whether a ref you asked rbtr_watch to index has finished."],
+    parameters: Type.Object({
+      scope: Type.Optional(
+        Type.Union([Type.Literal("workspace"), Type.Literal("all")], {
+          description: "Status breadth: 'workspace' (current repo, default) or 'all' (every indexed repo).",
+        }),
+      ),
+    }),
+    outputSchema: replySchema("StatusResponse", "ErrorResponse"),
+    renderCall: (args, theme) => renderStatusCall(args, theme),
+    renderResult: (result, options, theme) => renderStatusResult(result, options, theme),
+
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const scope = params.scope ?? "workspace";
+      try {
+        const status = await withFallback<StatusResponse>(
+          () => session.send({ kind: "status", repo_path: ctx.cwd, scope }),
+          () => {
+            if (!resolved) throw new Error("rbtr CLI not available");
+            const args = scope === "all" ? ["status", "--scope", "all"] : ["status"];
+            return runRbtrJson<StatusResponse>(pi, resolved, args, { timeout: 5000 });
+          },
+        );
+        return toolResult(status);
+      } catch (err) {
+        return mapDaemonError(err);
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "rbtr_gc",
+    label: "rbtr gc",
+    description:
+      "⚠ DESTRUCTIVE, IRREVERSIBLE. Permanently deletes indexed data (commits, chunks, embeddings) from the rbtr index; there is no undo. Only for when the user has explicitly asked to reclaim index space. Runs as a dry-run preview by default: show the user what it would drop, and pass dry_run=false only after they confirm. By default keeps HEAD, all local branches and tags, and the watch set, dropping only unreferenced commits; watched_only also drops unwatched branches and tags. The daemon never deletes anything unless this is called.",
+    promptSnippet: "Delete unreferenced index data to reclaim disk space (destructive; only on the user's request)",
+    promptGuidelines: [
+      "Use rbtr_gc only when the user explicitly asks to reclaim index space, and apply it only after they confirm the dry-run result.",
+    ],
+    parameters: Type.Object({
+      watched_only: Type.Optional(
+        Type.Boolean({ description: "Keep only HEAD and watched refs (drop unwatched branches/tags)." }),
+      ),
+      dry_run: Type.Optional(
+        Type.Boolean({
+          description:
+            "Preview without deleting. Defaults to true (safe); set false ONLY after explicit user confirmation to actually delete.",
+        }),
+      ),
+    }),
+    outputSchema: replySchema("GcResponse", "ErrorResponse"),
+
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      // Dry-run by default: a careless call previews; deleting needs a
+      // deliberate dry_run=false after the user has confirmed.
+      try {
+        const res = await triggerGc(ctx, {
+          watchedOnly: params.watched_only ?? false,
+          dryRun: params.dry_run ?? true,
+        });
+        return toolResult(res);
       } catch (err) {
         return mapDaemonError(err);
       }

@@ -1,4 +1,14 @@
-"""Base exceptions for rbtr."""
+"""Base exceptions and process exit codes for rbtr."""
+
+from enum import IntEnum
+
+
+class ExitCode(IntEnum):
+    """Status an rbtr process exits with when it does not succeed."""
+
+    FAILED = 1  # a command reported its own failure
+    ERROR = 2  # an `RbtrError` or rejected arguments reached `main`
+    INDEX_LOCKED = 3  # `daemon serve` found the index locked by another process
 
 
 class RbtrError(Exception):
@@ -19,6 +29,12 @@ class IndexNotBuiltError(RbtrError):
 
     def __init__(self, message: str = "FTS index not built. Run `rbtr watch` first.") -> None:
         super().__init__(message)
+
+
+class RepoNotFoundError(RbtrError):
+    """Raised when the index has no row for a repo: never indexed, or forgotten."""
+
+    error_code: str = "repo_not_found"
 
 
 class IndexSchemaTooNewError(RbtrError):
@@ -49,6 +65,8 @@ class IndexLockedError(RbtrError):
     build, keeping the daemon from starting.  Callers must report
     this and stop rather than fall back to inline mode.
     """
+
+    error_code: str = "index_locked"
 
 
 class MissingLanguagePluginsError(RbtrError):
@@ -83,3 +101,5 @@ class DaemonBusyError(RbtrError):
     can refuse to silently fall back to inline mode -- inline reads
     would contend for DuckDB's process-level WAL lock.
     """
+
+    error_code: str = "daemon_busy"

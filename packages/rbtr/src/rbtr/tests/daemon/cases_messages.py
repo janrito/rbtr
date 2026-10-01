@@ -49,6 +49,7 @@ from rbtr.daemon.messages import (
     UnwatchStaleRequest,
     WatchRequest,
     WatchResponse,
+    WatchSetResponse,
     notification_adapter,
     request_adapter,
     response_adapter,
@@ -226,6 +227,27 @@ def case_list_symbols() -> MessageScenario:
 
 
 @case(tags=["request"])
+def case_list_symbols_file_path_absolute() -> MessageScenario:
+    """`list_symbols` normalises its one path as the others do their list."""
+    return MessageScenario(
+        raw=b'{"kind":"list_symbols","repo_path":"/r","file_path":"/r/src/app.py"}',
+        adapter=request_adapter,
+        expected_type=ListSymbolsRequest,
+        checks={"file_path": "src/app.py"},
+    )
+
+
+@case(tags=["request"])
+def case_list_symbols_file_path_dot_slash() -> MessageScenario:
+    return MessageScenario(
+        raw=b'{"kind":"list_symbols","repo_path":"/r","file_path":"./src/app.py"}',
+        adapter=request_adapter,
+        expected_type=ListSymbolsRequest,
+        checks={"file_path": "src/app.py"},
+    )
+
+
+@case(tags=["request"])
 def case_find_refs() -> MessageScenario:
     return MessageScenario(
         raw=b'{"kind":"find_refs","repo_path":"/r","symbol":"load_config"}',
@@ -322,6 +344,15 @@ def case_ok() -> MessageScenario:
 
 
 @case(tags=["response"])
+def case_watch_set_response() -> MessageScenario:
+    return MessageScenario(
+        raw=b'{"kind":"watch_set","watched":[{"ref":"HEAD","sha":"abc","indexed":false}]}',
+        adapter=response_adapter,
+        expected_type=WatchSetResponse,
+    )
+
+
+@case(tags=["response"])
 def case_error() -> MessageScenario:
     return MessageScenario(
         raw=b'{"kind":"error","code":"internal","message":"boom"}',
@@ -344,7 +375,7 @@ def case_build_index_response() -> MessageScenario:
 @case(tags=["response"])
 def case_search_response() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"search","results":[]}',
+        raw=b'{"kind":"search","results":[],"resolved":{"sha":"abc","source":"head"}}',
         adapter=response_adapter,
         expected_type=SearchResponse,
         checks={"results": []},
@@ -354,7 +385,7 @@ def case_search_response() -> MessageScenario:
 @case(tags=["response"])
 def case_search_response_with_query_kind() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"search","results":[],"query_kind":"concept"}',
+        raw=b'{"kind":"search","results":[],"resolved":null,"query_kind":"concept"}',
         adapter=response_adapter,
         expected_type=SearchResponse,
         checks={"query_kind": "concept"},
@@ -364,7 +395,7 @@ def case_search_response_with_query_kind() -> MessageScenario:
 @case(tags=["response"])
 def case_read_symbol_response() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"read_symbol","chunks":[]}',
+        raw=b'{"kind":"read_symbol","chunks":[],"resolved":{"sha":"abc","source":"head"},"file_paths":null}',
         adapter=response_adapter,
         expected_type=ReadSymbolResponse,
         checks={"chunks": []},
@@ -374,7 +405,7 @@ def case_read_symbol_response() -> MessageScenario:
 @case(tags=["response"])
 def case_list_symbols_response() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"list_symbols","chunks":[]}',
+        raw=b'{"kind":"list_symbols","chunks":[],"resolved":{"sha":"abc","source":"head"},"file_path":"a.py"}',
         adapter=response_adapter,
         expected_type=ListSymbolsResponse,
         checks={"chunks": []},
@@ -384,17 +415,17 @@ def case_list_symbols_response() -> MessageScenario:
 @case(tags=["response"])
 def case_find_refs_response() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"find_refs","refs":[]}',
+        raw=b'{"kind":"find_refs","refs":[],"resolved":{"sha":"abc","source":"head"},"file_paths":null}',
         adapter=response_adapter,
         expected_type=FindRefsResponse,
-        checks={"refs": []},
+        checks={"refs": [], "file_paths": None},
     )
 
 
 @case(tags=["response"])
 def case_changed_symbols_response() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"changed_symbols","changes":[]}',
+        raw=b'{"kind":"changed_symbols","changes":[],"base_sha":"abc","head_sha":"def","file_paths":null}',
         adapter=response_adapter,
         expected_type=ChangedSymbolsResponse,
         checks={"changes": []},

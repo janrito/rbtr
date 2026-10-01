@@ -10,9 +10,10 @@ from __future__ import annotations
 import pytest
 from pytest_cases import parametrize_with_cases
 
+from rbtr.daemon.dto import ResolvedRef
 from rbtr.daemon.handlers import handle_search, handle_status
 from rbtr.daemon.messages import SearchRequest, StatusRequest
-from rbtr.domain.models import FileSnapshot, SnapshotRef
+from rbtr.domain.models import FileSnapshot, RefSource, SnapshotRef
 from rbtr.index.store import IndexStore
 
 from ..index.conftest import make_chunk
@@ -63,9 +64,13 @@ def test_search_scope(
     if scenario.attributed:
         expected_paths = {paths[r] for r in scenario.expected_repos}
         assert {r.repo_path for r in resp.results} == expected_paths
+        # Every repo at its latest indexed snapshot: no single one to name.
+        assert resp.resolved is None
     else:
         assert resp.results
         assert all(r.repo_path is None for r in resp.results)
+        # The fixture's paths are not git repos, so HEAD does not resolve.
+        assert resp.resolved == ResolvedRef(sha="head", source=RefSource.LATEST_INDEXED)
 
 
 @parametrize_with_cases("scenario", cases=".cases_cross_repo")

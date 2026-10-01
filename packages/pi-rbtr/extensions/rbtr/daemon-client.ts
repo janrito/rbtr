@@ -19,23 +19,8 @@ import { spawn } from "node:child_process";
 import { Request as ZmqRequest } from "zeromq";
 
 import { resolveCommand } from "./exec.js";
-import type { DaemonStatusReport, ErrorCode, ErrorResponse, Request, Response } from "./generated/protocol.js";
-
-/**
- * Thrown when the daemon answers with an ``ErrorResponse``.
- *
- * Carrying the typed ``code`` lets callers branch on it without
- * string-matching the message.
- */
-export class RbtrDaemonError extends Error {
-  readonly code: ErrorCode;
-
-  constructor(response: ErrorResponse) {
-    super(response.message);
-    this.name = "RbtrDaemonError";
-    this.code = response.code;
-  }
-}
+import type { DaemonStatusReport, Request, Response } from "./generated/protocol.js";
+import { RbtrReplyError } from "./reply-error.js";
 
 /**
  * Returned when ``rbtr daemon status --json`` succeeds.
@@ -93,7 +78,7 @@ export async function queryDaemonStatus(): Promise<DaemonStatus> {
 /**
  * Send one request to the daemon and return the matching response.
  *
- * Throws ``RbtrDaemonError`` when the daemon replies with an
+ * Throws ``RbtrReplyError`` when the daemon replies with an
  * ``ErrorResponse`` — on success the returned type is narrowed
  * to the response variant matching the request's ``kind``.
  *
@@ -127,7 +112,7 @@ export async function send<R extends Request>(
     const response = JSON.parse(reply.toString()) as Response;
 
     if (response.kind === "error") {
-      throw new RbtrDaemonError(response);
+      throw new RbtrReplyError(response);
     }
 
     // Discriminator guarantees the kind matches the request's

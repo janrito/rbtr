@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from pytest_cases import parametrize_with_cases
 
 from rbtr.cli.output import emit
+from rbtr.daemon.dto import ResolvedRef
 from rbtr.daemon.messages import (
     ChangedSymbolsResponse,
     DaemonConfigResponse,
@@ -30,8 +31,9 @@ from rbtr.daemon.messages import (
     StatusResponse,
     UnwatchResponse,
     WatchResponse,
+    WatchSetResponse,
 )
-from rbtr.domain.models import IndexStats
+from rbtr.domain.models import IndexStats, RefSource
 
 from .cases_output import RenderScenario
 
@@ -49,16 +51,22 @@ def test_emit_renders_repo_attribution(scenario: RenderScenario, rendered: Strin
 
 
 @pytest.fixture
-def one_of_each_response() -> tuple[BaseModel, ...]:
+def resolved() -> ResolvedRef:
+    return ResolvedRef(sha="abc", source=RefSource.HEAD)
+
+
+@pytest.fixture
+def one_of_each_response(resolved: ResolvedRef) -> tuple[BaseModel, ...]:
     """An empty instance of every response `emit` can be handed."""
     return (
         OkResponse(),
         WatchResponse(resolved_refs=[], stats=IndexStats(), errors=[]),
-        SearchResponse(results=[]),
-        ReadSymbolResponse(chunks=[]),
-        ListSymbolsResponse(chunks=[]),
-        FindRefsResponse(refs=[]),
-        ChangedSymbolsResponse(changes=[]),
+        WatchSetResponse(watched=[]),
+        SearchResponse(results=[], resolved=None),
+        ReadSymbolResponse(chunks=[], resolved=resolved, file_paths=None),
+        ListSymbolsResponse(chunks=[], resolved=resolved, file_path="a.py"),
+        FindRefsResponse(refs=[], resolved=resolved, file_paths=None),
+        ChangedSymbolsResponse(changes=[], base_sha="abc", head_sha="def", file_paths=None),
         StatusResponse(db_path="/db"),
         DaemonConfigResponse(rbtr_version="0", config={}, plugins=[]),
         GcResponse(
@@ -82,9 +90,8 @@ def test_every_response_kind_has_a_renderer(
     stdout is not a terminal and so takes the JSON path — a response
     model with no rich case raises only in a real terminal.
 
-    `ErrorResponse` is excluded: every command matches it and prints
-    the message to stderr before exiting non-zero, so it never reaches
-    `emit`.
+    `ErrorResponse` is excluded: every command reports it through
+    `fail`, which exits, so it never reaches `emit`.
     """
     covered = {type(model) for model in one_of_each_response}
     assert covered == set(get_args(get_args(Response)[0])) - {ErrorResponse}

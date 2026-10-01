@@ -21,7 +21,7 @@ import structlog
 import zmq
 
 from rbtr.daemon.client import DaemonClient
-from rbtr.daemon.messages import StatusRequest, StatusResponse
+from rbtr.daemon.messages import ErrorCode, StatusRequest, StatusResponse
 from rbtr.daemon.server import DaemonServer
 from rbtr.daemon.status import write_status
 from rbtr.errors import DaemonBusyError
@@ -132,6 +132,17 @@ def test_waiting_stops_when_the_budget_is_spent(
 
     slow_replies = [e for e in log_output.entries if e["event"] == "daemon_slow_reply"]
     assert len(slow_replies) == 1, f"warned {len(slow_replies)} times for one request"
+
+
+def test_a_daemon_that_never_answers_is_reported_busy(
+    silent_endpoint: Path, fake_repo: str
+) -> None:
+    with (
+        DaemonClient(silent_endpoint, wait_budget_s=0.2, liveness_interval_s=0.05) as client,
+        pytest.raises(DaemonBusyError) as caught,
+    ):
+        client.send(StatusRequest(repo_path=fake_repo))
+    assert ErrorCode(caught.value.error_code) is ErrorCode.DAEMON_BUSY
 
 
 def test_a_dead_daemon_is_not_waited_for(

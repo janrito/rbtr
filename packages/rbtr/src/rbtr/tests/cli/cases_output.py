@@ -13,7 +13,8 @@ from dataclasses import dataclass
 from pydantic import BaseModel
 from pytest_cases import case
 
-from rbtr.daemon.dto import SearchHitOut
+from rbtr.config import config
+from rbtr.daemon.dto import Preview, ResolvedRef, SearchHitOut
 from rbtr.daemon.messages import (
     ForgetResponse,
     GcResponse,
@@ -23,7 +24,7 @@ from rbtr.daemon.messages import (
     UnwatchResponse,
     WatchedRef,
 )
-from rbtr.domain.models import ChunkKind
+from rbtr.domain.models import ChunkKind, RefSource
 
 
 @dataclass(frozen=True)
@@ -42,7 +43,7 @@ def _hit(*, repo_path: str | None) -> SearchHitOut:
         file_paths=["src/main.py"],
         kind=ChunkKind.FUNCTION,
         name="main",
-        content="def main(): ...",
+        preview=Preview.from_content("def main(): ...", limit=config.search_preview_lines),
         line_start=1,
         line_end=1,
         score=0.9,
@@ -53,7 +54,7 @@ def _hit(*, repo_path: str | None) -> SearchHitOut:
 def case_search_attributed() -> RenderScenario:
     """A cross-repo hit is prefixed with its repo name."""
     return RenderScenario(
-        model=SearchResponse(results=[_hit(repo_path="/projects/widgets")]),
+        model=SearchResponse(results=[_hit(repo_path="/projects/widgets")], resolved=None),
         expected=("widgets/src/main.py",),
     )
 
@@ -62,7 +63,9 @@ def case_search_attributed() -> RenderScenario:
 def case_search_unattributed() -> RenderScenario:
     """A workspace hit shows the bare path, no repo prefix."""
     return RenderScenario(
-        model=SearchResponse(results=[_hit(repo_path=None)]),
+        model=SearchResponse(
+            results=[_hit(repo_path=None)], resolved=ResolvedRef(sha="abc", source=RefSource.HEAD)
+        ),
         expected=("src/main.py",),
         forbidden=("widgets/src/main.py",),
     )
@@ -92,7 +95,7 @@ f = 7
         kind=ChunkKind.FUNCTION,
         name="big",
         language="python",
-        content=content,
+        preview=Preview.from_content(content, limit=config.search_preview_lines),
         line_start=1,
         line_end=9,
         score=0.9,
@@ -100,7 +103,7 @@ f = 7
         matched_terms=["needle_here"],
     )
     return RenderScenario(
-        model=SearchResponse(results=[hit]),
+        model=SearchResponse(results=[hit], resolved=ResolvedRef(sha="abc", source=RefSource.HEAD)),
         expected=("big_function", "NEEDLE_HERE"),
         forbidden=("GAP_HIDDEN",),
     )
@@ -118,13 +121,13 @@ def visible_top():
         kind=ChunkKind.FUNCTION,
         name="top",
         language="python",
-        content=content,
+        preview=Preview.from_content(content, limit=config.search_preview_lines),
         line_start=1,
         line_end=3,
         score=0.9,
     )
     return RenderScenario(
-        model=SearchResponse(results=[hit]),
+        model=SearchResponse(results=[hit], resolved=ResolvedRef(sha="abc", source=RefSource.HEAD)),
         expected=("visible_top",),
     )
 

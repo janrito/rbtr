@@ -28,6 +28,7 @@ def test_changed_symbols_labels(
 
     labelled = {(item.chunk.name, item.change) for item in resp.changes}
     assert labelled == {("load_config", ChangeKind.MODIFIED), ("helper", ChangeKind.ADDED)}
+    assert (resp.base_sha, resp.head_sha, resp.file_paths) == (daemon_commit, changed_head, None)
 
 
 def test_changed_symbols_not_indexed(

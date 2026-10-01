@@ -244,9 +244,10 @@ Slowed down to avoid flooding the queue with duplicates.  Only used by the daemo
     )
     daemon_start_timeout: float = Field(
         default=60.0,
-        description="Backstop seconds to wait for a spawned daemon to bind "
-        "its sockets before giving up.  Only trips on a genuine hang; a "
-        "slow cold start under load binds well within this.",
+        description="Backstop seconds to wait for a spawned daemon, or the "
+        "process holding the index lock, to bind its sockets before giving "
+        "up.  Only trips on a genuine hang or a lock holder that never "
+        "serves; a slow cold start under load binds well within this.",
     )
     warmup: bool = Field(
         default=True,
@@ -266,6 +267,14 @@ Disable in tests or resource-constrained environments.",
         default=10,
         ge=1,
         description="Cap on a search request's expansion keywords; the excess is dropped.",
+    )
+    search_preview_lines: int = Field(
+        default=20,
+        ge=1,
+        description=(
+            "Lines of a symbol's body a search hit carries. A hit longer than "
+            "this is clipped and says so; read-symbol returns the whole body."
+        ),
     )
     search_weights: dict[QueryKind, WeightTriple] = Field(
         default={

@@ -22,12 +22,12 @@ import pytest
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import (
     ErrorResponse,
-    OkResponse,
     SearchRequest,
     SearchResponse,
     StatusRequest,
     StatusResponse,
     WatchRequest,
+    WatchSetResponse,
 )
 from rbtr.daemon.server import DaemonServer
 from rbtr.index.store import IndexStore
@@ -150,7 +150,7 @@ def test_search_returns_promptly_during_live_build(
 
     with DaemonClient(running_daemon.runtime_dir) as client:
         build_resp = client.send(WatchRequest(repo_path=str(repo_path)))
-        assert isinstance(build_resp, OkResponse)
+        assert isinstance(build_resp, WatchSetResponse)
 
         _wait_for_build_start(client, repo_path, deadline_s=5.0)
 
@@ -193,7 +193,7 @@ def test_status_returns_promptly_during_live_build(
 
     with DaemonClient(running_daemon.runtime_dir) as client:
         build_resp = client.send(WatchRequest(repo_path=str(repo_path)))
-        assert isinstance(build_resp, OkResponse)
+        assert isinstance(build_resp, WatchSetResponse)
 
         _wait_for_build_start(client, repo_path, deadline_s=5.0)
 
