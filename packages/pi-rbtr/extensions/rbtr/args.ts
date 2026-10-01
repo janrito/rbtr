@@ -44,3 +44,11 @@ export function decodeStringList(value: unknown): string[] {
   }
   return [];
 }
+
+/**
+ * The refs a slash command names: each whitespace-separated word of its
+ * arguments. None when it names none, so the caller's default applies.
+ */
+export function commandRefs(args: string): string[] {
+  return args.split(/\s+/).filter((word) => word.length > 0);
+}

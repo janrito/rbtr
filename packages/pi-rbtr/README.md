@@ -138,11 +138,11 @@ The extension shows index state in the pi footer:
 
 Three user-facing commands (no LLM involved):
 
-| Command          | Description                           |
-| ---------------- | ------------------------------------- |
-| `/rbtr-status`   | Show index status (chunk count, path) |
-| `/rbtr-index`    | Trigger a background indexing         |
-| `/rbtr-settings` | View and toggle extension settings    |
+| Command          | Description                                                                             |
+| ---------------- | --------------------------------------------------------------------------------------- |
+| `/rbtr-status`   | Show index status (chunk count, path)                                                   |
+| `/rbtr-index`    | Index the repository in the background, or the given refs: `/rbtr-index main feature-x` |
+| `/rbtr-settings` | View and toggle extension settings                                                      |
 
 ## Configuration
 

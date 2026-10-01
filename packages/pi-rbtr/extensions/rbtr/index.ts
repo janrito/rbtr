@@ -47,7 +47,7 @@ const { version: EXTENSION_VERSION } = require("../../package.json") as { versio
  */
 const READ_CLI_TIMEOUT_MS = 150_000;
 
-import { decodeStringList, echoArgs } from "./args.js";
+import { commandRefs, decodeStringList, echoArgs } from "./args.js";
 import {
   footerLabel,
   formatElapsed,
@@ -511,14 +511,15 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   });
 
   pi.registerCommand("rbtr-index", {
-    description: "Index the repository (or rebuild the index)",
-    handler: async (_args, ctx) => {
+    description: "Index the repository, or the given refs: /rbtr-index main feature-x",
+    handler: async (args, ctx) => {
       if (!cliAvailable) {
         ctx.ui.notify("rbtr CLI not available", "error");
         return;
       }
-      await triggerIndex(ctx);
-      ctx.ui.notify("Indexing started. Progress in the footer.", "info");
+      const refs = commandRefs(args);
+      await triggerIndex(ctx, ...refs);
+      ctx.ui.notify(`Indexing ${refs.length > 0 ? refs.join(", ") : "HEAD"}. Progress in the footer.`, "info");
     },
   });
 

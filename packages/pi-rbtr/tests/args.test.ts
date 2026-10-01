@@ -5,7 +5,7 @@
 
 import { describe, expect, test } from "vitest";
 
-import { decodeStringList, echoArgs } from "../extensions/rbtr/args.js";
+import { commandRefs, decodeStringList, echoArgs } from "../extensions/rbtr/args.js";
 
 describe("decodeStringList", () => {
   test("passes native arrays through", () => {
@@ -49,5 +49,16 @@ describe("echoArgs", () => {
     expect(echoArgs({ query: "retry", scope: undefined, keywords: ["a"] }, ["query", "scope", "keywords"])).toBe(
       '\n\nArguments received: query="retry", keywords=["a"]',
     );
+  });
+});
+
+describe("commandRefs", () => {
+  test("takes each whitespace-separated word as a ref", () => {
+    expect(commandRefs("main  feature-x\t v1.2")).toEqual(["main", "feature-x", "v1.2"]);
+  });
+
+  test("gives no refs for empty arguments, so the default applies", () => {
+    expect(commandRefs("")).toEqual([]);
+    expect(commandRefs("   ")).toEqual([]);
   });
 });
