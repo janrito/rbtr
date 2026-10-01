@@ -69,7 +69,13 @@ from rbtr.domain.models import (
     SnapshotRef,
 )
 from rbtr.domain.tokenise import tokenise_code
-from rbtr.errors import IndexLockedError, IndexNotBuiltError, IndexSchemaTooNewError, RbtrError
+from rbtr.errors import (
+    IndexLockedError,
+    IndexNotBuiltError,
+    IndexSchemaTooNewError,
+    RbtrError,
+    RepoNotFoundError,
+)
 from rbtr.git import worktree_tree_sha
 from rbtr.index import load_sql
 from rbtr.index.constants import SCHEMA_VERSION
@@ -204,7 +210,13 @@ class IndexStore:
         try:
             rows = self._con.execute(_GET_SCHEMA_VERSION_SQL).fetchall()
         except duckdb.CatalogException:
-            return  # no meta table: fresh DB, the writable bootstrap builds it
+            # No meta table: a fresh DB.  The writable bootstrap builds it;
+            # a read would fail on the first missing table.
+            if self._writable:
+                return
+            self._con.close()
+            msg = f"No index at {self.db_path}; run `rbtr watch` first."
+            raise IndexNotBuiltError(msg) from None
         stored = str(rows[0][0]) if rows else ""
         if stored == SCHEMA_VERSION:
             return
@@ -362,7 +374,7 @@ class IndexStore:
         repo_id = self.get_repo_id(repo)
         if repo_id is None:
             msg = f"Repo not registered: {repo}"
-            raise RbtrError(msg)
+            raise RepoNotFoundError(msg)
         self._repo_cache[repo] = repo_id
         return repo_id
 

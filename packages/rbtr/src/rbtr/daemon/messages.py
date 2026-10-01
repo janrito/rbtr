@@ -61,6 +61,7 @@ class ErrorCode(StrEnum):
     INDEX_NOT_BUILT = "index_not_built"
     INDEX_IN_PROGRESS = "index_in_progress"
     REPO_NOT_FOUND = "repo_not_found"
+    INDEX_LOCKED = "index_locked"
     INTERNAL = "internal"
 
 

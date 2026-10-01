@@ -102,7 +102,7 @@ from rbtr.daemon.messages import (
 from rbtr.daemon.server import DaemonServer
 from rbtr.daemon.status import DaemonStatusReport, uptime_seconds as _uptime_seconds
 from rbtr.domain.models import GcMode
-from rbtr.errors import ExitCode, IndexLockedError, RbtrError
+from rbtr.errors import ExitCode, IndexLockedError, IndexNotBuiltError, RbtrError
 from rbtr.git import HEAD_REF, normalise_repo_path, resolve_ref
 from rbtr.index.build import build_index
 from rbtr.index.embed import embed_index
@@ -768,7 +768,11 @@ class Status(BaseModel):
                 if not db.exists():
                     emit(StatusResponse())
                     return
-                store = IndexStore(db)
+                try:
+                    store = IndexStore(db)
+                except IndexNotBuiltError:
+                    emit(StatusResponse())  # the file exists, the index does not
+                    return
 
                 try:
                     emit(handle_status(request, store))

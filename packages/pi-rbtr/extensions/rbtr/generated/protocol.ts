@@ -51,7 +51,13 @@ export type Response =
 /**
  * Error codes for the daemon protocol.
  */
-export type ErrorCode = "invalid_request" | "index_not_built" | "index_in_progress" | "repo_not_found" | "internal";
+export type ErrorCode =
+  | "invalid_request"
+  | "index_not_built"
+  | "index_in_progress"
+  | "repo_not_found"
+  | "index_locked"
+  | "internal";
 /**
  * Kind of indexed chunk.
  */

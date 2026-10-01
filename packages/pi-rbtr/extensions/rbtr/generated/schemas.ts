@@ -166,7 +166,7 @@ export const PROTOCOL_DEFS = {
   },
   ErrorCode: {
     description: "Error codes for the daemon protocol.",
-    enum: ["invalid_request", "index_not_built", "index_in_progress", "repo_not_found", "internal"],
+    enum: ["invalid_request", "index_not_built", "index_in_progress", "repo_not_found", "index_locked", "internal"],
     title: "ErrorCode",
     type: "string",
   },

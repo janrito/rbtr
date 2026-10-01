@@ -31,6 +31,12 @@ class IndexNotBuiltError(RbtrError):
         super().__init__(message)
 
 
+class RepoNotFoundError(RbtrError):
+    """Raised when the index has no row for a repo: never indexed, or forgotten."""
+
+    error_code: str = "repo_not_found"
+
+
 class IndexSchemaTooNewError(RbtrError):
     """Raised when the index was written by a newer rbtr than this one.
 
@@ -59,6 +65,8 @@ class IndexLockedError(RbtrError):
     build, keeping the daemon from starting.  Callers must report
     this and stop rather than fall back to inline mode.
     """
+
+    error_code: str = "index_locked"
 
 
 class MissingLanguagePluginsError(RbtrError):

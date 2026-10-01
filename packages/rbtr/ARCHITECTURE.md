@@ -911,6 +911,8 @@ Error responses carry a `code` field:
 - `index_in_progress` — a build is running; retry after
   the `ready` notification.
 - `repo_not_found` — the repo path isn't registered.
+- `index_locked` — another process holds the index's write
+  lock; retry once it has let go.
 - `invalid_request` — malformed or missing fields; the message
   names each offending field and the value it received, so a
   caller can see how an argument was mis-shaped.

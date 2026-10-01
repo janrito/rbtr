@@ -21,7 +21,7 @@ from pytest_mock import MockerFixture
 
 from rbtr.config import config
 from rbtr.domain.models import FileSnapshot, SnapshotRef
-from rbtr.errors import IndexSchemaTooNewError
+from rbtr.errors import IndexNotBuiltError, IndexSchemaTooNewError
 from rbtr.index.constants import EMBEDDING_FORMAT_VERSION
 from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
@@ -182,6 +182,16 @@ def _seed_one_chunk(path: Path) -> None:
     seed.close()
 
 
+def test_reading_a_db_rbtr_never_built_says_it_is_not_built(tmp_path: Path) -> None:
+    """A read-only open of a DB with no index in it is `IndexNotBuiltError`.
+
+    Only a writable store builds the schema, so a read that went on would
+    fail on the first missing table.
+    """
+    with pytest.raises(IndexNotBuiltError, match="rbtr watch"):
+        IndexStore(tmp_path / "index.duckdb")
+
+
 def test_older_binary_refuses_and_preserves_index(tmp_path: Path, mocker: MockerFixture) -> None:
     """An rbtr older than the on-disk schema refuses to open and never wipes.
 
@@ -227,7 +237,7 @@ def test_schema_wipe_is_in_place_not_unlink(tmp_path: Path) -> None:
 def test_second_open_against_same_db_succeeds(tmp_path: Path) -> None:
     """Opening the same DB twice in-process does not destroy it."""
     db_path = tmp_path / "index.duckdb"
-    store = IndexStore(db_path)
+    store = IndexStore(db_path, writable=True)  # a read-only open needs a built index
     store2 = IndexStore(db_path)
     store2.close()
     store.close()

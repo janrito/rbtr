@@ -14,7 +14,7 @@ from pytest_cases import parametrize_with_cases
 
 from rbtr.config import config
 from rbtr.domain.models import Edge, EdgeKind, FileSnapshot, SnapshotRef
-from rbtr.errors import RbtrError
+from rbtr.errors import RepoNotFoundError
 from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
 
@@ -263,9 +263,10 @@ def test_resolve_repo_returns_id(store: IndexStore) -> None:
 
 
 def test_resolve_repo_raises_for_unknown(store: IndexStore) -> None:
-    """resolve_repo raises RbtrError for an unregistered repo."""
-    with pytest.raises(RbtrError, match="not registered"):
+    """resolve_repo raises `RepoNotFoundError`, coded `repo_not_found`."""
+    with pytest.raises(RepoNotFoundError, match="not registered") as raised:
         store.resolve_repo("nonexistent")
+    assert raised.value.error_code == "repo_not_found"
 
 
 # ── replace_snapshots / replace_edges ────────────────────────────────

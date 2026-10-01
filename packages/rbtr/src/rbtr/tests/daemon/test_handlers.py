@@ -26,6 +26,7 @@ from rbtr.daemon.handlers import (
 from rbtr.daemon.messages import (
     ActiveJob,
     DaemonConfigRequest,
+    ErrorCode,
     ErrorResponse,
     FindRefsRequest,
     FindRefsResponse,
@@ -197,6 +198,15 @@ def test_read_symbol_not_found(running_daemon: DaemonServer, fake_repo: str) -> 
         resp = client.send(ReadSymbolRequest(repo_path=fake_repo, symbol="nonexistent_xyz"))
     assert isinstance(resp, ReadSymbolResponse)
     assert len(resp.chunks) == 0
+
+
+def test_read_symbol_in_an_unregistered_repo_is_repo_not_found(
+    running_daemon: DaemonServer, second_repo: str
+) -> None:
+    with DaemonClient(running_daemon.runtime_dir) as client:
+        resp = client.send(ReadSymbolRequest(repo_path=second_repo, symbol="load_config"))
+    assert isinstance(resp, ErrorResponse)
+    assert resp.code == ErrorCode.REPO_NOT_FOUND
 
 
 def test_read_symbol_unindexed_ref_errors(

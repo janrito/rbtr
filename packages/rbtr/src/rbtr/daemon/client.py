@@ -40,7 +40,7 @@ from rbtr.daemon.messages import (
     response_adapter,
 )
 from rbtr.daemon.status import DaemonStatus, is_pid_alive, read_status, remove_status
-from rbtr.errors import DaemonBusyError, ExitCode, RbtrError
+from rbtr.errors import DaemonBusyError, ExitCode, IndexLockedError, RbtrError
 
 log = structlog.get_logger(__name__)
 
@@ -169,7 +169,7 @@ def start_daemon(*, allow_missing_plugins: bool = False) -> DaemonStatus:
             f"within {config.daemon_start_timeout:g}s. `rbtr daemon status` shows "
             f"whether a daemon is running."
         )
-        raise RbtrError(msg)
+        raise IndexLockedError(msg)
     proc.terminate()
     msg = (
         f"Daemon did not become ready within {config.daemon_start_timeout:g}s. "

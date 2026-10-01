@@ -252,8 +252,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
           });
           if (result.code !== 0) {
             // Under --json rbtr prints its error on stdout; a crash leaves only stderr.
-            const reason = errorReply(result.stdout)?.message ?? result.stderr ?? "";
-            throw new Error(classifyDaemonFailure(result.code, reason).message);
+            const failure = classifyDaemonFailure(result.code, errorReply(result.stdout), result.stderr ?? "");
+            throw new Error(failure.message);
           }
         },
       });
