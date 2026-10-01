@@ -76,6 +76,12 @@ function tryParseResponse(text: string): Response | undefined {
   }
 }
 
+/** The rbtr response a tool result carries, packed or serialised. */
+function responseOf(result: ToolResult): Response | undefined {
+  const details = result.details as { response?: Response } | undefined;
+  return details?.response ?? tryParseResponse(getContentText(result));
+}
+
 /**
  * Return the ``payloadKey`` array of the response for *responseKind*.
  *
@@ -85,8 +91,7 @@ function tryParseResponse(text: string): Response | undefined {
  * ``Response`` union and read its list field.
  */
 export function extractPayload<T>(result: ToolResult, responseKind: Response["kind"], payloadKey: string): T[] {
-  const details = result.details as { response?: Response } | undefined;
-  const response = details?.response ?? tryParseResponse(getContentText(result));
+  const response = responseOf(result);
   if (response?.kind !== responseKind) return [];
   const value = (response as unknown as Record<string, unknown>)[payloadKey];
   return Array.isArray(value) ? (value as T[]) : [];
@@ -427,18 +432,19 @@ export function renderIndexCall(args: Record<string, unknown>, theme: Theme): Te
 export function renderIndexResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
   if (options.isPartial) return new Text(theme.fg("muted", "Indexing…"), 0, 0);
 
-  const details = result.details as { status?: string } | undefined;
-  switch (details?.status) {
-    case "started":
-      return new Text(theme.fg("success", "✓ Indexing queued"), 0, 0);
-    case "up_to_date":
-      return new Text(theme.fg("success", "✓ Index up to date"), 0, 0);
-    case "in_progress":
-      return new Text(theme.fg("muted", "⟳ Build already in progress"), 0, 0);
+  const response = responseOf(result);
+  switch (response?.kind) {
+    case "watch_set":
+      return new Text(formatWatched(response.watched).join("\n"), 0, 0);
+    case "watch":
+      return new Text(theme.fg("success", `✓ Indexed ${response.resolved_refs.map(shortSha).join(", ")}`), 0, 0);
+    case "unwatch": {
+      const refs = Object.values(response.removed ?? {}).flat();
+      const text = refs.length > 0 ? `✓ Stopped watching ${refs.join(", ")}` : "No watched refs removed";
+      return new Text(theme.fg("success", text), 0, 0);
+    }
   }
-
-  const text = getContentText(result);
-  return new Text(theme.fg("dim", text), 0, 0);
+  return new Text(theme.fg("dim", getContentText(result)), 0, 0);
 }
 
 // ── Status ──────────────────────────────────────────────────────

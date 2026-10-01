@@ -44,6 +44,7 @@ from rbtr.daemon.messages import (
     UnwatchResponse,
     WatchedRef,
     WatchResponse,
+    WatchSetResponse,
 )
 from rbtr.daemon.status import DaemonStatusReport
 from rbtr.domain.models import ChangeKind
@@ -204,6 +205,8 @@ def _print_rich(model: BaseModel) -> None:
             _out.print("[green]ok[/]")
         case WatchResponse():
             _render_build_index_response(model)
+        case WatchSetResponse():
+            _render_watch_set_response(model)
         case SearchResponse():
             _render_search_response(model)
         case ReadSymbolResponse():
@@ -504,6 +507,12 @@ def _render_status_response(response: StatusResponse) -> None:
         _out.print(
             f"[magenta]↻[/]  Embedding: {ej.ref[:12]} — {ej.current}/{ej.total}{pct} — {elapsed}"
         )
+
+
+def _render_watch_set_response(response: WatchSetResponse) -> None:
+    _out.print("[dim]watching:[/]")
+    for w in response.watched:
+        _out.print(f"   {_fmt_watched(w)}")
 
 
 def _fmt_watched(w: WatchedRef) -> str:

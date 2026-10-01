@@ -49,6 +49,7 @@ from rbtr.daemon.messages import (
     UnwatchStaleRequest,
     WatchRequest,
     WatchResponse,
+    WatchSetResponse,
     notification_adapter,
     request_adapter,
     response_adapter,
@@ -318,6 +319,15 @@ def case_ok() -> MessageScenario:
         raw=b'{"kind":"ok"}',
         adapter=response_adapter,
         expected_type=OkResponse,
+    )
+
+
+@case(tags=["response"])
+def case_watch_set_response() -> MessageScenario:
+    return MessageScenario(
+        raw=b'{"kind":"watch_set","watched":[{"ref":"HEAD","sha":"abc","indexed":false}]}',
+        adapter=response_adapter,
+        expected_type=WatchSetResponse,
     )
 
 

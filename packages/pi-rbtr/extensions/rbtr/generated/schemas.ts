@@ -743,6 +743,18 @@ export const PROTOCOL_DEFS = {
     title: "WatchResponse",
     type: "object",
   },
+  WatchSetResponse: {
+    additionalProperties: false,
+    description:
+      "The repo's watch set after a watch request.\n\nEach ref with the SHA it resolves to now and whether that SHA is\nindexed; an unindexed one is built by the worker in the background.",
+    properties: {
+      kind: { const: "watch_set", default: "watch_set", type: "string" },
+      watched: { items: { $ref: "#/$defs/WatchedRef" }, type: "array" },
+    },
+    required: ["watched", "kind"],
+    title: "WatchSetResponse",
+    type: "object",
+  },
   WatchedRef: {
     additionalProperties: false,
     description:
@@ -823,6 +835,7 @@ export const PROTOCOL_DEFS = {
         status: "#/$defs/StatusResponse",
         unwatch: "#/$defs/UnwatchResponse",
         watch: "#/$defs/WatchResponse",
+        watch_set: "#/$defs/WatchSetResponse",
       },
       propertyName: "kind",
     },
@@ -830,6 +843,7 @@ export const PROTOCOL_DEFS = {
       { $ref: "#/$defs/ErrorResponse" },
       { $ref: "#/$defs/OkResponse" },
       { $ref: "#/$defs/WatchResponse" },
+      { $ref: "#/$defs/WatchSetResponse" },
       { $ref: "#/$defs/SearchResponse" },
       { $ref: "#/$defs/ReadSymbolResponse" },
       { $ref: "#/$defs/ListSymbolsResponse" },

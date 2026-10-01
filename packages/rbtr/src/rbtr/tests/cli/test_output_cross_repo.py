@@ -31,6 +31,7 @@ from rbtr.daemon.messages import (
     StatusResponse,
     UnwatchResponse,
     WatchResponse,
+    WatchSetResponse,
 )
 from rbtr.domain.models import IndexStats, RefSource
 
@@ -60,6 +61,7 @@ def one_of_each_response(resolved: ResolvedRef) -> tuple[BaseModel, ...]:
     return (
         OkResponse(),
         WatchResponse(resolved_refs=[], stats=IndexStats(), errors=[]),
+        WatchSetResponse(watched=[]),
         SearchResponse(results=[], resolved=None),
         ReadSymbolResponse(chunks=[], resolved=resolved, file_paths=None),
         ListSymbolsResponse(chunks=[], resolved=resolved, file_path="a.py"),

@@ -14,6 +14,7 @@ import {
   fileScopeSuffix,
   footerLabel,
   formatWatched,
+  renderIndexResult,
   renderSearchResult,
   renderStatusResult,
   renderStatusText,
@@ -97,6 +98,20 @@ describe("fileScopeSuffix", () => {
 
   test("decodes a one-element list wrapping a JSON string", () => {
     expect(fileScopeSuffix({ file_paths: ['["a.py", "b.py"]'] }, plainTheme)).toBe(" in 2 files");
+  });
+});
+
+describe("renderIndexResult", () => {
+  test.each([
+    [
+      "the watch set",
+      { kind: "watch_set", watched: [{ ref: "main", sha: "b".repeat(40), indexed: false }] },
+      `⟳ main — ${"b".repeat(12)} pending`,
+    ],
+    ["the refs removed", { kind: "unwatch", removed: { "/repo": ["main"] }, dry_run: false }, "Stopped watching main"],
+  ])("shows %s", (_name, response, expected) => {
+    const text = renderIndexResult(daemonResult(response), { isPartial: false }, plainTheme).render(200).join("\n");
+    expect(text).toContain(expected);
   });
 });
 

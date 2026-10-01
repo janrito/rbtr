@@ -37,6 +37,7 @@ export type Response =
   | ErrorResponse
   | OkResponse
   | WatchResponse
+  | WatchSetResponse
   | SearchResponse
   | ReadSymbolResponse
   | ListSymbolsResponse
@@ -310,6 +311,30 @@ export interface IndexStats {
   elapsed_seconds?: number;
 }
 /**
+ * The repo's watch set after a watch request.
+ *
+ * Each ref with the SHA it resolves to now and whether that SHA is
+ * indexed; an unindexed one is built by the worker in the background.
+ */
+export interface WatchSetResponse {
+  kind: "watch_set";
+  watched: WatchedRef[];
+}
+/**
+ * A ref the daemon keeps indexed, and whether it is indexed yet.
+ *
+ * `sha` is the ref's current resolution (`None` when it no longer
+ * resolves, e.g. a deleted branch). `indexed` is true once that SHA
+ * has an `indexed_snapshots` row; false means *pending* (just added,
+ * or its tip moved and a rebuild is due).
+ */
+export interface WatchedRef {
+  ref: string;
+  sha?: string | null;
+  indexed?: boolean;
+  repo_path?: string | null;
+}
+/**
  * Search hits, with the snapshot searched.
  *
  * `resolved` is `None` under `scope: all`, which searches every
@@ -525,20 +550,6 @@ export interface IndexedRef {
   names?: string[];
   total: number;
   embedded: number;
-  repo_path?: string | null;
-}
-/**
- * A ref the daemon keeps indexed, and whether it is indexed yet.
- *
- * `sha` is the ref's current resolution (`None` when it no longer
- * resolves, e.g. a deleted branch). `indexed` is true once that SHA
- * has an `indexed_snapshots` row; false means *pending* (just added,
- * or its tip moved and a rebuild is due).
- */
-export interface WatchedRef {
-  ref: string;
-  sha?: string | null;
-  indexed?: boolean;
   repo_path?: string | null;
 }
 /**

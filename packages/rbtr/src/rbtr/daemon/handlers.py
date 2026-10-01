@@ -50,10 +50,8 @@ from rbtr.daemon.messages import (
     IndexedRef,
     ListSymbolsRequest,
     ListSymbolsResponse,
-    OkResponse,
     ReadSymbolRequest,
     ReadSymbolResponse,
-    Response,
     Scope,
     SearchRequest,
     SearchResponse,
@@ -64,6 +62,7 @@ from rbtr.daemon.messages import (
     UnwatchStaleRequest,
     WatchedRef,
     WatchRequest,
+    WatchSetResponse,
 )
 from rbtr.domain.models import (
     Chunk,
@@ -575,8 +574,8 @@ def handle_forget(request: ForgetRequest, store: IndexStore) -> ForgetResponse:
 def handle_watch(
     request: WatchRequest,
     store: IndexStore,
-) -> Response:
-    """Record the request's refs in the repo's watch set.
+) -> WatchSetResponse:
+    """Record the request's refs in the repo's watch set, and return the set.
 
     The worker derives and runs the actual build from `watched_refs`
     on its next poll.  `HEAD` is always included, so a repo first seen
@@ -587,4 +586,4 @@ def handle_watch(
         repo_id = ws.register_repo(request.repo_path)
         ws.add_watched_refs(repo_id, [HEAD_REF, *request.refs])
     log.info("watched_refs_added", repo=request.repo_path, refs=request.refs)
-    return OkResponse()
+    return WatchSetResponse(watched=_watched_for_repo(store, repo_id, request.repo_path))

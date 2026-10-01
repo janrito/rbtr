@@ -597,6 +597,18 @@ class GcResponse(BaseModel):
     dry_run: bool = False
 
 
+class WatchSetResponse(BaseModel):
+    """The repo's watch set after a watch request.
+
+    Each ref with the SHA it resolves to now and whether that SHA is
+    indexed; an unindexed one is built by the worker in the background.
+    """
+
+    model_config = _STRICT
+    kind: Literal["watch_set"] = "watch_set"
+    watched: list[WatchedRef]
+
+
 class UnwatchResponse(BaseModel):
     """Refs no longer watched, keyed by the repo that watched them.
 
@@ -628,6 +640,7 @@ Response = Annotated[
     ErrorResponse
     | OkResponse
     | WatchResponse
+    | WatchSetResponse
     | SearchResponse
     | ReadSymbolResponse
     | ListSymbolsResponse

@@ -20,7 +20,7 @@ import { Type } from "typebox";
 import { classifyDaemonFailure, decideStartupDecision } from "./classify.js";
 import { RbtrDaemonError } from "./daemon-client.js";
 import { DaemonSession, DaemonUnavailableError, type ReconcileResult } from "./daemon-session.js";
-import { type ResolvedCommand, resolveCommand, runRbtr, runRbtrJson } from "./exec.js";
+import { type ResolvedCommand, resolveCommand, runRbtrJson } from "./exec.js";
 import { Footer } from "./footer.js";
 import type {
   ChangedSymbolsResponse,
@@ -34,6 +34,7 @@ import type {
   StatusResponse,
   UnwatchResponse,
   WatchResponse,
+  WatchSetResponse,
 } from "./generated/protocol.js";
 
 const require = createRequire(import.meta.url);
@@ -55,7 +56,6 @@ import { replySchema } from "./output-schema.js";
 import {
   footerLabel,
   formatElapsed,
-  formatJobCounts,
   renderChangedSymbolsCall,
   renderChangedSymbolsResult,
   renderFindRefsCall,
@@ -71,7 +71,6 @@ import {
   renderStatusCall,
   renderStatusResult,
   renderStatusText,
-  shortSha,
 } from "./render.js";
 import { loadSettings, type RbtrIndexSettings, saveProjectSettings } from "./settings.js";
 import { LOADER, ON_REQUEST, startingTools, withOnRequest } from "./tool-set.js";
@@ -431,46 +430,52 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   });
 
   /**
-   * Submit a build to the daemon (or via CLI fallback).
+   * Watch refs (daemon first, CLI fallback) and return rbtr's reply.
    *
-   * Fire-and-forget: the daemon returns OkResponse immediately
-   * and runs the build on its internal queue.  Progress updates
-   * arrive via PUB notifications (wired in Phase 8.4).
+   * The daemon replies with the watch set at once and builds in the
+   * background; progress arrives via PUB notifications.  The CLI's
+   * inline build replies with what it built.  A failure marks the
+   * footer and propagates.
    */
-  async function triggerIndex(ctx: ExtensionContext, ...refs: string[]): Promise<void> {
-    const targetRefs = refs.length > 0 ? refs : ["HEAD"];
+  async function watchRefs(ctx: ExtensionContext, refs: readonly string[]): Promise<WatchSetResponse | WatchResponse> {
+    const targetRefs = refs.length > 0 ? [...refs] : ["HEAD"];
     footer?.setSpinner("muted", (frame) => `rbtr: ${frame} indexing…`);
     try {
-      await withFallback(
-        async () => {
-          // The extension always builds the 'full' variant (the default).
-          // The 'stripped' variant is benchmark-only, driven by rbtr-eval.
-          await session.send({ kind: "watch", repo_path: ctx.cwd, refs: targetRefs });
-        },
-        async () => {
+      return await withFallback<WatchSetResponse | WatchResponse>(
+        // The extension always builds the 'full' variant (the default).
+        // The 'stripped' variant is benchmark-only, driven by rbtr-eval.
+        () => session.send({ kind: "watch", repo_path: ctx.cwd, refs: targetRefs }),
+        () => {
           if (!resolved) throw new Error("rbtr CLI not available");
-          const args = ["watch"];
-          for (const r of targetRefs) args.push(r);
-          await runRbtrJson<WatchResponse>(pi, resolved, args, { timeout: 600_000 });
+          return runRbtrJson<WatchSetResponse | WatchResponse>(pi, resolved, ["watch", ...targetRefs], {
+            timeout: 600_000,
+          });
         },
       );
     } catch (err) {
       footer?.setStatic("error", "rbtr: indexing failed");
+      throw err;
+    }
+  }
+
+  /** Watch refs for the session start and `/rbtr-index`, telling the user if it fails. */
+  async function triggerIndex(ctx: ExtensionContext, ...refs: string[]): Promise<void> {
+    try {
+      await watchRefs(ctx, refs);
+    } catch (err) {
       ctx.ui.notify(`Indexing failed: ${err instanceof Error ? err.message : String(err)}`, "error");
     }
   }
 
   // Stop watching the given refs (daemon path, CLI fallback).  The
   // protocol takes at least one ref: unwatching nothing is a mis-shaped
-  // call, and finding the stale ones is `triggerRemoveStale`.
-  async function triggerUnwatch(ctx: ExtensionContext, refs: [string, ...string[]]): Promise<void> {
-    await withFallback(
-      async () => {
-        await session.send({ kind: "unwatch", repo_path: ctx.cwd, refs });
-      },
-      async () => {
+  // call, and finding the stale ones is `removeStale`.  rbtr refuses HEAD.
+  function unwatch(ctx: ExtensionContext, refs: [string, ...string[]]): Promise<UnwatchResponse> {
+    return withFallback<UnwatchResponse>(
+      () => session.send({ kind: "unwatch", repo_path: ctx.cwd, refs }),
+      () => {
         if (!resolved) throw new Error("rbtr CLI not available");
-        await runRbtr(pi, resolved, ["unwatch", ...refs], { timeout: 60_000 });
+        return runRbtrJson<UnwatchResponse>(pi, resolved, ["unwatch", ...refs], { timeout: 60_000 });
       },
     );
   }
@@ -478,17 +483,14 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   // Drop watched refs that no longer resolve (e.g. deleted branches).
   // Which refs those are is rbtr's to decide, so this asks rather than
   // working it out here; HEAD is never removed.
-  async function triggerRemoveStale(ctx: ExtensionContext): Promise<string[]> {
-    const removed = await withFallback(
-      async () => session.send({ kind: "unwatch_stale", repo_path: ctx.cwd }),
-      async () => {
+  function removeStale(ctx: ExtensionContext): Promise<UnwatchResponse> {
+    return withFallback<UnwatchResponse>(
+      () => session.send({ kind: "unwatch_stale", repo_path: ctx.cwd }),
+      () => {
         if (!resolved) throw new Error("rbtr CLI not available");
-        return runRbtrJson<UnwatchResponse>(pi, resolved, ["unwatch", "--stale"], {
-          timeout: 60_000,
-        });
+        return runRbtrJson<UnwatchResponse>(pi, resolved, ["unwatch", "--stale"], { timeout: 60_000 });
       },
     );
-    return Object.values(removed.removed ?? {}).flat();
   }
 
   async function triggerGc(
@@ -928,95 +930,22 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         Type.Boolean({ description: "Stop watching refs that no longer resolve (e.g. deleted branches)." }),
       ),
     }),
+    outputSchema: replySchema("WatchSetResponse", "WatchResponse", "UnwatchResponse", "ErrorResponse"),
     renderCall: (args, theme) => renderIndexCall(args, theme),
     renderResult: (result, options, theme) => renderIndexResult(result, options, theme),
 
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      if (!cliAvailable) {
-        throw new Error("rbtr CLI not available. Install with: uv tool install rbtr");
-      }
       // Decode refs in case the provider delivered the array as a
-      // JSON-encoded string, so the up-to-date check and message below
-      // operate on the real refs (the daemon decodes its copy too).
+      // JSON-encoded string (the daemon decodes its copy too).
       const decodedRefs = decodeStringList(params.refs);
       const refs: [string, ...string[]] = decodedRefs.length > 0 ? [decodedRefs[0], ...decodedRefs.slice(1)] : ["HEAD"];
-
-      if (params.remove_stale) {
-        const pruned = await triggerRemoveStale(ctx);
-        return {
-          content: [
-            {
-              type: "text",
-              text: pruned.length > 0 ? `Stopped watching stale refs: ${pruned.join(", ")}.` : "No stale watched refs.",
-            },
-          ],
-          details: { status: "remove_stale", pruned },
-        };
+      try {
+        if (params.remove_stale) return toolResult(await removeStale(ctx));
+        if (params.remove) return toolResult(await unwatch(ctx, refs));
+        return toolResult(await watchRefs(ctx, refs));
+      } catch (err) {
+        return mapDaemonError(err);
       }
-      if (params.remove) {
-        if (refs.includes("HEAD")) {
-          return {
-            content: [{ type: "text", text: "HEAD cannot be removed from the watch set." }],
-            details: { status: "rejected", refs },
-          };
-        }
-        await triggerUnwatch(ctx, refs);
-        return {
-          content: [{ type: "text", text: `Stopped watching: ${refs.join(", ")}.` }],
-          details: { status: "removed", refs },
-        };
-      }
-
-      // Check current state first so we can give the LLM an
-      // actionable answer instead of blindly queueing a build.
-      // The daemon already dedupes duplicate submits (phase 9.2);
-      // this just turns that silent deduplication into a clear
-      // signal.
-      const status = await queryIndexStatus(ctx.cwd);
-
-      if (status?.active_build && status.active_build.repo_path === ctx.cwd) {
-        const j = status.active_build;
-        return {
-          content: [
-            {
-              type: "text",
-              text:
-                `A build is already in progress for this repository at ${shortSha(j.ref)} ` +
-                `(${j.phase} ${formatJobCounts(j)}). No new build was queued. ` +
-                `Use rbtr_status to check progress.`,
-            },
-          ],
-          details: { status: "in_progress", refs, activeJob: j },
-        };
-      }
-
-      // If asking for HEAD and HEAD is already indexed, say so
-      // rather than pretending to queue a redundant build.
-      if (refs.length === 1 && refs[0] === "HEAD" && status?.indexed_refs && status.indexed_refs.length > 0) {
-        const headRef = status.indexed_refs.find((r) => (r.names ?? []).includes("HEAD"));
-        if (headRef) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Index is up to date for HEAD (${shortSha(headRef.sha)}). No action taken.`,
-              },
-            ],
-            details: { status: "up_to_date", refs, head: headRef.sha },
-          };
-        }
-      }
-
-      await triggerIndex(ctx, ...refs);
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Indexing queued for refs ${refs.join(", ")}. Progress is shown in the footer. Use rbtr_status to check when complete.`,
-          },
-        ],
-        details: { status: "started", refs },
-      };
     },
   });
 

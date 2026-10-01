@@ -162,3 +162,40 @@ describe.each([
     expect(Check(registeredTools().get(name)?.outputSchema ?? {}, { kind })).toBe(false);
   });
 });
+
+describe("rbtr_watch reply", () => {
+  const watched = [
+    { ref: "HEAD", sha: "a".repeat(40), indexed: true, repo_path: "/repo" },
+    { ref: "main", sha: "b".repeat(40), indexed: false, repo_path: "/repo" },
+  ];
+  const headRefused = { kind: "error", code: "internal", message: "HEAD cannot be removed from the watch set" };
+
+  test.each([
+    ["watching refs", { refs: ["main"] }, "watch", { kind: "watch_set", watched }],
+    [
+      "removing refs",
+      { refs: ["main"], remove: true },
+      "unwatch",
+      { kind: "unwatch", removed: { "/repo": ["main"] }, dry_run: false },
+    ],
+    ["removing stale refs", { remove_stale: true }, "unwatch_stale", { kind: "unwatch", removed: {}, dry_run: false }],
+    ["removing HEAD", { refs: ["HEAD"], remove: true }, "unwatch", headRefused],
+  ])(
+    "%s is rbtr's response as JSON, matching the tool's output schema",
+    async (_name, params, requestKind, response) => {
+      if (response.kind === "error")
+        sendMock.mockRejectedValueOnce(
+          new RbtrDaemonError({ kind: "error", code: "internal", message: headRefused.message }),
+        );
+      else sendMock.mockResolvedValueOnce(response);
+      const tool = registeredTools().get("rbtr_watch");
+      if (!tool) throw new Error("rbtr_watch not registered");
+      const result = await tool.execute("id", params, signal, noop, ctx);
+      expect(sendMock).toHaveBeenLastCalledWith(expect.objectContaining({ kind: requestKind }));
+      expect(result.isError ?? false).toBe(response.kind === "error");
+      expect(JSON.parse(result.content.map((p) => p.text).join(""))).toEqual(response);
+      expect(result.structuredContent).toEqual(response);
+      expect(Check(tool.outputSchema, result.structuredContent)).toBe(true);
+    },
+  );
+});

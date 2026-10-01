@@ -32,7 +32,6 @@ from rbtr.daemon.messages import (
     GcRequest,
     ListSymbolsRequest,
     ListSymbolsResponse,
-    OkResponse,
     ReadSymbolRequest,
     ReadSymbolResponse,
     Scope,
@@ -42,6 +41,7 @@ from rbtr.daemon.messages import (
     StatusResponse,
     UnwatchRequest,
     WatchRequest,
+    WatchSetResponse,
 )
 from rbtr.daemon.server import DaemonServer
 from rbtr.domain.models import EdgeKind, GcMode, QueryKind, RefSource
@@ -454,8 +454,10 @@ def test_index_records_a_ref_in_the_watch_set(seeded_store: IndexStore, fake_rep
     """`index` records a ref; dropping one is `handle_unwatch`."""
     repo_id = seeded_store.resolve_repo(fake_repo)
     added = handle_watch(WatchRequest(repo_path=fake_repo, refs=["main"]), seeded_store)
-    assert isinstance(added, OkResponse)
     assert "main" in seeded_store.list_watched_refs(repo_id)
+    # The reply is the watch set now, each ref with its SHA and state.
+    assert isinstance(added, WatchSetResponse)
+    assert {w.ref: w.indexed for w in added.watched} == {"HEAD": True, "main": True}
 
 
 def test_status_reports_watch_set_states(seeded_store: IndexStore, fake_repo: str) -> None:

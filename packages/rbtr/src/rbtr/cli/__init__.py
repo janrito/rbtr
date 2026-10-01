@@ -94,6 +94,7 @@ from rbtr.daemon.messages import (
     UnwatchStaleRequest,
     WatchRequest,
     WatchResponse,
+    WatchSetResponse,
     protocol_json_schema,
 )
 from rbtr.daemon.server import DaemonServer
@@ -324,9 +325,9 @@ class Watch(BaseModel):
         match resp:
             case WatchResponse():
                 emit(resp)
-            case OkResponse():
-                print_err(f"[green]Watching:[/] {', '.join(self.refs)}{suffix}")
-                print_err("[dim]Indexing in background; run `rbtr status` to track.[/]")
+            case WatchSetResponse():
+                emit(resp)
+                print_err(f"[dim]Indexing in background{suffix}; run `rbtr status` to track.[/]")
             case ErrorResponse(message=msg):
                 print_err(f"[red]error:[/] {msg}")
                 sys.exit(ExitCode.FAILED)
