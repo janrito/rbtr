@@ -226,7 +226,9 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   // Daemon only: a CLI fallback would start a process per annotated call.
   // Any failure leaves the tool's output as it was.
   pi.on("tool_result", async (event, ctx) => {
-    if (!settings.annotate || !session.available || event.isError) return;
+    // A call another tool made (a codemode script) returns to that tool,
+    // not to the model.
+    if (!settings.annotate || !session.available || event.isError || event.parentToolCallId) return;
     let lines: string[] = [];
     try {
       const { command, path, offset } = event.input;
@@ -245,8 +247,12 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     }
     const text = block(lines);
     if (text === null) return;
-    // pi drops a tool's details unless the handler returns them.
-    return { content: [...event.content, { type: "text", text: `\n\n${text}` }], details: event.details };
+    // pi drops a tool's details and structured result unless the handler returns them.
+    return {
+      content: [...event.content, { type: "text", text: `\n\n${text}` }],
+      details: event.details,
+      structuredContent: event.structuredContent,
+    };
   });
 
   // ── Session lifecycle ───────────────────────────────────────

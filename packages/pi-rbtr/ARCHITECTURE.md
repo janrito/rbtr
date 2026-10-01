@@ -167,9 +167,11 @@ The facts come from the daemon only. A CLI fallback would
 start a process for each annotated call, and the hook runs
 on every `bash` and `read`. Any failure returns nothing, so
 the tool's own output is never lost. The handler returns the
-tool's `details` with its `content`, because pi drops a
-tool's details when a handler replaces the content without
-them.
+tool's `details` and `structuredContent` with its `content`,
+because pi drops both when a handler replaces the content
+without them. Calls another tool made, such as a codemode
+script's, carry `parentToolCallId` and are left alone: their
+results go to the script, not the model.
 
 ### Output contract
 
