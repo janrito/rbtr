@@ -7,6 +7,7 @@ Tests verify typed responses via the actual socket path.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pygit2
@@ -313,6 +314,16 @@ def test_list_symbols(running_daemon: DaemonServer, fake_repo: str) -> None:
     names = {c.name for c in resp.chunks}
     assert "load_config" in names
     assert "MAX_SIZE" in names
+
+
+def test_list_symbols_carries_no_source(running_daemon: DaemonServer, fake_repo: str) -> None:
+    """An outline names symbols and spans them; bodies come from read-symbol."""
+    with DaemonClient(running_daemon.runtime_dir) as client:
+        resp = client.send(ListSymbolsRequest(repo_path=fake_repo, file_path="src/config.py"))
+    assert isinstance(resp, ListSymbolsResponse)
+    payload = json.loads(resp.model_dump_json())
+    assert payload["chunks"]
+    assert all("content" not in chunk for chunk in payload["chunks"])
 
 
 def test_list_symbols_empty_file(running_daemon: DaemonServer, fake_repo: str) -> None:

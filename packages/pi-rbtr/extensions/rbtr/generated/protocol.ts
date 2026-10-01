@@ -363,7 +363,11 @@ export interface ReadSymbolResponse {
   chunks: SymbolOut[];
 }
 /**
- * A symbol as returned by read-symbol, list-symbols, changed-symbols.
+ * A symbol and its source, as returned by read-symbol.
+ *
+ * The one read shape that carries a body. `list-symbols` and
+ * `changed-symbols` return `SymbolRefOut`; a search hit carries a
+ * capped `Preview`.
  */
 export interface SymbolOut {
   name: string;
@@ -378,7 +382,25 @@ export interface SymbolOut {
 }
 export interface ListSymbolsResponse {
   kind: "list_symbols";
-  chunks: SymbolOut[];
+  chunks: SymbolRefOut[];
+}
+/**
+ * Where a symbol is, without its body.
+ *
+ * What `list-symbols` and `changed-symbols` return: enough to name a
+ * symbol, place it, and fetch it with `read-symbol` next. It holds no
+ * `content` field, so an outline cannot carry a file's source however
+ * it is constructed.
+ */
+export interface SymbolRefOut {
+  name: string;
+  kind: ChunkKind;
+  file_path: string;
+  scope?: string;
+  language?: string;
+  line_start: number;
+  line_end: number;
+  metadata?: ImportMeta | null;
 }
 export interface FindRefsResponse {
   kind: "find_refs";
@@ -404,10 +426,10 @@ export interface ChangedSymbolsResponse {
   changes: ChangedSymbol[];
 }
 /**
- * One changed symbol: its chunk plus how it changed.
+ * One changed symbol: where it is plus how it changed.
  */
 export interface ChangedSymbol {
-  chunk: SymbolOut;
+  chunk: SymbolRefOut;
   change: ChangeKind;
 }
 export interface StatusResponse {

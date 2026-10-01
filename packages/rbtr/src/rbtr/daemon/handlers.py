@@ -24,7 +24,7 @@ import structlog
 
 from rbtr import get_version
 from rbtr.config import config
-from rbtr.daemon.dto import PluginInfo, RefOuts, SearchHitOut, SymbolOut
+from rbtr.daemon.dto import PluginInfo, RefOuts, SearchHitOut, SymbolOut, SymbolRefOut
 from rbtr.daemon.messages import (
     ActiveJob,
     ChangedSymbol,
@@ -213,7 +213,7 @@ def handle_list_symbols(request: ListSymbolsRequest, store: IndexStore) -> ListS
     repo_id = store.resolve_repo(request.repo_path)
     at = _resolve_read_ref(store, request.repo_path, repo_id, request.ref, require_indexed=True)
     chunks = store.get_chunks(at=at, file_path=request.file_path)
-    return ListSymbolsResponse(chunks=[SymbolOut.from_chunk(c) for c in chunks])
+    return ListSymbolsResponse(chunks=[SymbolRefOut.from_chunk(c) for c in chunks])
 
 
 def handle_find_refs(request: FindRefsRequest, store: IndexStore) -> FindRefsResponse:
@@ -263,7 +263,7 @@ def handle_changed_symbols(
         file_paths=request.file_paths,
     )
     changes = [
-        ChangedSymbol(chunk=SymbolOut.from_chunk(chunk), change=change)
+        ChangedSymbol(chunk=SymbolRefOut.from_chunk(chunk), change=change)
         for chunk, change in changed_to_symbols(frame)
     ]
     return ChangedSymbolsResponse(changes=changes)

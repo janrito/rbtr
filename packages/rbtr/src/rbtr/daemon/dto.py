@@ -22,8 +22,48 @@ from rbtr.domain.models import Chunk, ChunkKind, EdgeKind, ImportMeta, ScoredChu
 _STRICT = ConfigDict(extra="forbid")
 
 
+class SymbolRefOut(BaseModel):
+    """Where a symbol is, without its body.
+
+    What `list-symbols` and `changed-symbols` return: enough to name a
+    symbol, place it, and fetch it with `read-symbol` next. It holds no
+    `content` field, so an outline cannot carry a file's source however
+    it is constructed.
+    """
+
+    model_config = _STRICT
+
+    name: str
+    kind: ChunkKind
+    file_path: str
+    scope: str = ""
+    language: str = ""
+    line_start: int
+    line_end: int
+    metadata: ImportMeta | None = Field(default=None, exclude_if=lambda v: v is None)
+
+    @classmethod
+    def from_chunk(cls, chunk: Chunk) -> SymbolRefOut:
+        meta = chunk.metadata if chunk.metadata != ImportMeta() else None
+        return cls(
+            name=chunk.name,
+            kind=chunk.kind,
+            file_path=chunk.file_path,
+            scope=chunk.scope,
+            language=chunk.language,
+            line_start=chunk.line_start,
+            line_end=chunk.line_end,
+            metadata=meta,
+        )
+
+
 class SymbolOut(BaseModel):
-    """A symbol as returned by read-symbol, list-symbols, changed-symbols."""
+    """A symbol and its source, as returned by read-symbol.
+
+    The one read shape that carries a body. `list-symbols` and
+    `changed-symbols` return `SymbolRefOut`; a search hit carries a
+    capped `Preview`.
+    """
 
     model_config = _STRICT
 

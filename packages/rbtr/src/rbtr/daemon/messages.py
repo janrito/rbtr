@@ -32,7 +32,7 @@ from pydantic.json_schema import JsonSchemaValue, models_json_schema
 from pydantic_core import from_json
 
 from rbtr.config import WeightTriple, config
-from rbtr.daemon.dto import PluginInfo, RefOut, SearchHitOut, SymbolOut
+from rbtr.daemon.dto import PluginInfo, RefOut, SearchHitOut, SymbolOut, SymbolRefOut
 from rbtr.daemon.status import DaemonStatusReport
 from rbtr.domain.models import (
     ChangeKind,
@@ -438,7 +438,7 @@ class ReadSymbolResponse(BaseModel):
 class ListSymbolsResponse(BaseModel):
     model_config = _STRICT
     kind: Literal["list_symbols"] = "list_symbols"
-    chunks: list[SymbolOut]
+    chunks: list[SymbolRefOut]
 
 
 class FindRefsResponse(BaseModel):
@@ -448,10 +448,10 @@ class FindRefsResponse(BaseModel):
 
 
 class ChangedSymbol(BaseModel):
-    """One changed symbol: its chunk plus how it changed."""
+    """One changed symbol: where it is plus how it changed."""
 
     model_config = _STRICT
-    chunk: SymbolOut
+    chunk: SymbolRefOut
     change: ChangeKind
 
 

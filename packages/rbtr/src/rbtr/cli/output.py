@@ -27,7 +27,7 @@ from rich.table import Table
 from rich.text import Text
 
 from rbtr.config import config
-from rbtr.daemon.dto import RefOut, SearchHitOut, SymbolOut
+from rbtr.daemon.dto import RefOut, SearchHitOut, SymbolOut, SymbolRefOut
 from rbtr.daemon.messages import (
     ChangedSymbol,
     ChangedSymbolsResponse,
@@ -258,7 +258,7 @@ def _render_read_symbol_response(response: ReadSymbolResponse) -> None:
 
 def _render_list_symbols_response(response: ListSymbolsResponse) -> None:
     for c in response.chunks:
-        _render_chunk(c, compact=True)
+        _render_symbol_ref(c)
 
 
 def _render_find_refs_response(response: FindRefsResponse) -> None:
@@ -326,19 +326,19 @@ def _render_scored_result(search_hit: SearchHitOut) -> None:
     _out.print()  # blank line between results
 
 
-def _render_chunk(symbol: SymbolOut, *, compact: bool = False) -> None:
-    path = _short_path(symbol.file_path)
+def _render_symbol_ref(ref: SymbolRefOut) -> None:
+    """One line per symbol — the outline shape."""
+    t = Text()
+    t.append(f"  {ref.line_start:>4}-{ref.line_end:<4}", style="dim")
+    t.append(f"  {ref.kind:<10}", style="cyan")
+    t.append(ref.name)
+    if ref.scope:
+        t.append(f"  ({ref.scope})", style="dim")
+    _out.print(t)
 
-    if compact:
-        # One-line summary for list-symbols / changed-symbols
-        t = Text()
-        t.append(f"  {symbol.line_start:>4}-{symbol.line_end:<4}", style="dim")
-        t.append(f"  {symbol.kind:<10}", style="cyan")
-        t.append(symbol.name)
-        if symbol.scope:
-            t.append(f"  ({symbol.scope})", style="dim")
-        _out.print(t)
-        return
+
+def _render_chunk(symbol: SymbolOut) -> None:
+    path = _short_path(symbol.file_path)
 
     # Full view for read-symbol — same header structure as search
     t = Text()
