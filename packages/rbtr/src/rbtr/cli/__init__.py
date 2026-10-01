@@ -47,7 +47,6 @@ from rbtr.cli.output import (
 )
 from rbtr.config import Config, WeightTriple, config
 from rbtr.daemon.client import (
-    SERVE_EXIT_INDEX_LOCKED,
     live_status,
     start_daemon,
     stop_daemon,
@@ -100,7 +99,7 @@ from rbtr.daemon.messages import (
 from rbtr.daemon.server import DaemonServer
 from rbtr.daemon.status import DaemonStatusReport, uptime_seconds as _uptime_seconds
 from rbtr.domain.models import GcMode
-from rbtr.errors import IndexLockedError, RbtrError
+from rbtr.errors import ExitCode, IndexLockedError, RbtrError
 from rbtr.git import HEAD_REF, normalise_repo_path, resolve_ref
 from rbtr.index.build import build_index
 from rbtr.index.embed import embed_index
@@ -165,7 +164,7 @@ class DaemonServe(BaseModel):
         except IndexLockedError:
             # Another process holds the index; the store logged it.  The
             # code tells `start_daemon` to wait for that process's daemon.
-            sys.exit(SERVE_EXIT_INDEX_LOCKED)
+            sys.exit(ExitCode.INDEX_LOCKED)
         except RbtrError:
             # The parent redirects our stderr to DEVNULL, so record why
             # the daemon couldn't open the index (e.g. a schema refuse)
@@ -199,7 +198,7 @@ class DaemonStart(BaseModel):
             start_daemon(allow_missing_plugins=self.allow_missing_plugins)
         except RbtrError as exc:
             print_err(f"[red]error:[/] {exc}")
-            sys.exit(1)
+            sys.exit(ExitCode.FAILED)
 
         emit(OkResponse())
 
@@ -216,7 +215,7 @@ class DaemonStop(BaseModel):
             stop_daemon()
         except RbtrError as exc:
             print_err(f"[red]error:[/] {exc}")
-            sys.exit(1)
+            sys.exit(ExitCode.FAILED)
 
         emit(OkResponse())
 
@@ -314,7 +313,7 @@ class Watch(BaseModel):
             except IndexLockedError as locked:
                 print_err(f"[red]error:[/] {locked}")
                 print_err("[dim]Inline indexing needs that same lock, so it was not attempted.[/]")
-                sys.exit(1)
+                sys.exit(ExitCode.FAILED)
             return
 
         self._report_watch(try_daemon(request), started=True)
@@ -330,10 +329,10 @@ class Watch(BaseModel):
                 print_err("[dim]Indexing in background; run `rbtr status` to track.[/]")
             case ErrorResponse(message=msg):
                 print_err(f"[red]error:[/] {msg}")
-                sys.exit(1)
+                sys.exit(ExitCode.FAILED)
             case _:
                 print_err("[red]error:[/] daemon did not record the watch")
-                sys.exit(1)
+                sys.exit(ExitCode.FAILED)
 
     def _run_inline(
         self,
@@ -457,10 +456,10 @@ class Unwatch(BaseModel):
                 emit(resp)
             case ErrorResponse(message=msg):
                 print_err(f"[red]error:[/] {msg}")
-                sys.exit(1)
+                sys.exit(ExitCode.FAILED)
             case _:
                 print_err(f"[red]error:[/] unexpected response: {resp}")
-                sys.exit(1)
+                sys.exit(ExitCode.FAILED)
 
 
 class Forget(BaseModel):
@@ -514,10 +513,10 @@ class Forget(BaseModel):
                 emit(resp)
             case ErrorResponse(message=msg):
                 print_err(f"[red]error:[/] {msg}")
-                sys.exit(1)
+                sys.exit(ExitCode.FAILED)
             case _:
                 print_err(f"[red]error:[/] unexpected response: {resp}")
-                sys.exit(1)
+                sys.exit(ExitCode.FAILED)
 
 
 class Search(BaseModel):
@@ -582,7 +581,7 @@ class Search(BaseModel):
                 emit(resp)
             case ErrorResponse(message=msg):
                 print_err(f"[red]error:[/] {msg}")
-                sys.exit(1)
+                sys.exit(ExitCode.FAILED)
             case None:
                 store = IndexStore.from_config()
 
@@ -599,14 +598,14 @@ class Search(BaseModel):
                     emit(resp)
                 except RbtrError as exc:
                     print_err(f"[red]error:[/] {exc}")
-                    sys.exit(1)
+                    sys.exit(ExitCode.FAILED)
                 finally:
                     embedder.close()
                     if reranker is not None:
                         reranker.close()
             case resp:
                 print_err(f"[red]error:[/] unexpected response: {resp}")
-                sys.exit(1)
+                sys.exit(ExitCode.FAILED)
 
 
 class ReadSymbol(BaseModel):
@@ -635,7 +634,7 @@ class ReadSymbol(BaseModel):
                 emit(resp)
             case ErrorResponse(message=msg):
                 print_err(f"[red]error:[/] {msg}")
-                sys.exit(1)
+                sys.exit(ExitCode.FAILED)
             case None:
                 store = IndexStore.from_config()
 
@@ -643,10 +642,10 @@ class ReadSymbol(BaseModel):
                     emit(handle_read_symbol(request, store))
                 except RbtrError as exc:
                     print_err(f"[red]error:[/] {exc}")
-                    sys.exit(1)
+                    sys.exit(ExitCode.FAILED)
             case resp:
                 print_err(f"[red]error:[/] unexpected response: {resp}")
-                sys.exit(1)
+                sys.exit(ExitCode.FAILED)
 
 
 class ListSymbols(BaseModel):
@@ -671,7 +670,7 @@ class ListSymbols(BaseModel):
                 emit(resp)
             case ErrorResponse(message=msg):
                 print_err(f"[red]error:[/] {msg}")
-                sys.exit(1)
+                sys.exit(ExitCode.FAILED)
             case None:
                 store = IndexStore.from_config()
 
@@ -679,10 +678,10 @@ class ListSymbols(BaseModel):
                     emit(handle_list_symbols(request, store))
                 except RbtrError as exc:
                     print_err(f"[red]error:[/] {exc}")
-                    sys.exit(1)
+                    sys.exit(ExitCode.FAILED)
             case resp:
                 print_err(f"[red]error:[/] unexpected response: {resp}")
-                sys.exit(1)
+                sys.exit(ExitCode.FAILED)
 
 
 class FindRefs(BaseModel):
@@ -711,7 +710,7 @@ class FindRefs(BaseModel):
                 emit(resp)
             case ErrorResponse(message=msg):
                 print_err(f"[red]error:[/] {msg}")
-                sys.exit(1)
+                sys.exit(ExitCode.FAILED)
             case None:
                 store = IndexStore.from_config()
 
@@ -719,10 +718,10 @@ class FindRefs(BaseModel):
                     emit(handle_find_refs(request, store))
                 except RbtrError as exc:
                     print_err(f"[red]error:[/] {exc}")
-                    sys.exit(1)
+                    sys.exit(ExitCode.FAILED)
             case resp:
                 print_err(f"[red]error:[/] unexpected response: {resp}")
-                sys.exit(1)
+                sys.exit(ExitCode.FAILED)
 
 
 class ChangedSymbols(BaseModel):
@@ -749,7 +748,7 @@ class ChangedSymbols(BaseModel):
                 emit(resp)
             case ErrorResponse(message=msg):
                 print_err(f"[red]error:[/] {msg}")
-                sys.exit(1)
+                sys.exit(ExitCode.FAILED)
             case None:
                 store = IndexStore.from_config()
 
@@ -757,10 +756,10 @@ class ChangedSymbols(BaseModel):
                     emit(handle_changed_symbols(request, store))
                 except RbtrError as exc:
                     print_err(f"[red]error:[/] {exc}")
-                    sys.exit(1)
+                    sys.exit(ExitCode.FAILED)
             case resp:
                 print_err(f"[red]error:[/] unexpected response: {resp}")
-                sys.exit(1)
+                sys.exit(ExitCode.FAILED)
 
 
 class Status(BaseModel):
@@ -781,7 +780,7 @@ class Status(BaseModel):
                 emit(resp)
             case ErrorResponse(message=msg):
                 print_err(f"[red]error:[/] {msg}")
-                sys.exit(1)
+                sys.exit(ExitCode.FAILED)
             case None:
                 db = config.db_path
                 if not db.exists():
@@ -793,10 +792,10 @@ class Status(BaseModel):
                     emit(handle_status(request, store))
                 except RbtrError as exc:
                     print_err(f"[red]error:[/] {exc}")
-                    sys.exit(1)
+                    sys.exit(ExitCode.FAILED)
             case resp:
                 print_err(f"[red]error:[/] unexpected response: {resp}")
-                sys.exit(1)
+                sys.exit(ExitCode.FAILED)
 
 
 class Gc(BaseModel):
@@ -883,7 +882,7 @@ class Gc(BaseModel):
                 emit(resp)
             case ErrorResponse(message=msg):
                 print_err(f"[red]error:[/] {msg}")
-                sys.exit(1)
+                sys.exit(ExitCode.FAILED)
             case None:
                 # No daemon: this process holds DuckDB's exclusive lock, so
                 # compaction's connection swap is safe here (allow_compact).
@@ -893,10 +892,10 @@ class Gc(BaseModel):
                     self._run_inline(request, store)
                 except RbtrError as exc:
                     print_err(f"[red]error:[/] {exc}")
-                    sys.exit(1)
+                    sys.exit(ExitCode.FAILED)
             case resp:
                 print_err(f"[red]error:[/] unexpected response: {resp}")
-                sys.exit(1)
+                sys.exit(ExitCode.FAILED)
 
     @staticmethod
     def _run_inline(request: GcRequest, store: IndexStore) -> None:
@@ -943,10 +942,10 @@ class ConfigCmd(BaseModel):
                 emit(handle_daemon_config(DaemonConfigRequest()))
             case ErrorResponse(message=msg):
                 print_err(f"[red]error:[/] {msg}")
-                sys.exit(1)
+                sys.exit(ExitCode.FAILED)
             case resp:
                 print_err(f"[red]error:[/] unexpected response: {resp}")
-                sys.exit(1)
+                sys.exit(ExitCode.FAILED)
 
 
 # ── Root command ─────────────────────────────────────────────────────
@@ -1010,7 +1009,7 @@ def main() -> None:
         CliApp.run(Rbtr, cli_settings_source=cli_source)
     except RbtrError as exc:
         print_err(f"[red]error:[/] {exc}")
-        sys.exit(2)
+        sys.exit(ExitCode.ERROR)
     except ValidationError as exc:
         print_rejected_arguments(exc)
-        sys.exit(2)
+        sys.exit(ExitCode.ERROR)

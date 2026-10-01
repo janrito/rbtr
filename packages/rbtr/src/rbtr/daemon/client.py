@@ -40,12 +40,9 @@ from rbtr.daemon.messages import (
     response_adapter,
 )
 from rbtr.daemon.status import DaemonStatus, is_pid_alive, read_status, remove_status
-from rbtr.errors import DaemonBusyError, RbtrError
+from rbtr.errors import DaemonBusyError, ExitCode, RbtrError
 
 log = structlog.get_logger(__name__)
-
-SERVE_EXIT_INDEX_LOCKED = 3
-"""Exit code of a `daemon serve` that found the index locked by another process."""
 
 
 def live_status(runtime_dir: Path) -> DaemonStatus | None:
@@ -77,7 +74,7 @@ def start_daemon(*, allow_missing_plugins: bool = False) -> DaemonStatus:
     concurrent caller won the race), it is reused instead of
     spawning a second `serve`.  If our own spawn loses the race,
     we terminate it and return the winner.  A spawn that exits
-    with `SERVE_EXIT_INDEX_LOCKED` lost the index lock to another
+    with `ExitCode.INDEX_LOCKED` lost the index lock to another
     process; we keep waiting for that process's daemon to become
     ready, until `config.daemon_start_timeout`.
 
@@ -159,14 +156,14 @@ def start_daemon(*, allow_missing_plugins: bool = False) -> DaemonStatus:
             if status.pid != proc.pid and proc.poll() is None:
                 proc.terminate()
             return status
-        if proc.poll() not in (None, SERVE_EXIT_INDEX_LOCKED):
+        if proc.poll() not in (None, ExitCode.INDEX_LOCKED):
             msg = (
                 f"Daemon failed to start. "
                 f"Check {config.daemon_log} and {config.daemon_stderr} for the reason."
             )
             raise RbtrError(msg)
 
-    if proc.poll() == SERVE_EXIT_INDEX_LOCKED:
+    if proc.poll() == ExitCode.INDEX_LOCKED:
         msg = (
             f"Another process holds the index lock, and no daemon became ready "
             f"within {config.daemon_start_timeout:g}s. `rbtr daemon status` shows "

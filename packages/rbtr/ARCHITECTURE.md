@@ -804,7 +804,7 @@ subscriber knows whether work on it is still due.
 The daemon is **single and global** per `data_dir`: `serve` takes
 DuckDB's exclusive lock (via `IndexStore.from_config`) before
 binding its sockets, so a second `serve` racing it exits on the
-lock with `SERVE_EXIT_INDEX_LOCKED`. `start_daemon()` tolerates
+lock with `ExitCode.INDEX_LOCKED`. `start_daemon()` tolerates
 this rather than coordinating it: it treats any live daemon as
 ready, so concurrent callers converge on the winner and a losing
 spawn is terminated. The winner holds the lock through its whole

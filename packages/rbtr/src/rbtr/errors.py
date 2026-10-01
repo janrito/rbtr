@@ -1,4 +1,14 @@
-"""Base exceptions for rbtr."""
+"""Base exceptions and process exit codes for rbtr."""
+
+from enum import IntEnum
+
+
+class ExitCode(IntEnum):
+    """Status an rbtr process exits with when it does not succeed."""
+
+    FAILED = 1  # a command reported its own failure
+    ERROR = 2  # an `RbtrError` or rejected arguments reached `main`
+    INDEX_LOCKED = 3  # `daemon serve` found the index locked by another process
 
 
 class RbtrError(Exception):
