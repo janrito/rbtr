@@ -62,7 +62,6 @@ def test_index_falls_back_to_inline_when_start_fails(
         refs=["HEAD"],
         repo_path=repo_path,
         daemon=True,
-        embed=False,
         allow_missing_plugins=False,
     ).cli_cmd()
 

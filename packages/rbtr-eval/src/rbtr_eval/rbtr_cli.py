@@ -28,7 +28,10 @@ from rbtr.daemon.client import DaemonClient
 
 
 def run_rbtr(
-    args: list[str], *, check: bool = True, capture_output: bool = False
+    args: list[str],
+    *,
+    check: bool = True,
+    capture_output: bool = False,
 ) -> subprocess.CompletedProcess[bytes]:
     """Invoke `python -m rbtr <args>` against this interpreter.
 
@@ -46,15 +49,14 @@ def run_rbtr(
 @contextmanager
 def daemon_session(
     data_dir: Path,
-    config_dir: Path,
     log_dir: Path,
     *,
     wait_budget_s: float = 600.0,
 ) -> Iterator[DaemonClient]:
     """Start an isolated daemon; yield a client; stop on exit.
 
-    *data_dir*, *config_dir*, and *log_dir* are the isolation
-    directories for the pipeline run.  The cache (embedding
+    *data_dir* and *log_dir* are the isolation directories for
+    the pipeline run; `RBTR_CONFIG_DIR` names its config.  The cache (embedding
     models) stays on the user's shared platformdirs cache so
     400 MB of weights don't re-download per run.
 
@@ -77,14 +79,12 @@ def daemon_session(
     searching already done.  Ten minutes of silence means the
     daemon is broken rather than busy.
     """
-    for d in (data_dir, config_dir, log_dir):
+    for d in (data_dir, log_dir):
         d.mkdir(parents=True, exist_ok=True)
 
     dir_flags = [
         "--data-dir",
         str(data_dir),
-        "--config-dir",
-        str(config_dir),
         "--log-dir",
         str(log_dir),
     ]

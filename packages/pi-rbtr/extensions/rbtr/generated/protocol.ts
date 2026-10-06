@@ -129,7 +129,6 @@ export interface WatchRequest {
   kind: "watch";
   repo_path: string;
   refs?: string[];
-  embed?: boolean;
 }
 /**
  * Search the code index.

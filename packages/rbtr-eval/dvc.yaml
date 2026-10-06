@@ -2,7 +2,8 @@ vars:
   - repos_dir: data/repos
   # Isolation for this pipeline.
   - data_dir: data/index
-  - config_dir: data/config
+  # rbtr's settings for every rbtr this pipeline runs: its config directory.
+  - rbtr_env: RBTR_CONFIG_DIR=data/config
   - log_dir: data/logs
   - per_repo_dir: data/per-repo
   - headers_dir: data/headers
@@ -49,9 +50,9 @@ vars:
 stages:
   config:
     cmd: >-
+      ${rbtr_env}
       python -m rbtr --json
       --data-dir ${data_dir}
-      --config-dir ${config_dir}
       --log-dir ${log_dir}
       config
       | jq 'del(.config.runtime_dir, .config.daemon_rpc,
@@ -195,10 +196,9 @@ stages:
   # `paraphrase` only reads (DuckDB MVCC handles the concurrency).
   index:
     cmd: >-
+      ${rbtr_env} RBTR_EMBED=false
       python -m rbtr_eval index
-      --no-embed
       --data-dir ${data_dir}
-      --config-dir ${config_dir}
       --log-dir ${log_dir}
       --repos-dir ${repos_dir}
       --sentinel data/.chunks-ready
@@ -223,9 +223,9 @@ stages:
 
   embed:
     cmd: >-
+      ${rbtr_env}
       python -m rbtr_eval index
       --data-dir ${data_dir}
-      --config-dir ${config_dir}
       --log-dir ${log_dir}
       --repos-dir ${repos_dir}
       --sentinel data/.embed-ready
@@ -248,13 +248,13 @@ stages:
 
   measure:
     cmd: >-
+      ${rbtr_env}
       python -m rbtr_eval measure
       --per-repo-dir ${per_repo_dir}
       --concept-dir ${concept_dir}
       --headers-dir ${headers_dir}
       --repos-dir ${repos_dir}
       --data-dir ${data_dir}
-      --config-dir ${config_dir}
       --log-dir ${log_dir}
       --report ${report}
       --metrics ${metrics}
@@ -296,12 +296,12 @@ stages:
 
   tune:
     cmd: >-
+      ${rbtr_env}
       python -m rbtr_eval tune
       --per-repo-dir ${per_repo_dir}
       --concept-dir ${concept_dir}
       --repos-dir ${repos_dir}
       --data-dir ${data_dir}
-      --config-dir ${config_dir}
       --log-dir ${log_dir}
       --n-trials ${n_trials}
       --tune-queries-per-cell ${tune_queries_per_cell}
@@ -335,12 +335,12 @@ stages:
 
   tune-reranker:
     cmd: >-
+      ${rbtr_env}
       python -m rbtr_eval tune-reranker
       --per-repo-dir ${per_repo_dir}
       --concept-dir ${concept_dir}
       --repos-dir ${repos_dir}
       --data-dir ${data_dir}
-      --config-dir ${config_dir}
       --log-dir ${log_dir}
       --queries-per-cell ${reranker_tune_queries_per_cell}
       --pool-min ${reranker_pool_min}

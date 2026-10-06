@@ -880,7 +880,6 @@ class MeasureCmd(BaseModel):
     headers_dir: Path = Field(description="Directory holding header parquet files.")
     repos_dir: Path = Field(description="Directory holding cloned repos.")
     data_dir: Path = Field(description="Directory for the DuckDB index.")
-    config_dir: Path = Field(description="Directory for config.")
     log_dir: Path = Field(description="Directory for logs.")
     report: Path = Field(description="Output path for BENCHMARKS.md.")
     metrics: Path = Field(description="Output path for metrics JSON.")
@@ -908,7 +907,7 @@ class MeasureCmd(BaseModel):
         )
 
         t0 = time.monotonic()
-        with daemon_session(self.data_dir, self.config_dir, self.log_dir) as client:
+        with daemon_session(self.data_dir, self.log_dir) as client:
             batch = _run_searches(client, queries, self.repos_dir)
         elapsed_seconds = time.monotonic() - t0
 

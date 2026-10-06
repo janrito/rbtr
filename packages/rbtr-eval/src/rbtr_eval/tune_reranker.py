@@ -456,7 +456,6 @@ class TuneRerankerCmd(BaseModel):
     concept_dir: Path = Field(description="Directory holding concept parquet files.")
     repos_dir: Path = Field(description="Directory holding cloned repos.")
     data_dir: Path = Field(description="Directory for the DuckDB index.")
-    config_dir: Path = Field(description="Directory for config.")
     log_dir: Path = Field(description="Directory for logs.")
     queries_per_cell: int = Field(
         2, description="Queries per (slug, language, provenance) cell for tuning."
@@ -488,7 +487,6 @@ class TuneRerankerCmd(BaseModel):
         with (
             daemon_session(
                 self.data_dir,
-                self.config_dir,
                 self.log_dir,
             ) as client,
             progress_reporter("tune-reranker") as (on_progress,),

@@ -110,7 +110,6 @@ def start_daemon(*, allow_missing_plugins: bool = False) -> DaemonStatus:
     cmd = [sys.executable, "-m", "rbtr"]
     for flag, value in (
         ("--data-dir", config.data_dir),
-        ("--config-dir", config.config_dir),
         ("--log-dir", config.log_dir),
         ("--cache-dir", config.cache_dir),
     ):

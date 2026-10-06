@@ -273,7 +273,6 @@ class Watch(BaseModel):
     refs: CliPositionalArg[list[str]] = Field([HEAD_REF], description="Refs to watch and index")
     repo_path: str = Field(".", description="Repository path")
     daemon: bool = Field(True, description="Use the daemon (disable with --no-daemon)")
-    embed: bool = Field(True, description="Compute embeddings (disable with --no-embed)")
     allow_missing_plugins: bool = Field(
         False,
         description="Build even if the index has languages this rbtr cannot load",
@@ -287,7 +286,7 @@ class Watch(BaseModel):
         for r in self.refs:
             resolve_ref(resolved_repo, r)
 
-        request = WatchRequest(repo_path=resolved_repo, refs=self.refs, embed=self.embed)
+        request = WatchRequest(repo_path=resolved_repo, refs=self.refs)
 
         if not self.daemon:
             self._run_inline(resolved_repo, [resolve_ref(resolved_repo, r) for r in self.refs])
@@ -351,7 +350,6 @@ class Watch(BaseModel):
         )
         with store.session() as ws:
             repo_id = ws.register_repo(resolved_repo)
-        embedder = Embedder(idle_timeout=config.embed_idle_timeout)
 
         with progress_reporter("Parsing files", "Embedding") as (on_parse, on_embed):
 
@@ -377,7 +375,8 @@ class Watch(BaseModel):
                 )
 
             # Embed all refs after chunks/edges are committed.
-            if self.embed:
+            if config.embed:
+                embedder = Embedder(idle_timeout=config.embed_idle_timeout)
                 for ref in resolved_refs:
                     embedded = embed_index(
                         store,
@@ -583,7 +582,7 @@ class Search(BaseModel):
                 store = IndexStore.from_config()
 
                 gpu_load_lock = threading.Lock()
-                embedder = Embedder(load_lock=gpu_load_lock)
+                embedder = Embedder(load_lock=gpu_load_lock) if config.embed else None
                 reranker = Reranker(load_lock=gpu_load_lock) if config.reranker_model else None
                 try:
                     resp = handle_search(
@@ -596,7 +595,8 @@ class Search(BaseModel):
                 except RbtrError as exc:
                     fail(exc)
                 finally:
-                    embedder.close()
+                    if embedder is not None:
+                        embedder.close()
                     if reranker is not None:
                         reranker.close()
             case resp:

@@ -732,7 +732,6 @@ export const PROTOCOL_DEFS = {
       kind: { const: "watch", default: "watch", type: "string" },
       repo_path: { type: "string" },
       refs: { default: ["HEAD"], items: { pattern: "^\\S+$", type: "string" }, type: "array" },
-      embed: { default: true, type: "boolean" },
     },
     required: ["repo_path", "kind"],
     title: "WatchRequest",

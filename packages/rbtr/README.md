@@ -443,6 +443,11 @@ see the full rendered config with all defaults.
 
 Notable settings:
 
+- `embed` — compute and use embeddings (on by default). With
+  `RBTR_EMBED=false` no model runs: search ranks by the
+  lexical and name signals, and new chunks are not embedded.
+  Embeddings already stored are kept. A daemon reads it when
+  it starts.
 - `embedding_model` — HuggingFace GGUF model ID.
 - `search_weights` — per-query-kind fusion weights
   `(alpha, beta, gamma)` for the semantic, lexical, and
@@ -466,8 +471,9 @@ on `SearchRequest`. In pi sessions the LLM generates these
 automatically via tool-call parameters.
 
 Directories are resolved via [platformdirs]. Four are
-independently overridable (`--data-dir`, `--config-dir`,
-`--log-dir`, `--cache-dir`). `runtime_dir` is derived from
+independently overridable: `--data-dir`, `--log-dir` and
+`--cache-dir`, and `RBTR_CONFIG_DIR` for the directory
+holding `config.toml`. `runtime_dir` is derived from
 `hash(data_dir)` — never overridable.
 
 [platformdirs]: https://platformdirs.readthedocs.io/

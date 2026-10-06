@@ -184,6 +184,8 @@ class DaemonServer:
         self._active_embed: ActiveJob | None = None
         self._started_at: float | None = None
         self._warmup = config.warmup
+        # Whether this daemon embeds: a daemon-wide setting, fixed at start.
+        self._embed = config.embed
         # Serialises all GPU inference (search + embed batches
         # + idle-unload) so Metal is never driven concurrently.
         self._gpu_lock = asyncio.Lock()
@@ -192,11 +194,12 @@ class DaemonServer:
         self._gpu_load_lock = threading.Lock()
 
         if store is not None:
-            self._embedder = Embedder(
-                idle_timeout=config.embed_idle_timeout,
-                gpu_lock=self._gpu_lock,
-                load_lock=self._gpu_load_lock,
-            )
+            if self._embed:
+                self._embedder = Embedder(
+                    idle_timeout=config.embed_idle_timeout,
+                    gpu_lock=self._gpu_lock,
+                    load_lock=self._gpu_load_lock,
+                )
             if config.reranker_model:
                 self._reranker = Reranker(
                     idle_timeout=config.reranker_idle_timeout,
@@ -205,7 +208,8 @@ class DaemonServer:
                 )
             self._register_index_handlers(store)
             self._backfill_head_watches(store)
-            self._recover_pending_embeds(store)
+            if self._embed:
+                self._recover_pending_embeds(store)
 
     def _register_atexit(self) -> None:
         atexit.register(self._cleanup)
@@ -612,6 +616,9 @@ class DaemonServer:
 
         for target in watcher.pending_builds(store):
             return BuildJob(repo_path=target.repo_path, refs=(target.snapshot_sha,))
+
+        if not self._embed:
+            return None
 
         # Embeds: indexed snapshots with un-embedded chunks, newest first.
         # `EmbedJob` names the repo by path; the counts carry only its id.

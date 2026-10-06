@@ -217,6 +217,15 @@ fully queryable (FTS + name search) before embeddings
 exist; semantic search degrades gracefully when
 embeddings are absent.
 
+A daemon started with `embed` off never embeds: it creates
+no embedder, picks no embed job, and its searches leave out
+the semantic signal, so no model is loaded. Embeddings
+already stored stay, unread; a daemon started later with
+`embed` on embeds whatever is missing. The setting is the
+daemon's, fixed when it starts, because one daemon serves
+every repository and client. A daemon reads it from the
+environment and the config file, as every rbtr process does.
+
 ### Extraction call flow
 
 The tree-sitter path — the most common case. The build loop calls

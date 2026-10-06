@@ -52,6 +52,7 @@ from pydantic import (
 )
 from pydantic_settings import (
     BaseSettings,
+    CliSuppress,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
     TomlConfigSettingsSource,
@@ -116,7 +117,9 @@ class Config(BaseSettings):
         default_factory=lambda: platformdirs.user_data_path(RBTR_NAME, ensure_exists=True),
         description="Directory for the DuckDB index.",
     )
-    config_dir: Path = Field(
+    # Set by `RBTR_CONFIG_DIR` only: it chooses the `config.toml` read, before
+    # the command line is parsed.
+    config_dir: CliSuppress[Path] = Field(
         default_factory=lambda: platformdirs.user_config_path(RBTR_NAME, ensure_exists=True),
         description="Directory for `config.toml`.",
     )
@@ -138,6 +141,12 @@ class Config(BaseSettings):
     )
     chunk_lines: int = Field(default=50, description="Lines per index chunk.")
     chunk_overlap: int = Field(default=5, description="Overlap lines between adjacent chunks.")
+    embed: bool = Field(
+        default=True,
+        description="Compute and use embeddings.  Off: no embedding model is loaded, \
+search ranks without the semantic signal, and new chunks are not embedded; stored \
+embeddings are kept, unread.",
+    )
     embedding_model: str = Field(
         default="Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf",
         description="HuggingFace model ID for embeddings.",

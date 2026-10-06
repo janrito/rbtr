@@ -439,7 +439,6 @@ def test_status_with_index(
     assert len(resp.indexed_refs) == 1
     assert resp.indexed_refs[0].sha == daemon_commit
     assert resp.indexed_refs[0].total > 0
-    assert resp.indexed_refs[0].embedded == 0  # no embedder configured
     # The backfilled HEAD watch is surfaced and reported indexed.
     assert any(w.ref == "HEAD" and w.indexed for w in resp.watched)
 

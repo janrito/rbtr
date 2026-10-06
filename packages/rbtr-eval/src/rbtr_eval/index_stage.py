@@ -27,6 +27,7 @@ import polars as pl
 from pydantic import BaseModel, Field
 
 from rbtr.cli.output import human_bytes
+from rbtr.config import config
 from rbtr.domain.models import ChunkKind, SnapshotRef
 from rbtr.index.results import snapshot_refs_view
 from rbtr.index.store import IndexStore
@@ -221,21 +222,16 @@ class IndexCmd(BaseModel):
     """Build indexes for every per-repo query set."""
 
     data_dir: Path = Field(description="Directory for the DuckDB index.")
-    config_dir: Path = Field(description="Directory for config.")
     log_dir: Path = Field(description="Directory for logs.")
     repos_dir: Path = Field(description="Directory of cloned repos.")
     report: Path | None = Field(
         None,
         description="Optional output path for INDEX.md summary.",
     )
-    embed: bool = Field(
-        True,
-        description="Compute embeddings (disable with --no-embed).",
-    )
     sentinel: Path = Field(description="Content-hash sentinel file for DVC change detection.")
 
     def cli_cmd(self) -> None:
-        for d in (self.data_dir, self.config_dir, self.log_dir):
+        for d in (self.data_dir, self.log_dir):
             d.mkdir(parents=True, exist_ok=True)
 
         for repo_path in sorted(p for p in self.repos_dir.iterdir() if p.is_dir()):
@@ -243,21 +239,10 @@ class IndexCmd(BaseModel):
             dir_flags = [
                 "--data-dir",
                 str(self.data_dir),
-                "--config-dir",
-                str(self.config_dir),
                 "--log-dir",
                 str(self.log_dir),
             ]
-            index_cmd = [
-                *dir_flags,
-                "watch",
-                "--no-daemon",
-                "--repo-path",
-                str(repo_path),
-            ]
-            if not self.embed:
-                index_cmd.append("--no-embed")
-            run_rbtr(index_cmd)
+            run_rbtr([*dir_flags, "watch", "--no-daemon", "--repo-path", str(repo_path)])
             run_rbtr(
                 [
                     *dir_flags,
@@ -275,8 +260,8 @@ class IndexCmd(BaseModel):
 
         if self.report is not None:
             self.report.parent.mkdir(parents=True, exist_ok=True)
-            report_fn = _embedding_report if self.embed else _index_report
+            report_fn = _embedding_report if config.embed else _index_report
             self.report.write_text(report_fn(store, corpus), encoding="utf-8")
 
         self.sentinel.parent.mkdir(parents=True, exist_ok=True)
-        self.sentinel.write_text(_sentinel_hash(store, embed=self.embed), encoding="utf-8")
+        self.sentinel.write_text(_sentinel_hash(store, embed=config.embed), encoding="utf-8")

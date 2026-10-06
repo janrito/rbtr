@@ -91,7 +91,6 @@ class BuildJob(BaseModel):
     kind: Literal["build"] = "build"
     repo_path: str
     refs: tuple[str, ...]
-    embed: bool = True
 
 
 class EmbedJob(BaseModel):
@@ -206,7 +205,6 @@ class WatchRequest(BaseModel):
     kind: Literal["watch"] = "watch"
     repo_path: str
     refs: RefList = ["HEAD"]
-    embed: bool = True
 
 
 class SearchRequest(BaseModel):
