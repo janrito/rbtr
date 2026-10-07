@@ -262,7 +262,8 @@ class IndexCmd(BaseModel):
                 [
                     *dir_flags,
                     "gc",
-                    "--keep-head-only",
+                    "--keep",
+                    "head-only",
                     "--repo-path",
                     str(repo_path),
                 ]
