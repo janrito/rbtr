@@ -221,8 +221,6 @@ def _sentinel_hash(store: IndexStore, *, embed: bool) -> str:
 class IndexCmd(BaseModel):
     """Build indexes for every per-repo query set."""
 
-    data_dir: Path = Field(description="Directory for the DuckDB index.")
-    log_dir: Path = Field(description="Directory for logs.")
     repos_dir: Path = Field(description="Directory of cloned repos.")
     report: Path | None = Field(
         None,
@@ -231,21 +229,11 @@ class IndexCmd(BaseModel):
     sentinel: Path = Field(description="Content-hash sentinel file for DVC change detection.")
 
     def cli_cmd(self) -> None:
-        for d in (self.data_dir, self.log_dir):
-            d.mkdir(parents=True, exist_ok=True)
-
         for repo_path in sorted(p for p in self.repos_dir.iterdir() if p.is_dir()):
             repo_path = repo_path.resolve()
-            dir_flags = [
-                "--data-dir",
-                str(self.data_dir),
-                "--log-dir",
-                str(self.log_dir),
-            ]
-            run_rbtr([*dir_flags, "watch", "--no-daemon", "--repo-path", str(repo_path)])
+            run_rbtr(["watch", "--no-daemon", "--repo-path", str(repo_path)])
             run_rbtr(
                 [
-                    *dir_flags,
                     "gc",
                     "--keep",
                     "head-only",
@@ -254,7 +242,7 @@ class IndexCmd(BaseModel):
                 ]
             )
 
-        store = IndexStore(str(self.data_dir / "index.duckdb"))
+        store = IndexStore(str(config.db_path))
 
         corpus = corpus_refs(store)
 

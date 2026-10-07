@@ -27,10 +27,10 @@ from rbtr.git import normalise_repo_path
 from rbtr.index.build import build_index
 from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
-from rbtr.tests.conftest import make_commit, store
+from rbtr.tests.conftest import isolated_db, make_commit, store
 from rbtr_eval.tests.cases_corpus import HEAD
 
-__all__ = ["store"]  # re-declared here so rbtr-eval tests can request it
+__all__ = ["isolated_db", "store"]  # re-declared here so rbtr-eval tests can request them
 
 
 def hit(

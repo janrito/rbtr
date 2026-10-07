@@ -119,7 +119,7 @@ def test_aggregate_breaks_out_symbol_kind(batch: dy.DataFrame[SearchBatch]) -> N
 
 @pytest.fixture
 def indexed_copy(tmp_path: Path) -> Path:
-    """A data dir whose index holds one truncated chunk at two paths.
+    """An index database holding one truncated chunk at two paths.
 
     `q.py` is vendored verbatim to `vendor/q.py`, so both snapshot
     rows carry the blob the chunk was extracted from.
@@ -136,7 +136,7 @@ def indexed_copy(tmp_path: Path) -> Path:
         ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha="a" * 40))
         ws.update_embeddings([fn.id], [[0.5] * 768], truncated=[True])
     store.close()
-    return tmp_path
+    return tmp_path / "index.duckdb"
 
 
 def test_truncation_marks_every_location_of_the_chunk(indexed_copy: Path) -> None:

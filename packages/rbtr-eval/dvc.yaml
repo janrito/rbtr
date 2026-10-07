@@ -1,10 +1,14 @@
 vars:
   - repos_dir: data/repos
-  # Isolation for this pipeline.
-  - data_dir: data/index
-  # rbtr's settings for every rbtr this pipeline runs: its config directory.
-  - rbtr_env: RBTR_CONFIG_DIR=data/config
-  - log_dir: data/logs
+  # rbtr's settings for every rbtr this pipeline runs: its isolation, and a
+  # ten-minute wait for a daemon reply. A pipeline stage is not a person
+  # waiting: a search is 4.9 s at the median and 11 s at p99, so a longer
+  # wait means something else is competing for the GPU. Riding that out
+  # costs the stage seconds; giving up costs the hours of searching done.
+  # Ten minutes of silence means the daemon is broken rather than busy.
+  - rbtr_env: >-
+      RBTR_DATA_DIR=data/index RBTR_LOG_DIR=data/logs RBTR_CONFIG_DIR=data/config
+      RBTR_DAEMON_WAIT_BUDGET_S=600
   - per_repo_dir: data/per-repo
   - headers_dir: data/headers
   - report: data/BENCHMARKS.md
@@ -52,8 +56,6 @@ stages:
     cmd: >-
       ${rbtr_env}
       python -m rbtr --json
-      --data-dir ${data_dir}
-      --log-dir ${log_dir}
       config
       | jq 'del(.config.runtime_dir, .config.daemon_rpc,
       .config.daemon_pub, .config.cache_dir)'
@@ -77,9 +79,9 @@ stages:
     foreach: ${repos}
     do:
       cmd: >-
+        ${rbtr_env}
         python -m rbtr_eval extract
         --slug ${item.slug}
-        --data-dir ${data_dir}
         --out-dir ${per_repo_dir}
         --headers-dir ${headers_dir}
         --seed ${seed}
@@ -99,11 +101,11 @@ stages:
     foreach: ${repos}
     do:
       cmd: >-
+        ${rbtr_env}
         python -m rbtr_eval paraphrase
         --slug ${item.slug}
         --symbols ${per_repo_dir}/${item.slug}.parquet
         --repo-path ${repos_dir}/${item.slug}
-        --data-dir ${data_dir}
         --out ${concept_dir}/${item.slug}.parquet
         --model ${paraphrase_model}
         --concurrency ${paraphrase_concurrency}
@@ -120,9 +122,9 @@ stages:
 
   paraphrase-report:
     cmd: >-
+      ${rbtr_env}
       python -m rbtr_eval paraphrase-report
       --concept-dir ${concept_dir}
-      --data-dir ${data_dir}
       --model ${paraphrase_model}
       --report ${paraphrase_report}
       && uv run rumdl fmt ${paraphrase_report}
@@ -188,7 +190,7 @@ stages:
       - ${expansion_report}:
           cache: false
 
-  # Two stages share the same DuckDB file (`${data_dir}`).  Neither
+  # Two stages share the same DuckDB file (`RBTR_DATA_DIR`).  Neither
   # declares it as `outs` — both write to it as a side effect.
   # Ordering is enforced via sentinel files:
   #   index (.chunks-ready) → embed (.embed-ready)
@@ -198,8 +200,6 @@ stages:
     cmd: >-
       ${rbtr_env} RBTR_EMBED=false
       python -m rbtr_eval index
-      --data-dir ${data_dir}
-      --log-dir ${log_dir}
       --repos-dir ${repos_dir}
       --sentinel data/.chunks-ready
       --report data/INDEX.md
@@ -225,8 +225,6 @@ stages:
     cmd: >-
       ${rbtr_env}
       python -m rbtr_eval index
-      --data-dir ${data_dir}
-      --log-dir ${log_dir}
       --repos-dir ${repos_dir}
       --sentinel data/.embed-ready
       --report data/EMBEDDING.md
@@ -254,8 +252,6 @@ stages:
       --concept-dir ${concept_dir}
       --headers-dir ${headers_dir}
       --repos-dir ${repos_dir}
-      --data-dir ${data_dir}
-      --log-dir ${log_dir}
       --report ${report}
       --metrics ${metrics}
       --expansion-dir ${expansion_dir}
@@ -301,8 +297,6 @@ stages:
       --per-repo-dir ${per_repo_dir}
       --concept-dir ${concept_dir}
       --repos-dir ${repos_dir}
-      --data-dir ${data_dir}
-      --log-dir ${log_dir}
       --n-trials ${n_trials}
       --tune-queries-per-cell ${tune_queries_per_cell}
       --seed ${seed}
@@ -340,8 +334,6 @@ stages:
       --per-repo-dir ${per_repo_dir}
       --concept-dir ${concept_dir}
       --repos-dir ${repos_dir}
-      --data-dir ${data_dir}
-      --log-dir ${log_dir}
       --queries-per-cell ${reranker_tune_queries_per_cell}
       --pool-min ${reranker_pool_min}
       --pool-max ${reranker_pool_max}

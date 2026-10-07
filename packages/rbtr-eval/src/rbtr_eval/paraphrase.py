@@ -31,6 +31,7 @@ from pydantic_ai.models import Model
 from pydantic_ai.settings import ModelSettings
 
 from rbtr.cli.output import ProgressCallback, progress_reporter
+from rbtr.config import config
 from rbtr.domain.identity import SCOPE_SEPARATOR
 from rbtr.domain.models import CODE_KINDS, ChunkKind, SnapshotRef
 from rbtr.git import read_head
@@ -431,7 +432,6 @@ class ParaphraseCmd(BaseModel):
     slug: str = Field(description="Repo slug.")
     symbols: Path = Field(description="Path to the subsampled queries parquet from extract.")
     repo_path: Path = Field(description="Path to the checked-out repository.")
-    data_dir: Path = Field(description="Directory for the DuckDB index.")
     out: Path = Field(description="Output path for concept parquet.")
     model: str = Field(
         description="pydantic-ai model string (e.g. openai-chat:anthropic/claude-haiku).",
@@ -440,7 +440,7 @@ class ParaphraseCmd(BaseModel):
 
     def cli_cmd(self) -> None:
         query_df = pl.read_parquet(self.symbols).pipe(QueryRow.validate, cast=True)
-        store = IndexStore(str(self.data_dir / "index.duckdb"))
+        store = IndexStore(str(config.db_path))
         repo_path = str(Path(self.repo_path).resolve())
         repo_id = store.get_repo_id(repo_path)
         if repo_id is None:
@@ -476,7 +476,6 @@ class ParaphraseReportCmd(BaseModel):
     """Generate PARAPHRASE.md from concept + extract data."""
 
     concept_dir: Path = Field(description="Directory holding concept parquet files.")
-    data_dir: Path = Field(description="Directory for the DuckDB index.")
     model: str = Field(description="Model string used for paraphrasing.")
     report: Path = Field(description="Output path for PARAPHRASE.md.")
 
@@ -484,7 +483,7 @@ class ParaphraseReportCmd(BaseModel):
         concepts = pl.concat(
             [pl.read_parquet(f) for f in sorted(self.concept_dir.glob("*.parquet"))]
         ).pipe(QueryRow.validate, cast=True)
-        store = IndexStore(str(self.data_dir / "index.duckdb"))
+        store = IndexStore(str(config.db_path))
 
         self.report.parent.mkdir(parents=True, exist_ok=True)
         self.report.write_text(
