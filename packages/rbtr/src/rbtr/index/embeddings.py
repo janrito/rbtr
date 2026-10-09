@@ -9,15 +9,25 @@ management is delegated to the slot.
 from __future__ import annotations
 
 import asyncio
+import functools
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import structlog
-from llama_cpp import LLAMA_POOLING_TYPE_UNSPECIFIED, Llama
+from llama_cpp import (
+    LLAMA_POOLING_TYPE_UNSPECIFIED,
+    Llama,
+    ggml_abort_callback,
+    llama_set_abort_callback,
+)
 
 from rbtr.config import config
 from rbtr.index._gpu_model import GpuModelSlot, install_llama_log_callback, resolve_gguf_path
+
+if TYPE_CHECKING:
+    from ctypes import _CFunctionType
 
 log = structlog.get_logger(__name__)
 
@@ -33,8 +43,12 @@ class EmbedResult:
 # ── Model loading ────────────────────────────────────────────────────
 
 
-def _load_model() -> Llama:
-    """Load the embedding model, downloading if necessary."""
+def _load_model(abort_callback: _CFunctionType | None) -> Llama:
+    """Load the embedding model, downloading if necessary.
+
+    llama.cpp calls *abort_callback*, when given, while it computes; a
+    true return ends the call with an error.
+    """
     model_path = resolve_gguf_path(config.embedding_model)
     log.info("loading_embedding_model", path=model_path)
 
@@ -55,6 +69,8 @@ def _load_model() -> Llama:
         verbose=config.embedding_verbose,
         pooling_type=pooling,
     )
+    if abort_callback is not None:
+        llama_set_abort_callback(model.ctx, abort_callback, None)
 
     return model
 
@@ -68,6 +84,9 @@ class Embedder:
     Lazily loads the model on first use.  The idle monitor is an
     asyncio task spawned by the daemon.  Call `close()` before
     discarding the instance to release native resources cleanly.
+
+    While *abort* is set, `embed` ends with `RuntimeError`, one already
+    running included.
     """
 
     def __init__(
@@ -77,9 +96,15 @@ class Embedder:
         gpu_lock: asyncio.Lock | None = None,
         load_lock: threading.Lock | None = None,
         model_loader: Callable[[], Llama] | None = None,
+        abort: threading.Event | None = None,
     ) -> None:
+        # llama.cpp keeps only a pointer to the callback, so the embedder
+        # holds it for as long as its model may run.
+        self._abort_callback = (
+            None if abort is None else ggml_abort_callback(lambda _data: abort.is_set())
+        )
         self._slot: GpuModelSlot[Llama] = GpuModelSlot(
-            model_loader or _load_model,
+            model_loader or functools.partial(_load_model, self._abort_callback),
             lambda model: model.close(),
             idle_timeout=idle_timeout,
             gpu_lock=gpu_lock,

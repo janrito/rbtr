@@ -195,6 +195,8 @@ class DaemonServer:
         # Serialises model loading across slots so two concurrent
         # ggml_metal_init calls cannot saturate the GPU.
         self._gpu_load_lock = threading.Lock()
+        # Set on shutdown, so an embedding batch in progress ends at once.
+        self._abort_embedding = threading.Event()
 
         if store is not None:
             if self._embed:
@@ -202,6 +204,7 @@ class DaemonServer:
                     idle_timeout=config.embed_idle_timeout,
                     gpu_lock=self._gpu_lock,
                     load_lock=self._gpu_load_lock,
+                    abort=self._abort_embedding,
                 )
             if config.reranker_model:
                 self._reranker = Reranker(
@@ -489,6 +492,11 @@ class DaemonServer:
                         async with self._gpu_lock:
                             results = await asyncio.to_thread(embedder.embed, texts)
                     except (RuntimeError, ValueError):
+                        # A shutdown aborts the batch in progress: no failure.
+                        if self._shutdown:
+                            outcome = EmbedOutcome.STOPPED
+                            log.info("embedding_stopped_shutdown", done=done, total=outstanding)
+                            return
                         log.warning("embedding_batch_failed", exc_info=True)
                         continue
                     # Under `_write_sem` like every other write: gc
@@ -518,7 +526,7 @@ class DaemonServer:
                         log.info("embedding_preempted", done=done, total=outstanding)
                         return
         finally:
-            if done == 0:
+            if done == 0 and outcome is not EmbedOutcome.STOPPED:
                 # Every batch was rejected by the model.  Without this the
                 # run reports an end with nothing embedded and no reason,
                 # and the worker picks the same job up again.
@@ -593,6 +601,7 @@ class DaemonServer:
         wake is scheduled on the loop that `serve()` recorded.
         """
         self._shutdown = True
+        self._abort_embedding.set()
         loop = self._loop
         if loop is None or loop.is_closed():
             # Not serving: nothing is waiting on the event, and setting

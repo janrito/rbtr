@@ -9,6 +9,7 @@ the daemon concurrency tests use `stub_embedding_model`).
 from __future__ import annotations
 
 import math
+import threading
 from collections.abc import Iterator
 
 import pytest
@@ -24,14 +25,20 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 
 @pytest.fixture(scope="module")
-def embedder() -> Iterator[Embedder]:
+def abort() -> threading.Event:
+    """The event `embedder` takes as its *abort*; a test that sets it clears it."""
+    return threading.Event()
+
+
+@pytest.fixture(scope="module")
+def embedder(abort: threading.Event) -> Iterator[Embedder]:
     """The real (tiny) embedding model, loaded once for this module.
 
     Module-scoped: the native model is loaded and freed once, not per
     test — repeated load/free of the GGUF aborts.  Tests only read
     (embed), never mutate, so sharing one instance is safe.
     """
-    instance = Embedder()
+    instance = Embedder(abort=abort)
     yield instance
     instance.close()
 
@@ -41,6 +48,17 @@ def embedder() -> Iterator[Embedder]:
 
 def test_embed_empty_returns_empty(embedder: Embedder) -> None:
     assert embedder.embed([]) == []
+
+
+def test_an_aborted_embed_ends_with_an_error(embedder: Embedder, abort: threading.Event) -> None:
+    """llama.cpp checks *abort* while it computes, so a set event ends the call."""
+    abort.set()
+    try:
+        with pytest.raises(RuntimeError):
+            embedder.embed(["def helper():\n    return 42\n"])
+    finally:
+        abort.clear()
+    assert len(embedder.embed(["def helper():\n    return 42\n"])) == 1
 
 
 def test_embed_returns_one_vector_per_text(embedder: Embedder) -> None:

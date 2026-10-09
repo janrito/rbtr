@@ -802,7 +802,11 @@ has not landed. `WriteSession` refuses such a commit, so a
 build runs to completion, which its 4.0 s median affords.
 
 Between batches the job asks `watcher.pending_builds`, and
-checks `_shutdown`. Anything else arriving mid-job is served
+checks `_shutdown`. A shutdown also ends the batch in
+progress: `request_shutdown` sets the embedder's *abort*
+event, which llama.cpp's abort callback reads while it
+computes, since one batch of long chunks can outlast the
+13 s `rbtr daemon stop` waits. Anything else arriving mid-job is served
 by a lock the job releases each batch — `_gpu_lock` for a
 search, `_write_sem` for a `gc` or a watch-set write — or by
 `_wake`, which the worker reads once the job returns.
