@@ -642,6 +642,12 @@ single source the watcher derives builds from;
 - On startup, `_backfill_head_watches` seeds a `HEAD` watch
   for every already-registered repo, so HEAD tracking
   survives the upgrade from the previous HEAD-only poll.
+- A build that raises publishes `index_error`, and the
+  daemon keeps its snapshot in memory as failed:
+  `pending_builds` skips it, so it is neither retried on
+  every poll nor reported again. A ref that moves to
+  another snapshot builds that one; a restarted daemon
+  tries the failed one again.
 
 `rbtr.index.watch` holds the three edits to that record:
 `unwatch_refs` for refs a caller names, `remove_stale_refs`

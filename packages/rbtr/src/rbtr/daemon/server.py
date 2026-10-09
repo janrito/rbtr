@@ -183,6 +183,9 @@ class DaemonServer:
         self._active_build: ActiveJob | None = None
         self._active_embed: ActiveJob | None = None
         self._started_at: float | None = None
+        # Snapshots whose build raised: not built again until their ref
+        # moves to another snapshot or the daemon restarts.
+        self._failed_builds: set[watcher.FailedBuild] = set()
         self._warmup = config.warmup
         # Whether this daemon embeds: a daemon-wide setting, fixed at start.
         self._embed = config.embed
@@ -379,6 +382,9 @@ class DaemonServer:
         push.connect("inproc://progress")
         try:
             self._build_refs(job, store, push)
+        except Exception as exc:
+            _notify(push, IndexErrorNotification(repo_path=job.repo_path, message=str(exc)))
+            raise
         finally:
             push.close()
 
@@ -505,7 +511,9 @@ class DaemonServer:
                         return
                     # Stand aside for a build: it wants the worker, which
                     # runs one job at a time, so only returning frees it.
-                    if await asyncio.to_thread(watcher.pending_builds, store):
+                    if await asyncio.to_thread(
+                        watcher.pending_builds, store, frozenset(self._failed_builds)
+                    ):
                         outcome = EmbedOutcome.STOOD_ASIDE
                         log.info("embedding_preempted", done=done, total=outstanding)
                         return
@@ -614,7 +622,7 @@ class DaemonServer:
         if store is None:
             return None
 
-        for target in watcher.pending_builds(store):
+        for target in watcher.pending_builds(store, frozenset(self._failed_builds)):
             return BuildJob(repo_path=target.repo_path, refs=(target.snapshot_sha,))
 
         if not self._embed:
@@ -705,6 +713,10 @@ class DaemonServer:
                                 await asyncio.to_thread(self._run_build, job)
                     except Exception:
                         log.exception("job_failed", job=str(job))
+                        if isinstance(job, BuildJob):
+                            self._failed_builds.update(
+                                watcher.FailedBuild(job.repo_path, sha) for sha in job.refs
+                            )
                     finally:
                         self._clear_active()
 
@@ -879,7 +891,9 @@ class DaemonServer:
             if self._store is None:
                 continue
             with structlog.contextvars.bound_contextvars(watch_cycle=uuid4().hex[:8]):
-                for target in await asyncio.to_thread(watcher.pending_builds, self._store):
+                for target in await asyncio.to_thread(
+                    watcher.pending_builds, self._store, frozenset(self._failed_builds)
+                ):
                     match target:
                         case watcher.WatchedTarget():
                             log.info(
