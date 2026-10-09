@@ -40,7 +40,7 @@ from typing import IO
 
 import structlog
 
-from rbtr.config import LogFormat, config
+from rbtr.config import LogFormat, config, own_dir
 
 
 def elapsed_ms(start: float) -> float:
@@ -138,7 +138,7 @@ def configure_logging(*, to_file: bool = False, cache: bool = True) -> None:
 
     handler: logging.Handler
     if to_file:
-        config.log_dir.mkdir(parents=True, exist_ok=True)
+        own_dir(config.log_dir)
         handler = RotatingFileHandler(
             config.daemon_log,
             maxBytes=config.log_max_bytes,

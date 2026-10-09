@@ -24,7 +24,7 @@ from pathlib import Path
 import structlog
 from llama_cpp.llama_cpp import llama_log_callback, llama_log_set
 
-from rbtr.config import config
+from rbtr.config import config, own_dir
 
 # `import logging` is still used below to quiet `huggingface_hub`; this
 # module's own logger is structlog (positional-arg calls still work via
@@ -266,7 +266,7 @@ def resolve_gguf_path(model_id: str) -> Path:
         ValueError:     If *model_id* has an unexpected format.
         FileNotFoundError: If no `.gguf` file exists in the repo.
     """
-    cache_dir = str(config.cache_dir / "models")
+    cache_dir = str(own_dir(config.cache_dir) / "models")
 
     parts = model_id.split("/")
     match len(parts):

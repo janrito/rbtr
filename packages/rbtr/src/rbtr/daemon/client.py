@@ -31,7 +31,7 @@ import structlog
 import zmq
 from pydantic import BaseModel
 
-from rbtr.config import config
+from rbtr.config import config, own_dir
 from rbtr.daemon.messages import (
     ErrorResponse,
     Request,
@@ -83,7 +83,7 @@ def start_daemon(*, allow_missing_plugins: bool = False) -> DaemonStatus:
     becoming ready, or if none is ready within the timeout.
     """
     config.runtime_dir.mkdir(parents=True, exist_ok=True)
-    config.log_dir.mkdir(parents=True, exist_ok=True)
+    own_dir(config.log_dir)
 
     # Stale cleanup: status file with dead PID -> remove status
     # + orphan sockets.  A live PID is left alone.

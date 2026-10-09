@@ -58,7 +58,7 @@ import polars as pl
 import pyarrow  # type: ignore[import-untyped]  # noqa: F401
 import structlog
 
-from rbtr.config import config
+from rbtr.config import config, own_dir
 from rbtr.domain.models import (
     Chunk,
     ChunkKind,
@@ -172,7 +172,7 @@ class IndexStore:
         self._bootstrapped = False
         self._repo_cache: dict[str, int] = {}
         if db_path is not None:
-            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+            own_dir(Path(db_path).parent)
         dsn = str(db_path) if db_path else ":memory:"
         try:
             self._con = duckdb.connect(dsn)

@@ -20,7 +20,7 @@ from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.daemon.watcher import DirtyWorktree, WatchedTarget, poll_watched, poll_worktree
 from rbtr.domain.models import SnapshotRef
-from rbtr.git import worktree_tree_sha
+from rbtr.git import normalise_repo_path, worktree_tree_sha
 from rbtr.index.store import IndexStore
 
 from .cases_watcher import WatcherScenario
@@ -218,3 +218,18 @@ def test_poll_watched_never_forgets_a_vanished_repo(
     assert (
         store.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=daemon_commit)) is True
     )  # its data is intact
+
+
+def test_rbtrs_own_data_inside_a_repo_leaves_it_clean(
+    git_repo: pygit2.Repository, isolated_db: Path
+) -> None:
+    """rbtr's data directory inside a watched repository (`isolated_db`'s,
+    under the repository's root) is no change to it, so writing the index
+    there does not make the repository due for another build."""
+    store = IndexStore.from_config(writable=True)
+    try:
+        with store.session() as ws:
+            ws.register_repo(normalise_repo_path(git_repo.workdir))
+        assert poll_worktree(store) == []
+    finally:
+        store.close()

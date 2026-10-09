@@ -474,7 +474,10 @@ Directories are resolved via [platformdirs]. Four are
 independently overridable: `--data-dir`, `--log-dir` and
 `--cache-dir`, and `RBTR_CONFIG_DIR` for the directory
 holding `config.toml`. `runtime_dir` is derived from
-`hash(data_dir)` — never overridable.
+`hash(data_dir)` — never overridable. rbtr writes a
+`.gitignore` of `*` into the data, log and cache
+directories, so one placed inside a repository leaves
+that repository's working tree unchanged.
 
 [platformdirs]: https://platformdirs.readthedocs.io/
 

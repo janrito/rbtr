@@ -391,3 +391,18 @@ Disable in tests or resource-constrained environments.",
 
 
 config = Config()
+
+
+def own_dir(path: Path) -> Path:
+    """Create *path*, a directory rbtr writes its own files to, and return it.
+
+    The directory holds a `.gitignore` of `*`, so a repository it sits
+    inside sees none of rbtr's files: they are not the repository's code,
+    and each write would otherwise make the repository due for another
+    build.
+    """
+    path.mkdir(parents=True, exist_ok=True)
+    ignore = path / ".gitignore"
+    if not ignore.exists():
+        ignore.write_text("*\n")
+    return path
