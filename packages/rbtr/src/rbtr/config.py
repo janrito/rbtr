@@ -170,7 +170,8 @@ embeddings are kept, unread.",
         "If set too low (e.g. 512) and a chunk has 600 tokens, the "
         "embedding is SILENTLY CORRUPTED — the decoder only sees the "
         "last 512 tokens before pooling.  Larger than needed (e.g. "
-        "32768) wastes ~1 GB Metal memory and slows inference ~1.3x.",
+        "32768) wastes ~1 GB Metal memory and slows inference ~1.3x.  "
+        "Capped at the context the model was trained on.",
     )
     embedding_n_gpu_layers: int = Field(
         default=-1,

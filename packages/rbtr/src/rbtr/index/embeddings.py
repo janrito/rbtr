@@ -43,6 +43,33 @@ class EmbedResult:
 # ── Model loading ────────────────────────────────────────────────────
 
 
+@dataclass(frozen=True, slots=True)
+class _ModelShape:
+    """What the GGUF metadata says about a model, as `_load_model` needs it."""
+
+    trained_context: int
+    causal: bool
+
+
+def _model_shape(model_path: str) -> _ModelShape:
+    """Read the shape of the model at *model_path* from its GGUF metadata.
+
+    A vocab-only load reads the metadata and skips the weights.  A model
+    that does not set `attention.causal` has causal attention, as
+    llama.cpp reads it.
+    """
+    vocab = Llama(model_path=model_path, vocab_only=True, verbose=config.embedding_verbose)
+    try:
+        metadata = vocab.metadata
+    finally:
+        vocab.close()
+    arch = metadata["general.architecture"]
+    return _ModelShape(
+        trained_context=int(metadata[f"{arch}.context_length"]),
+        causal=metadata.get(f"{arch}.attention.causal", "true") == "true",
+    )
+
+
 def _load_model(abort_callback: _CFunctionType | None) -> Llama:
     """Load the embedding model, downloading if necessary.
 
@@ -60,11 +87,21 @@ def _load_model(abort_callback: _CFunctionType | None) -> Llama:
     if pooling < 0:
         pooling = LLAMA_POOLING_TYPE_UNSPECIFIED
 
+    # The longest text the model takes: the configured window, or the
+    # context it was trained on when that is shorter.  A model without
+    # causal attention (an encoder, such as BERT) takes a whole decode in
+    # one micro-batch, so its micro-batch is the batch; a decoder splits
+    # the decode, and keeps llama.cpp's 512, since a longer micro-batch
+    # only costs it memory (Qwen3-Embedding-0.6B: 1.2 GiB of compute
+    # buffer at 2048, 0.3 GiB at 512).
+    shape = _model_shape(str(model_path))
+    n_ctx = min(config.embedding_n_ctx, shape.trained_context)
     model = Llama(
         model_path=str(model_path),
         embedding=True,
-        n_ctx=config.embedding_n_ctx,
-        n_batch=config.embedding_n_ctx,
+        n_ctx=n_ctx,
+        n_batch=n_ctx,
+        n_ubatch=512 if shape.causal else n_ctx,
         n_gpu_layers=config.embedding_n_gpu_layers,
         verbose=config.embedding_verbose,
         pooling_type=pooling,
