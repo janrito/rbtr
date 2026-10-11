@@ -10,7 +10,13 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { relative, resolve } from "node:path";
-import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+  AgentToolResult,
+  ExtensionAPI,
+  ExtensionContext,
+  ToolAnnotations,
+  ToolNamespace,
+} from "@earendil-works/pi-coding-agent";
 import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import { Container, type SettingItem, SettingsList } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
@@ -52,7 +58,7 @@ const READ_CLI_TIMEOUT_MS = 150_000;
 export const HEALTH_CHECK_MS = 30_000;
 
 import { block, type IndexLookups, readFacts, searchFacts } from "./annotate.js";
-import { commandRefs, decodeStringList } from "./args.js";
+import { commandRefs, prepareStringLists } from "./args.js";
 import { replySchema } from "./output-schema.js";
 import {
   footerLabel,
@@ -73,7 +79,7 @@ import {
   renderStatusResult,
 } from "./render.js";
 import { loadSettings, type RbtrIndexSettings, saveProjectSettings } from "./settings.js";
-import { LOADER, ON_REQUEST, startingTools, withOnRequest } from "./tool-set.js";
+import { LOADER, ON_REQUEST, withOnRequest } from "./tool-set.js";
 
 // ── Tool result shape ─────────────────────────────────────────
 
@@ -87,6 +93,33 @@ function toolResult(response: Response): ToolReturn {
   const text = JSON.stringify(response);
   return { content: [{ type: "text", text }], structuredContent: JSON.parse(text), details: { response } };
 }
+
+// ── Tool metadata ─────────────────────────────────────────────
+
+/** The group every rbtr tool belongs to, for codemode listings and tool search. */
+const NAMESPACE: ToolNamespace = {
+  name: "rbtr",
+  description:
+    "rbtr's structural code index of this repository: search by meaning, read symbols, outlines, dependency edges, symbol diffs.",
+};
+
+// Hints with the meaning of MCP tool annotations, for permission
+// extensions deciding which calls to confirm. Every rbtr tool talks
+// to the local index only.
+const READS: ToolAnnotations = { readOnlyHint: true, openWorldHint: false };
+/** Changes what the daemon indexes; deletes no data; repeating it changes nothing more. */
+const WATCHES: ToolAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+};
+const DELETES: ToolAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: false,
+  openWorldHint: false,
+};
 
 // ── Extension ─────────────────────────────────────────────────
 
@@ -276,7 +309,6 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   // ── Session lifecycle ───────────────────────────────────────
 
   pi.on("session_start", (_event, ctx) => {
-    pi.setActiveTools(startingTools(pi.getActiveTools()));
     settings = loadSettings(ctx.cwd, ctx.isProjectTrusted());
     repoRoot = null;
     footer = new Footer(ctx);
@@ -493,13 +525,15 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     }
   }
 
+  // pi's `rbtr` prompt section (ARCHITECTURE: "What the model reads first").
   pi.on("before_agent_start", async (event) => {
-    if (cli === "missing") return;
-    return {
-      systemPrompt:
-        event.systemPrompt +
-        "\n\nThis repository has an rbtr code index. Use the rbtr_* tools to find code by meaning, structure or name; use grep for exact strings.",
-    };
+    const { sections } = event.systemPromptOptions;
+    if (cli === "missing") {
+      delete sections.rbtr;
+      return;
+    }
+    sections.rbtr =
+      "This repository has an rbtr code index. Use the rbtr_* tools to find code by meaning, structure or name; use grep for exact strings.";
   });
 
   /**
@@ -717,6 +751,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "rbtr_search",
     label: "rbtr search",
+    namespace: NAMESPACE,
+    annotations: READS,
     description:
       "Find code by what it does or by name ('where are retries handled', 'the function that parses the config'): use it instead of grep when you don't know the exact text. It matches meaning: 'retry logic' also finds 'backoff' and 'reconnect'. Returns ranked functions, classes and methods with file, line and a preview of the source; a hit marked `clipped` has more lines, which rbtr_read_symbol returns. Pass `keywords` (synonyms) and, for a question in words, `variants` (rephrasings) to widen the match.",
     promptSnippet: "Find code by meaning or by name, when you don't know the exact text to grep for",
@@ -751,6 +787,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         }),
       ),
     }),
+    prepareArguments: prepareStringLists("keywords", "variants"),
     outputSchema: replySchema("SearchResponse", "ErrorResponse"),
     renderCall: (args, theme) => renderSearchCall(args, theme),
     renderResult: (result, options, theme) => renderSearchResult(result, options, theme),
@@ -793,6 +830,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "rbtr_read_symbol",
     label: "rbtr read-symbol",
+    namespace: NAMESPACE,
+    annotations: READS,
     description:
       "Read the full source of a function, class, method or constant by name, with no file path or line numbers: 'fuse_scores', 'HttpClient.retry'. Use it instead of grep then read whenever you know the name. Try the plain name first; qualify it ('module.Class.method') or pass `file_paths` when several symbols share it. 'Symbol not found' means the index has no such name at that ref: fall back to grep.",
     promptSnippet: "Read a function, class or method's source by name, instead of grep then read",
@@ -817,6 +856,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         }),
       ),
     }),
+    prepareArguments: prepareStringLists("file_paths"),
     outputSchema: replySchema("ReadSymbolResponse", "ErrorResponse"),
     renderCall: (args, theme) => renderReadSymbolCall(args, theme),
     renderResult: (result, options, theme) => renderReadSymbolResult(result, options, theme),
@@ -855,6 +895,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "rbtr_find_refs",
     label: "rbtr find-refs",
+    namespace: NAMESPACE,
+    annotations: READS,
     description:
       "Find what imports or documents a symbol, from the index's dependency graph: the files and symbols that depend on it. Use it instead of grepping for a name when you need to know what a change would affect. Returns edges (source, target, kind `imports` or `docs`), not text matches; grep finds occurrences inside strings and comments.",
     promptSnippet: "Find what imports or documents a symbol, to see what a change would affect",
@@ -878,6 +920,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         }),
       ),
     }),
+    prepareArguments: prepareStringLists("file_paths"),
     outputSchema: replySchema("FindRefsResponse", "ErrorResponse"),
     renderCall: (args, theme) => renderFindRefsCall(args, theme),
     renderResult: (result, options, theme) => renderFindRefsResult(result, options, theme),
@@ -916,6 +959,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "rbtr_changed_symbols",
     label: "rbtr changed-symbols",
+    namespace: NAMESPACE,
+    annotations: READS,
     description:
       "Diff two refs by symbol: which functions, classes and methods a branch added, changed or removed. Use it to review or summarise a branch instead of reading the whole line diff; use git diff for exact lines and for files that are not code. Both refs must be indexed: watch them first with rbtr_watch.",
     promptSnippet: "Which functions, classes and methods a branch added, changed or removed",
@@ -931,6 +976,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         }),
       ),
     }),
+    prepareArguments: prepareStringLists("file_paths"),
     outputSchema: replySchema("ChangedSymbolsResponse", "ErrorResponse"),
     renderCall: (args, theme) => renderChangedSymbolsCall(args, theme),
     renderResult: (result, options, theme) => renderChangedSymbolsResult(result, options, theme),
@@ -975,6 +1021,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "rbtr_list_symbols",
     label: "rbtr list-symbols",
+    namespace: NAMESPACE,
+    annotations: READS,
     description:
       "Outline one file: every function, class and method with its line range, without the source. Use it instead of reading a large file end to end to find the part you need, then read that range or call rbtr_read_symbol. Takes a `file` path relative to the repository root.",
     promptSnippet: "Outline a file's functions, classes and methods with their line ranges",
@@ -1028,6 +1076,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "rbtr_watch",
     label: "rbtr watch",
+    namespace: NAMESPACE,
+    annotations: WATCHES,
     description:
       "Index refs so the other rbtr tools can read them: a branch, tag or SHA, such as a PR branch and its base before a review. HEAD and the working tree are indexed automatically. Returns at once; indexing continues in the background, and rbtr_status (loaded by rbtr_index_tools) shows its progress. `remove` stops watching refs; `remove_stale` drops refs that no longer resolve. Safe to call repeatedly.",
     promptSnippet: "Index refs, such as a PR branch and its base, so the rbtr tools can read them",
@@ -1048,15 +1098,15 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         Type.Boolean({ description: "Stop watching refs that no longer resolve (e.g. deleted branches)." }),
       ),
     }),
+    prepareArguments: prepareStringLists("refs"),
     outputSchema: replySchema("WatchSetResponse", "WatchResponse", "UnwatchResponse", "ErrorResponse"),
     renderCall: (args, theme) => renderIndexCall(args, theme),
     renderResult: (result, options, theme) => renderIndexResult(result, options, theme),
 
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      // Decode refs in case the provider delivered the array as a
-      // JSON-encoded string (the daemon decodes its copy too).
-      const decodedRefs = decodeStringList(params.refs);
-      const refs: [string, ...string[]] = decodedRefs.length > 0 ? [decodedRefs[0], ...decodedRefs.slice(1)] : ["HEAD"];
+      // `prepareArguments` has already decoded a JSON-encoded list.
+      const given = params.refs ?? [];
+      const refs: [string, ...string[]] = given.length > 0 ? [given[0], ...given.slice(1)] : ["HEAD"];
       try {
         if (params.remove_stale) return toolResult(await removeStale(ctx, signal));
         if (params.remove) return toolResult(await unwatch(ctx, refs, signal));
@@ -1070,6 +1120,10 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: LOADER,
     label: "rbtr index tools",
+    namespace: NAMESPACE,
+    // It changes which tools the model has: the model's to call, not a script's.
+    exposure: "model-only",
+    annotations: READS,
     description:
       "Load the tools that inspect and clean up the rbtr index: rbtr_status (what is indexed, and whether a build is still running) and rbtr_gc (reclaim disk space; destructive, only on the user's request).",
     promptSnippet: "Load rbtr_status and rbtr_gc, to inspect the index or reclaim its disk space",
@@ -1091,7 +1145,10 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
   pi.registerTool({
     name: "rbtr_status",
+    defaultActive: false,
     label: "rbtr status",
+    namespace: NAMESPACE,
+    annotations: READS,
     description:
       "Report the rbtr index for this repository: symbol totals, which commits are indexed, the build running now with its progress, and queued work. `scope: 'all'` covers every indexed repository.",
     promptSnippet: "Check what the rbtr index holds, and whether a build is still running",
@@ -1129,12 +1186,15 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "rbtr_gc",
     label: "rbtr gc",
+    namespace: NAMESPACE,
+    defaultActive: false,
+    // It asks the user before deleting: the model's to call, not a script's.
+    exposure: "model-only",
+    annotations: DELETES,
     description:
-      "⚠ DESTRUCTIVE, IRREVERSIBLE. Permanently deletes indexed data (commits, chunks, embeddings) from the rbtr index; there is no undo. Only for when the user has explicitly asked to reclaim index space. Runs as a dry-run preview by default: show the user what it would drop, and pass dry_run=false only after they confirm. By default keeps HEAD, all local branches and tags, and the watch set, dropping only unreferenced commits; watched_only also drops unwatched branches and tags. The daemon never deletes anything unless this is called.",
+      "⚠ DESTRUCTIVE, IRREVERSIBLE. Permanently deletes indexed data (commits, chunks, embeddings) from the rbtr index; there is no undo. Only for when the user has explicitly asked to reclaim index space. Runs as a dry-run preview by default; with dry_run=false it shows the user what it would drop and deletes only if they confirm. By default keeps HEAD, all local branches and tags, and the watch set, dropping only unreferenced commits; watched_only also drops unwatched branches and tags. The daemon never deletes anything unless this is called.",
     promptSnippet: "Delete unreferenced index data to reclaim disk space (destructive; only on the user's request)",
-    promptGuidelines: [
-      "Use rbtr_gc only when the user explicitly asks to reclaim index space, and apply it only after they confirm the dry-run result.",
-    ],
+    promptGuidelines: ["Use rbtr_gc only when the user explicitly asks to reclaim index space."],
     parameters: Type.Object({
       watched_only: Type.Optional(
         Type.Boolean({ description: "Keep only HEAD and watched refs (drop unwatched branches/tags)." }),
@@ -1142,25 +1202,29 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       dry_run: Type.Optional(
         Type.Boolean({
           description:
-            "Preview without deleting. Defaults to true (safe); set false ONLY after explicit user confirmation to actually delete.",
+            "Preview without deleting. Defaults to true (safe); false asks the user to confirm, then deletes.",
         }),
       ),
     }),
     outputSchema: replySchema("GcResponse", "ErrorResponse"),
 
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      // Dry-run by default: a careless call previews; deleting needs a
-      // deliberate dry_run=false after the user has confirmed.
+      // Dry-run by default: a careless call previews. Deleting asks the
+      // user, with what a dry run would drop; without a UI it refuses.
+      const watchedOnly = params.watched_only ?? false;
+      const dryRun = params.dry_run ?? true;
       try {
-        const res = await triggerGc(
-          ctx,
-          {
-            watchedOnly: params.watched_only ?? false,
-            dryRun: params.dry_run ?? true,
-          },
-          signal,
-        );
-        return toolResult(res);
+        if (!dryRun) {
+          if (!ctx.hasUI) {
+            throw new Error("Deleting index data needs the user's confirmation; run `rbtr gc` in a terminal.");
+          }
+          const preview = await triggerGc(ctx, { watchedOnly, dryRun: true }, signal);
+          const what = `${preview.snapshots_dropped} commits and ${preview.chunks_freed} chunks would be deleted, with no undo.`;
+          if (!(await ctx.ui.confirm("Delete rbtr index data?", what, { signal }))) {
+            throw new Error("The user declined deleting index data.");
+          }
+        }
+        return toolResult(await triggerGc(ctx, { watchedOnly, dryRun }, signal));
       } catch (err) {
         return mapDaemonError(err);
       }

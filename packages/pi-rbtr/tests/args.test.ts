@@ -12,6 +12,10 @@ describe("decodeStringList", () => {
     expect(decodeStringList(["a.py"])).toEqual(["a.py"]);
   });
 
+  test("drops what is not a string from a list", () => {
+    expect(decodeStringList(["a.py", 42, null])).toEqual(["a.py"]);
+  });
+
   test("decodes a bare JSON-encoded array string", () => {
     expect(decodeStringList('["a.py", "b.py"]')).toEqual(["a.py", "b.py"]);
   });

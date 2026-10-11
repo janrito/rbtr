@@ -4,6 +4,7 @@
  * the tools.
  */
 
+import type { ToolAnnotations } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { Check } from "typebox/schema";
 import { describe, expect, inject } from "vitest";
@@ -16,6 +17,14 @@ function outputSchema(pi: PiSession, name: string): TSchema {
   const schema = pi.runtime.session.getToolDefinition(name)?.outputSchema;
   if (schema === undefined) throw new Error(`${name} declares no output schema`);
   return schema;
+}
+
+/** The rule pi's docs give for the calls Codex asks approval for (docs/extensions.md, "Tool exposure"). */
+function needsApproval(hints: ToolAnnotations | undefined): boolean {
+  return (
+    hints?.destructiveHint === true ||
+    (!hints?.readOnlyHint && ((hints?.destructiveHint ?? true) || (hints?.openWorldHint ?? true)))
+  );
 }
 
 /** A reply rbtr writes; one of kind `error` comes flagged as an error. */
@@ -242,8 +251,61 @@ describe("in a repository of the test's own", () => {
   });
 });
 
+test("a list argument reaches the tool as the list however the model encoded it, and one left out stays left out", async ({
+  pi,
+}) => {
+  const encodings: [string, (list: string[]) => string | string[]][] = [
+    ["JSON text", (list) => JSON.stringify(list)],
+    ["a list holding JSON text", (list) => [JSON.stringify(list)]],
+    ["a list", (list) => list],
+  ];
+  const lists: [string, string, string[], Record<string, string>][] = [
+    ["rbtr_search", "keywords", ["config", "settings"], { query: subject.name }],
+    ["rbtr_search", "variants", ["read the settings"], { query: subject.name }],
+    ["rbtr_read_symbol", "file_paths", [subject.file], { symbol: subject.name }],
+    ["rbtr_find_refs", "file_paths", [subject.user], { symbol: subject.name }],
+    ["rbtr_changed_symbols", "file_paths", [subject.file], { base: "HEAD", head: "HEAD" }],
+    // Refs the shared daemon watches already: watching them changes nothing.
+    ["rbtr_watch", "refs", ["HEAD", "base"], {}],
+  ];
+  await pi.start();
+  for (const [encoding, encode] of encodings) {
+    const ends = await pi.run(
+      ...lists.map(([name, key, list, rest]): Call => ({ name, args: { ...rest, [key]: encode(list) } })),
+    );
+    expect(
+      ends.map((end) => [end.name, end.isError, end.input]),
+      encoding,
+    ).toEqual(lists.map(([name, key, list, rest]) => [name, false, { ...rest, [key]: list }]));
+  }
+  const [leftOut] = await pi.run({ name: "rbtr_read_symbol", args: { symbol: subject.name } });
+  expect(leftOut.input).toEqual({ symbol: subject.name });
+});
+
 describe("with a daemon of its own", () => {
   test.override({ ownDaemon: true });
+
+  // Deleting asks the user, whatever the model passed.
+  const deleting: Call[] = [
+    { name: "rbtr_index_tools", args: {} },
+    { name: "rbtr_gc", args: { dry_run: false } },
+  ];
+
+  test("rbtr_gc deletes nothing the user declines", async ({ pi }) => {
+    await pi.start();
+    pi.ui.confirmAnswers.push(false);
+    const [, gc] = await pi.run(...deleting);
+    expect(gc.isError).toBe(true);
+    expect(textOf(gc.result)).toContain("declined");
+  });
+
+  test("rbtr_gc deletes what the user accepts", async ({ pi }) => {
+    await pi.start();
+    pi.ui.confirmAnswers.push(true);
+    const [, gc] = await pi.run(...deleting);
+    expect(gc.isError).toBe(false);
+    expect(gc.result.structuredContent).toMatchObject({ kind: "gc", dry_run: false });
+  });
 
   test("with the daemon gone, a found and a refused reply come from the CLI and are the same", async ({
     cli,
@@ -269,6 +331,35 @@ describe("with a daemon of its own", () => {
       fromDaemon.map((end) => [end.isError, end.result.structuredContent]),
     );
     for (const end of fromCli) expect(JSON.parse(textOf(end.result))).toEqual(end.result.structuredContent);
+  });
+});
+
+describe("with codemode", () => {
+  test.override({ piSettings: { defaultTools: ["+codemode"] } });
+
+  // A tool that asks the user, or loads tools, is the model's to call.
+  test("a script can call the loaded rbtr_status, but not rbtr_gc or the loader", async ({ pi }) => {
+    await pi.start();
+    await pi.run({ name: "rbtr_index_tools", args: {} });
+    // `tools` throws on a name a script cannot call.
+    const code = `const callable = (name) => { try { return typeof tools[name] === "function"; } catch { return false; } };
+text(["rbtr_status", "rbtr_gc", "rbtr_index_tools"].map(callable).join(" "));`;
+    const [script] = await pi.run({ name: "codemode", args: { code } });
+    expect(textOf(script.result)).toContain("true false false");
+  });
+});
+
+test("pi lists the rbtr tools in one namespace, with the hints a permission extension reads", async ({ pi }) => {
+  await pi.start();
+  const tools = pi.runtime.session.getAllTools().filter((tool) => tool.name.startsWith("rbtr_"));
+  expect(tools.map((tool) => [tool.name, tool.namespace?.name])).toEqual(tools.map((tool) => [tool.name, "rbtr"]));
+  expect(tools.filter((tool) => tool.annotations?.openWorldHint !== false).map((tool) => tool.name)).toEqual([]);
+  expect(tools.filter((tool) => needsApproval(tool.annotations)).map((tool) => tool.name)).toEqual(["rbtr_gc"]);
+  expect(tools.find((tool) => tool.name === "rbtr_watch")?.annotations).toEqual({
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
   });
 });
 

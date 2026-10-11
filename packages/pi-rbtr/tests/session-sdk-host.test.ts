@@ -6,7 +6,7 @@
 
 import { expect, inject } from "vitest";
 
-import { test } from "./session.fixtures.js";
+import { test, textOf } from "./session.fixtures.js";
 
 const { subject } = inject("corpus");
 
@@ -17,4 +17,14 @@ test("a host with no UI gets the daemon's answers", async ({ ask, repo, sdkHost 
     await ask({ kind: "read_symbol", repo_path: repo, symbol: subject.name }),
   );
   expect(end.isError).toBe(false);
+});
+
+test("a host with no UI cannot delete index data", async ({ sdkHost }) => {
+  await sdkHost.start();
+  const [, gc] = await sdkHost.run(
+    { name: "rbtr_index_tools", args: {} },
+    { name: "rbtr_gc", args: { dry_run: false } },
+  );
+  expect(gc.isError).toBe(true);
+  expect(textOf(gc.result)).toContain("run `rbtr gc` in a terminal");
 });

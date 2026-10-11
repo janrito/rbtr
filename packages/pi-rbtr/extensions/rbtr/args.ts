@@ -32,6 +32,24 @@ export function decodeStringList(value: unknown): string[] {
 }
 
 /**
+ * A tool's `prepareArguments`: each of *keys* a provider sent as a
+ * JSON-encoded string, or a list wrapping one, becomes the list it
+ * encodes. Runs before pi validates the call, which checks the result
+ * against the tool's schema; other arguments pass through untouched.
+ */
+export function prepareStringLists<T>(...keys: string[]): (args: unknown) => T {
+  return (args) => {
+    if (typeof args !== "object" || args === null || Array.isArray(args)) return args as T;
+    const prepared: Record<string, unknown> = { ...args };
+    for (const key of keys) {
+      const value = prepared[key];
+      if (typeof value === "string" || Array.isArray(value)) prepared[key] = decodeStringList(value);
+    }
+    return prepared as T;
+  };
+}
+
+/**
  * The refs a slash command names: each whitespace-separated word of its
  * arguments. None when it names none, so the caller's default applies.
  */

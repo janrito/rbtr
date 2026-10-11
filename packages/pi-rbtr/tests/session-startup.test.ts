@@ -6,6 +6,7 @@
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import type { SystemMessage } from "@earendil-works/pi-ai";
 import { describe, expect, inject } from "vitest";
 
 import { HEADER } from "../extensions/rbtr/annotate.js";
@@ -150,6 +151,14 @@ describe("in an untrusted project", () => {
   });
 });
 
+test("the index line is pi's rbtr prompt section, and replaces no prompt", async ({ pi }) => {
+  await pi.start();
+  await pi.run();
+  const system = pi.runtime.session.messages.find((message): message is SystemMessage => message.role === "system");
+  expect(system?.sections?.rbtr).toMatch(/rbtr code index/);
+  expect(system?.content).toBe("");
+});
+
 test("the housekeeping tools start inactive, and rbtr_index_tools makes them active", async ({ pi }) => {
   await pi.start();
   const active = () => pi.runtime.session.getActiveToolNames();
@@ -189,4 +198,22 @@ describe("with an rbtr that cannot read its index, and its index held", () => {
     await new Promise((resolve) => setTimeout(resolve, 500));
     expect(unhandledRejections).toEqual([]);
   });
+});
+
+// pi 1.0 does not restore the tools a session loaded when it builds another
+// from it (a fork, a resume): `_restoreToolsFromTranscript` runs only for a
+// session given no starting tools, and the SDK always gives them. The model
+// loads them again. If this fails, pi restores them now, and this test, the
+// ARCHITECTURE note and the loader's guideline should say so.
+test("a fork starts without the loaded housekeeping tools, and the loader loads them again", async ({ pi }) => {
+  await pi.start();
+  await pi.run({ name: "rbtr_index_tools", args: {} });
+  const leaf = pi.runtime.session.sessionManager.getLeafId();
+  if (leaf === null) throw new Error("the session has no entries");
+  await pi.runtime.fork(leaf, { position: "at" });
+  await pi.start();
+  const active = () => pi.runtime.session.getActiveToolNames();
+  expect(active().filter((name) => ON_REQUEST.includes(name))).toEqual([]);
+  await pi.run({ name: "rbtr_index_tools", args: {} });
+  expect(active()).toEqual(expect.arrayContaining([...ON_REQUEST]));
 });

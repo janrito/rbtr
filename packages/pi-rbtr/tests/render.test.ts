@@ -72,9 +72,9 @@ describe("fileScopeSuffix", () => {
     expect(plain(fileScopeSuffix({ file_paths: [] }, theme))).toBe("");
   });
 
-  test("names the single scoped path (shortened)", ({ theme }) => {
+  test("names the single scoped path as given", ({ theme }) => {
     expect(plain(fileScopeSuffix({ file_paths: ["packages/rbtr/src/rbtr/index/search.py"] }, theme))).toBe(
-      " in rbtr/index/search.py",
+      " in packages/rbtr/src/rbtr/index/search.py",
     );
   });
 
@@ -88,7 +88,7 @@ describe("fileScopeSuffix", () => {
 
   test("decodes a bare JSON-string file_paths (provider double-encoding)", ({ theme }) => {
     expect(plain(fileScopeSuffix({ file_paths: '["packages/rbtr/src/rbtr/index/search.py"]' }, theme))).toBe(
-      " in rbtr/index/search.py",
+      " in packages/rbtr/src/rbtr/index/search.py",
     );
   });
 

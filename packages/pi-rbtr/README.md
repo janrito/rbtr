@@ -47,7 +47,7 @@ inactive; `rbtr_index_tools` loads them when the agent needs them:
 | `rbtr_watch`           | Watch refs and keep them indexed (background, incremental)                                                                    |
 | `rbtr_index_tools`     | Load `rbtr_status` and `rbtr_gc`, which start inactive                                                                        |
 | `rbtr_status`          | Check whether the index exists and how many symbols it contains                                                               |
-| `rbtr_gc`              | Reclaim index storage. **Destructive**; previews as a dry run unless told otherwise                                           |
+| `rbtr_gc`              | Reclaim index storage. **Destructive**; previews as a dry run, and deletes only after you confirm                             |
 
 The extension also adds a one-line note to the system prompt, so
 the agent knows the index is there without being told: rbtr tools
@@ -99,9 +99,6 @@ repo-relative.
 A hit carries the first 20 lines of the symbol. A longer one
 is `clipped` and reports `total_lines`; `rbtr_read_symbol`
 returns the whole body.
-
-The per-signal ranking breakdown is omitted by default; pass
-`explain: true` to include a nested `signals` object.
 
 **`rbtr_read_symbol`** — symbol name in, full source out:
 
