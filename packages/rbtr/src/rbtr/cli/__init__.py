@@ -195,14 +195,22 @@ class DaemonStart(BaseModel):
         running = live_status(config.runtime_dir)
         if running is not None:
             print_err(f"[yellow]Daemon already running (PID {running.pid}).[/]")
-            return
+        else:
+            try:
+                running = start_daemon(allow_missing_plugins=self.allow_missing_plugins)
+            except RbtrError as exc:
+                fail(exc)
 
-        try:
-            start_daemon(allow_missing_plugins=self.allow_missing_plugins)
-        except RbtrError as exc:
-            fail(exc)
-
-        emit(OkResponse())
+        emit(
+            DaemonStatusReport(
+                running=True,
+                pid=running.pid,
+                rpc=running.rpc,
+                pub=running.pub,
+                version=running.version,
+                uptime_seconds=_uptime_seconds(running.started_at),
+            )
+        )
 
 
 class DaemonStop(BaseModel):
