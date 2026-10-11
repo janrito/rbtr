@@ -773,13 +773,17 @@ class Status(BaseModel):
                 fail(err)
             case None:
                 db = config.db_path
+                # No index yet: the reply still names the repository.
+                empty = StatusResponse(
+                    repo_path=resolved_repo if self.scope == Scope.WORKSPACE else None
+                )
                 if not db.exists():
-                    emit(StatusResponse())
+                    emit(empty)
                     return
                 try:
                     store = IndexStore(db)
                 except IndexNotBuiltError:
-                    emit(StatusResponse())  # the file exists, the index does not
+                    emit(empty)  # the file exists, the index does not
                     return
 
                 try:

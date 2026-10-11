@@ -13,6 +13,7 @@ from pathlib import Path
 import pygit2
 import pytest
 import structlog
+from pytest_cases import parametrize_with_cases
 
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.dto import ResolvedRef
@@ -48,6 +49,7 @@ from rbtr.daemon.server import DaemonServer
 from rbtr.domain.models import EdgeKind, GcMode, QueryKind, RefSource
 from rbtr.errors import RbtrError
 from rbtr.index.store import IndexStore
+from rbtr.tests.daemon.cases_handlers import StatusRootScenario
 
 
 @pytest.fixture
@@ -441,6 +443,24 @@ def test_status_with_index(
     assert resp.indexed_refs[0].total > 0
     # The backfilled HEAD watch is surfaced and reported indexed.
     assert any(w.ref == "HEAD" and w.indexed for w in resp.watched)
+
+
+@pytest.fixture
+def fake_repo_subdir(fake_repo: str) -> str:
+    """A directory inside `fake_repo`."""
+    path = Path(fake_repo) / "sub"
+    path.mkdir()
+    return str(path)
+
+
+@parametrize_with_cases("scenario", prefix="case_status_")
+def test_status_names_the_repository_it_reports_on(
+    running_daemon: DaemonServer, scenario: StatusRootScenario
+) -> None:
+    with DaemonClient(running_daemon.runtime_dir) as client:
+        resp = client.send(StatusRequest(repo_path=scenario.repo_path, scope=scenario.scope))
+    assert isinstance(resp, StatusResponse)
+    assert resp.repo_path == scenario.expected
 
 
 def test_status_unknown_repo(running_daemon: DaemonServer, second_repo: str) -> None:

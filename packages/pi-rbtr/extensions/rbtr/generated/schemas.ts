@@ -633,8 +633,11 @@ export const PROTOCOL_DEFS = {
   },
   StatusResponse: {
     additionalProperties: false,
+    description:
+      "Index status for one repository, or every one under `Scope.ALL`.\n\n`repo_path` is the repository's root, normalised, under workspace\nscope, whether or not anything of it is indexed; a caller in a\nsubdirectory learns from it what its paths are relative to. It is\n`None` under `Scope.ALL`.",
     properties: {
       kind: { const: "status", default: "status", type: "string" },
+      repo_path: { anyOf: [{ type: "string" }, { type: "null" }], default: null },
       db_path: { anyOf: [{ type: "string" }, { type: "null" }], default: null },
       db_size_bytes: { anyOf: [{ type: "integer" }, { type: "null" }], default: null },
       indexed_refs: { default: [], items: { $ref: "#/$defs/IndexedRef" }, type: "array" },

@@ -52,4 +52,6 @@ def test_status_after_a_failed_read_reports_no_index(repo_path: str, isolated_db
     result = run_cli(["--json", "status", "--repo-path", repo_path])
 
     assert result.returncode == 0, result.stdout
-    assert StatusResponse.model_validate_json(result.stdout).indexed_refs == []
+    status = StatusResponse.model_validate_json(result.stdout)
+    assert status.indexed_refs == []
+    assert status.repo_path == repo_path

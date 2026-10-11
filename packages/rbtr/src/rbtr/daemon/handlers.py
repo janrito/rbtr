@@ -385,6 +385,7 @@ def handle_status(
         ws_repo_id = store.get_repo_id(request.repo_path)
         if ws_repo_id is None:
             return StatusResponse(
+                repo_path=request.repo_path,
                 db_path=store.db_path,
                 db_size_bytes=store.disk_size_bytes(),
                 indexed_refs=[],
@@ -403,6 +404,7 @@ def handle_status(
     if snapshot_status is not None:
         active_build, active_embed = snapshot_status(request.repo_path)
     return StatusResponse(
+        repo_path=None if request.scope == Scope.ALL else request.repo_path,
         db_path=store.db_path,
         db_size_bytes=store.disk_size_bytes(),
         indexed_refs=indexed_refs,

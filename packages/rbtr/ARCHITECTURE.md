@@ -677,7 +677,11 @@ ignored, so an older client still finds a newer daemon's
 endpoints, and a missing or malformed file reads as no
 daemon.
 
-`StatusResponse` is the most complex response. Per-ref
+`StatusResponse` is the most complex response. Under
+workspace scope, `repo_path` is the repository's normalised
+root, even when nothing in it is indexed, so a client in a
+subdirectory or behind a symlink learns what its paths are
+relative to. Per-ref
 state is grouped in `IndexedRef` (sha, symbolic names,
 chunk count, embed completeness) — a single list rather
 than parallel maps. `active_build` and `active_embed`

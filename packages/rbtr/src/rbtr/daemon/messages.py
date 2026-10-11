@@ -562,8 +562,17 @@ class WatchedRef(BaseModel):
 
 
 class StatusResponse(BaseModel):
+    """Index status for one repository, or every one under `Scope.ALL`.
+
+    `repo_path` is the repository's root, normalised, under workspace
+    scope, whether or not anything of it is indexed; a caller in a
+    subdirectory learns from it what its paths are relative to. It is
+    `None` under `Scope.ALL`.
+    """
+
     model_config = _STRICT
     kind: Literal["status"] = "status"
+    repo_path: str | None = None
     db_path: str | None = None
     db_size_bytes: int | None = None  # whole index file on disk, a global figure
     indexed_refs: list[IndexedRef] = []
