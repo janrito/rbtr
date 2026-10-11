@@ -211,14 +211,13 @@ def test_read_symbol_in_an_unregistered_repo_is_repo_not_found(
     assert resp.code == ErrorCode.REPO_NOT_FOUND
 
 
-def test_read_symbol_unindexed_ref_errors(
-    running_daemon: DaemonServer, fake_repo: str, unindexed_ref: str
+@parametrize_with_cases("read", prefix="case_unindexed_read_")
+def test_an_unindexed_ref_is_an_error_not_an_empty_result(
+    running_daemon: DaemonServer,
+    read: SearchRequest | ReadSymbolRequest | ListSymbolsRequest | FindRefsRequest,
 ) -> None:
-    """An explicit ref that isn't indexed is an error, not an empty result."""
     with DaemonClient(running_daemon.runtime_dir) as client:
-        resp = client.send(
-            ReadSymbolRequest(repo_path=fake_repo, symbol="load_config", ref=unindexed_ref)
-        )
+        resp = client.send(read)
     assert isinstance(resp, ErrorResponse)
     assert "not indexed" in resp.message
 
@@ -378,18 +377,6 @@ def test_list_symbols_empty_file(running_daemon: DaemonServer, fake_repo: str) -
     assert len(resp.chunks) == 0
 
 
-def test_list_symbols_unindexed_ref_errors(
-    running_daemon: DaemonServer, fake_repo: str, unindexed_ref: str
-) -> None:
-    """An explicit ref that isn't indexed is an error, not an empty outline."""
-    with DaemonClient(running_daemon.runtime_dir) as client:
-        resp = client.send(
-            ListSymbolsRequest(repo_path=fake_repo, file_path="src/config.py", ref=unindexed_ref)
-        )
-    assert isinstance(resp, ErrorResponse)
-    assert "not indexed" in resp.message
-
-
 # ── Find refs ────────────────────────────────────────────────────────
 
 
@@ -404,18 +391,6 @@ def test_find_refs(running_daemon: DaemonServer, fake_repo: str, daemon_commit: 
     # No ref named, clean tree: the read says it used HEAD.
     assert resp.resolved == ResolvedRef(sha=daemon_commit, source=RefSource.HEAD)
     assert resp.file_paths is None
-
-
-def test_find_refs_unindexed_ref_errors(
-    running_daemon: DaemonServer, fake_repo: str, unindexed_ref: str
-) -> None:
-    """An explicit ref that isn't indexed is an error, not empty edges."""
-    with DaemonClient(running_daemon.runtime_dir) as client:
-        resp = client.send(
-            FindRefsRequest(repo_path=fake_repo, symbol="load_config", ref=unindexed_ref)
-        )
-    assert isinstance(resp, ErrorResponse)
-    assert "not indexed" in resp.message
 
 
 def test_find_refs_with_file_paths(running_daemon: DaemonServer, fake_repo: str) -> None:

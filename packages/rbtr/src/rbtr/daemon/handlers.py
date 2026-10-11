@@ -188,7 +188,9 @@ def handle_search(
         repo_paths = {r.repo_id: r.repo_path for r in store.list_repos()}
     else:
         repo_id = store.resolve_repo(request.repo_path)
-        read = _resolve_read_ref(store, request.repo_path, repo_id, request.ref)
+        read = _resolve_read_ref(
+            store, request.repo_path, repo_id, request.ref, require_indexed=True
+        )
         refs = [read.at]
         resolved = ResolvedRef(sha=read.at.snapshot_sha, source=read.source)
         repo_paths = None

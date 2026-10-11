@@ -11,7 +11,15 @@ from dataclasses import dataclass
 
 from pytest_cases import case
 
-from rbtr.daemon.messages import ActiveJob, ErrorCode, Scope
+from rbtr.daemon.messages import (
+    ActiveJob,
+    ErrorCode,
+    FindRefsRequest,
+    ListSymbolsRequest,
+    ReadSymbolRequest,
+    Scope,
+    SearchRequest,
+)
 
 
 @dataclass(frozen=True)
@@ -112,3 +120,27 @@ def case_status_unregistered(second_repo: str) -> StatusRootScenario:
 def case_status_scope_all(fake_repo: str) -> StatusRootScenario:
     """Every repository's status names no single root."""
     return StatusRootScenario(repo_path=fake_repo, scope=Scope.ALL, expected=None)
+
+
+# Each read a client can make at a ref: one the daemon has not indexed is
+# an error, never an empty result.
+
+
+@case(id="search")
+def case_unindexed_read_search(fake_repo: str, unindexed_ref: str) -> SearchRequest:
+    return SearchRequest(repo_path=fake_repo, query="load_config", ref=unindexed_ref)
+
+
+@case(id="read_symbol")
+def case_unindexed_read_read_symbol(fake_repo: str, unindexed_ref: str) -> ReadSymbolRequest:
+    return ReadSymbolRequest(repo_path=fake_repo, symbol="load_config", ref=unindexed_ref)
+
+
+@case(id="list_symbols")
+def case_unindexed_read_list_symbols(fake_repo: str, unindexed_ref: str) -> ListSymbolsRequest:
+    return ListSymbolsRequest(repo_path=fake_repo, file_path="src/config.py", ref=unindexed_ref)
+
+
+@case(id="find_refs")
+def case_unindexed_read_find_refs(fake_repo: str, unindexed_ref: str) -> FindRefsRequest:
+    return FindRefsRequest(repo_path=fake_repo, symbol="load_config", ref=unindexed_ref)
