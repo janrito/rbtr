@@ -16,7 +16,11 @@ import {
   fileScopeSuffix,
   footerLabel,
   formatWatched,
+  renderChangedSymbolsResult,
+  renderFindRefsResult,
   renderIndexResult,
+  renderListSymbolsResult,
+  renderReadSymbolResult,
   renderSearchResult,
   renderStatusResult,
 } from "../extensions/rbtr/render.js";
@@ -260,6 +264,24 @@ describe("footerLabel", () => {
 function renderText(result: ToolResult, expanded: boolean, theme: Theme): string {
   return renderSearchResult(result, { expanded, isPartial: false }, theme).render(1000).join("\n");
 }
+
+describe("a running read's row", () => {
+  const waiting = cliResult("waiting for the build: parsing 3/10");
+  const running = { expanded: false, isPartial: true };
+  // Each read's renderer, what it shows before anything is reported, and
+  // that it shows a wait for a build instead.
+  test.for([
+    ["rbtr_search", (r: ToolResult, t: Theme) => renderSearchResult(r, running, t), "Searching…"],
+    ["rbtr_read_symbol", (r: ToolResult, t: Theme) => renderReadSymbolResult(r, running, t), "Reading…"],
+    ["rbtr_list_symbols", (r: ToolResult, t: Theme) => renderListSymbolsResult(r, running, t), "Listing…"],
+    ["rbtr_find_refs", (r: ToolResult, t: Theme) => renderFindRefsResult(r, running, t), "Finding…"],
+    ["rbtr_changed_symbols", (r: ToolResult, t: Theme) => renderChangedSymbolsResult(r, running, t), "Comparing…"],
+  ] as const)("%s shows what it is doing, then the build it waits for", ([, render, doing], { theme }) => {
+    const row = (partial: ToolResult) => plain(render(partial, theme).render(200).join("\n")).trim();
+    expect(row(cliResult(""))).toBe(doing);
+    expect(row(waiting)).toBe("waiting for the build: parsing 3/10");
+  });
+});
 
 describe("renderSearchResult", () => {
   const previewHit: SearchHitOut = {

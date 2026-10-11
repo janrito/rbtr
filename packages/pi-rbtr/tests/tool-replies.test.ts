@@ -10,7 +10,7 @@ import { Check } from "typebox/schema";
 import { describe, expect, inject } from "vitest";
 
 import type { Request } from "../extensions/rbtr/generated/protocol.js";
-import { type Ask, type Call, type PiSession, type ToolEnd, test, textOf } from "./session.fixtures.js";
+import { type Ask, type Call, type PiSession, type ToolEnd, test, textOf, until } from "./session.fixtures.js";
 
 /** The output schema *name* declares in the session. */
 function outputSchema(pi: PiSession, name: string): TSchema {
@@ -248,6 +248,45 @@ describe("in a repository of the test's own", () => {
         { reply: { kind: "error", message: "HEAD cannot be removed from the watch set" } },
       ],
     ]);
+  });
+
+  describe("while it builds", () => {
+    test.override({ longBuild: true });
+
+    // A read of a ref the daemon is building waits for it, then answers.
+    test("a read at a ref being built shows the build's progress, then answers", async ({ pi }) => {
+      await pi.start();
+      const [, read] = await pi.run(
+        { name: "rbtr_watch", args: { refs: ["HEAD"] } },
+        { name: "rbtr_read_symbol", args: { symbol: subject.name } },
+      );
+      expect(read.isError, textOf(read.result)).toBe(false);
+      expect(read.result.structuredContent).toMatchObject({
+        kind: "read_symbol",
+        chunks: expect.arrayContaining([expect.objectContaining({ name: subject.name })]),
+      });
+      expect(read.updates.length).toBeGreaterThan(0);
+      expect(textOf(read.updates[0])).toMatch(/^waiting for the build/);
+    });
+
+    test("an abort while a read waits for a build ends it at once", async ({ pi }) => {
+      await pi.start();
+      let waiting = false;
+      const unsubscribe = pi.runtime.session.subscribe((event) => {
+        if (event.type === "tool_execution_update") waiting = true;
+      });
+      const run = pi.run(
+        { name: "rbtr_watch", args: { refs: ["HEAD"] } },
+        { name: "rbtr_read_symbol", args: { symbol: subject.name } },
+      );
+      await until(() => waiting);
+      unsubscribe();
+      const started = Date.now();
+      await pi.runtime.session.abort();
+      const [, read] = await run;
+      expect(Date.now() - started).toBeLessThan(1_000);
+      expect(read.isError).toBe(true);
+    });
   });
 });
 

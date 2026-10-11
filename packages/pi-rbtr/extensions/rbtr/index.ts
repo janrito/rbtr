@@ -12,6 +12,7 @@ import { createRequire } from "node:module";
 import { relative, resolve } from "node:path";
 import type {
   AgentToolResult,
+  AgentToolUpdateCallback,
   ExtensionAPI,
   ExtensionContext,
   ToolAnnotations,
@@ -22,6 +23,7 @@ import { Container, type SettingItem, SettingsList } from "@earendil-works/pi-tu
 import { Type } from "typebox";
 
 import { classifyDaemonFailure, decideStartupDecision } from "./classify.js";
+import type { ResponseFor } from "./daemon-client.js";
 import { DaemonSession, DaemonUnavailableError, type ReconcileResult } from "./daemon-session.js";
 import { errorReply, type ResolvedCommand, resolveCommand, runRbtrJson, statusReport } from "./exec.js";
 import { Footer } from "./footer.js";
@@ -31,7 +33,9 @@ import type {
   GcMode,
   GcResponse,
   ListSymbolsResponse,
+  ProgressNotification,
   ReadSymbolResponse,
+  Request,
   Response,
   SearchResponse,
   StatusResponse,
@@ -53,6 +57,18 @@ const { version: EXTENSION_VERSION } = require("../../package.json") as { versio
  * happens.
  */
 const READ_CLI_TIMEOUT_MS = 150_000;
+
+/** How long a read waits for a build of what it asks for before giving rbtr's "in progress" reply. */
+const BUILD_WAIT_MS = 30_000;
+
+/** A read's partial result while it waits for a build: the build's phase, once one is reported. */
+function waitingFor(progress: ProgressNotification | null): AgentToolResult<unknown> {
+  const text =
+    progress === null
+      ? "waiting for the build"
+      : `waiting for the build: ${progress.phase} ${progress.current}/${progress.total}`;
+  return { content: [{ type: "text", text }], details: { waiting: progress } };
+}
 
 /** How often the health check looks for a daemon that died or came back. */
 export const HEALTH_CHECK_MS = 30_000;
@@ -193,6 +209,59 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
    * ``RbtrReplyError`` from the daemon untouched — that is an
    * actionable reply, not a transport problem.
    */
+  /**
+   * Send a read to the daemon. When rbtr replies that the index is building
+   * what the read asks for, wait for the build to end, at most
+   * `BUILD_WAIT_MS`, showing its progress through *onUpdate*, then ask once
+   * more; a second such reply, or no end in time, is rbtr's reply as given.
+   * The listener goes on before the request, so a build that ends between
+   * the reply and the wait is not missed.
+   */
+  async function sendWaitingOutBuild<R extends Request>(
+    request: R,
+    signal: AbortSignal | undefined,
+    onUpdate: AgentToolUpdateCallback | undefined,
+  ): Promise<ResponseFor<R["kind"]>> {
+    let waiting = false;
+    let ended = false;
+    let wake = () => {};
+    const stop = session.onNotification((notification) => {
+      if (notification.repo_path !== repoRoot) return;
+      if (notification.kind === "progress" && waiting) onUpdate?.(waitingFor(notification));
+      if (notification.kind === "ready" || notification.kind === "index_error") {
+        ended = true;
+        wake();
+      }
+    });
+    try {
+      return await session.send(request, signal);
+    } catch (err) {
+      if (!(err instanceof RbtrReplyError) || err.code !== "index_in_progress") throw err;
+      waiting = true;
+      onUpdate?.(waitingFor(null));
+      const buildEnded = await new Promise<boolean>((resolve, reject) => {
+        if (ended) return resolve(true);
+        const timer = setTimeout(() => resolve(false), BUILD_WAIT_MS);
+        wake = () => {
+          clearTimeout(timer);
+          resolve(true);
+        };
+        signal?.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(timer);
+            reject(signal.reason);
+          },
+          { once: true },
+        );
+      });
+      if (!buildEnded) throw err;
+      return await session.send(request, signal);
+    } finally {
+      stop();
+    }
+  }
+
   async function withFallback<T>(
     fromDaemon: () => Promise<T>,
     fromCli: () => Promise<T>,
@@ -792,12 +861,12 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     renderCall: (args, theme) => renderSearchCall(args, theme),
     renderResult: (result, options, theme) => renderSearchResult(result, options, theme),
 
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, signal, onUpdate, ctx) {
       if (!params.query) throw new Error("Missing required parameter `query`. Example: {query: 'retry logic'}");
       try {
         const resp = await withFallback<SearchResponse>(
           () =>
-            session.send(
+            sendWaitingOutBuild(
               {
                 kind: "search",
                 repo_path: ctx.cwd,
@@ -809,6 +878,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
                 ...(params.scope !== undefined ? { scope: params.scope } : {}),
               },
               signal,
+              onUpdate,
             ),
           () => {
             if (!resolved) throw new Error("rbtr CLI not available");
@@ -861,12 +931,12 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     renderCall: (args, theme) => renderReadSymbolCall(args, theme),
     renderResult: (result, options, theme) => renderReadSymbolResult(result, options, theme),
 
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, signal, onUpdate, ctx) {
       if (!params.symbol) throw new Error("Missing required parameter `symbol`. Example: {symbol: 'MyClass.method'}");
       try {
         const resp = await withFallback<ReadSymbolResponse>(
           () =>
-            session.send(
+            sendWaitingOutBuild(
               {
                 kind: "read_symbol",
                 repo_path: ctx.cwd,
@@ -875,6 +945,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
                 ...(params.file_paths !== undefined ? { file_paths: params.file_paths } : {}),
               },
               signal,
+              onUpdate,
             ),
           () => {
             if (!resolved) throw new Error("rbtr CLI not available");
@@ -925,12 +996,12 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     renderCall: (args, theme) => renderFindRefsCall(args, theme),
     renderResult: (result, options, theme) => renderFindRefsResult(result, options, theme),
 
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, signal, onUpdate, ctx) {
       if (!params.symbol) throw new Error("Missing required parameter `symbol`. Example: {symbol: 'MyClass.method'}");
       try {
         const resp = await withFallback<FindRefsResponse>(
           () =>
-            session.send(
+            sendWaitingOutBuild(
               {
                 kind: "find_refs",
                 repo_path: ctx.cwd,
@@ -939,6 +1010,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
                 ...(params.file_paths !== undefined ? { file_paths: params.file_paths } : {}),
               },
               signal,
+              onUpdate,
             ),
           () => {
             if (!resolved) throw new Error("rbtr CLI not available");
@@ -981,7 +1053,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     renderCall: (args, theme) => renderChangedSymbolsCall(args, theme),
     renderResult: (result, options, theme) => renderChangedSymbolsResult(result, options, theme),
 
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, signal, onUpdate, ctx) {
       if (!params.base || !params.head) {
         throw new Error(
           "Missing required parameters `base` and `head`. Example: {base: 'main', head: 'feature-branch'}",
@@ -990,7 +1062,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       try {
         const resp = await withFallback<ChangedSymbolsResponse>(
           () =>
-            session.send(
+            sendWaitingOutBuild(
               {
                 kind: "changed_symbols",
                 repo_path: ctx.cwd,
@@ -999,6 +1071,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
                 ...(params.file_paths !== undefined ? { file_paths: params.file_paths } : {}),
               },
               signal,
+              onUpdate,
             ),
           () => {
             if (!resolved) throw new Error("rbtr CLI not available");
@@ -1040,13 +1113,13 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     renderCall: (args, theme) => renderListSymbolsCall(args, theme),
     renderResult: (result, options, theme) => renderListSymbolsResult(result, options, theme),
 
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, signal, onUpdate, ctx) {
       if (!params.file)
         throw new Error("Missing required parameter `file`. Example: {file: 'src/rbtr/index/search.py'}");
       try {
         const resp = await withFallback<ListSymbolsResponse>(
           () =>
-            session.send(
+            sendWaitingOutBuild(
               {
                 kind: "list_symbols",
                 repo_path: ctx.cwd,
@@ -1054,6 +1127,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
                 ...(params.ref !== undefined ? { ref: params.ref } : {}),
               },
               signal,
+              onUpdate,
             ),
           () => {
             if (!resolved) throw new Error("rbtr CLI not available");

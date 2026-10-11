@@ -9,9 +9,9 @@
 
 import { Subscriber as ZmqSubscriber } from "zeromq";
 
-import { type DaemonStatus, queryDaemonStatus, send } from "./daemon-client.js";
+import { type DaemonStatus, queryDaemonStatus, type ResponseFor, send } from "./daemon-client.js";
 import type { ResolvedCommand } from "./exec.js";
-import type { Notification, Request, Response } from "./generated/protocol.js";
+import type { Notification, Request } from "./generated/protocol.js";
 
 /**
  * A transport-level failure talking to the daemon — socket
@@ -27,9 +27,6 @@ export class DaemonUnavailableError extends Error {
     this.cause = cause;
   }
 }
-
-/** Narrow ``Response`` to the variant for a request of *kind* K. */
-type ResponseFor<K extends string> = Extract<Response, { kind: K }>;
 
 /**
  * Outcome of {@link DaemonSession.reconcile}.  Purely informational —
@@ -73,6 +70,7 @@ export type NotificationHandler = (notification: Notification) => void;
 export class DaemonSession {
   private status: DaemonStatus | null = null;
   private subscriber: ZmqSubscriber | null = null;
+  private readonly listeners = new Set<NotificationHandler>();
   private command: ResolvedCommand | null = null;
 
   /**
@@ -226,10 +224,12 @@ export class DaemonSession {
         } catch {
           continue; // malformed frame — skip
         }
-        try {
-          handler(parsed);
-        } catch {
-          // Handler errors must not kill the loop.
+        for (const receive of [handler, ...this.listeners]) {
+          try {
+            receive(parsed);
+          } catch {
+            // Handler errors must not kill the loop.
+          }
         }
       }
     })();
@@ -237,6 +237,16 @@ export class DaemonSession {
     return () => {
       this.stopSubscribing();
     };
+  }
+
+  /**
+   * Also pass every notification to *listener*, on the socket `subscribe`
+   * opened; returns the call that stops it. Nothing arrives while no
+   * subscription is open.
+   */
+  onNotification(listener: NotificationHandler): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   stopSubscribing(): void {

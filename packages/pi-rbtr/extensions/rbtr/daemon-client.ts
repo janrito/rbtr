@@ -38,7 +38,7 @@ export interface SendOptions {
   signal?: AbortSignal;
 }
 
-/** Narrow ``Response`` to the variant produced by a request of *kind* K. */
+/** The reply a request of *kind* K gets: ``Response`` narrowed by kind. */
 export type ResponseFor<K extends string> = Extract<Response, { kind: K }>;
 
 /**
