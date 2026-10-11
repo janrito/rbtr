@@ -7,9 +7,9 @@
  * `./generated/protocol.ts` — Python is the source of truth.
  */
 
-import { readFileSync } from "node:fs";
+import { readFile, realpath } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import type {
   AgentToolResult,
   AgentToolUpdateCallback,
@@ -18,7 +18,7 @@ import type {
   ToolAnnotations,
   ToolNamespace,
 } from "@earendil-works/pi-coding-agent";
-import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
+import { getSettingsListTheme, isBashToolResult, isReadToolResult } from "@earendil-works/pi-coding-agent";
 import { Container, type SettingItem, SettingsList } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
@@ -73,7 +73,7 @@ function waitingFor(progress: ProgressNotification | null): AgentToolResult<unkn
 /** How often the health check looks for a daemon that died or came back. */
 export const HEALTH_CHECK_MS = 30_000;
 
-import { block, type IndexLookups, readFacts, searchFacts } from "./annotate.js";
+import { block, type IndexLookups, outlinedIn, readFacts, searchesOutside, searchFacts } from "./annotate.js";
 import { commandRefs, prepareStringLists } from "./args.js";
 import { replySchema } from "./output-schema.js";
 import {
@@ -188,6 +188,10 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   // Settles when this session's startup has decided how tools reach
   // rbtr. Never rejects.
   let startup: Promise<void> = Promise.resolve();
+  // The files a read of this turn outlines. pi runs a turn's calls in
+  // parallel, so no read's result is in the context while another's is
+  // noted; by the next turn's start they all are.
+  const outlinedThisTurn = new Set<string>();
 
   /** Wait for startup, unless *signal* aborts first. */
   async function untilStarted(signal: AbortSignal | undefined): Promise<void> {
@@ -328,10 +332,6 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
   // ── Index facts in bash and read output ────────────────────
 
-  // Files already given an outline this session; a second read of one
-  // gets none.
-  const outlined = new Set<string>();
-
   function lookups(cwd: string, signal: AbortSignal | undefined): IndexLookups {
     return {
       readSymbol: (symbol) => session.send({ kind: "read_symbol", repo_path: cwd, symbol }, signal),
@@ -351,16 +351,27 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     try {
       await untilStarted(ctx.signal);
       if (!session.available) return;
+      // Real paths, as rbtr names the root; the working directory until
+      // rbtr has named it.
+      const cwd = await realpath(ctx.cwd);
+      const root = repoRoot ?? cwd;
       const { command, path, offset } = event.input;
-      if (event.toolName === "bash" && typeof command === "string") {
+      if (isBashToolResult(event) && typeof command === "string") {
+        // The index knows this repository only.
+        if (searchesOutside(command, cwd, root)) return;
         const output = event.content.map((part) => (part.type === "text" ? part.text : "")).join("");
         lines = await searchFacts(lookups(ctx.cwd, ctx.signal), command, output);
-      } else if (event.toolName === "read" && typeof path === "string" && offset === undefined) {
-        const absolute = resolve(ctx.cwd, path);
-        if (outlined.has(absolute)) return;
-        outlined.add(absolute);
-        const lineCount = readFileSync(absolute, "utf8").split("\n").length;
-        lines = await readFacts(lookups(ctx.cwd, ctx.signal), relative(ctx.cwd, absolute), lineCount);
+      } else if (isReadToolResult(event) && typeof path === "string" && offset === undefined) {
+        const absolute = await realpath(resolve(cwd, path));
+        const filePath = relative(root, absolute);
+        if (filePath.startsWith("..") || isAbsolute(filePath)) return;
+        // The model still has an outline that is in its context, or gets
+        // one from another read of this turn.
+        if (outlinedThisTurn.has(filePath) || outlinedIn(ctx.sessionManager.buildContextEntries(), filePath)) return;
+        outlinedThisTurn.add(filePath);
+        const lineCount =
+          event.details?.truncation?.totalLines ?? (await readFile(absolute, "utf8")).split("\n").length;
+        lines = await readFacts(lookups(ctx.cwd, ctx.signal), filePath, lineCount);
       }
     } catch {
       return;
@@ -373,6 +384,10 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       details: event.details,
       structuredContent: event.structuredContent,
     };
+  });
+
+  pi.on("turn_start", () => {
+    outlinedThisTurn.clear();
   });
 
   // ── Session lifecycle ───────────────────────────────────────

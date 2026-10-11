@@ -240,13 +240,20 @@ used by: django/db/models/sql/compiler.py, django/db/models/__init__.py
 - After a `grep`, `rg`, `ag` or `git grep` for a name (`union`,
   `QuerySet.union`, `def union`): where it is defined, unless
   the output already shows it, and which files import it.
+  Code definitions come first; a heading or config key that
+  shares the name is named only when no code defines it.
 - After a search for a phrase: the index's three best
   matches.
-- After the first read of a file of 200 lines or more: its
-  outline, with line ranges.
+- After a read of a file of 200 lines or more: its outline,
+  the functions, classes and other named definitions with
+  their line ranges, without imports or comments. A file whose
+  outline the model still has in its context, or gets from
+  another read in the same turn, gets none.
 
 Nothing is appended when the index has nothing to add, when
-the tool failed, or when the daemon is not running.
+the tool failed, when the daemon is not running, or when the
+search looks only outside the repository (after a `cd`
+elsewhere, or with paths outside it).
 
 ### CLI invocation modes
 
