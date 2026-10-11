@@ -42,8 +42,8 @@ export const sendScenarios: readonly SendScenario[] = [
   {
     name: "search round-trip",
     request: { kind: "search", repo_path: "/r", query: "retry logic" },
-    daemonResponse: { kind: "search", results: [] },
-    expected: { kind: "success", response: { kind: "search", results: [] } },
+    daemonResponse: { kind: "search", results: [], resolved: null },
+    expected: { kind: "success", response: { kind: "search", results: [], resolved: null } },
   },
   {
     name: "index submission returns ok",

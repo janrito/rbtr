@@ -50,6 +50,7 @@ describe("DaemonSession.subscribe", () => {
       kind: "ready",
       repo_path: "/r",
       ref: "abc",
+      embedded: 0,
       chunks: 100,
       edges: 200,
       elapsed: 1.5,

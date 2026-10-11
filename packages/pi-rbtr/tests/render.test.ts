@@ -6,7 +6,9 @@
  * same list items, so the renderers don't care which transport ran.
  */
 
-import { describe, expect, test } from "vitest";
+import { stripVTControlCharacters as plain } from "node:util";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { describe, expect } from "vitest";
 
 import type { SearchHitOut, StatusResponse } from "../extensions/rbtr/generated/protocol.js";
 import {
@@ -18,12 +20,7 @@ import {
   renderSearchResult,
   renderStatusResult,
 } from "../extensions/rbtr/render.js";
-
-// Minimal theme: styling is identity so assertions see raw text.
-const plainTheme = {
-  fg: (_style: string, text: string) => text,
-  bold: (text: string) => text,
-} as unknown as Parameters<typeof fileScopeSuffix>[1];
+import { test } from "./session.fixtures.js";
 
 type ToolResult = Parameters<typeof extractPayload>[0];
 
@@ -31,21 +28,21 @@ const hit: SearchHitOut = {
   name: "load_config",
   kind: "function",
   file_paths: ["src/config.py"],
-  content: "def load_config(): ...",
+  preview: { text: "def load_config(): ...", clipped: false, total_lines: 1 },
   line_start: 1,
   line_end: 3,
   score: 0.9,
 };
 
 function daemonResult(response: unknown): ToolResult {
-  return { content: [], details: { fromDaemon: true, response } } as unknown as ToolResult;
+  return { content: [], details: { fromDaemon: true, response } };
 }
 
 function cliResult(stdout: string): ToolResult {
   return {
     content: [{ type: "text", text: stdout }],
     details: { fromCli: true },
-  } as unknown as ToolResult;
+  };
 }
 
 describe("extractPayload", () => {
@@ -60,7 +57,7 @@ describe("extractPayload", () => {
   });
 
   test("returns empty when the response kind does not match", () => {
-    const result = cliResult(JSON.stringify({ kind: "read_symbol", chunks: [] }));
+    const result = cliResult(JSON.stringify({ kind: "read_symbol", chunks: [], results: [hit] }));
     expect(extractPayload<SearchHitOut>(result, "search", "results")).toEqual([]);
   });
 
@@ -70,47 +67,47 @@ describe("extractPayload", () => {
 });
 
 describe("fileScopeSuffix", () => {
-  test("is empty when no file_paths are given", () => {
-    expect(fileScopeSuffix({ symbol: "x" }, plainTheme)).toBe("");
-    expect(fileScopeSuffix({ file_paths: [] }, plainTheme)).toBe("");
+  test("is empty when no file_paths are given", ({ theme }) => {
+    expect(plain(fileScopeSuffix({ symbol: "x" }, theme))).toBe("");
+    expect(plain(fileScopeSuffix({ file_paths: [] }, theme))).toBe("");
   });
 
-  test("names the single scoped path (shortened)", () => {
-    expect(fileScopeSuffix({ file_paths: ["packages/rbtr/src/rbtr/index/search.py"] }, plainTheme)).toBe(
+  test("names the single scoped path (shortened)", ({ theme }) => {
+    expect(plain(fileScopeSuffix({ file_paths: ["packages/rbtr/src/rbtr/index/search.py"] }, theme))).toBe(
       " in rbtr/index/search.py",
     );
   });
 
-  test("counts multiple scoped paths", () => {
-    expect(fileScopeSuffix({ file_paths: ["a.py", "b.py", "c.py"] }, plainTheme)).toBe(" in 3 files");
+  test("counts multiple scoped paths", ({ theme }) => {
+    expect(plain(fileScopeSuffix({ file_paths: ["a.py", "b.py", "c.py"] }, theme))).toBe(" in 3 files");
   });
 
-  test("ignores non-string entries", () => {
-    expect(fileScopeSuffix({ file_paths: [42, null] }, plainTheme)).toBe("");
+  test("ignores non-string entries", ({ theme }) => {
+    expect(plain(fileScopeSuffix({ file_paths: [42, null] }, theme))).toBe("");
   });
 
-  test("decodes a bare JSON-string file_paths (provider double-encoding)", () => {
-    expect(fileScopeSuffix({ file_paths: '["packages/rbtr/src/rbtr/index/search.py"]' }, plainTheme)).toBe(
+  test("decodes a bare JSON-string file_paths (provider double-encoding)", ({ theme }) => {
+    expect(plain(fileScopeSuffix({ file_paths: '["packages/rbtr/src/rbtr/index/search.py"]' }, theme))).toBe(
       " in rbtr/index/search.py",
     );
   });
 
-  test("decodes a one-element list wrapping a JSON string", () => {
-    expect(fileScopeSuffix({ file_paths: ['["a.py", "b.py"]'] }, plainTheme)).toBe(" in 2 files");
+  test("decodes a one-element list wrapping a JSON string", ({ theme }) => {
+    expect(plain(fileScopeSuffix({ file_paths: ['["a.py", "b.py"]'] }, theme))).toBe(" in 2 files");
   });
 });
 
 describe("renderIndexResult", () => {
-  test.each([
+  test.for([
     [
       "the watch set",
       { kind: "watch_set", watched: [{ ref: "main", sha: "b".repeat(40), indexed: false }] },
       `⟳ main — ${"b".repeat(12)} pending`,
     ],
     ["the refs removed", { kind: "unwatch", removed: { "/repo": ["main"] }, dry_run: false }, "Stopped watching main"],
-  ])("shows %s", (_name, response, expected) => {
-    const text = renderIndexResult(daemonResult(response), { isPartial: false }, plainTheme).render(200).join("\n");
-    expect(text).toContain(expected);
+  ] as const)("shows %s", ([_name, response, expected], { theme }) => {
+    const text = renderIndexResult(daemonResult(response), { isPartial: false }, theme).render(200).join("\n");
+    expect(plain(text)).toContain(expected);
   });
 });
 
@@ -134,10 +131,10 @@ describe("formatWatched", () => {
 });
 
 describe("renderStatusResult", () => {
-  function statusLines(response: StatusResponse): string[] {
-    return renderStatusResult(daemonResult(response), { isPartial: false }, plainTheme)
+  function statusLines(response: StatusResponse, theme: Theme): string[] {
+    return renderStatusResult(daemonResult(response), { isPartial: false }, theme)
       .render(1000)
-      .map((line) => line.trimEnd());
+      .map((line) => plain(line).trimEnd());
   }
 
   // One response covering every embed state a ref can be in: fully
@@ -159,24 +156,31 @@ describe("renderStatusResult", () => {
       total: 10,
       elapsed_seconds: 65,
     },
-    active_embed: { repo_path: "/repo", ref: "e".repeat(40), current: 5, total: 20, elapsed_seconds: 12 },
+    active_embed: {
+      repo_path: "/repo",
+      ref: "e".repeat(40),
+      phase: "embedding",
+      current: 5,
+      total: 20,
+      elapsed_seconds: 12,
+    },
   };
 
-  test("renders one line per ref, in the shape the TUI uses", () => {
-    const lines = statusLines(status);
+  test("renders one line per ref, in the shape the TUI uses", ({ theme }) => {
+    const lines = statusLines(status, theme);
     expect(lines).toContain("aaaaaaaaaaaa (HEAD, main)  1.2k indexed  1.2k embedded ✓");
     expect(lines).toContain("bbbbbbbbbbbb  1.2k indexed  512 embedded (43%)");
     expect(lines).toContain("cccccccccccc  1.2k indexed  not embedded");
     expect(lines).toContain("dddddddddddd  0 indexed  0 embedded ✓");
   });
 
-  test("reports the running build and embed pass", () => {
-    const lines = statusLines(status);
+  test("reports the running build and embed pass", ({ theme }) => {
+    const lines = statusLines(status, theme);
     expect(lines).toContain("⟳ Building: eeeeeeeeeeee — chunking 3/10 (30%) — 1m05s");
     expect(lines).toContain("\u21BB Embedding: eeeeeeeeeeee — 5/20 (25%) — 12s");
   });
 
-  test("suppresses the percentage when the job has no total yet", () => {
+  test("suppresses the percentage when the job has no total yet", ({ theme }) => {
     const starting: StatusResponse = {
       kind: "status",
       active_build: {
@@ -188,42 +192,49 @@ describe("renderStatusResult", () => {
         elapsed_seconds: 2,
       },
     };
-    expect(statusLines(starting)).toContain("⟳ Building: ffffffffffff — walking 0/0 — 2s");
+    expect(statusLines(starting, theme)).toContain("⟳ Building: ffffffffffff — walking 0/0 — 2s");
   });
 
-  test("says the index is missing when no ref is indexed", () => {
-    expect(statusLines({ kind: "status" })).toContain("✗ No index found");
+  test("says the index is missing when no ref is indexed", ({ theme }) => {
+    expect(statusLines({ kind: "status" }, theme)).toContain("✗ No index found");
   });
 
-  test("pads the seconds on the minute boundary", () => {
+  test("pads the seconds on the minute boundary", ({ theme }) => {
     const justOverAMinute: StatusResponse = {
       kind: "status",
-      active_embed: { repo_path: "/repo", ref: "f".repeat(40), current: 1, total: 2, elapsed_seconds: 60 },
+      active_embed: {
+        repo_path: "/repo",
+        ref: "f".repeat(40),
+        phase: "embedding",
+        current: 1,
+        total: 2,
+        elapsed_seconds: 60,
+      },
     };
-    expect(statusLines(justOverAMinute)).toContain("\u21BB Embedding: ffffffffffff — 1/2 (50%) — 1m00s");
+    expect(statusLines(justOverAMinute, theme)).toContain("\u21BB Embedding: ffffffffffff — 1/2 (50%) — 1m00s");
   });
 });
 
 describe("renderStatusResult size suffix", () => {
-  function sizeLine(bytes: number | null): string {
+  function sizeLine(bytes: number | null, theme: Theme): string {
     const response = {
       kind: "status",
       indexed_refs: [{ sha: "a".repeat(40), names: [], total: 10, embedded: 10 }],
       db_size_bytes: bytes,
     } satisfies StatusResponse;
     // render() pads each line to the given width.
-    return renderStatusResult(daemonResult(response), { isPartial: false }, plainTheme).render(1000)[0].trimEnd();
+    return plain(renderStatusResult(daemonResult(response), { isPartial: false }, theme).render(1000)[0]).trimEnd();
   }
 
-  test("climbs the unit ladder, rounding bytes and fixing one decimal above", () => {
-    expect(sizeLine(512)).toContain(" · 512 B");
-    expect(sizeLine(2048)).toContain(" · 2.0 KB");
-    expect(sizeLine(1_500_000)).toContain(" · 1.4 MB");
-    expect(sizeLine(3 * 1024 ** 3)).toContain(" · 3.0 GB");
+  test("climbs the unit ladder, rounding bytes and fixing one decimal above", ({ theme }) => {
+    expect(sizeLine(512, theme)).toContain(" · 512 B");
+    expect(sizeLine(2048, theme)).toContain(" · 2.0 KB");
+    expect(sizeLine(1_500_000, theme)).toContain(" · 1.4 MB");
+    expect(sizeLine(3 * 1024 ** 3, theme)).toContain(" · 3.0 GB");
   });
 
-  test("omits the suffix when the daemon sends no size", () => {
-    expect(sizeLine(null)).toBe("✓ 10 symbols");
+  test("omits the suffix when the daemon sends no size", ({ theme }) => {
+    expect(sizeLine(null, theme)).toBe("✓ 10 symbols");
   });
 });
 
@@ -246,15 +257,8 @@ describe("footerLabel", () => {
   });
 });
 
-// Marks the `accent` role with guillemets so highlighted terms are
-// visible in assertions; every other role is identity.
-const markTheme = {
-  fg: (style: string, text: string) => (style === "accent" ? `«${text}»` : text),
-  bold: (text: string) => text,
-} as unknown as Parameters<typeof renderSearchResult>[2];
-
-function renderText(result: ToolResult, expanded: boolean): string {
-  return renderSearchResult(result, { expanded, isPartial: false }, markTheme).render(1000).join("\n");
+function renderText(result: ToolResult, expanded: boolean, theme: Theme): string {
+  return renderSearchResult(result, { expanded, isPartial: false }, theme).render(1000).join("\n");
 }
 
 describe("renderSearchResult", () => {
@@ -296,20 +300,20 @@ describe("renderSearchResult", () => {
     matched_terms: ["needle"],
   };
 
-  test("collapsed view surfaces the matched line, highlighted", () => {
-    const out = renderText(daemonResult({ kind: "search", results: [previewHit] }), false);
-    expect(out).toContain("«load_config»");
+  test("collapsed view surfaces the matched line, highlighted", ({ theme }) => {
+    const out = renderText(daemonResult({ kind: "search", results: [previewHit] }), false, theme);
+    expect(out).toContain(theme.fg("accent", "load_config"));
   });
 
-  test("collapsed view stays header-only without a match offset", () => {
-    const out = renderText(daemonResult({ kind: "search", results: [plainHit] }), false);
+  test("collapsed view stays header-only without a match offset", ({ theme }) => {
+    const out = renderText(daemonResult({ kind: "search", results: [plainHit] }), false, theme);
     expect(out).not.toContain("UNIQUE_BODY");
   });
 
-  test("expanded view shows the signature, then scrolls to the highlighted match", () => {
-    const out = renderText(daemonResult({ kind: "search", results: [windowHit] }), true);
+  test("expanded view shows the signature, then scrolls to the highlighted match", ({ theme }) => {
+    const out = renderText(daemonResult({ kind: "search", results: [windowHit] }), true, theme);
     expect(out).toContain("def big()");
-    expect(out).toContain("«NEEDLE»");
+    expect(out).toContain(theme.fg("accent", "NEEDLE"));
     expect(out).toContain("…");
     expect(out).not.toContain("GAP");
   });

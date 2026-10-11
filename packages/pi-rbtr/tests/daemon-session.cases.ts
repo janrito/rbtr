@@ -29,8 +29,8 @@ export const sessionScenarios: readonly SessionScenario[] = [
   {
     name: "session routes search through cached endpoint",
     request: { kind: "search", repo_path: "/r", query: "hello" },
-    daemonResponse: { kind: "search", results: [] },
-    expectedResponse: { kind: "search", results: [] },
+    daemonResponse: { kind: "search", results: [], resolved: null },
+    expectedResponse: { kind: "search", results: [], resolved: null },
   },
   {
     name: "session fires index as fire-and-forget ok",

@@ -37,7 +37,7 @@ export interface SendOptions {
 }
 
 /** Narrow ``Response`` to the variant produced by a request of *kind* K. */
-type ResponseFor<K extends string> = Extract<Response, { kind: K }>;
+export type ResponseFor<K extends string> = Extract<Response, { kind: K }>;
 
 /**
  * Ask the CLI for the running daemon's status.

@@ -50,7 +50,6 @@ function scriptedSession(
     session.status = { running: initial.running, rpc: "ipc:///tmp/test.rpc", pub: null, version: initial.version };
   }
   let step = 0;
-  // @ts-expect-error  —  override the CLI shell-out for test.
   session.refresh = async () => {
     const next = script[step++];
     if (next === undefined) {

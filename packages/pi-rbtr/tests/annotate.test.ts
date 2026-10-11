@@ -80,12 +80,14 @@ describe("searchedPhrase", () => {
   });
 });
 
+const resolved = { sha: "a".repeat(40), source: "head" as const };
+
 function lookups(overrides: Partial<IndexLookups>): IndexLookups {
   return {
-    readSymbol: async () => ({ kind: "read_symbol", chunks: [] }),
-    findRefs: async () => ({ kind: "find_refs", refs: [] }),
-    search: async () => ({ kind: "search", results: [] }),
-    listSymbols: async () => ({ kind: "list_symbols", chunks: [] }),
+    readSymbol: async () => ({ kind: "read_symbol", resolved, file_paths: null, chunks: [] }),
+    findRefs: async () => ({ kind: "find_refs", resolved, file_paths: null, refs: [] }),
+    search: async () => ({ kind: "search", resolved, results: [] }),
+    listSymbols: async () => ({ kind: "list_symbols", resolved, file_path: "", chunks: [] }),
     ...overrides,
   };
 }
@@ -102,20 +104,22 @@ const union = {
 describe("searchFacts", () => {
   test("a searched name gets its definition and what uses it", async () => {
     const index = lookups({
-      readSymbol: async () => ({ kind: "read_symbol", chunks: [union] }),
+      readSymbol: async () => ({ kind: "read_symbol", resolved, file_paths: null, chunks: [union] }),
       findRefs: async () => ({
         kind: "find_refs",
+        resolved,
+        file_paths: null,
         refs: [
           {
             name: "compiler",
-            kind: "module",
+            kind: "import",
             file_path: "django/db/models/sql/compiler.py",
             line_start: 1,
             edge: "imports",
           },
           {
             name: "compiler",
-            kind: "module",
+            kind: "import",
             file_path: "django/db/models/sql/compiler.py",
             line_start: 9,
             edge: "imports",
@@ -130,7 +134,9 @@ describe("searchFacts", () => {
   });
 
   test("a definition the output already shows is not repeated", async () => {
-    const index = lookups({ readSymbol: async () => ({ kind: "read_symbol", chunks: [union] }) });
+    const index = lookups({
+      readSymbol: async () => ({ kind: "read_symbol", resolved, file_paths: null, chunks: [union] }),
+    });
     const output = "django/db/models/query.py:939:    def union(self, *other_qs, all=False):";
     expect(await searchFacts(index, "grep -rn union django", output)).toEqual([]);
   });
@@ -139,6 +145,7 @@ describe("searchFacts", () => {
     const index = lookups({
       search: async () => ({
         kind: "search",
+        resolved,
         results: [
           {
             name: "SQLCompiler.get_order_by",
@@ -170,7 +177,9 @@ describe("readFacts", () => {
     line_start: i * 10 + 1,
     line_end: i * 10 + 9,
   }));
-  const index = lookups({ listSymbols: async () => ({ kind: "list_symbols", chunks: symbols }) });
+  const index = lookups({
+    listSymbols: async () => ({ kind: "list_symbols", resolved, file_path: "", chunks: symbols }),
+  });
 
   test("a long file gets an outline, capped, with the rest counted", async () => {
     const lines = await readFacts(index, "big.py", 500);
