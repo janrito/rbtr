@@ -34,6 +34,8 @@ export interface SendOptions {
   waitBudgetMs?: number;
   /** Milliseconds to wait for the outbound send.  Default 5 000. */
   sendTimeout?: number;
+  /** Stops the wait: the socket is closed and the call rejects with the abort reason. */
+  signal?: AbortSignal;
 }
 
 /** Narrow ``Response`` to the variant produced by a request of *kind* K. */
@@ -86,17 +88,22 @@ export async function queryDaemonStatus(resolved: ResolvedCommand): Promise<Daem
  * that is indexing serves the request late rather than not at
  * all, and sending a second copy only queues more work behind
  * the first.  Silence past the budget is reported to the caller,
- * which falls back to the CLI.
+ * which falls back to the CLI.  An abort of *signal* closes the
+ * socket and rejects with the signal's reason.
  */
 export async function send<R extends Request>(
   request: R,
   options: SendOptions & { rpcEndpoint: string },
 ): Promise<ResponseFor<R["kind"]>> {
-  const endpoint = options.rpcEndpoint;
+  const { rpcEndpoint: endpoint, signal } = options;
+  signal?.throwIfAborted();
   const sock = new ZmqRequest({
     receiveTimeout: options.waitBudgetMs ?? 120_000,
     sendTimeout: options.sendTimeout ?? 5_000,
   });
+  // Closing the socket ends a pending send or receive.
+  const onAbort = () => sock.close();
+  signal?.addEventListener("abort", onAbort, { once: true });
 
   try {
     sock.connect(endpoint);
@@ -111,7 +118,11 @@ export async function send<R extends Request>(
     // Discriminator guarantees the kind matches the request's
     // kind for every non-error response (the server is typed).
     return response as ResponseFor<R["kind"]>;
+  } catch (err) {
+    if (signal?.aborted) throw signal.reason;
+    throw err;
   } finally {
-    sock.close();
+    signal?.removeEventListener("abort", onAbort);
+    if (!sock.closed) sock.close();
   }
 }

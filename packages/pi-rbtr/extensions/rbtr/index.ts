@@ -164,7 +164,6 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       try {
         return await fromDaemon();
       } catch (err) {
-        if (err instanceof RbtrReplyError) throw err;
         if (err instanceof DaemonUnavailableError) {
           // Transport failure — fall through to CLI.
         } else {
@@ -208,12 +207,12 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   // gets none.
   const outlined = new Set<string>();
 
-  function lookups(cwd: string): IndexLookups {
+  function lookups(cwd: string, signal: AbortSignal | undefined): IndexLookups {
     return {
-      readSymbol: (symbol) => session.send({ kind: "read_symbol", repo_path: cwd, symbol }),
-      findRefs: (symbol) => session.send({ kind: "find_refs", repo_path: cwd, symbol }),
-      search: (query) => session.send({ kind: "search", repo_path: cwd, query, limit: 3 }),
-      listSymbols: (file_path) => session.send({ kind: "list_symbols", repo_path: cwd, file_path }),
+      readSymbol: (symbol) => session.send({ kind: "read_symbol", repo_path: cwd, symbol }, signal),
+      findRefs: (symbol) => session.send({ kind: "find_refs", repo_path: cwd, symbol }, signal),
+      search: (query) => session.send({ kind: "search", repo_path: cwd, query, limit: 3 }, signal),
+      listSymbols: (file_path) => session.send({ kind: "list_symbols", repo_path: cwd, file_path }, signal),
     };
   }
 
@@ -230,13 +229,13 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       const { command, path, offset } = event.input;
       if (event.toolName === "bash" && typeof command === "string") {
         const output = event.content.map((part) => (part.type === "text" ? part.text : "")).join("");
-        lines = await searchFacts(lookups(ctx.cwd), command, output);
+        lines = await searchFacts(lookups(ctx.cwd, ctx.signal), command, output);
       } else if (event.toolName === "read" && typeof path === "string" && offset === undefined) {
         const absolute = resolve(ctx.cwd, path);
         if (outlined.has(absolute)) return;
         outlined.add(absolute);
         const lineCount = readFileSync(absolute, "utf8").split("\n").length;
-        lines = await readFacts(lookups(ctx.cwd), relative(ctx.cwd, absolute), lineCount);
+        lines = await readFacts(lookups(ctx.cwd, ctx.signal), relative(ctx.cwd, absolute), lineCount);
       }
     } catch {
       return;
@@ -494,7 +493,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       return await withFallback<WatchSetResponse | WatchResponse>(
         // The extension always builds the 'full' variant (the default).
         // The 'stripped' variant is benchmark-only, driven by rbtr-eval.
-        () => session.send({ kind: "watch", repo_path: ctx.cwd, refs: targetRefs }),
+        () => session.send({ kind: "watch", repo_path: ctx.cwd, refs: targetRefs }, signal),
         () => {
           if (!resolved) throw new Error("rbtr CLI not available");
           return runRbtrJson<WatchSetResponse | WatchResponse>(pi, resolved, ["watch", ...targetRefs], {
@@ -529,7 +528,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   // call, and finding the stale ones is `removeStale`.  rbtr refuses HEAD.
   function unwatch(ctx: ExtensionContext, refs: [string, ...string[]], signal?: AbortSignal): Promise<UnwatchResponse> {
     return withFallback<UnwatchResponse>(
-      () => session.send({ kind: "unwatch", repo_path: ctx.cwd, refs }),
+      () => session.send({ kind: "unwatch", repo_path: ctx.cwd, refs }, signal),
       () => {
         if (!resolved) throw new Error("rbtr CLI not available");
         return runRbtrJson<UnwatchResponse>(pi, resolved, ["unwatch", ...refs], { signal, timeout: 60_000 });
@@ -543,7 +542,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   // working it out here; HEAD is never removed.
   function removeStale(ctx: ExtensionContext, signal?: AbortSignal): Promise<UnwatchResponse> {
     return withFallback<UnwatchResponse>(
-      () => session.send({ kind: "unwatch_stale", repo_path: ctx.cwd }),
+      () => session.send({ kind: "unwatch_stale", repo_path: ctx.cwd }, signal),
       () => {
         if (!resolved) throw new Error("rbtr CLI not available");
         return runRbtrJson<UnwatchResponse>(pi, resolved, ["unwatch", "--stale"], { signal, timeout: 60_000 });
@@ -559,7 +558,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   ): Promise<GcResponse> {
     const mode: GcMode = opts.watchedOnly ? "watched_only" : "watched";
     return withFallback(
-      async () => session.send({ kind: "gc", repo_path: ctx.cwd, mode, refs: [], dry_run: opts.dryRun }),
+      async () => session.send({ kind: "gc", repo_path: ctx.cwd, mode, refs: [], dry_run: opts.dryRun }, signal),
       async () => {
         if (!resolved) throw new Error("rbtr CLI not available");
         const args = ["gc"];
@@ -730,16 +729,19 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       try {
         const resp = await withFallback<SearchResponse>(
           () =>
-            session.send({
-              kind: "search",
-              repo_path: ctx.cwd,
-              query: params.query,
-              ...(params.ref !== undefined ? { ref: params.ref } : {}),
-              ...(params.limit !== undefined ? { limit: params.limit } : {}),
-              ...(params.keywords !== undefined ? { keywords: params.keywords } : {}),
-              ...(params.variants !== undefined ? { variants: params.variants } : {}),
-              ...(params.scope !== undefined ? { scope: params.scope } : {}),
-            }),
+            session.send(
+              {
+                kind: "search",
+                repo_path: ctx.cwd,
+                query: params.query,
+                ...(params.ref !== undefined ? { ref: params.ref } : {}),
+                ...(params.limit !== undefined ? { limit: params.limit } : {}),
+                ...(params.keywords !== undefined ? { keywords: params.keywords } : {}),
+                ...(params.variants !== undefined ? { variants: params.variants } : {}),
+                ...(params.scope !== undefined ? { scope: params.scope } : {}),
+              },
+              signal,
+            ),
           () => {
             if (!resolved) throw new Error("rbtr CLI not available");
             const args = ["search", params.query];
@@ -793,13 +795,16 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       try {
         const resp = await withFallback<ReadSymbolResponse>(
           () =>
-            session.send({
-              kind: "read_symbol",
-              repo_path: ctx.cwd,
-              symbol: params.symbol,
-              ...(params.ref !== undefined ? { ref: params.ref } : {}),
-              ...(params.file_paths !== undefined ? { file_paths: params.file_paths } : {}),
-            }),
+            session.send(
+              {
+                kind: "read_symbol",
+                repo_path: ctx.cwd,
+                symbol: params.symbol,
+                ...(params.ref !== undefined ? { ref: params.ref } : {}),
+                ...(params.file_paths !== undefined ? { file_paths: params.file_paths } : {}),
+              },
+              signal,
+            ),
           () => {
             if (!resolved) throw new Error("rbtr CLI not available");
             const readArgs = ["read-symbol", params.symbol];
@@ -851,13 +856,16 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       try {
         const resp = await withFallback<FindRefsResponse>(
           () =>
-            session.send({
-              kind: "find_refs",
-              repo_path: ctx.cwd,
-              symbol: params.symbol,
-              ...(params.ref !== undefined ? { ref: params.ref } : {}),
-              ...(params.file_paths !== undefined ? { file_paths: params.file_paths } : {}),
-            }),
+            session.send(
+              {
+                kind: "find_refs",
+                repo_path: ctx.cwd,
+                symbol: params.symbol,
+                ...(params.ref !== undefined ? { ref: params.ref } : {}),
+                ...(params.file_paths !== undefined ? { file_paths: params.file_paths } : {}),
+              },
+              signal,
+            ),
           () => {
             if (!resolved) throw new Error("rbtr CLI not available");
             const findArgs = ["find-refs", params.symbol];
@@ -905,13 +913,16 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       try {
         const resp = await withFallback<ChangedSymbolsResponse>(
           () =>
-            session.send({
-              kind: "changed_symbols",
-              repo_path: ctx.cwd,
-              base: params.base,
-              head: params.head,
-              ...(params.file_paths !== undefined ? { file_paths: params.file_paths } : {}),
-            }),
+            session.send(
+              {
+                kind: "changed_symbols",
+                repo_path: ctx.cwd,
+                base: params.base,
+                head: params.head,
+                ...(params.file_paths !== undefined ? { file_paths: params.file_paths } : {}),
+              },
+              signal,
+            ),
           () => {
             if (!resolved) throw new Error("rbtr CLI not available");
             const changedArgs = ["changed-symbols", params.base, params.head];
@@ -956,12 +967,15 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       try {
         const resp = await withFallback<ListSymbolsResponse>(
           () =>
-            session.send({
-              kind: "list_symbols",
-              repo_path: ctx.cwd,
-              file_path: params.file,
-              ...(params.ref !== undefined ? { ref: params.ref } : {}),
-            }),
+            session.send(
+              {
+                kind: "list_symbols",
+                repo_path: ctx.cwd,
+                file_path: params.file,
+                ...(params.ref !== undefined ? { ref: params.ref } : {}),
+              },
+              signal,
+            ),
           () => {
             if (!resolved) throw new Error("rbtr CLI not available");
             const listArgs = ["list-symbols", params.file];
@@ -1066,7 +1080,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       const scope = params.scope ?? "workspace";
       try {
         const status = await withFallback<StatusResponse>(
-          () => session.send({ kind: "status", repo_path: ctx.cwd, scope }),
+          () => session.send({ kind: "status", repo_path: ctx.cwd, scope }, signal),
           () => {
             if (!resolved) throw new Error("rbtr CLI not available");
             const args = scope === "all" ? ["status", "--scope", "all"] : ["status"];

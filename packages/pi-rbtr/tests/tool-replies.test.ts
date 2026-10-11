@@ -242,6 +242,36 @@ describe("in a repository of the test's own", () => {
   });
 });
 
+describe("with a daemon of its own", () => {
+  test.override({ ownDaemon: true });
+
+  test("with the daemon gone, a found and a refused reply come from the CLI and are the same", async ({
+    cli,
+    processes,
+    pi,
+  }) => {
+    const calls: Call[] = [
+      { name: "rbtr_read_symbol", args: { symbol: subject.name } },
+      { name: "rbtr_read_symbol", args: { symbol: subject.name, ...unindexed } },
+    ];
+    await pi.start();
+    const fromDaemon = await pi.run(...calls);
+    cli("daemon", "stop");
+    const fromCli = await pi.run(...calls);
+    expect(processes()).toEqual(
+      expect.arrayContaining([
+        `python3 -m rbtr --json read-symbol ${subject.name}`,
+        `python3 -m rbtr --json read-symbol ${subject.name} --ref unindexed`,
+      ]),
+    );
+    expect(fromDaemon.map((end) => end.isError)).toEqual([false, true]);
+    expect(fromCli.map((end) => [end.isError, end.result.structuredContent])).toEqual(
+      fromDaemon.map((end) => [end.isError, end.result.structuredContent]),
+    );
+    for (const end of fromCli) expect(JSON.parse(textOf(end.result))).toEqual(end.result.structuredContent);
+  });
+});
+
 test("the system prompt lists the tools that find code first, with their rules", async ({ pi }) => {
   const finding = ["rbtr_search", "rbtr_read_symbol", "rbtr_find_refs", "rbtr_changed_symbols", "rbtr_list_symbols"];
   await pi.start();

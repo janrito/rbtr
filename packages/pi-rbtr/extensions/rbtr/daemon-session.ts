@@ -129,9 +129,15 @@ export class DaemonSession {
    * a daemon that restarted has a new endpoint, and the request
    * that failed was never served.  ``RbtrReplyError`` from the
    * daemon itself is propagated as-is — the caller decides what
-   * to do with it.
+   * to do with it, and so is an abort of *signal*: it is never
+   * retried.
+   *
+   * A daemon known by its pid is checked before the request is sent,
+   * because a request to a gone daemon is never answered.
    */
-  async send<R extends Request>(request: R): Promise<ResponseFor<R["kind"]>> {
+  async send<R extends Request>(request: R, signal?: AbortSignal): Promise<ResponseFor<R["kind"]>> {
+    const pid = this.status?.pid;
+    if (pid != null && !isAlive(pid)) this.status = null;
     if (!this.rpcEndpoint) {
       await this.refresh();
       if (!this.rpcEndpoint) {
@@ -140,8 +146,10 @@ export class DaemonSession {
     }
 
     try {
-      return (await send(request, { rpcEndpoint: this.rpcEndpoint })) as ResponseFor<R["kind"]>;
+      return (await send(request, { rpcEndpoint: this.rpcEndpoint, signal })) as ResponseFor<R["kind"]>;
     } catch (err) {
+      // An abort is the caller's decision, not a transport failure.
+      if (signal?.aborted) throw err;
       if (err instanceof Error && err.name === "RbtrReplyError") {
         throw err;
       }
@@ -151,8 +159,9 @@ export class DaemonSession {
         throw new DaemonUnavailableError(err);
       }
       try {
-        return (await send(request, { rpcEndpoint: this.rpcEndpoint })) as ResponseFor<R["kind"]>;
+        return (await send(request, { rpcEndpoint: this.rpcEndpoint, signal })) as ResponseFor<R["kind"]>;
       } catch (err2) {
+        if (signal?.aborted) throw err2;
         if (err2 instanceof Error && err2.name === "RbtrReplyError") {
           throw err2;
         }
@@ -298,6 +307,16 @@ export class DaemonSession {
     if (printed === null) return this.refresh();
     this.status = printed;
     return printed;
+  }
+}
+
+/** Whether process *pid* exists; `EPERM` means it does, under another user. */
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err instanceof Error && "code" in err && err.code === "EPERM";
   }
 }
 
