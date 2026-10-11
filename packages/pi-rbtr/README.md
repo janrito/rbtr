@@ -177,11 +177,18 @@ declaration, about 1,000 tokens across the tools.
 
 The extension shows index state in the pi footer:
 
-- **Building:** `rbtr: ⟳ parsing 42/177` (spinner with
-  phase and progress).
-- **Ready:** `rbtr: ● 1.2k` (symbol count).
-- **Error:** `rbtr: not installed` or
-  `rbtr: disconnected (cli)` when the daemon is down.
+- **Starting:** `rbtr: ⠋ starting…` while the extension
+  finds and starts the daemon.
+- **Building:** `rbtr: ⠋ parsing 42/177 · 12s…` (spinner
+  with phase, progress and elapsed time; a static `⟳`
+  outside pi's terminal UI).
+- **Ready:** `rbtr: ● 1.2k symbols`. `○` with
+  `· 42% embedded` or `· not embedded` while embedding is
+  incomplete, and `· no daemon` when the CLI serves the
+  tools.
+- **No index:** `rbtr: no index — /rbtr-index`.
+- **Error:** `rbtr: cannot run`, `rbtr: indexing failed`,
+  or `rbtr: ✗ error`.
 
 ## Commands
 

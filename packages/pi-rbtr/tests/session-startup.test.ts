@@ -58,6 +58,7 @@ describe.for<{
 // because rbtr cannot read its index, only when autoIndex is on.
 describe.for<{ index: "unindexed" | "unreadable"; settings: { autoIndex: boolean; command?: string }; footer: RegExp }>(
   [
+    { index: "unindexed", settings: { autoIndex: true }, footer: / symbols/ },
     { index: "unindexed", settings: { autoIndex: false }, footer: /^rbtr: no index — \/rbtr-index$/ },
     {
       index: "unreadable",

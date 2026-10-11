@@ -171,14 +171,20 @@ export class DaemonSession {
   }
 
   /**
-   * Refresh daemon status and classify the transition.
+   * Re-check the daemon and classify the transition.
    *
-   * Captures ``available`` before calling ``refresh()``,
-   * compares with the post-refresh value, and returns a
-   * discriminated union the caller can switch on.
+   * A daemon known by its pid is checked with a signal-0 probe,
+   * which starts no process; otherwise ``refresh()`` asks the CLI.
+   * Returns a discriminated union the caller can switch on.
    */
   async detectTransition(): Promise<DaemonTransition> {
     const wasAlive = this.available;
+    const pid = this.status?.pid;
+    if (wasAlive && pid != null) {
+      if (isAlive(pid)) return { kind: "unchanged", alive: true };
+      this.status = null;
+      return { kind: "died" };
+    }
     await this.refresh();
     const aliveNow = this.available;
 

@@ -48,6 +48,9 @@ const { version: EXTENSION_VERSION } = require("../../package.json") as { versio
  */
 const READ_CLI_TIMEOUT_MS = 150_000;
 
+/** How often the health check looks for a daemon that died or came back. */
+export const HEALTH_CHECK_MS = 30_000;
+
 import { block, type IndexLookups, readFacts, searchFacts } from "./annotate.js";
 import { commandRefs, decodeStringList } from "./args.js";
 import { replySchema } from "./output-schema.js";
@@ -127,6 +130,9 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   let cli: "unknown" | "available" | "missing" = "unknown";
   let footer: Footer | null = null;
   let healthTimer: ReturnType<typeof setInterval> | null = null;
+  // The repository's root as rbtr names it, from its status and watch
+  // replies (ARCHITECTURE: "The repository root comes from rbtr").
+  let repoRoot: string | null = null;
   // Bumped on every session start and shutdown, so a startup that
   // finishes after its session ended changes nothing.
   let generation = 0;
@@ -185,6 +191,12 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   }
 
   async function queryIndexStatus(repo: string): Promise<StatusResponse | null> {
+    const status = await indexStatus(repo);
+    if (status) learnRepoRoot(status);
+    return status;
+  }
+
+  async function indexStatus(repo: string): Promise<StatusResponse | null> {
     if (session.available) {
       try {
         return await session.send({ kind: "status", repo_path: repo });
@@ -199,6 +211,17 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     } catch {
       return null;
     }
+  }
+
+  /** Take the repository's root from a reply: a status states it; a watch reply names it on each ref. */
+  function learnRepoRoot(reply: StatusResponse | WatchSetResponse | WatchResponse): void {
+    const named =
+      reply.kind === "status"
+        ? reply.repo_path
+        : "watched" in reply
+          ? reply.watched?.find((entry) => entry.repo_path)?.repo_path
+          : null;
+    repoRoot = named ?? repoRoot;
   }
 
   // ── Index facts in bash and read output ────────────────────
@@ -255,6 +278,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   pi.on("session_start", (_event, ctx) => {
     pi.setActiveTools(startingTools(pi.getActiveTools()));
     settings = loadSettings(ctx.cwd, ctx.isProjectTrusted());
+    repoRoot = null;
     footer = new Footer(ctx);
     footer.setSpinner("muted", (frame) => `rbtr: ${frame} starting…`);
     const current = ++generation;
@@ -325,8 +349,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     }
 
     healthTimer = setInterval(() => {
-      void checkDaemonHealth(ctx);
-    }, 30_000);
+      void checkDaemonHealth(ctx, isCurrent);
+    }, HEALTH_CHECK_MS);
 
     const status = await queryIndexStatus(ctx.cwd);
     if (!isCurrent()) return;
@@ -371,9 +395,12 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
    * Periodic health check: detect daemon death/return and update
    * the footer accordingly.  The ZMQ SUB socket auto-reconnects
    * on the transport layer; this function handles the UI gap.
+   * *isCurrent* turns false once the session has ended; nothing past
+   * that point touches the session.
    */
-  async function checkDaemonHealth(ctx: ExtensionContext): Promise<void> {
+  async function checkDaemonHealth(ctx: ExtensionContext, isCurrent: () => boolean): Promise<void> {
     const transition = await session.detectTransition();
+    if (!isCurrent()) return;
     switch (transition.kind) {
       case "died": {
         const status = await queryIndexStatus(ctx.cwd);
@@ -387,6 +414,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       }
       case "returned": {
         const status = await queryIndexStatus(ctx.cwd);
+        if (!isCurrent()) return;
         const indexed = status?.indexed_refs ?? [];
         if (indexed.length > 0) {
           footer?.setStatic("success", footerLabel(indexed[0], true));
@@ -403,9 +431,9 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
   /**
    * Subscribe to daemon notifications and drive the footer off
-   * them.  Filters to ``notification.repo_path === ctx.cwd`` so we
-   * ignore traffic from other repos the daemon might be
-   * watching.
+   * them.  Keeps only those for this session's repository, by the
+   * root rbtr named in its replies (`repoRoot`), so traffic for
+   * other repos the daemon watches is ignored.
    */
   function startSubscription(ctx: ExtensionContext): void {
     let buildStartedAt: number | null = null;
@@ -417,7 +445,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
     try {
       session.subscribe((notification) => {
-        if (notification.repo_path !== ctx.cwd) return;
+        if (notification.repo_path !== repoRoot) return;
         if (!footer) return;
         switch (notification.kind) {
           case "progress": {
@@ -490,7 +518,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     const targetRefs = refs.length > 0 ? [...refs] : ["HEAD"];
     footer?.setSpinner("muted", (frame) => `rbtr: ${frame} indexing…`);
     try {
-      return await withFallback<WatchSetResponse | WatchResponse>(
+      const reply = await withFallback<WatchSetResponse | WatchResponse>(
         // The extension always builds the 'full' variant (the default).
         // The 'stripped' variant is benchmark-only, driven by rbtr-eval.
         () => session.send({ kind: "watch", repo_path: ctx.cwd, refs: targetRefs }, signal),
@@ -503,6 +531,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         },
         signal,
       );
+      learnRepoRoot(reply);
+      return reply;
     } catch (err) {
       footer?.setStatic("error", "rbtr: indexing failed");
       throw err;
@@ -612,8 +642,9 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   pi.registerCommand("rbtr-settings", {
     description: "View and toggle rbtr index settings",
     handler: async (_args, ctx) => {
-      if (!ctx.hasUI) {
-        ctx.ui.notify("/rbtr-settings requires interactive mode", "error");
+      // A custom component needs pi's terminal UI; RPC has dialogs but no `custom()`.
+      if (ctx.mode !== "tui") {
+        ctx.ui.notify("/rbtr-settings requires the interactive terminal UI", "error");
         return;
       }
       if (!ctx.isProjectTrusted()) {
