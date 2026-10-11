@@ -38,6 +38,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { VERSION } from "@earendil-works/pi-coding-agent";
 import type { TestProject } from "vitest/node";
 
 import { OUTLINE_FROM_LINES, searchedName } from "../extensions/rbtr/annotate.js";
@@ -61,6 +62,8 @@ export interface Corpus {
 
 declare module "vitest" {
   export interface ProvidedContext {
+    /** The version of the installed pi, which the tests run against (`vitest.config.ts`). */
+    piVersion: string;
     /** The run's repository, what the tests use from it, and a data directory holding its index, which no daemon opens. */
     corpus: Corpus & { pristine: string };
     /** The shared daemon: its `RBTR_*_DIR` settings and its RPC endpoint. */
@@ -156,6 +159,8 @@ async function chooseCorpus(repo: string, rpc: string): Promise<Corpus> {
 }
 
 export default async function setup(project: TestProject): Promise<() => void> {
+  const { piVersion } = project.getProvidedContext();
+  if (VERSION !== piVersion) throw new Error(`the tests loaded pi ${VERSION}, not the installed pi ${piVersion}`);
   sweepAbandonedRuns();
   const root = mkdtempSync(join(tmpdir(), RUN_PREFIX));
   writeFileSync(join(root, "run.pid"), String(process.pid));

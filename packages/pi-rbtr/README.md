@@ -258,8 +258,9 @@ shows an error with install instructions if it fails.
 
 ## Development
 
-Development requires Node.js 22.19 or later and npm. The full
-repository checks also require Python 3.13, uv, and just.
+Development requires Node.js 22.19 or later, npm, and pi: the
+tests run against the installed pi. The full repository checks
+also require Python 3.13, uv, and just.
 
 ```bash
 npm install               # install dependencies
