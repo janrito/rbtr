@@ -286,5 +286,5 @@ just typecheck-ts         # tsc --noEmit
 
 The extension talks to the daemon over ZMQ and falls back to
 the CLI when none is reachable, starting one on first use.
-[ARCHITECTURE.md](ARCHITECTURE.md) covers the session
-lifecycle, the reconnection model, and rendering.
+[ARCHITECTURE.md](ARCHITECTURE.md) covers how a session
+works and the choices behind it.
