@@ -201,10 +201,15 @@ test.for<[string, [Call, Expected][]]>([
       [{ name: "rbtr_gc", args: { dry_run: true } }, { reply: { kind: "gc", dry_run: true } }],
     ],
   ],
-])("%s: each reply is rbtr's response, the same to the model and to scripts", async ([, steps], { ask, repo, pi }) => {
-  await pi.start();
-  await checkReplies(pi, ask, repo, steps);
-});
+])(
+  "%s: each reply is rbtr's response, the same to the model and to scripts",
+  async ([, steps], { ask, repo, processes, pi }) => {
+    await pi.start();
+    await checkReplies(pi, ask, repo, steps);
+    // The daemon gave every reply, refusals included: no rbtr process ran but startup's.
+    expect(processes()).toEqual(["python3 -m rbtr --json daemon status"]);
+  },
+);
 
 describe("in a repository of the test's own", () => {
   test.override({ projectSettings: { autoIndex: false } });

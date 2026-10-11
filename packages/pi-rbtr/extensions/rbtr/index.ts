@@ -5,8 +5,6 @@
  * Tries the ZMQ daemon first; falls back to shelling the CLI on
  * transport errors.  Protocol types come from the generated
  * `./generated/protocol.ts` — Python is the source of truth.
- *
- * Placement: .pi/extensions/rbtr/index.ts
  */
 
 import { readFileSync } from "node:fs";
@@ -19,7 +17,7 @@ import { Type } from "typebox";
 
 import { classifyDaemonFailure, decideStartupDecision } from "./classify.js";
 import { DaemonSession, DaemonUnavailableError, type ReconcileResult } from "./daemon-session.js";
-import { errorReply, type ResolvedCommand, resolveCommand, runRbtrJson } from "./exec.js";
+import { errorReply, type ResolvedCommand, resolveCommand, runRbtrJson, statusReport } from "./exec.js";
 import { Footer } from "./footer.js";
 import type {
   ChangedSymbolsResponse,
@@ -125,17 +123,43 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   const session = new DaemonSession();
   let resolved: ResolvedCommand | null = null;
   let settings: RbtrIndexSettings = { command: "rbtr", autoIndex: true, annotate: true };
-  let cliAvailable = false;
+  // What startup found out about the CLI; "unknown" until it has.
+  let cli: "unknown" | "available" | "missing" = "unknown";
   let footer: Footer | null = null;
   let healthTimer: ReturnType<typeof setInterval> | null = null;
+  // Bumped on every session start and shutdown, so a startup that
+  // finishes after its session ended changes nothing.
+  let generation = 0;
+  // Settles when this session's startup has decided how tools reach
+  // rbtr. Never rejects.
+  let startup: Promise<void> = Promise.resolve();
+
+  /** Wait for startup, unless *signal* aborts first. */
+  async function untilStarted(signal: AbortSignal | undefined): Promise<void> {
+    if (signal === undefined) return startup;
+    signal.throwIfAborted();
+    await new Promise<void>((resolve, reject) => {
+      const onAbort = () => reject(signal.reason);
+      signal.addEventListener("abort", onAbort, { once: true });
+      void startup.then(() => {
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      });
+    });
+  }
 
   /**
-   * Try the daemon path, fall back to the CLI callback on
-   * transport failure.  Propagates ``RbtrReplyError`` from the
-   * daemon untouched — that is an actionable reply, not a
-   * transport problem.
+   * Wait for startup, then try the daemon path, falling back to the
+   * CLI callback on transport failure.  Propagates
+   * ``RbtrReplyError`` from the daemon untouched — that is an
+   * actionable reply, not a transport problem.
    */
-  async function withFallback<T>(fromDaemon: () => Promise<T>, fromCli: () => Promise<T>): Promise<T> {
+  async function withFallback<T>(
+    fromDaemon: () => Promise<T>,
+    fromCli: () => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    await untilStarted(signal);
     if (session.available) {
       try {
         return await fromDaemon();
@@ -148,7 +172,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         }
       }
     }
-    if (!resolved || !cliAvailable) {
+    if (!resolved || cli !== "available") {
       throw new Error("rbtr CLI not available. Install with: uv tool install rbtr");
     }
     return fromCli();
@@ -198,9 +222,11 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   pi.on("tool_result", async (event, ctx) => {
     // A call another tool made (a codemode script) returns to that tool,
     // not to the model.
-    if (!settings.annotate || !session.available || event.isError || event.parentToolCallId) return;
+    if (!settings.annotate || event.isError || event.parentToolCallId) return;
     let lines: string[] = [];
     try {
+      await untilStarted(ctx.signal);
+      if (!session.available) return;
       const { command, path, offset } = event.input;
       if (event.toolName === "bash" && typeof command === "string") {
         const output = event.content.map((part) => (part.type === "text" ? part.text : "")).join("");
@@ -227,36 +253,71 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
   // ── Session lifecycle ───────────────────────────────────────
 
-  pi.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", (_event, ctx) => {
     pi.setActiveTools(startingTools(pi.getActiveTools()));
-    settings = loadSettings(ctx.cwd);
-    resolved = resolveCommand(settings.command);
+    settings = loadSettings(ctx.cwd, ctx.isProjectTrusted());
     footer = new Footer(ctx);
+    footer.setSpinner("muted", (frame) => `rbtr: ${frame} starting…`);
+    const current = ++generation;
+    // Startup runs in the background; tools wait for `startup` themselves.
+    startup = start(ctx, () => current === generation).catch((err) => {
+      if (current !== generation) return;
+      footer?.setStatic("error", "rbtr: ✗ error");
+      ctx.ui.notify(`rbtr failed to start: ${err instanceof Error ? err.message : String(err)}`, "error");
+    });
+  });
 
-    // Look for the daemon first — one CLI shell-out here avoids
-    // a per-tool-call query.  Failure leaves the session marked
-    // unavailable and the tools fall back to CLI exec.
-    await session.refresh();
+  /**
+   * Find, start and probe the daemon, then index if the repository
+   * has no index.  *isCurrent* turns false once the session has
+   * ended; nothing past that point touches the session.
+   */
+  async function start(ctx: ExtensionContext, isCurrent: () => boolean): Promise<void> {
+    // Finding rbtr also reads its daemon's status. Without a daemon, the
+    // tools run the CLI.
+    const found = await resolveCommand(pi, settings.command);
+    if (!isCurrent()) return;
+    if (found.kind === "failed") {
+      // Why rbtr did not run is unknown here; not being installed is the
+      // likeliest cause, so the hint says so.
+      cli = "missing";
+      footer?.setStatic("error", "rbtr: cannot run");
+      ctx.ui.notify(
+        `rbtr could not be run (${found.command.description}: ${found.reason}). ` +
+          "It may not be installed: uv tool install rbtr\n" +
+          'Or set command in .pi/rbtr-index.json to "uvx" or "uvx --from <path>"',
+        "warning",
+      );
+      return;
+    }
+    resolved = found.command;
+    session.useCommand(found.command, found.daemon);
 
     // Reconcile daemon version with the extension: start if
     // missing, restart if we're newer, yield if older.  See
     // DaemonSession.reconcile for the full rule set.
     if (resolved) {
+      const { executable, baseArgs } = found.command;
+      const execDaemon = async (sub: "start" | "stop"): Promise<string> => {
+        const result = await pi.exec(executable, [...baseArgs, "daemon", sub], { timeout: 15_000 });
+        if (result.code !== 0) {
+          // Under --json rbtr prints its error on stdout; a crash leaves only stderr.
+          const failure = classifyDaemonFailure(result.code, errorReply(result.stdout), result.stderr ?? "");
+          throw new Error(failure.message);
+        }
+        return result.stdout;
+      };
       const reconcileResult = await session.reconcile(EXTENSION_VERSION, {
-        execDaemon: async (sub) => {
-          if (!resolved) throw new Error("rbtr command not resolved");
-          if (sub === "start") footer?.setSpinner("muted", (frame) => `rbtr: ${frame} starting daemon…`);
-          else footer?.setSpinner("muted", (frame) => `rbtr: ${frame} restarting daemon…`);
-          const result = await pi.exec(resolved.executable, [...resolved.baseArgs, "daemon", sub], {
-            timeout: 15_000,
-          });
-          if (result.code !== 0) {
-            // Under --json rbtr prints its error on stdout; a crash leaves only stderr.
-            const failure = classifyDaemonFailure(result.code, errorReply(result.stdout), result.stderr ?? "");
-            throw new Error(failure.message);
-          }
+        startDaemon: async () => {
+          footer?.setSpinner("muted", (frame) => `rbtr: ${frame} starting daemon…`);
+          return statusReport(await execDaemon("start"));
+        },
+        stopDaemon: async () => {
+          footer?.setSpinner("muted", (frame) => `rbtr: ${frame} restarting daemon…`);
+          await execDaemon("stop");
         },
       });
+      if (!isCurrent()) return;
       notifyReconcile(ctx, reconcileResult);
     }
 
@@ -269,28 +330,14 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     }, 30_000);
 
     const status = await queryIndexStatus(ctx.cwd);
-    const decision = decideStartupDecision(resolved !== null, status, settings.autoIndex);
+    if (!isCurrent()) return;
+    const decision = decideStartupDecision(status, settings.autoIndex);
 
-    if (decision.kind === "missing-cli") {
-      // Genuinely unresolvable CLI — the only case that disables
-      // rbtr for the session.  A transient daemon/lock failure
-      // must not land here (it would mislabel a present CLI as
-      // missing and skip auto-index).
-      cliAvailable = false;
-      footer.setStatic("error", "rbtr: not found");
-      ctx.ui.notify(
-        "rbtr CLI not found. Install with: uv tool install rbtr\n" +
-          'Or set command in .pi/rbtr-index.json to "uvx" or "uvx --from <path>"',
-        "warning",
-      );
-      return;
-    }
-
-    cliAvailable = true;
+    cli = "available";
 
     if (decision.kind === "indexed") {
       const top = (status?.indexed_refs ?? [])[0];
-      if (top) footer.setStatic("success", footerLabel(top, session.available));
+      if (top) footer?.setStatic("success", footerLabel(top, session.available));
       return;
     }
 
@@ -299,17 +346,19 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     }
 
     // empty or transient: index if enabled (the CLI auto-starts /
-    // falls back), else leave a hint in the footer.
+    // falls back), else leave a hint in the footer.  Startup does not
+    // wait for the build: the footer reports it.
     if (decision.index) {
-      await triggerIndex(ctx);
+      void triggerIndex(ctx);
     } else {
       const hint =
         decision.kind === "transient" ? "rbtr: index unavailable — retrying" : "rbtr: no index — /rbtr-index";
-      footer.setStatic("muted", hint);
+      footer?.setStatic("muted", hint);
     }
-  });
+  }
 
   pi.on("session_shutdown", async () => {
+    generation++;
     if (healthTimer !== null) {
       clearInterval(healthTimer);
       healthTimer = null;
@@ -418,7 +467,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   }
 
   pi.on("before_agent_start", async (event) => {
-    if (!cliAvailable) return;
+    if (cli === "missing") return;
     return {
       systemPrompt:
         event.systemPrompt +
@@ -434,7 +483,11 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
    * inline build replies with what it built.  A failure marks the
    * footer and propagates.
    */
-  async function watchRefs(ctx: ExtensionContext, refs: readonly string[]): Promise<WatchSetResponse | WatchResponse> {
+  async function watchRefs(
+    ctx: ExtensionContext,
+    refs: readonly string[],
+    signal?: AbortSignal,
+  ): Promise<WatchSetResponse | WatchResponse> {
     const targetRefs = refs.length > 0 ? [...refs] : ["HEAD"];
     footer?.setSpinner("muted", (frame) => `rbtr: ${frame} indexing…`);
     try {
@@ -445,9 +498,11 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         () => {
           if (!resolved) throw new Error("rbtr CLI not available");
           return runRbtrJson<WatchSetResponse | WatchResponse>(pi, resolved, ["watch", ...targetRefs], {
+            signal,
             timeout: 600_000,
           });
         },
+        signal,
       );
     } catch (err) {
       footer?.setStatic("error", "rbtr: indexing failed");
@@ -455,11 +510,16 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     }
   }
 
-  /** Watch refs for the session start and `/rbtr-index`, telling the user if it fails. */
+  /**
+   * Watch refs for the session start and `/rbtr-index`, telling the user
+   * if it fails while the session lasts: a build outlives its session.
+   */
   async function triggerIndex(ctx: ExtensionContext, ...refs: string[]): Promise<void> {
+    const current = generation;
     try {
       await watchRefs(ctx, refs);
     } catch (err) {
+      if (current !== generation) return;
       ctx.ui.notify(`Indexing failed: ${err instanceof Error ? err.message : String(err)}`, "error");
     }
   }
@@ -467,32 +527,35 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   // Stop watching the given refs (daemon path, CLI fallback).  The
   // protocol takes at least one ref: unwatching nothing is a mis-shaped
   // call, and finding the stale ones is `removeStale`.  rbtr refuses HEAD.
-  function unwatch(ctx: ExtensionContext, refs: [string, ...string[]]): Promise<UnwatchResponse> {
+  function unwatch(ctx: ExtensionContext, refs: [string, ...string[]], signal?: AbortSignal): Promise<UnwatchResponse> {
     return withFallback<UnwatchResponse>(
       () => session.send({ kind: "unwatch", repo_path: ctx.cwd, refs }),
       () => {
         if (!resolved) throw new Error("rbtr CLI not available");
-        return runRbtrJson<UnwatchResponse>(pi, resolved, ["unwatch", ...refs], { timeout: 60_000 });
+        return runRbtrJson<UnwatchResponse>(pi, resolved, ["unwatch", ...refs], { signal, timeout: 60_000 });
       },
+      signal,
     );
   }
 
   // Drop watched refs that no longer resolve (e.g. deleted branches).
   // Which refs those are is rbtr's to decide, so this asks rather than
   // working it out here; HEAD is never removed.
-  function removeStale(ctx: ExtensionContext): Promise<UnwatchResponse> {
+  function removeStale(ctx: ExtensionContext, signal?: AbortSignal): Promise<UnwatchResponse> {
     return withFallback<UnwatchResponse>(
       () => session.send({ kind: "unwatch_stale", repo_path: ctx.cwd }),
       () => {
         if (!resolved) throw new Error("rbtr CLI not available");
-        return runRbtrJson<UnwatchResponse>(pi, resolved, ["unwatch", "--stale"], { timeout: 60_000 });
+        return runRbtrJson<UnwatchResponse>(pi, resolved, ["unwatch", "--stale"], { signal, timeout: 60_000 });
       },
+      signal,
     );
   }
 
   async function triggerGc(
     ctx: ExtensionContext,
     opts: { watchedOnly: boolean; dryRun: boolean },
+    signal?: AbortSignal,
   ): Promise<GcResponse> {
     const mode: GcMode = opts.watchedOnly ? "watched_only" : "watched";
     return withFallback(
@@ -502,8 +565,9 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         const args = ["gc"];
         if (opts.watchedOnly) args.push("--keep", "watched-only");
         if (opts.dryRun) args.push("--dry-run");
-        return runRbtrJson<GcResponse>(pi, resolved, args, { timeout: 120_000 });
+        return runRbtrJson<GcResponse>(pi, resolved, args, { signal, timeout: 120_000 });
       },
+      signal,
     );
   }
 
@@ -512,7 +576,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   pi.registerCommand("rbtr-status", {
     description: "Show rbtr index status",
     handler: async (_args, ctx) => {
-      if (!cliAvailable) {
+      await startup;
+      if (cli !== "available") {
         ctx.ui.notify("rbtr CLI not available", "error");
         return;
       }
@@ -533,12 +598,14 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   pi.registerCommand("rbtr-index", {
     description: "Index the repository, or the given refs: /rbtr-index main feature-x",
     handler: async (args, ctx) => {
-      if (!cliAvailable) {
+      await startup;
+      if (cli !== "available") {
         ctx.ui.notify("rbtr CLI not available", "error");
         return;
       }
       const refs = commandRefs(args);
-      await triggerIndex(ctx, ...refs);
+      // A CLI build runs inline for minutes; the command does not wait for it.
+      void triggerIndex(ctx, ...refs);
       ctx.ui.notify(`Indexing ${refs.length > 0 ? refs.join(", ") : "HEAD"}. Progress in the footer.`, "info");
     },
   });
@@ -548,6 +615,10 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     handler: async (_args, ctx) => {
       if (!ctx.hasUI) {
         ctx.ui.notify("/rbtr-settings requires interactive mode", "error");
+        return;
+      }
+      if (!ctx.isProjectTrusted()) {
+        ctx.ui.notify("Project settings are ignored until the project is trusted (/trust).", "warning");
         return;
       }
 
@@ -572,7 +643,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
               "",
               `${theme.fg("muted", "Command:")} ${settings.command}`,
               `${theme.fg("muted", "Resolved:")} ${theme.fg("dim", desc)}`,
-              `${theme.fg("muted", "CLI available:")} ${cliAvailable ? theme.fg("success", "yes") : theme.fg("error", "no")}`,
+              `${theme.fg("muted", "CLI available:")} ${cli === "available" ? theme.fg("success", "yes") : theme.fg("error", cli === "missing" ? "no" : "checking…")}`,
               `${theme.fg("muted", "Transport:")} ${theme.fg(session.available ? "success" : "warning", daemonMode)}`,
               "",
             ];
@@ -677,6 +748,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             if (params.scope !== undefined) args.push("--scope", params.scope);
             return runRbtrJson<SearchResponse>(pi, resolved, args, { signal, timeout: READ_CLI_TIMEOUT_MS });
           },
+          signal,
         );
         return toolResult(resp);
       } catch (err) {
@@ -735,6 +807,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             for (const fp of params.file_paths ?? []) readArgs.push("--file-path", fp);
             return runRbtrJson<ReadSymbolResponse>(pi, resolved, readArgs, { signal, timeout: READ_CLI_TIMEOUT_MS });
           },
+          signal,
         );
         return toolResult(resp);
       } catch (err) {
@@ -792,6 +865,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             for (const fp of params.file_paths ?? []) findArgs.push("--file-path", fp);
             return runRbtrJson<FindRefsResponse>(pi, resolved, findArgs, { signal, timeout: READ_CLI_TIMEOUT_MS });
           },
+          signal,
         );
         return toolResult(resp);
       } catch (err) {
@@ -847,6 +921,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
               timeout: READ_CLI_TIMEOUT_MS,
             });
           },
+          signal,
         );
         return toolResult(resp);
       } catch (err) {
@@ -896,6 +971,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
               timeout: READ_CLI_TIMEOUT_MS,
             });
           },
+          signal,
         );
         return toolResult(resp);
       } catch (err) {
@@ -931,15 +1007,15 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     renderCall: (args, theme) => renderIndexCall(args, theme),
     renderResult: (result, options, theme) => renderIndexResult(result, options, theme),
 
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       // Decode refs in case the provider delivered the array as a
       // JSON-encoded string (the daemon decodes its copy too).
       const decodedRefs = decodeStringList(params.refs);
       const refs: [string, ...string[]] = decodedRefs.length > 0 ? [decodedRefs[0], ...decodedRefs.slice(1)] : ["HEAD"];
       try {
-        if (params.remove_stale) return toolResult(await removeStale(ctx));
-        if (params.remove) return toolResult(await unwatch(ctx, refs));
-        return toolResult(await watchRefs(ctx, refs));
+        if (params.remove_stale) return toolResult(await removeStale(ctx, signal));
+        if (params.remove) return toolResult(await unwatch(ctx, refs, signal));
+        return toolResult(await watchRefs(ctx, refs, signal));
       } catch (err) {
         return mapDaemonError(err);
       }
@@ -986,7 +1062,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     renderCall: (args, theme) => renderStatusCall(args, theme),
     renderResult: (result, options, theme) => renderStatusResult(result, options, theme),
 
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       const scope = params.scope ?? "workspace";
       try {
         const status = await withFallback<StatusResponse>(
@@ -996,6 +1072,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             const args = scope === "all" ? ["status", "--scope", "all"] : ["status"];
             return runRbtrJson<StatusResponse>(pi, resolved, args, { timeout: 5000 });
           },
+          signal,
         );
         return toolResult(status);
       } catch (err) {
@@ -1026,14 +1103,18 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     }),
     outputSchema: replySchema("GcResponse", "ErrorResponse"),
 
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       // Dry-run by default: a careless call previews; deleting needs a
       // deliberate dry_run=false after the user has confirmed.
       try {
-        const res = await triggerGc(ctx, {
-          watchedOnly: params.watched_only ?? false,
-          dryRun: params.dry_run ?? true,
-        });
+        const res = await triggerGc(
+          ctx,
+          {
+            watchedOnly: params.watched_only ?? false,
+            dryRun: params.dry_run ?? true,
+          },
+          signal,
+        );
         return toolResult(res);
       } catch (err) {
         return mapDaemonError(err);

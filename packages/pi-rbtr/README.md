@@ -7,7 +7,7 @@ structure, trace dependency edges, and compare structural
 changes between git refs — without constructing shell
 commands or parsing raw output.
 
-[pi]: https://github.com/badlogic/pi-mono
+[pi]: https://pi.dev
 
 ## Install
 
@@ -196,7 +196,8 @@ Three user-facing commands (no LLM involved):
 ## Configuration
 
 Settings are read from JSON config files. Project-local
-overrides global:
+overrides global. The project file is read only when pi
+trusts the project (`/trust`), like pi's own `.pi/` files:
 
 | File                          | Scope         |
 | ----------------------------- | ------------- |
