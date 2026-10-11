@@ -109,22 +109,29 @@ def test_a_late_reply_is_waited_for_not_asked_for_again(
     assert not slow_replies, f"a reply well inside the budget warned {len(slow_replies)} times"
 
 
+@pytest.mark.parametrize(
+    "liveness_interval_s",
+    [0.05, 0.25],
+    ids=["checks-often", "first-check-after-the-deadline"],
+)
 def test_waiting_stops_when_the_budget_is_spent(
     silent_endpoint: Path,
     fake_repo: str,
     log_output: structlog.testing.LogCapture,
+    liveness_interval_s: float,
 ) -> None:
     """A live daemon that never answers exhausts the budget.
 
     It says so once on the way, rather than on every check: the
     waiting is routine, a request halfway through its caller's
-    patience is not.
+    patience is not.  A check that comes after the deadline still
+    says so: half the budget went by before it.
     """
     with (
         DaemonClient(
             silent_endpoint,
             wait_budget_s=0.2,
-            liveness_interval_s=0.05,
+            liveness_interval_s=liveness_interval_s,
         ) as client,
         pytest.raises(DaemonBusyError),
     ):
