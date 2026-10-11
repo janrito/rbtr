@@ -74,7 +74,7 @@ from rbtr.domain.models import (
     SnapshotRange,
     SnapshotRef,
 )
-from rbtr.errors import IndexNotBuiltError, RbtrError
+from rbtr.errors import IndexNotBuiltError, MissingSnapshot, RbtrError
 from rbtr.git import (
     HEAD_REF,
     WORKTREE_REF,
@@ -266,8 +266,8 @@ def _require_indexed(store: IndexStore, at: SnapshotRef, requested_ref: str) -> 
     quotes; *at* is what it resolved to.
 
     The daemon's `_dispatch` upgrades this to an "index is building"
-    message when a build is active; inline callers see the plain
-    "not indexed" guidance.
+    message when it will index that snapshot; inline callers see the
+    plain "not indexed" guidance.
     """
     if store.has_indexed(at=at):
         return
@@ -275,7 +275,8 @@ def _require_indexed(store: IndexStore, at: SnapshotRef, requested_ref: str) -> 
         msg = "Working tree is not indexed yet — run rbtr watch first"
     else:
         msg = f"Ref '{requested_ref}' is not indexed — run rbtr watch first"
-    raise IndexNotBuiltError(msg)
+    missing = MissingSnapshot(repo_id=at.repo_id, snapshot_sha=at.snapshot_sha, ref=requested_ref)
+    raise IndexNotBuiltError(msg, missing=missing)
 
 
 def handle_changed_symbols(

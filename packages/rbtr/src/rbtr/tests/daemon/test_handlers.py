@@ -8,12 +8,13 @@ Tests verify typed responses via the actual socket path.
 from __future__ import annotations
 
 import json
+from collections.abc import Generator
 from pathlib import Path
 
 import pygit2
 import pytest
 import structlog
-from pytest_cases import parametrize_with_cases
+from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.dto import ResolvedRef
@@ -25,7 +26,6 @@ from rbtr.daemon.handlers import (
     handle_watch,
 )
 from rbtr.daemon.messages import (
-    ActiveJob,
     DaemonConfigRequest,
     ErrorCode,
     ErrorResponse,
@@ -49,7 +49,7 @@ from rbtr.daemon.server import DaemonServer
 from rbtr.domain.models import EdgeKind, GcMode, QueryKind, RefSource
 from rbtr.errors import RbtrError
 from rbtr.index.store import IndexStore
-from rbtr.tests.daemon.cases_handlers import StatusRootScenario
+from rbtr.tests.daemon.cases_handlers import StatusRootScenario, UnbuiltRefScenario
 
 
 @pytest.fixture
@@ -223,28 +223,41 @@ def test_read_symbol_unindexed_ref_errors(
     assert "not indexed" in resp.message
 
 
-def test_read_symbol_unindexed_ref_reports_building_when_active(
-    running_daemon: DaemonServer, fake_repo: str, unindexed_ref: str
-) -> None:
-    """While a build is active, an unindexed ref reports 'building'.
+@fixture
+@parametrize_with_cases("scenario", prefix="case_unbuilt_")
+def scenario_applied(
+    running_daemon: DaemonServer,
+    seeded_store: IndexStore,
+    fake_repo: str,
+    scenario: UnbuiltRefScenario,
+) -> Generator[UnbuiltRefScenario]:
+    """*scenario*'s build and watch set, applied to `running_daemon`."""
+    repo_id = seeded_store.get_repo_id(fake_repo)
+    assert repo_id is not None
+    with seeded_store.session() as ws:
+        ws.add_watched_refs(repo_id, scenario.watched)
+    running_daemon._active_build = scenario.active_build
+    yield scenario
+    running_daemon._active_build = None
 
-    Build-awareness lives only in the daemon's `_dispatch`: the handler
-    raises a plain not-indexed error, which `_dispatch` upgrades when a
-    build is running.
+
+def test_an_unindexed_ref_reports_building_only_when_the_daemon_will_index_it(
+    running_daemon: DaemonServer,
+    fake_repo: str,
+    unindexed_ref: str,
+    scenario_applied: UnbuiltRefScenario,
+) -> None:
+    """A read of a ref that is not indexed is told the index is building
+    only when the daemon is building that commit of that repo, or will
+    because the repo watches the ref; anything else would have the caller
+    wait for a build that never comes.
     """
-    server = running_daemon
-    server._active_build = ActiveJob(
-        repo_path=fake_repo, ref="x" * 40, phase="parsing", current=1, total=2, elapsed_seconds=0.0
-    )
-    try:
-        with DaemonClient(server.runtime_dir) as client:
-            resp = client.send(
-                ReadSymbolRequest(repo_path=fake_repo, symbol="load_config", ref=unindexed_ref)
-            )
-    finally:
-        server._active_build = None
+    with DaemonClient(running_daemon.runtime_dir) as client:
+        resp = client.send(
+            ReadSymbolRequest(repo_path=fake_repo, symbol="load_config", ref=unindexed_ref)
+        )
     assert isinstance(resp, ErrorResponse)
-    assert "building" in resp.message.lower()
+    assert resp.code == scenario_applied.expected
 
 
 def test_read_symbol_with_file_paths(running_daemon: DaemonServer, fake_repo: str) -> None:

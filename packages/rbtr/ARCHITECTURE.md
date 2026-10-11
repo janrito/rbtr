@@ -933,10 +933,12 @@ A progress notification (PUB):
 
 Error responses carry a `code` field:
 
-- `index_not_built` — no index exists for this repo.
-  Client should trigger `rbtr watch`.
-- `index_in_progress` — a build is running; retry after
-  the `ready` notification.
+- `index_not_built` — what the read needs is not indexed,
+  and nothing will index it. Client should trigger
+  `rbtr watch`.
+- `index_in_progress` — the daemon will index what the read
+  needs without being asked; retry after the `ready`
+  notification.
 - `repo_not_found` — the repo path isn't registered.
 - `index_locked` — another process holds the index's write
   lock; retry once it has let go.
@@ -947,12 +949,20 @@ Error responses carry a `code` field:
   caller can see how an argument was mis-shaped.
 - `internal` — unexpected server error.
 
-The two index errors differ by where they're decided: a read
-for an unindexed ref raises a plain `IndexNotBuiltError`, and
-`_dispatch` asks `_is_building()` — the daemon's one source
-of build-awareness, so handlers need none — and turns it
-into `index_in_progress`, otherwise it stays
-`index_not_built`.
+The two index errors are decided in different places. A
+handler that finds a ref unindexed raises
+`IndexNotBuiltError`, naming the missing snapshot and the
+ref the caller used. `_dispatch` then asks `_will_index()`,
+the daemon's one source of build awareness, so handlers
+need none. The daemon will index the snapshot when its
+running build is that commit of that repo, or when the repo
+watches that ref; the reply is then `index_in_progress`, and
+otherwise `index_not_built`. Any running build is not
+enough: one daemon serves every repo, and a build of
+another repo or commit never indexes what the read asked
+for, so the caller would wait for nothing. When no snapshot
+is named, the index's tables are missing, and any build
+creates them.
 
 **Schema generation.** `messages.py` is the source of
 truth. `rbtr schema-dump` produces JSON Schema.

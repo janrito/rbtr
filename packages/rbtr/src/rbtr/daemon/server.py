@@ -85,7 +85,7 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.status import remove_status, write_status
 from rbtr.domain.models import Chunk, SnapshotRef
-from rbtr.errors import IndexNotBuiltError, RbtrError
+from rbtr.errors import IndexNotBuiltError, MissingSnapshot, RbtrError
 from rbtr.git import HEAD_REF, non_commit_shas, normalise_repo_path
 from rbtr.index.build import build_index
 from rbtr.index.embeddings import Embedder, embedding_text
@@ -563,9 +563,27 @@ class DaemonServer:
         """
         return self._ready.wait(timeout=timeout)
 
-    def _is_building(self) -> bool:
-        """Return True if a build is currently active."""
-        return self._active_build is not None
+    def _will_index(self, missing: MissingSnapshot | None) -> bool:
+        """Whether the daemon will index what a read found missing, unasked.
+
+        It will when it is building that commit of that repo, or when the
+        repo watches the ref the read named. With no snapshot named, the
+        index's tables were missing, and any build creates them.  Called
+        from `to_thread`: it reads the store.
+        """
+        active = self._active_build
+        if missing is None:
+            return active is not None
+        # A snapshot was named, so a handler read the store: it is open.
+        store = self._store
+        if store is None:
+            return False
+        building_it = (
+            active is not None
+            and active.ref == missing.snapshot_sha
+            and store.get_repo_id(active.repo_path) == missing.repo_id
+        )
+        return building_it or missing.ref in store.list_watched_refs(missing.repo_id)
 
     def _snapshot_status(
         self,
@@ -967,12 +985,12 @@ class DaemonServer:
             try:
                 result = await handler(request)
             except IndexNotBuiltError as exc:
-                # A ref/symbol that isn't indexed yet: if a build is
-                # running it will become queryable soon, so say so rather
-                # than tell the caller to start an index that is already
-                # in progress.  This is the daemon's single source of
+                # A ref/symbol that isn't indexed yet: if the daemon will
+                # index it unasked, it will become queryable soon, so say so
+                # rather than tell the caller to start an index that is
+                # already coming.  This is the daemon's single source of
                 # build-awareness; handlers stay build-agnostic.
-                if self._is_building():
+                if await asyncio.to_thread(self._will_index, exc.missing):
                     return ErrorResponse(
                         code=ErrorCode.INDEX_IN_PROGRESS,
                         message="Index is building. Try again shortly.",
