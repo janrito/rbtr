@@ -9,15 +9,25 @@ management is delegated to the slot.
 from __future__ import annotations
 
 import asyncio
+import functools
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import structlog
-from llama_cpp import LLAMA_POOLING_TYPE_UNSPECIFIED, Llama
+from llama_cpp import (
+    LLAMA_POOLING_TYPE_UNSPECIFIED,
+    Llama,
+    ggml_abort_callback,
+    llama_set_abort_callback,
+)
 
 from rbtr.config import config
 from rbtr.index._gpu_model import GpuModelSlot, install_llama_log_callback, resolve_gguf_path
+
+if TYPE_CHECKING:
+    from ctypes import _CFunctionType
 
 log = structlog.get_logger(__name__)
 
@@ -33,8 +43,39 @@ class EmbedResult:
 # ── Model loading ────────────────────────────────────────────────────
 
 
-def _load_model() -> Llama:
-    """Load the embedding model, downloading if necessary."""
+@dataclass(frozen=True, slots=True)
+class _ModelShape:
+    """What the GGUF metadata says about a model, as `_load_model` needs it."""
+
+    trained_context: int
+    causal: bool
+
+
+def _model_shape(model_path: str) -> _ModelShape:
+    """Read the shape of the model at *model_path* from its GGUF metadata.
+
+    A vocab-only load reads the metadata and skips the weights.  A model
+    that does not set `attention.causal` has causal attention, as
+    llama.cpp reads it.
+    """
+    vocab = Llama(model_path=model_path, vocab_only=True, verbose=config.embedding_verbose)
+    try:
+        metadata = vocab.metadata
+    finally:
+        vocab.close()
+    arch = metadata["general.architecture"]
+    return _ModelShape(
+        trained_context=int(metadata[f"{arch}.context_length"]),
+        causal=metadata.get(f"{arch}.attention.causal", "true") == "true",
+    )
+
+
+def _load_model(abort_callback: _CFunctionType | None) -> Llama:
+    """Load the embedding model, downloading if necessary.
+
+    llama.cpp calls *abort_callback*, when given, while it computes; a
+    true return ends the call with an error.
+    """
     model_path = resolve_gguf_path(config.embedding_model)
     log.info("loading_embedding_model", path=model_path)
 
@@ -46,15 +87,27 @@ def _load_model() -> Llama:
     if pooling < 0:
         pooling = LLAMA_POOLING_TYPE_UNSPECIFIED
 
+    # The longest text the model takes: the configured window, or the
+    # context it was trained on when that is shorter.  A model without
+    # causal attention (an encoder, such as BERT) takes a whole decode in
+    # one micro-batch, so its micro-batch is the batch; a decoder splits
+    # the decode, and keeps llama.cpp's 512, since a longer micro-batch
+    # only costs it memory (Qwen3-Embedding-0.6B: 1.2 GiB of compute
+    # buffer at 2048, 0.3 GiB at 512).
+    shape = _model_shape(str(model_path))
+    n_ctx = min(config.embedding_n_ctx, shape.trained_context)
     model = Llama(
         model_path=str(model_path),
         embedding=True,
-        n_ctx=config.embedding_n_ctx,
-        n_batch=config.embedding_n_ctx,
+        n_ctx=n_ctx,
+        n_batch=n_ctx,
+        n_ubatch=512 if shape.causal else n_ctx,
         n_gpu_layers=config.embedding_n_gpu_layers,
         verbose=config.embedding_verbose,
         pooling_type=pooling,
     )
+    if abort_callback is not None:
+        llama_set_abort_callback(model.ctx, abort_callback, None)
 
     return model
 
@@ -68,6 +121,9 @@ class Embedder:
     Lazily loads the model on first use.  The idle monitor is an
     asyncio task spawned by the daemon.  Call `close()` before
     discarding the instance to release native resources cleanly.
+
+    While *abort* is set, `embed` ends with `RuntimeError`, one already
+    running included.
     """
 
     def __init__(
@@ -77,9 +133,15 @@ class Embedder:
         gpu_lock: asyncio.Lock | None = None,
         load_lock: threading.Lock | None = None,
         model_loader: Callable[[], Llama] | None = None,
+        abort: threading.Event | None = None,
     ) -> None:
+        # llama.cpp keeps only a pointer to the callback, so the embedder
+        # holds it for as long as its model may run.
+        self._abort_callback = (
+            None if abort is None else ggml_abort_callback(lambda _data: abort.is_set())
+        )
         self._slot: GpuModelSlot[Llama] = GpuModelSlot(
-            model_loader or _load_model,
+            model_loader or functools.partial(_load_model, self._abort_callback),
             lambda model: model.close(),
             idle_timeout=idle_timeout,
             gpu_lock=gpu_lock,

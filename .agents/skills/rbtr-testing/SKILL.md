@@ -17,10 +17,12 @@ Search first — `rbtr_search`, grep, whatever fits — and show what
 came back. The result in the transcript, not the claim you looked.
 
 - **Reuse what exists.** Check the conftests up the tree before
-  adding a fixture or builder. `rbtr.tests.conftest` is importable
-  from any package's tests, so `store`, `git_repo`, `make_commit`
-  and friends are always in reach. Building a second repo, store
-  or corpus when one is on the shelf is the costliest mistake here.
+  adding a fixture or builder. rbtr's pytest plugin (`rbtr.testing`)
+  gives every package's tests `isolated_db` and `snapshot_json` with
+  no import, and `rbtr.tests.conftest` is importable for `git_repo`,
+  `make_commit` and friends. Building a
+  second repo, store or corpus when one is on the shelf is the
+  costliest mistake here.
 - **Count before copying.** The nearest example is not the
   convention; the majority is. `build_index` is module-level in
   seven files and deferred in two.
@@ -142,8 +144,8 @@ tuple list, promote to cases.
 
 ## Fixtures
 
-**Search before you write.** Grep the conftests up the tree
-before adding a fixture — `store` (in-memory writable
+**Search before you write.** Grep the conftests up the tree and
+`rbtr.testing` before adding a fixture — `store` (in-memory writable
 `IndexStore`), `git_repo`, `isolated_db`, `two_commits` and
 friends already exist, and a new fixture that constructs what
 one of them provides also duplicates its teardown. Check

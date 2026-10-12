@@ -3,7 +3,7 @@
  *
  * Config files (project overrides global):
  * - ~/.pi/agent/rbtr-index.json
- * - <cwd>/.pi/rbtr-index.json
+ * - <cwd>/.pi/rbtr-index.json, read only when pi trusts the project
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -34,12 +34,16 @@ function loadJsonFile(path: string): Partial<RbtrIndexSettings> {
   }
 }
 
-export function loadSettings(cwd: string): RbtrIndexSettings {
+/**
+ * The settings for *cwd*: defaults, then the global file, then the
+ * project file when *projectTrusted*.
+ */
+export function loadSettings(cwd: string, projectTrusted: boolean): RbtrIndexSettings {
   const globalPath = join(getAgentDir(), CONFIG_FILENAME);
   const projectPath = join(cwd, ".pi", CONFIG_FILENAME);
 
   const global = loadJsonFile(globalPath);
-  const project = loadJsonFile(projectPath);
+  const project = projectTrusted ? loadJsonFile(projectPath) : {};
 
   return { ...DEFAULTS, ...global, ...project };
 }

@@ -27,6 +27,10 @@ jobs:
           cache: "npm"
           cache-dependency-path: "package-lock.json"
 
+      # pi-rbtr's tests run against the installed pi.
+      - name: Install pi
+        run: npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+
       - name: Install and check
         run: |
           just setup-ci

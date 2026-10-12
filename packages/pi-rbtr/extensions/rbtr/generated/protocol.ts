@@ -129,7 +129,6 @@ export interface WatchRequest {
   kind: "watch";
   repo_path: string;
   refs?: string[];
-  embed?: boolean;
 }
 /**
  * Search the code index.
@@ -540,8 +539,17 @@ export interface ChangedSymbol {
   chunk: SymbolRefOut;
   change: ChangeKind;
 }
+/**
+ * Index status for one repository, or every one under `Scope.ALL`.
+ *
+ * `repo_path` is the repository's root, normalised, under workspace
+ * scope, whether or not anything of it is indexed; a caller in a
+ * subdirectory learns from it what its paths are relative to. It is
+ * `None` under `Scope.ALL`.
+ */
 export interface StatusResponse {
   kind: "status";
+  repo_path?: string | null;
   db_path?: string | null;
   db_size_bytes?: number | null;
   indexed_refs?: IndexedRef[];

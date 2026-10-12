@@ -6,17 +6,14 @@
  * response object.
  *
  * When the command is `"rbtr"`, resolution follows a cascade:
- * 1. rbtr in the active Python environment (detected via
- *    `python3 -c "import rbtr"`)
+ * 1. rbtr in the active Python environment (`python3 -m rbtr`)
  * 2. rbtr on PATH
  * 3. uvx rbtr
  */
 
-import { spawnSync } from "node:child_process";
-
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import type { ErrorResponse } from "./generated/protocol.js";
+import type { DaemonStatusReport, ErrorResponse } from "./generated/protocol.js";
 import { RbtrReplyError } from "./reply-error.js";
 
 export interface ResolvedCommand {
@@ -26,38 +23,65 @@ export interface ResolvedCommand {
 }
 
 /**
- * Resolve a `command` setting string into an executable and base args.
+ * The rbtr a session runs and what its `daemon status` reported, or the
+ * last candidate tried and why its `daemon status` did not answer.
+ */
+export type FoundRbtr =
+  | { kind: "found"; command: ResolvedCommand; daemon: DaemonStatusReport }
+  | { kind: "failed"; command: ResolvedCommand; reason: string };
+
+const UVX_RBTR: ResolvedCommand = { executable: "uvx", baseArgs: ["rbtr", "--json"], description: "uvx rbtr" };
+
+/**
+ * Resolve a `command` setting string into an executable and base args,
+ * and ask that rbtr for its daemon's status.
  *
  * Supported formats:
- * - `"rbtr"` — cascade: `python -m rbtr` → PATH `rbtr` → `uvx rbtr`
+ * - `"rbtr"` — cascade: `python -m rbtr` → PATH `rbtr` → `uvx rbtr`;
+ *   the first candidate whose `daemon status` answers is taken
  * - `"uvx"` — one-shot from published package
  * - `"uvx --from <path>"` — one-shot from local directory
  */
-export function resolveCommand(command: string): ResolvedCommand {
+export async function resolveCommand(pi: Pick<ExtensionAPI, "exec">, command: string): Promise<FoundRbtr> {
   const trimmed = command.trim();
+  // `daemon status` answers whenever rbtr runs, daemon or not. pi reports a
+  // program that cannot start as a silent exit 1, so a failure says only
+  // that this candidate does not run.
+  const daemonStatus = async (candidate: ResolvedCommand, timeout?: number): Promise<FoundRbtr> => {
+    const failed = (reason: string): FoundRbtr => ({ kind: "failed", command: candidate, reason });
+    try {
+      const result = await pi.exec(candidate.executable, [...candidate.baseArgs, "daemon", "status"], { timeout });
+      if (result.killed) return failed("no answer in time");
+      if (result.code !== 0) return failed(result.stderr.trim().split("\n").at(-1) || `exit ${result.code}`);
+      const daemon = statusReport(result.stdout);
+      return daemon === null
+        ? failed("unreadable `daemon status` reply")
+        : { kind: "found", command: candidate, daemon };
+    } catch (err) {
+      return failed(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   if (trimmed === "rbtr") {
-    // 1. Try the active Python environment.
-    const pyResult = spawnSync("python3", ["-m", "rbtr", "--help"], { encoding: "utf8", timeout: 5000 });
-    if (pyResult.status === 0) {
-      return { executable: "python3", baseArgs: ["-m", "rbtr", "--json"], description: "python -m rbtr" };
+    const candidates: ResolvedCommand[] = [
+      { executable: "python3", baseArgs: ["-m", "rbtr", "--json"], description: "python -m rbtr" },
+      { executable: "rbtr", baseArgs: ["--json"], description: "rbtr (PATH)" },
+    ];
+    for (const candidate of candidates) {
+      const found = await daemonStatus(candidate, 5000);
+      if (found.kind === "found") return found;
     }
-
-    // 2. Check if rbtr is on PATH and functional.
-    const pathResult = spawnSync("rbtr", ["--help"], { encoding: "utf8", timeout: 5000 });
-    if (pathResult.status === 0) {
-      return { executable: "rbtr", baseArgs: ["--json"], description: "rbtr (PATH)" };
-    }
-
-    // 3. Fall back to uvx.
-    return { executable: "uvx", baseArgs: ["rbtr", "--json"], description: "uvx rbtr" };
+    return daemonStatus(UVX_RBTR);
   }
 
-  if (trimmed === "uvx") {
-    return { executable: "uvx", baseArgs: ["rbtr", "--json"], description: "uvx rbtr" };
-  }
+  return daemonStatus(parseCommand(trimmed));
+}
 
-  const uvxFromMatch = trimmed.match(/^uvx\s+--from\s+(.+)$/);
+/** The `uvx`, `uvx --from <path>` or plain-executable form of a `command` setting. */
+function parseCommand(command: string): ResolvedCommand {
+  if (command === "uvx") return UVX_RBTR;
+
+  const uvxFromMatch = command.match(/^uvx\s+--from\s+(.+)$/);
   if (uvxFromMatch) {
     const fromPath = uvxFromMatch[1].trim();
     return {
@@ -68,7 +92,7 @@ export function resolveCommand(command: string): ResolvedCommand {
   }
 
   // Fallback: treat as direct command name
-  return { executable: trimmed, baseArgs: ["--json"], description: `${trimmed} (PATH)` };
+  return { executable: command, baseArgs: ["--json"], description: `${command} (PATH)` };
 }
 
 export interface RbtrExecResult {
@@ -90,6 +114,24 @@ export function errorReply(stdout: string): ErrorResponse | null {
   }
 }
 
+/**
+ * The `DaemonStatusReport` an `rbtr --json daemon status` or
+ * `daemon start` printed, or `null` when it printed none (an older
+ * rbtr's `daemon start` prints `{"kind":"ok"}`).
+ */
+export function statusReport(stdout: string): DaemonStatusReport | null {
+  try {
+    const parsed: unknown = JSON.parse(stdout);
+    return isStatusReport(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function isStatusReport(value: unknown): value is DaemonStatusReport {
+  return typeof value === "object" && value !== null && "running" in value && typeof value.running === "boolean";
+}
+
 function isErrorResponse(value: unknown): value is ErrorResponse {
   return typeof value === "object" && value !== null && "kind" in value && value.kind === "error";
 }
@@ -101,7 +143,7 @@ function isErrorResponse(value: unknown): value is ErrorResponse {
  * error carrying stderr.
  */
 export async function runRbtr(
-  pi: ExtensionAPI,
+  pi: Pick<ExtensionAPI, "exec">,
   resolved: ResolvedCommand,
   args: string[],
   options?: { signal?: AbortSignal; timeout?: number },

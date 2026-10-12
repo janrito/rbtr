@@ -217,6 +217,15 @@ fully queryable (FTS + name search) before embeddings
 exist; semantic search degrades gracefully when
 embeddings are absent.
 
+A daemon started with `embed` off never embeds: it creates
+no embedder, picks no embed job, and its searches leave out
+the semantic signal, so no model is loaded. Embeddings
+already stored stay, unread; a daemon started later with
+`embed` on embeds whatever is missing. The setting is the
+daemon's, fixed when it starts, because one daemon serves
+every repository and client. A daemon reads it from the
+environment and the config file, as every rbtr process does.
+
 ### Extraction call flow
 
 The tree-sitter path — the most common case. The build loop calls
@@ -589,7 +598,11 @@ protocol code.
   embeds. Runs each job via `asyncio.to_thread`, one at a
   time. Nothing is run twice because nothing is derived
   twice: a built snapshot is in `indexed_snapshots`, an
-  embedded chunk has its vector.
+  embedded chunk has its vector. A job that raises is
+  logged and the worker goes on. An error outside a job,
+  such as one finding the next, ends the worker; the daemon
+  then logs it and stops, because a daemon that answers
+  reads but builds nothing hides the failure from everyone.
 - **`_watcher_loop`** — async task that calls
   `watcher.pending_builds`, the one place the builds that are
   due are derived. Sets `_wake` when any is. The embed worker
@@ -633,6 +646,12 @@ single source the watcher derives builds from;
 - On startup, `_backfill_head_watches` seeds a `HEAD` watch
   for every already-registered repo, so HEAD tracking
   survives the upgrade from the previous HEAD-only poll.
+- A build that raises publishes `index_error`, and the
+  daemon keeps its snapshot in memory as failed:
+  `pending_builds` skips it, so it is neither retried on
+  every poll nor reported again. A ref that moves to
+  another snapshot builds that one; a restarted daemon
+  tries the failed one again.
 
 `rbtr.index.watch` holds the three edits to that record:
 `unwatch_refs` for refs a caller names, `remove_stale_refs`
@@ -658,7 +677,11 @@ ignored, so an older client still finds a newer daemon's
 endpoints, and a missing or malformed file reads as no
 daemon.
 
-`StatusResponse` is the most complex response. Per-ref
+`StatusResponse` is the most complex response. Under
+workspace scope, `repo_path` is the repository's normalised
+root, even when nothing in it is indexed, so a client in a
+subdirectory or behind a symlink learns what its paths are
+relative to. Per-ref
 state is grouped in `IndexedRef` (sha, symbolic names,
 chunk count, embed completeness) — a single list rather
 than parallel maps. `active_build` and `active_embed`
@@ -787,7 +810,11 @@ has not landed. `WriteSession` refuses such a commit, so a
 build runs to completion, which its 4.0 s median affords.
 
 Between batches the job asks `watcher.pending_builds`, and
-checks `_shutdown`. Anything else arriving mid-job is served
+checks `_shutdown`. A shutdown also ends the batch in
+progress: `request_shutdown` sets the embedder's *abort*
+event, which llama.cpp's abort callback reads while it
+computes, since one batch of long chunks can outlast the
+13 s `rbtr daemon stop` waits. Anything else arriving mid-job is served
 by a lock the job releases each batch — `_gpu_lock` for a
 search, `_write_sem` for a `gc` or a watch-set write — or by
 `_wake`, which the worker reads once the job returns.
@@ -906,10 +933,12 @@ A progress notification (PUB):
 
 Error responses carry a `code` field:
 
-- `index_not_built` — no index exists for this repo.
-  Client should trigger `rbtr watch`.
-- `index_in_progress` — a build is running; retry after
-  the `ready` notification.
+- `index_not_built` — what the read needs is not indexed,
+  and nothing will index it. Client should trigger
+  `rbtr watch`.
+- `index_in_progress` — the daemon will index what the read
+  needs without being asked; retry after the `ready`
+  notification.
 - `repo_not_found` — the repo path isn't registered.
 - `index_locked` — another process holds the index's write
   lock; retry once it has let go.
@@ -920,12 +949,20 @@ Error responses carry a `code` field:
   caller can see how an argument was mis-shaped.
 - `internal` — unexpected server error.
 
-The two index errors differ by where they're decided: a read
-for an unindexed ref raises a plain `IndexNotBuiltError`, and
-`_dispatch` asks `_is_building()` — the daemon's one source
-of build-awareness, so handlers need none — and turns it
-into `index_in_progress`, otherwise it stays
-`index_not_built`.
+The two index errors are decided in different places. A
+handler that finds a ref unindexed raises
+`IndexNotBuiltError`, naming the missing snapshot and the
+ref the caller used. `_dispatch` then asks `_will_index()`,
+the daemon's one source of build awareness, so handlers
+need none. The daemon will index the snapshot when its
+running build is that commit of that repo, or when the repo
+watches that ref; the reply is then `index_in_progress`, and
+otherwise `index_not_built`. Any running build is not
+enough: one daemon serves every repo, and a build of
+another repo or commit never indexes what the read asked
+for, so the caller would wait for nothing. When no snapshot
+is named, the index's tables are missing, and any build
+creates them.
 
 **Schema generation.** `messages.py` is the source of
 truth. `rbtr schema-dump` produces JSON Schema.

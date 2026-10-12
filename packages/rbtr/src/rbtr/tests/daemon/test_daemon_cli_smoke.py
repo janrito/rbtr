@@ -19,7 +19,7 @@ import pytest
 
 from rbtr.config import Config
 from rbtr.daemon.messages import ErrorCode, ErrorResponse
-from rbtr.daemon.status import is_pid_alive, read_status
+from rbtr.daemon.status import DaemonStatusReport, is_pid_alive, read_status
 from rbtr.index.store import IndexStore
 from rbtr.tests.conftest import run_cli
 
@@ -72,6 +72,26 @@ def test_start_when_already_running_is_idempotent(isolated_db: Path) -> None:
         second = run_cli(["daemon", "start"])
         assert second.returncode == 0
         assert "already running" in second.stderr.lower()
+    finally:
+        run_cli(["daemon", "stop"])
+
+
+@pytest.mark.parametrize("starts", [1, 2], ids=["starts-it", "finds-it-running"])
+def test_start_reports_the_running_daemon(isolated_db: Path, starts: int) -> None:
+    """`daemon start` prints the status `daemon status` would, so a caller needs no second call."""
+    try:
+        for _ in range(starts - 1):
+            assert run_cli(["daemon", "start"]).returncode == 0
+        started = run_cli(["--json", "daemon", "start"])
+        assert started.returncode == 0, started.stderr
+        report = DaemonStatusReport.model_validate_json(started.stdout)
+        status = DaemonStatusReport.model_validate_json(
+            run_cli(["--json", "daemon", "status"]).stdout
+        )
+        assert report.running
+        assert report.model_dump(exclude={"uptime_seconds"}) == status.model_dump(
+            exclude={"uptime_seconds"}
+        )
     finally:
         run_cli(["daemon", "stop"])
 

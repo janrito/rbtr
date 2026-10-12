@@ -16,6 +16,7 @@ both places.
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from pathlib import Path
 
 import pygit2
@@ -27,10 +28,8 @@ from rbtr.git import normalise_repo_path
 from rbtr.index.build import build_index
 from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
-from rbtr.tests.conftest import make_commit, store
+from rbtr.tests.conftest import make_commit
 from rbtr_eval.tests.cases_corpus import HEAD
-
-__all__ = ["store"]  # re-declared here so rbtr-eval tests can request it
 
 
 def hit(
@@ -92,6 +91,14 @@ def outcome_row(
         "expansion_n_keywords": None,
         "expansion_n_variants": None,
     }
+
+
+@pytest.fixture
+def store() -> Generator[IndexStore]:
+    """In-memory writable IndexStore."""
+    s = IndexStore(writable=True)
+    yield s
+    s.close()
 
 
 def seed_corpus(store: IndexStore, repo_path: Path, head: str, indexed: list[str]) -> int:

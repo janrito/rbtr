@@ -9,8 +9,9 @@
 
 import { Subscriber as ZmqSubscriber } from "zeromq";
 
-import { type DaemonStatus, queryDaemonStatus, send } from "./daemon-client.js";
-import type { Notification, Request, Response } from "./generated/protocol.js";
+import { type DaemonStatus, queryDaemonStatus, type ResponseFor, send } from "./daemon-client.js";
+import type { ResolvedCommand } from "./exec.js";
+import type { Notification, Request } from "./generated/protocol.js";
 
 /**
  * A transport-level failure talking to the daemon — socket
@@ -27,9 +28,6 @@ export class DaemonUnavailableError extends Error {
   }
 }
 
-/** Narrow ``Response`` to the variant for a request of *kind* K. */
-type ResponseFor<K extends string> = Extract<Response, { kind: K }>;
-
 /**
  * Outcome of {@link DaemonSession.reconcile}.  Purely informational —
  * callers use it to decide whether to log or notify the user.
@@ -42,15 +40,20 @@ export type ReconcileOutcome =
   | "failed"; // start or restart did not produce a running daemon
 
 export interface ReconcileDeps {
-  /** Run `rbtr daemon start` / `rbtr daemon stop`. */
-  execDaemon: (subcommand: "start" | "stop") => Promise<void>;
+  /**
+   * Run `rbtr daemon start`; resolves to the status it printed, or `null`
+   * when this rbtr prints none.  Throws on failure.
+   */
+  startDaemon: () => Promise<DaemonStatus | null>;
+  /** Run `rbtr daemon stop`.  Throws on failure. */
+  stopDaemon: () => Promise<void>;
 }
 
 export interface ReconcileResult {
   outcome: ReconcileOutcome;
   previousVersion: string | null;
   newVersion: string | null;
-  /** On `failed`, the reason from the failing `execDaemon` call. */
+  /** On `failed`, the reason the start or stop failed. */
   detail?: string;
 }
 
@@ -67,6 +70,17 @@ export type NotificationHandler = (notification: Notification) => void;
 export class DaemonSession {
   private status: DaemonStatus | null = null;
   private subscriber: ZmqSubscriber | null = null;
+  private readonly listeners = new Set<NotificationHandler>();
+  private command: ResolvedCommand | null = null;
+
+  /**
+   * Find the daemon with *command* from now on: the session's resolved
+   * `rbtr`, whose `daemon status` reported *status* (`null` if it failed).
+   */
+  useCommand(command: ResolvedCommand, status: DaemonStatus | null): void {
+    this.command = command;
+    this.status = status;
+  }
 
   /** ``true`` if the daemon has been reachable at least once this session. */
   get available(): boolean {
@@ -84,14 +98,20 @@ export class DaemonSession {
   }
 
   /**
-   * Refresh status from the CLI.  Caches the result on success.
+   * Refresh status from the CLI, run as the command given to
+   * `useCommand`.  Caches the result on success.
    *
-   * Any failure (CLI not on PATH, daemon not running) leaves the
-   * session marked unavailable so tools fall back to CLI exec.
+   * Any failure (no command yet, CLI not on PATH, daemon not
+   * running) leaves the session marked unavailable so tools fall
+   * back to CLI exec.
    */
   async refresh(): Promise<DaemonStatus | null> {
+    if (this.command === null) {
+      this.status = null;
+      return null;
+    }
     try {
-      this.status = await queryDaemonStatus();
+      this.status = await queryDaemonStatus(this.command);
     } catch {
       this.status = null;
     }
@@ -107,9 +127,15 @@ export class DaemonSession {
    * a daemon that restarted has a new endpoint, and the request
    * that failed was never served.  ``RbtrReplyError`` from the
    * daemon itself is propagated as-is — the caller decides what
-   * to do with it.
+   * to do with it, and so is an abort of *signal*: it is never
+   * retried.
+   *
+   * A daemon known by its pid is checked before the request is sent,
+   * because a request to a gone daemon is never answered.
    */
-  async send<R extends Request>(request: R): Promise<ResponseFor<R["kind"]>> {
+  async send<R extends Request>(request: R, signal?: AbortSignal): Promise<ResponseFor<R["kind"]>> {
+    const pid = this.status?.pid;
+    if (pid != null && !isAlive(pid)) this.status = null;
     if (!this.rpcEndpoint) {
       await this.refresh();
       if (!this.rpcEndpoint) {
@@ -118,8 +144,10 @@ export class DaemonSession {
     }
 
     try {
-      return (await send(request, { rpcEndpoint: this.rpcEndpoint })) as ResponseFor<R["kind"]>;
+      return (await send(request, { rpcEndpoint: this.rpcEndpoint, signal })) as ResponseFor<R["kind"]>;
     } catch (err) {
+      // An abort is the caller's decision, not a transport failure.
+      if (signal?.aborted) throw err;
       if (err instanceof Error && err.name === "RbtrReplyError") {
         throw err;
       }
@@ -129,8 +157,9 @@ export class DaemonSession {
         throw new DaemonUnavailableError(err);
       }
       try {
-        return (await send(request, { rpcEndpoint: this.rpcEndpoint })) as ResponseFor<R["kind"]>;
+        return (await send(request, { rpcEndpoint: this.rpcEndpoint, signal })) as ResponseFor<R["kind"]>;
       } catch (err2) {
+        if (signal?.aborted) throw err2;
         if (err2 instanceof Error && err2.name === "RbtrReplyError") {
           throw err2;
         }
@@ -140,14 +169,20 @@ export class DaemonSession {
   }
 
   /**
-   * Refresh daemon status and classify the transition.
+   * Re-check the daemon and classify the transition.
    *
-   * Captures ``available`` before calling ``refresh()``,
-   * compares with the post-refresh value, and returns a
-   * discriminated union the caller can switch on.
+   * A daemon known by its pid is checked with a signal-0 probe,
+   * which starts no process; otherwise ``refresh()`` asks the CLI.
+   * Returns a discriminated union the caller can switch on.
    */
   async detectTransition(): Promise<DaemonTransition> {
     const wasAlive = this.available;
+    const pid = this.status?.pid;
+    if (wasAlive && pid != null) {
+      if (isAlive(pid)) return { kind: "unchanged", alive: true };
+      this.status = null;
+      return { kind: "died" };
+    }
     await this.refresh();
     const aliveNow = this.available;
 
@@ -189,10 +224,12 @@ export class DaemonSession {
         } catch {
           continue; // malformed frame — skip
         }
-        try {
-          handler(parsed);
-        } catch {
-          // Handler errors must not kill the loop.
+        for (const receive of [handler, ...this.listeners]) {
+          try {
+            receive(parsed);
+          } catch {
+            // Handler errors must not kill the loop.
+          }
         }
       }
     })();
@@ -200,6 +237,16 @@ export class DaemonSession {
     return () => {
       this.stopSubscribing();
     };
+  }
+
+  /**
+   * Also pass every notification to *listener*, on the socket `subscribe`
+   * opened; returns the call that stops it. Nothing arrives while no
+   * subscription is open.
+   */
+  onNotification(listener: NotificationHandler): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   stopSubscribing(): void {
@@ -220,21 +267,20 @@ export class DaemonSession {
    *     build is killed; the watcher re-queues it after restart.
    *   - running, extension < daemon → no-op (older client yields).
    *
-   * Version strings are compared lexicographically — both sides
-   * use calver (`YYYY.MM.PATCH`) so string compare agrees with
-   * time order.  Unparseable strings fall through as `up_to_date`
-   * (conservative: don't restart on a comparison we can't trust).
+   * Versions are compared by `compareVersions`. One it cannot read
+   * counts as `up_to_date`: no restart on a comparison it cannot
+   * trust.
    */
   async reconcile(expectedVersion: string, deps: ReconcileDeps): Promise<ReconcileResult> {
     const before = this.status?.version ?? null;
 
     if (!this.available) {
+      let fresh: DaemonStatus | null;
       try {
-        await deps.execDaemon("start");
+        fresh = await this.started(deps);
       } catch (err) {
         return { outcome: "failed", previousVersion: before, newVersion: null, detail: reason(err) };
       }
-      const fresh = await this.refresh();
       return {
         outcome: fresh?.running ? "started" : "failed",
         previousVersion: before,
@@ -243,8 +289,8 @@ export class DaemonSession {
     }
 
     const running = this.status?.version ?? null;
-    const cmp = compareCalver(expectedVersion, running);
-    if (cmp === 0) {
+    const cmp = compareVersions(expectedVersion, running);
+    if (cmp === null || cmp === 0) {
       return { outcome: "up_to_date", previousVersion: before, newVersion: running };
     }
     if (cmp < 0) {
@@ -252,39 +298,73 @@ export class DaemonSession {
     }
 
     // Extension is newer — restart.
+    let fresh: DaemonStatus | null;
     try {
-      await deps.execDaemon("stop");
-      await deps.execDaemon("start");
+      await deps.stopDaemon();
+      this.status = null;
+      fresh = await this.started(deps);
     } catch (err) {
       return { outcome: "failed", previousVersion: before, newVersion: null, detail: reason(err) };
     }
-    this.status = null;
-    const fresh = await this.refresh();
     return {
       outcome: fresh?.running ? "restarted" : "failed",
       previousVersion: before,
       newVersion: fresh?.version ?? null,
     };
   }
+
+  /**
+   * Start the daemon through *deps* and cache its status: the one
+   * `daemon start` printed, or, from an rbtr that prints none, a fresh
+   * `daemon status`.
+   */
+  private async started(deps: ReconcileDeps): Promise<DaemonStatus | null> {
+    const printed = await deps.startDaemon();
+    if (printed === null) return this.refresh();
+    this.status = printed;
+    return printed;
+  }
 }
 
-/**
- * Compare two calver strings lexicographically.  `null` sorts below
- * any string (used when the daemon has no version to report).
- *
- * Returns a negative number if *a* < *b*, zero if equal, positive
- * if *a* > *b*.
- */
+/** Whether process *pid* exists; `EPERM` means it does, under another user. */
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err instanceof Error && "code" in err && err.code === "EPERM";
+  }
+}
+
 /** Extract a human-readable reason from a thrown value. */
 function reason(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-export function compareCalver(a: string | null, b: string | null): number {
-  if (a === b) return 0;
-  if (a === null) return -1;
-  if (b === null) return 1;
-  if (a < b) return -1;
-  if (a > b) return 1;
-  return 0;
+/**
+ * A release as bump-my-version writes it (`2026.9.0`, `2026.9.0-dev1`) or
+ * as Python normalises it (`2026.9.0.dev1`): year, month, number, dev.
+ */
+const VERSION = /^(\d{4})\.(\d{1,2})\.(\d+)(?:[-.]?dev(\d+))?$/;
+
+/** *version*'s year, month, number and dev; a release ranks above any of its dev builds. */
+function versionParts(version: string): number[] | null {
+  const match = VERSION.exec(version);
+  if (match === null) return null;
+  const [, year, month, num, dev] = match;
+  return [Number(year), Number(month), Number(num), dev === undefined ? Infinity : Number(dev)];
+}
+
+/**
+ * Compare two versions: negative if *a* is older than *b*, zero if they are
+ * the same release, positive if *a* is newer. A missing version (`null`, a
+ * daemon that reports none) is older than any; one that cannot be read
+ * gives `null`.
+ */
+export function compareVersions(a: string | null, b: string | null): number | null {
+  if (a === null || b === null) return a === b ? 0 : a === null ? -1 : 1;
+  const [left, right] = [versionParts(a), versionParts(b)];
+  if (left === null || right === null) return null;
+  const differs = left.findIndex((part, i) => part !== right[i]);
+  return differs === -1 ? 0 : Math.sign(left[differs] - right[differs]);
 }

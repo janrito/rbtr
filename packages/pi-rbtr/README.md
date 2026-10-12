@@ -7,7 +7,7 @@ structure, trace dependency edges, and compare structural
 changes between git refs — without constructing shell
 commands or parsing raw output.
 
-[pi]: https://github.com/badlogic/pi-mono
+[pi]: https://pi.dev
 
 ## Install
 
@@ -47,7 +47,7 @@ inactive; `rbtr_index_tools` loads them when the agent needs them:
 | `rbtr_watch`           | Watch refs and keep them indexed (background, incremental)                                                                    |
 | `rbtr_index_tools`     | Load `rbtr_status` and `rbtr_gc`, which start inactive                                                                        |
 | `rbtr_status`          | Check whether the index exists and how many symbols it contains                                                               |
-| `rbtr_gc`              | Reclaim index storage. **Destructive**; previews as a dry run unless told otherwise                                           |
+| `rbtr_gc`              | Reclaim index storage. **Destructive**; previews as a dry run, and deletes only after you confirm                             |
 
 The extension also adds a one-line note to the system prompt, so
 the agent knows the index is there without being told: rbtr tools
@@ -99,9 +99,6 @@ repo-relative.
 A hit carries the first 20 lines of the symbol. A longer one
 is `clipped` and reports `total_lines`; `rbtr_read_symbol`
 returns the whole body.
-
-The per-signal ranking breakdown is omitted by default; pass
-`explain: true` to include a nested `signals` object.
 
 **`rbtr_read_symbol`** — symbol name in, full source out:
 
@@ -177,11 +174,18 @@ declaration, about 1,000 tokens across the tools.
 
 The extension shows index state in the pi footer:
 
-- **Building:** `rbtr: ⟳ parsing 42/177` (spinner with
-  phase and progress).
-- **Ready:** `rbtr: ● 1.2k` (symbol count).
-- **Error:** `rbtr: not installed` or
-  `rbtr: disconnected (cli)` when the daemon is down.
+- **Starting:** `rbtr: ⠋ starting…` while the extension
+  finds and starts the daemon.
+- **Building:** `rbtr: ⠋ parsing 42/177 · 12s…` (spinner
+  with phase, progress and elapsed time; a static `⟳`
+  outside pi's terminal UI).
+- **Ready:** `rbtr: ● 1.2k symbols`. `○` with
+  `· 42% embedded` or `· not embedded` while embedding is
+  incomplete, and `· no daemon` when the CLI serves the
+  tools.
+- **No index:** `rbtr: no index — /rbtr-index`.
+- **Error:** `rbtr: cannot run`, `rbtr: indexing failed`,
+  or `rbtr: ✗ error`.
 
 ## Commands
 
@@ -196,7 +200,8 @@ Three user-facing commands (no LLM involved):
 ## Configuration
 
 Settings are read from JSON config files. Project-local
-overrides global:
+overrides global. The project file is read only when pi
+trusts the project (`/trust`), like pi's own `.pi/` files:
 
 | File                          | Scope         |
 | ----------------------------- | ------------- |
@@ -235,13 +240,20 @@ used by: django/db/models/sql/compiler.py, django/db/models/__init__.py
 - After a `grep`, `rg`, `ag` or `git grep` for a name (`union`,
   `QuerySet.union`, `def union`): where it is defined, unless
   the output already shows it, and which files import it.
+  Code definitions come first; a heading or config key that
+  shares the name is named only when no code defines it.
 - After a search for a phrase: the index's three best
   matches.
-- After the first read of a file of 200 lines or more: its
-  outline, with line ranges.
+- After a read of a file of 200 lines or more: its outline,
+  the functions, classes and other named definitions with
+  their line ranges, without imports or comments. A file whose
+  outline the model still has in its context, or gets from
+  another read in the same turn, gets none.
 
 Nothing is appended when the index has nothing to add, when
-the tool failed, or when the daemon is not running.
+the tool failed, when the daemon is not running, or when the
+search looks only outside the repository (after a `cd`
+elsewhere, or with paths outside it).
 
 ### CLI invocation modes
 
@@ -258,8 +270,9 @@ shows an error with install instructions if it fails.
 
 ## Development
 
-Development requires Node.js 22.19 or later and npm. The full
-repository checks also require Python 3.13, uv, and just.
+Development requires Node.js 22.19 or later, npm, and pi: the
+tests run against the installed pi. The full repository checks
+also require Python 3.13, uv, and just.
 
 ```bash
 npm install               # install dependencies
@@ -273,5 +286,5 @@ just typecheck-ts         # tsc --noEmit
 
 The extension talks to the daemon over ZMQ and falls back to
 the CLI when none is reachable, starting one on first use.
-[ARCHITECTURE.md](ARCHITECTURE.md) covers the session
-lifecycle, the reconnection model, and rendering.
+[ARCHITECTURE.md](ARCHITECTURE.md) covers how a session
+works and the choices behind it.

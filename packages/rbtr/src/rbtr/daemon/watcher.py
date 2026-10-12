@@ -21,6 +21,7 @@ truth.  See ARCHITECTURE.md's Watched refs section.
 
 from __future__ import annotations
 
+from collections.abc import Set
 from dataclasses import dataclass
 
 import structlog
@@ -59,6 +60,14 @@ class DirtyWorktree:
     snapshot_sha: str
 
 
+@dataclass(frozen=True)
+class FailedBuild:
+    """A snapshot of a repo whose build raised."""
+
+    repo_path: str
+    snapshot_sha: str
+
+
 def poll_watched(store: IndexStore) -> list[WatchedTarget]:
     """Return every watched ref whose resolved SHA is not yet indexed.
 
@@ -87,8 +96,10 @@ def poll_watched(store: IndexStore) -> list[WatchedTarget]:
     return out
 
 
-def pending_builds(store: IndexStore) -> list[WatchedTarget | DirtyWorktree]:
-    """Return the builds that are due, watched refs first.
+def pending_builds(
+    store: IndexStore, failed: Set[FailedBuild]
+) -> list[WatchedTarget | DirtyWorktree]:
+    """Return the builds that are due, watched refs first, skipping *failed*.
 
     The one place that answers "is there a build to run, and which".
     A watched ref outranks a dirty worktree, so the worktree scan is
@@ -96,10 +107,14 @@ def pending_builds(store: IndexStore) -> list[WatchedTarget | DirtyWorktree]:
     because `worktree_tree_sha` stats the whole tree and writes loose
     objects for a dirty one.
     """
-    stale = poll_watched(store)
+    stale: list[WatchedTarget | DirtyWorktree] = [
+        t for t in poll_watched(store) if FailedBuild(t.repo_path, t.snapshot_sha) not in failed
+    ]
     if stale:
-        return list(stale)
-    return list(poll_worktree(store))
+        return stale
+    return [
+        t for t in poll_worktree(store) if FailedBuild(t.repo_path, t.snapshot_sha) not in failed
+    ]
 
 
 def poll_worktree(store: IndexStore) -> list[DirtyWorktree]:

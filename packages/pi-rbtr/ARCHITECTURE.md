@@ -5,481 +5,305 @@ For usage, see [README.md](README.md).
 
 ---
 
-## Overview
+## What pi-rbtr is
 
-pi-rbtr is a [pi extension package][pi-pkg] that bridges
-the `rbtr` code index CLI with pi's tool system. The
-extension registers tools that the LLM can call, handles
-CLI invocation and output parsing, manages background
-builds, and renders results in the TUI.
+pi-rbtr connects [pi][pi-pkg] to rbtr's code index. It
+registers tools the model calls, adds what the index knows
+to the results of the model's own `bash` and `read` calls,
+and shows the index's state in pi's footer.
 
-[pi-pkg]: https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/packages.md
+[pi-pkg]: https://pi.dev/docs/latest/packages
 
-The design prioritises three properties:
-
-1. **Thin bridge.** The extension contains no indexing
-   logic. All work is delegated to the `rbtr` CLI. The
-   extension's job is invocation, parsing, and presentation.
-2. **Minimal state.** The extension holds session-level
-   transport state (`DaemonSession` caches RPC/PUB
-   endpoints) but no conversation or index state. The
-   index lives in DuckDB, managed by `rbtr`. Session
-   branching, forking, and resuming have no effect on
-   the extension.
-3. **Graceful degradation.** If `rbtr` is not installed,
-   the extension notifies the user and disables tools.
-   If indexing is running, query tools report "in progress"
-   instead of failing silently.
-
-`index.ts` is the extension factory. It registers
-tools, commands, and event handlers, and holds the
-runtime state (daemon session, index promise, settings).
-Daemon communication lives in `daemon-client.ts` and
-`daemon-session.ts`; `exec.ts` provides the CLI fallback
-when the daemon is unavailable. Rendering and settings
-are pure helpers with no side effects.
+It does no indexing. rbtr's daemon does the work, and
+pi-rbtr asks it over ZMQ; when no daemon answers, it runs
+the `rbtr` CLI instead. Both reply with the same JSON
+objects, defined in Python and generated into TypeScript
+(`generated/`). pi-rbtr keeps no index or build state of its
+own, only how to reach rbtr.
 
 ---
 
-## CLI integration
+## How a session works
 
-### Command resolution
+When a session starts, pi-rbtr finds rbtr, starts or
+restarts its daemon if its version needs it, and reads the
+index status. If the repository has no index, it starts
+one. All of this runs in the background, and tools wait for
+it.
 
-The `command` config setting is resolved once on
-`session_start` into a `{ executable, baseArgs }` pair.
-Every tool call appends its subcommand and arguments to
-`baseArgs`:
+A tool call goes to the daemon first, and to the CLI when
+the daemon cannot be reached. Whatever rbtr replies goes
+back to the model as rbtr's JSON object, errors included.
 
-```text
-Setting               Executable    Base args
-─────────             ──────────    ─────────
-"rbtr"                rbtr          [--json]
-"uvx"                 uvx           [rbtr, --json]
-"uvx --from ./pkg"    uvx           [--from, ./pkg, rbtr, --json]
-```
+The daemon publishes notifications about its builds.
+pi-rbtr subscribes to them and paints the footer: progress
+while a build runs, the symbol count when it ends. A health
+check every 30 s notices a daemon that stops or comes back.
 
-The `--json` flag is always present. It makes `rbtr`
-output a single JSON response object (the same shape the
-daemon returns) instead of rich-formatted text. The
-extension never sees TTY output.
-
-### Invocation
-
-All CLI calls go through `pi.exec()`, which returns
-`{ stdout, stderr, code, killed }`. Two helpers in
-`exec.ts` wrap it:
-
-- `runRbtr()` — runs a command, throws on non-zero exit
-  or kill. Returns raw stdout/stderr.
-- `runRbtrJson<T>()` — runs a command and parses stdout
-  as a single typed JSON response object.
-
-### Error handling
-
-| Condition                  | Behaviour                                                                                                                                            |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Daemon start/restart fails | `classifyDaemonFailure` sorts it into `missing-cli` (install instructions, rbtr disabled), `db-locked`, or `transient`; reconcile carries the reason |
-| Non-zero exit              | `runRbtr` throws rbtr's `ErrorResponse`, printed on stdout under `--json`, as `RbtrReplyError`; with none printed, an error carrying stderr          |
-| Timeout                    | `pi.exec()` kills the process; `runRbtr` throws                                                                                                      |
-
-### Validation
-
-On `session_start` the extension probes both transports.
-`session.refresh()` looks for a live daemon; `reconcile()`
-then starts, restarts, or yields to it by version (see
-[Daemon-first, CLI fallback](#daemon-first-cli-fallback)).
-A single `queryIndexStatus()` call then resolves index
-state — daemon first, CLI `rbtr status` (5-second timeout)
-as the fallback. A `null` result is ambiguous, so
-`decideStartupDecision` uses whether the command resolved on
-PATH: only a genuinely unresolved CLI sets `cliAvailable=false`
-and shows "not found"; a transient daemon/lock failure keeps
-`cliAvailable=true` and shows "temporarily unavailable".
-
-There is no separate readiness flag. Each tool call gates
-itself through `withFallback` (below), which needs either a
-live daemon (`session.available`) or a working CLI
-(`cliAvailable`) — with neither it throws an actionable
-"not available" error.
+After the model's `bash` searches and its reads of long
+files, pi-rbtr asks the daemon what the index knows and
+appends it to the result.
 
 ---
 
-## Tool design
+## Choices
 
-### Parameter schemas
+### Start in the background
 
-All tools use TypeBox schemas (`Type.Object(...)`) for
-parameter validation. Parameters are minimal — most tools
-take a single required string (query, symbol name, file
-path). Optional parameters have sensible defaults.
+pi holds the user's first prompt until every
+`session_start` handler has finished, and finding and
+starting rbtr can take seconds. So startup runs as a
+background task, as pi's own MCP extension connects its
+servers. Tools, and the notes on `bash` and `read` results,
+wait for the task, and an abort ends the wait.
 
-### Prompt integration
+Each `rbtr` process costs most of a second in Python
+imports. Startup therefore finds rbtr by asking each
+candidate (`python3 -m rbtr`, `rbtr`, `uvx rbtr`) for its
+daemon's status: the first answer says both that rbtr runs
+and where its daemon is. Startup runs one process when a
+daemon is running, and two when it has to start one.
 
-Each tool defines two prompt fields:
+When no candidate answers, pi-rbtr cannot tell why: pi
+reports a program that cannot start as a silent exit 1. It
+suggests installing rbtr, the likeliest cause, and does
+nothing more.
 
-- `promptSnippet` — one-line summary shown in the
-  "Available tools" section of the system prompt.
-- `promptGuidelines` — bullets appended to the
-  "Guidelines" section, teaching the LLM when and how
-  to use the tool.
+The daemon is restarted only when it is older than the
+extension. Versions are compared by their parts, and one
+that cannot be read leaves the daemon running.
 
-The `before_agent_start` event appends a one-line note
-about index availability to the system prompt, so the
-LLM knows it can use the tools without being told.
+### Daemon first, the CLI as fallback
+
+The daemon keeps the index open and its models loaded, so a
+call costs milliseconds, where a CLI call pays for a new
+process every time. The CLI keeps the tools working when no
+daemon runs.
+
+The daemon's sockets sit at fixed paths, so a restarted
+daemon is reached again without looking for it. ZMQ never
+fails a request sent to a socket nobody listens on, so
+pi-rbtr checks the daemon's pid before each request: a
+request to a daemon that has stopped would otherwise wait
+out the whole time limit. The health check uses the same
+pid check, and runs the CLI only while the daemon is gone.
+
+zeromq's socket monitor could report a daemon's death at
+once, without polling. It is untested on `ipc://`, and the
+pid check needs nothing new; it is worth revisiting if the
+30 s delay matters.
+
+### Patient time limits
+
+A daemon that is indexing answers a search late, after the
+work in front of it, and asking again only adds to that
+queue. So a tool call waits 120 s for the daemon, and the
+CLI fallback 150 s, enough to outlast the client it starts.
+An abort from the user ends any wait at once and is never
+retried.
+
+A read whose ref rbtr is building, or will build without
+being asked, waits for that build to end, at most 30 s,
+showing the build's phase in the tool's row, and then asks
+again. It waits for the build only, not for embeddings,
+which reads do not need. After 30 s the model gets rbtr's
+"in progress" reply and can go on with other tools.
+
+### Raw JSON replies
+
+The model gets rbtr's JSON object as it is. Models parse
+JSON well and take the fields they need; reformatting would
+lose information or add size. A codemode script gets the
+same object as `structuredContent`, and the renderers draw
+the human-readable view from it.
+
+Prose replies, such as an empty result echoing the call's
+arguments, do not work beside codemode: a script's
+`JSON.parse` fails on them, and in a trial on pi 0.99.1 the
+model spent a turn wrapping the call in `try`/`catch`. A
+read instead reports what rbtr resolved, such as the commit
+it read, which the model cannot know otherwise.
+
+Each tool's output schema lists rbtr's error object beside
+its success reply. Leaving the error out would shorten
+codemode's declaration of the tools by about a quarter
+(4,466 to 3,446 characters), but codemode hands a script
+the error object, so its declared type has to include it.
 
 ### What the model reads first
 
-pi lists tools in the prompt in the order they are
-registered, so the five tools that find code are
-registered first, then `rbtr_watch`, the loader and the
-housekeeping tools. Each description leads with what the
-tool is for and what it is used instead of, usually grep,
-and each tool keeps at most two guidelines. Details about
-arguments live in the parameter descriptions.
+Open models reach for the tools they were trained on,
+mostly `bash`: with the shipped text, `deepseek-v4-flash`
+made 1.8% of its tool calls through rbtr. Leading each
+description with what the tool replaces, usually grep,
+tripled that (measured in `rbtr-agent-eval`'s screen of tool
+use). pi lists tools in the order they are registered, so
+the five tools that find code come first, and each keeps at
+most two guidelines.
 
-At session start the extension deactivates `rbtr_status`
-and `rbtr_gc` (`tool-set.ts`). The loader,
-`rbtr_index_tools`, activates them when the model needs
-to check a build or reclaim space. `rbtr_watch` stays
-active, because indexing refs before a review is an
-ordinary request. A read tool whose ref is not indexed
-replies rbtr's `index_not_built` error, whose message says
-to watch the ref first.
+`rbtr_status` and `rbtr_gc` start inactive, so the prompt
+the model reads first is about finding code; the loader,
+`rbtr_index_tools`, activates them on request. pi 1.0 does
+not restore loaded tools in a forked or resumed session, so
+the model loads them again there.
 
-Open models reach for tools they were trained on, mostly
-`bash`: with the shipped text, `deepseek-v4-flash` made
-1.8% of its tool calls through rbtr. Leading with what
-each tool replaces tripled that. The measurements are in
-`rbtr-agent-eval`'s screen of tool use.
+The line saying the repository has an index is pi's `rbtr`
+prompt section. Returning a whole `systemPrompt` instead
+would make pi send it as an opaque prompt on every request,
+and override the sections other extensions set.
 
-### Facts in the tools the agent already uses
+Every tool declares the `rbtr` namespace and MCP-style
+annotations, which codemode and permission extensions read.
+`rbtr_gc` is the one destructive tool: it deletes only after
+the user confirms what a dry run would drop, refuses
+without a UI, and, like the loader, is not callable from a
+codemode script.
+
+Some providers send a list argument as a JSON-encoded
+string. Each tool with a list parameter repairs that before
+pi validates the call (`prepareArguments`), as pi's own
+`edit` tool does.
+
+### Facts in the agent's own tools
 
 Leading with what each tool replaces still left most of an
-open model's calls in `bash`. So a `tool_result` handler
-(`annotate.ts`) appends index facts to the output of `bash`
-searches and large-file reads: the agent keeps its habits,
-and the index's answer arrives with them. The block is
-capped at ten lines and skipped when it would repeat the
-output, because every line costs tokens on every call.
+open model's calls in `bash`. So pi-rbtr meets the model
+there: after a `grep`, `rg`, `ag` or `git grep`, and after a
+read of a long file, it appends what the index knows, at
+most ten lines and nothing the output already shows. Every
+line costs tokens on every call.
 
-The facts come from the daemon only. A CLI fallback would
-start a process for each annotated call, and the hook runs
-on every `bash` and `read`. Any failure returns nothing, so
-the tool's own output is never lost. The handler returns the
-tool's `details` and `structuredContent` with its `content`,
-because pi drops both when a handler replaces the content
-without them. Calls another tool made, such as a codemode
-script's, carry `parentToolCallId` and are left alone: their
-results go to the script, not the model.
+The facts come from the daemon only, because a CLI fallback
+would start a process for every `bash` and `read`. A failure
+adds nothing, so the tool's own output is never lost. A
+search that looks only outside the repository gets nothing:
+the index knows nothing true about another tree.
 
-### Output contract
+A file is outlined once while the outline is in the model's
+context. pi-rbtr reads that from the session's context
+entries, which follow `/tree` and compaction, rather than
+keeping a set of its own, which would not. Within one turn
+the entries cannot answer: pi runs a turn's calls in
+parallel, and neither of two reads of a file has its result
+in the context when the other's is noted, so both would be
+outlined. pi-rbtr keeps
+the files this turn's reads outline, and empties the set
+when the next turn starts, by which time the results are
+entries.
 
-Every tool replies with one JSON object that validates against
-the schema it declares as `outputSchema`:
+### The repository root comes from rbtr
 
-1. Dispatch via `withFallback<T>` — the daemon RPC, with
-   `runRbtrJson()` as the CLI fallback. Both return the parsed
-   rbtr response, empty results included.
-2. `toolResult()` packs it: the JSON text as `content` for the
-   model, the same value as `structuredContent` for codemode
-   scripts, and the response on `details.response` for the
-   renderer.
-3. An `RbtrReplyError`, from the daemon or the CLI's JSON
-   output, is packed the same way, as rbtr's
-   `ErrorResponse`, with `isError` set; pi still hands scripts
-   the structured value.
+rbtr names a repository by its git root's real path, which
+differs from pi's working directory when pi runs in a
+subdirectory or through a symlink. pi-rbtr takes the root
+from rbtr's replies: a status reply states it even when
+nothing is indexed. Notifications are matched to the
+session by that root, and the notes name files from it.
 
-Replies rbtr composes use rbtr's schemas. `scripts/gen-types.ts`
-turns `rbtr schema-dump` into `generated/protocol.ts` (types)
-and `generated/schemas.ts` (the same definitions as JSON Schema,
-`PROTOCOL_DEFS`), and `replySchema()` builds a tool's
-`outputSchema` from the response kinds it can return.
-`rbtr_index_tools` is the one reply pi-rbtr composes; its
-TypeBox schema sits in its registration.
+### No build state in the extension
 
-A read reports what rbtr resolved — the snapshot it read
-(`resolved`: SHA and how it was chosen) and its scoping paths,
-repo-relative — so a call that fell back to an older commit or
-scoped to the wrong path shows it in the reply itself.
+The daemon schedules builds and removes duplicates, so
+pi-rbtr holds no promise or "already running" flag; the
+footer follows the daemon's notifications. Which watched
+refs are stale is rbtr's to decide too, so removing them is
+one request rather than a second definition in TypeScript.
 
-`rbtr_search` accepts optional `keywords` and `variants`
-parameters for query expansion. The session LLM generates
-these inline when constructing the tool call, guided by
-`promptGuidelines`.
+### A status line, not a widget
 
-### Transport dispatch (`withFallback`)
+The index's state is one line, and `ctx.ui.setStatus` is
+pi's primitive for one line of status. A widget would take
+rows above or below the editor, and `setFooter` would
+replace pi's whole footer, other extensions' statuses
+included.
 
-Every tool call runs through `withFallback<T>(fromDaemon,
-fromCli)`:
+The footer animates only in pi's terminal UI. In RPC mode
+every status is a message on stdout, so it paints one
+static status per state. Without a UI it paints nothing,
+because pi's theme may not exist there.
 
-- If `session.available`, try the daemon callback. A
-  `DaemonUnavailableError` (transport failure) falls
-  through to the CLI; an `RbtrReplyError` (an actionable
-  reply from the daemon, e.g. "not indexed") is re-thrown
-  untouched and returned as rbtr's `ErrorResponse`.
-- Otherwise — or after a daemon transport failure — run
-  the CLI callback, provided `cliAvailable`. With neither
-  transport it throws "rbtr CLI not available" with install
-  instructions.
+### Project settings only when trusted
 
-Dispatch and readiness-gating are the same step: there is
-no separate guard. See
-[Daemon-first, CLI fallback](#daemon-first-cli-fallback)
-for the transport's reconnection and health-check
-behaviour.
-
-Both transports are patient. A tool call allows the daemon
-120 s to reply, because a search that arrives while the
-daemon is indexing waits for the work in front of it, and
-asking again only adds to that queue. The CLI fallback
-allows 150 s, which has to outlast the wait budget of the
-client it spawns. The startup status probe is the exception
-at 5 s: it asks whether a daemon is there at all, and "no"
-is an answer it can use.
+The `command` setting is run at session start, so an
+untrusted checkout must not choose it. The project's
+`.pi/rbtr-index.json` is read only when pi trusts the
+project, as pi treats its own `.pi/` files.
+`/rbtr-settings` writes only that project file: project
+settings are visible and versioned, and global ones are
+edited by hand.
 
 ---
 
-## Index management
+## Testing
 
-### Triggering a build
+Tests run the extension in a real pi session, with pi-ai's
+faux model making the tool calls, against a real rbtr
+daemon and a real git repository. The daemon runs with
+embedding off (`RBTR_EMBED=false`, `tests/rbtr-env.ts`):
+the extension needs no embeddings, and no model runs.
+`tests/session.fixtures.ts` and `tests/global-setup.ts`
+describe the setup.
 
-`watchRefs(ctx, refs)` requests a build through
-`withFallback`: the daemon path sends `{kind: "watch",
-repo_path, refs}` and gets back the watch set; the CLI
-fallback spawns `rbtr watch <refs>`. Refs default to
-`["HEAD"]`. The footer shows an animated "indexing…" spinner
-while the request is in flight, and "indexing failed" on
-failure. `rbtr_watch` returns the reply; `triggerIndex`, used
-at session start and by `/rbtr-index`, notifies the user of a
-failure instead.
+Tests run on the installed pi, the one that loads the
+extension: `vitest.config.ts` asks `pi` for its package and
+resolves pi's packages and `typebox` from it, and global
+setup stops a run that loaded another. CI installs the
+latest pi from npm. `tsc` checks against the workspace's
+locked pi. The locked pi does not work as the tests' pi: the
+extension accepts any pi, and a user runs the pi they have
+installed, so tests on the locked one check a pi nobody runs
+(1.0.0, with 1.1.0 installed).
 
-The extension holds no build state of its own — no promise,
-no "already running" flag. The daemon owns build scheduling
-and de-duplication; build progress reaches the footer
-through the PUB subscription (`progress`, `ready`,
-`embed_ended`, `auto_rebuild`, `index_error`
-notifications), not a local promise chain. An `embed_ended`
-carries the outcome, because a run that stood aside for a
-build leaves work due and must not read as finished. The same
-mechanism powers `unwatch`, `removeStale`,
-and `triggerGc` — each a `withFallback` over a daemon RPC
-with a CLI fallback. Both unwatch paths send an `unwatch`,
-naming refs or asking for `stale: true`: which refs are
-stale is rbtr's to decide, and working it out here would put
-a second definition of it in TypeScript.
+The repository is a clone of this checkout, so the tests
+run over real code: global setup indexes it once and picks
+what the tests use, a function used in another file and a
+long file, by rules applied to rbtr's own replies. A test
+names none of it, and takes each expected value from the
+daemon's reply to the same request; a note's, from the facts
+`annotate.ts` gives for the daemon's replies. What a note
+says is tested in tables over a stand-in index
+(`annotate.test.ts`), with the notes written out. An
+invented sample application does not do this: its code and
+its tests' names are written for each other, and say
+nothing about real code.
+Indexing the checkout in place does not work: CI's
+depth-1 checkout has no history to compare, and tests
+write branches and settings into their repository.
 
-### Auto-index
+Tests read that repository and never write to it. A test
+that writes settings or changes the watch set gets a small
+repository of its own, made from two of the clone's files
+(`writableRepo`); one that watches a build adds copies of a
+long file, so the build lasts over a second (`longBuild`).
+A copy of the whole clone does not work: each copy is a
+build of the whole snapshot, 2.2 s alone at load average 6,
+and several at once took tests past their 20 s waits at
+load average 10 to 15.
 
-On `session_start`, if no index exists and `autoIndex` is
-true, `triggerIndex(ctx)` is called automatically. Indexing
-runs in the background — the session is immediately usable
-for other work.
+The clone costs time and ties the tests to the checkout.
+Global setup takes about 18 s and the whole run about 45 s,
+at load average 7. A commit to the checkout can change what
+setup picks, and so which code a test runs over: a test
+that fails after an unrelated commit may have a new
+subject. Setup asks the daemon through the extension's own
+client, so a defect there fails the run in setup, before
+the client's tests run.
 
-A transient status failure (daemon down / DB busy) no longer
-skips auto-index — only a genuinely missing CLI does — so a
-fresh repo still indexes once the daemon is healthy.
+The run shares one daemon. A test that stops, starts or
+freezes the daemon gets its own (`ownDaemon`). A daemon per
+test file does not work: every file's first test paid for
+starting a daemon and indexing (up to 10 s at load average
+9), past the tests' waits under load.
 
-### Timeout
+Tests check only what pi, the model or the user would see:
+tool results, notifications, footer statuses, and the
+processes the extension starts.
 
-The CLI fallback caps a build at 10 minutes. A fresh build
-with embeddings for a large repository can take several
-minutes (embedding is the bottleneck). Incremental builds
-with blob-SHA dedup typically complete in seconds. Read
-tools have their own budgets — see
-[Transport dispatch](#transport-dispatch-withfallback).
+Conditions that are hard to reach use real processes:
+stand-in scripts in `tests/fixtures/` for a missing or
+stuck rbtr, and `SIGSTOP` for a silent daemon. `FakeDaemon`
+only sends `index_error`, which a real daemon cannot be
+made to send.
 
----
-
-## Rendering
-
-### Architecture
-
-`render.ts` exports paired `renderCall` / `renderResult`
-functions for each tool. They are wired into tool
-definitions as callbacks — pi calls them during TUI
-rendering.
-
-Both functions receive the pi `Theme` object for
-consistent styling. `renderResult` receives an
-`AgentToolResult<unknown>` — the same object returned by
-the tool's `execute` function.
-
-### Call-line arguments
-
-`renderCall` shows the scoping arguments on the call line so a
-scoped call reads differently from an unscoped one: `file_paths`
-as `in <path>` / `in N files`, search's `keywords` / `variants`
-/ non-default `scope`, and index's `refs`.
-
-### Rendering strategy
-
-The render functions parse the JSON response object from
-`result.content` at render time (or read it off
-`details.response` on the daemon path). This avoids
-duplicating parsed data and keeps the tool execute
-functions simple.
-
-The shared `extractPayload<T>()` helper narrows the
-generated `Response` union by `kind` and returns its list
-field, silently yielding an empty array on a parse failure
-or kind mismatch.
-
-### Collapsed vs. expanded
-
-Search results show up to 5 results in collapsed view
-(one line each: score, path, kind, name), plus the single
-matched line beneath a hit that carries a preview anchor.
-Expanded (Ctrl+O) shows every result with a code preview
-windowed around that anchor. Matched query terms
-(`matched_terms` from the response) are highlighted in both
-views; the anchor (`match_line_offset`) is computed by the
-search layer (see rbtr `ARCHITECTURE.md`, “Preview anchor”).
-
-Read-symbol shows path and line range when collapsed,
-full source when expanded.
-
-Status, index, list-symbols, find-refs, and
-changed-symbols always show their compact form — the
-data fits in a few lines.
-
----
-
-## Settings
-
-### File locations
-
-Settings are plain JSON files at two locations:
-
-| Path                          | Scope                 |
-| ----------------------------- | --------------------- |
-| `~/.pi/agent/rbtr-index.json` | Global (all projects) |
-| `<cwd>/.pi/rbtr-index.json`   | Project-local         |
-
-### Merge order
-
-Defaults ← global ← project. Project values override
-global values for the same key. Unknown keys are
-preserved on write.
-
-### Loading
-
-Settings are loaded once on `session_start`. Changes
-require `/reload` or a new session. The `/rbtr-settings`
-command writes to the project-local file only — global
-settings are edited by hand.
-
----
-
-## Design decisions
-
-### Raw JSON as tool content
-
-The extension sends `rbtr`'s raw JSON response object
-directly to the LLM rather than reformatting it. LLMs parse
-JSON natively and can extract exactly the fields they need.
-Reformatting would lose information or add size. The custom
-renderers handle human-readable display independently.
-The CLI emits the same single response object the daemon
-returns, so both transports converge on one shape.
-
-Prose replies for empty results, echoing the arguments the tool
-received, do not work beside codemode: a script's `JSON.parse`
-fails on them, and in a trial on pi 0.99.1 the model spent a
-turn wrapping the call in `try`/`catch`. The echo also only
-repeated what the model sent. rbtr reports what it resolved
-instead, which the model cannot know otherwise.
-
-### Daemon-first, CLI fallback
-
-The extension connects to the rbtr daemon via ZMQ
-(`DaemonSession`). If the daemon is unavailable, it falls
-back to spawning `rbtr` as a subprocess via `pi.exec()`.
-The daemon is auto-started on first use and reconciled on
-each pi session start (version check, restart if stale).
-See [Daemon protocol][proto] for the wire format, message
-types, and error codes.
-
-[proto]: ../rbtr/ARCHITECTURE.md#daemon-protocol
-
-#### Stable IPC endpoints
-
-The daemon binds to fixed paths inside `runtime_dir`
-(`daemon.rpc`, `daemon.pub`). These paths are derived
-from the directory, not from the PID, so they are stable
-across restarts. This property is what makes both the
-RPC retry in `DaemonSession.send()` and the ZMQ SUB
-auto-reconnect work without endpoint re-discovery.
-
-#### RPC reconnection
-
-`DaemonSession.send()` retries once on transport failure:
-nulls the cached status, calls `refresh()` to re-check
-the daemon, and retries the request. Because the IPC path
-is stable, the retry connects to the restarted daemon
-transparently.
-
-#### PUB reconnection
-
-ZMQ SUB sockets auto-reconnect by default
-(`reconnectInterval` = 100 ms). The `for await` async
-iterator in `subscribe()` does not terminate on transport
-failure — it blocks on `receive()` while ZMQ retries in
-the background. When the daemon re-binds the same IPC
-path, messages resume. The subscription never needs to
-be torn down and recreated.
-
-#### Health-check timer
-
-ZMQ reconnection is transparent at the transport layer
-but invisible at the UI layer — if the daemon dies, the
-footer freezes at whatever it last showed. A 30-second
-`setInterval` calls `session.detectTransition()` (which
-wraps `refresh()`) to detect daemon death or return:
-
-- **died:** footer → "disconnected (cli)".
-- **returned:** queries index status, restores footer,
-  starts the PUB subscription if it wasn't already active.
-- **unchanged:** no-op.
-
-The daemon publishes no startup notification for
-already-indexed repos and no periodic heartbeat, so
-active probing is the only way to detect lifecycle
-transitions from the extension side.
-
-#### `queryIndexStatus` is not a liveness check
-
-`queryIndexStatus()` falls back to CLI when the daemon
-is unavailable, so a non-null return does not mean the
-daemon is alive. It also does not update
-`session.available` when the daemon returns from a dead
-state. Use `session.refresh()` (or `detectTransition()`)
-for daemon liveness; reserve `queryIndexStatus()` for
-reading index state after liveness is established.
-
-### `pi.exec()` over `child_process.spawn`
-
-`pi.exec()` integrates with pi's abort signal and timeout
-handling. It returns a simple `{ stdout, stderr, code }`
-object. There is no need for streaming stdout (all `rbtr`
-commands produce output only at the end), so `spawn` would
-add complexity without benefit.
-
-### Footer class
-
-`Footer` (`footer.ts`) encapsulates all status-bar
-interaction: static text, animated spinners, and colour
-tinting. It owns a single `setInterval` timer that
-rotates through braille frames so the footer shows visible
-motion during long-running daemon operations (model load,
-orphan sweep). The extension creates one `Footer` at
-session start and uses it throughout — indexing callbacks,
-health-check transitions, and error display all go
-through the same instance.
-
-### Project-local settings only for writes
-
-The `/rbtr-settings` command writes only to
-`.pi/rbtr-index.json`, never to the global file. This
-avoids surprising side effects — project settings are
-visible and version-controllable, global settings require
-intentional manual editing.
+Pure functions with many edge cases keep table tests:
+`args`, `classify`, `render`, `daemon-reconcile` and
+`annotate`.

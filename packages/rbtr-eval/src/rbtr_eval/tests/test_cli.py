@@ -22,6 +22,7 @@ import pygit2
 import pytest
 from pydantic_settings import CliApp
 
+from rbtr.config import config
 from rbtr.index.store import IndexStore
 from rbtr_eval.cli import RbtrEval
 from rbtr_eval.shared_schemas import QueryRow, RepoHeader
@@ -65,7 +66,9 @@ class Greeter:
     return repo
 
 
-def test_extract_writes_validated_parquet_files(tmp_path: Path, tiny_repo: Path) -> None:
+def test_extract_writes_validated_parquet_files(
+    tmp_path: Path, tiny_repo: Path, isolated_db: Path
+) -> None:
     """`rbtr-eval extract` writes per-kind query files and a header.
 
     The extract reads symbols from the index, generates queries,
@@ -74,12 +77,10 @@ def test_extract_writes_validated_parquet_files(tmp_path: Path, tiny_repo: Path)
     out_dir = tmp_path / "out"
     headers_dir = tmp_path / "headers"
 
-    # Build a file-backed index so ExtractCmd can open it.
-    # The build registers the repo under its canonical root, whose last
-    # component matches the slug so extract can find it via Path(path).name.
-    db_dir = tmp_path / "index"
-    db_dir.mkdir()
-    file_store = IndexStore(str(db_dir / "index.duckdb"), writable=True)
+    # Build a file-backed index where rbtr's settings name it, so ExtractCmd
+    # can open it. The build registers the repo under its canonical root, whose
+    # last component matches the slug so extract can find it via Path(path).name.
+    file_store = IndexStore(str(config.db_path), writable=True)
     repo = pygit2.Repository(str(tiny_repo))
     head = str(repo.head.target)
 
@@ -91,8 +92,6 @@ def test_extract_writes_validated_parquet_files(tmp_path: Path, tiny_repo: Path)
         "extract",
         "--slug",
         "tiny",
-        "--data-dir",
-        str(db_dir),
         "--out-dir",
         str(out_dir),
         "--headers-dir",

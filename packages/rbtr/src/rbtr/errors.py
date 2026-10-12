@@ -1,5 +1,6 @@
 """Base exceptions and process exit codes for rbtr."""
 
+from dataclasses import dataclass
 from enum import IntEnum
 
 
@@ -22,13 +23,39 @@ class RbtrError(Exception):
     error_code: str = "internal"
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MissingSnapshot:
+    """The snapshot a read needed, and the ref the caller named it by.
+
+    The repo and commit are a `SnapshotRef`'s, held as plain values:
+    errors sit below the domain layer. Internal-only, like
+    `SnapshotRef`: raised by a handler and read by the server, it never
+    crosses the RPC boundary.
+    """
+
+    repo_id: int
+    snapshot_sha: str
+    ref: str
+
+
 class IndexNotBuiltError(RbtrError):
-    """Raised when a search requires an FTS index that hasn't been built yet."""
+    """Raised when what a read needs is not indexed.
+
+    `missing` names the snapshot when one snapshot was missing; it is
+    `None` when the index's tables are absent, which a build of any repo
+    creates.
+    """
 
     error_code: str = "index_not_built"
 
-    def __init__(self, message: str = "FTS index not built. Run `rbtr watch` first.") -> None:
+    def __init__(
+        self,
+        message: str = "FTS index not built. Run `rbtr watch` first.",
+        *,
+        missing: MissingSnapshot | None = None,
+    ) -> None:
         super().__init__(message)
+        self.missing = missing
 
 
 class RepoNotFoundError(RbtrError):

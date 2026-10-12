@@ -91,7 +91,6 @@ class BuildJob(BaseModel):
     kind: Literal["build"] = "build"
     repo_path: str
     refs: tuple[str, ...]
-    embed: bool = True
 
 
 class EmbedJob(BaseModel):
@@ -206,7 +205,6 @@ class WatchRequest(BaseModel):
     kind: Literal["watch"] = "watch"
     repo_path: str
     refs: RefList = ["HEAD"]
-    embed: bool = True
 
 
 class SearchRequest(BaseModel):
@@ -564,8 +562,17 @@ class WatchedRef(BaseModel):
 
 
 class StatusResponse(BaseModel):
+    """Index status for one repository, or every one under `Scope.ALL`.
+
+    `repo_path` is the repository's root, normalised, under workspace
+    scope, whether or not anything of it is indexed; a caller in a
+    subdirectory learns from it what its paths are relative to. It is
+    `None` under `Scope.ALL`.
+    """
+
     model_config = _STRICT
     kind: Literal["status"] = "status"
+    repo_path: str | None = None
     db_path: str | None = None
     db_size_bytes: int | None = None  # whole index file on disk, a global figure
     indexed_refs: list[IndexedRef] = []

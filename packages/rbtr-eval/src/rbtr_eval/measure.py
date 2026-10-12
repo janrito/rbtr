@@ -35,6 +35,7 @@ import polars as pl
 from pydantic import BaseModel, Field
 
 from rbtr.cli.output import progress_reporter
+from rbtr.config import config
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import SearchRequest, SearchResponse
 from rbtr.domain.models import ChunkKind, QueryKind
@@ -209,14 +210,13 @@ _TRUNCATED_CHUNKS_SQL = (
 
 def _annotate_truncation(
     outcomes: dy.DataFrame[SearchOutcome],
-    data_dir: Path,
+    db_path: Path,
 ) -> dy.DataFrame[SearchOutcome]:
     """Set `target_truncated` on outcomes whose target chunk was truncated.
 
-    Opens the index DB read-only (daemon is stopped by this point)
-    and left-joins truncated chunk coordinates onto outcomes.
+    Opens the index DB at *db_path* read-only (daemon is stopped by
+    this point) and left-joins truncated chunk coordinates onto outcomes.
     """
-    db_path = data_dir / "index.duckdb"
     if not db_path.exists():
         return outcomes
 
@@ -879,9 +879,6 @@ class MeasureCmd(BaseModel):
     concept_dir: Path = Field(description="Directory holding concept parquet files.")
     headers_dir: Path = Field(description="Directory holding header parquet files.")
     repos_dir: Path = Field(description="Directory holding cloned repos.")
-    data_dir: Path = Field(description="Directory for the DuckDB index.")
-    config_dir: Path = Field(description="Directory for config.")
-    log_dir: Path = Field(description="Directory for logs.")
     report: Path = Field(description="Output path for BENCHMARKS.md.")
     metrics: Path = Field(description="Output path for metrics JSON.")
     expansion_dir: Path = Field(
@@ -908,12 +905,12 @@ class MeasureCmd(BaseModel):
         )
 
         t0 = time.monotonic()
-        with daemon_session(self.data_dir, self.config_dir, self.log_dir) as client:
+        with daemon_session() as client:
             batch = _run_searches(client, queries, self.repos_dir)
         elapsed_seconds = time.monotonic() - t0
 
         outcomes = _score_outcomes(batch)
-        outcomes = _annotate_truncation(outcomes, self.data_dir)
+        outcomes = _annotate_truncation(outcomes, config.db_path)
         metrics_df = _aggregate(outcomes)
 
         self.report.parent.mkdir(parents=True, exist_ok=True)

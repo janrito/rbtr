@@ -85,7 +85,7 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.status import remove_status, write_status
 from rbtr.domain.models import Chunk, SnapshotRef
-from rbtr.errors import IndexNotBuiltError, RbtrError
+from rbtr.errors import IndexNotBuiltError, MissingSnapshot, RbtrError
 from rbtr.git import HEAD_REF, non_commit_shas, normalise_repo_path
 from rbtr.index.build import build_index
 from rbtr.index.embeddings import Embedder, embedding_text
@@ -183,20 +183,29 @@ class DaemonServer:
         self._active_build: ActiveJob | None = None
         self._active_embed: ActiveJob | None = None
         self._started_at: float | None = None
+        # Snapshots whose build raised: not built again until their ref
+        # moves to another snapshot or the daemon restarts.
+        self._failed_builds: set[watcher.FailedBuild] = set()
         self._warmup = config.warmup
+        # Whether this daemon embeds: a daemon-wide setting, fixed at start.
+        self._embed = config.embed
         # Serialises all GPU inference (search + embed batches
         # + idle-unload) so Metal is never driven concurrently.
         self._gpu_lock = asyncio.Lock()
         # Serialises model loading across slots so two concurrent
         # ggml_metal_init calls cannot saturate the GPU.
         self._gpu_load_lock = threading.Lock()
+        # Set on shutdown, so an embedding batch in progress ends at once.
+        self._abort_embedding = threading.Event()
 
         if store is not None:
-            self._embedder = Embedder(
-                idle_timeout=config.embed_idle_timeout,
-                gpu_lock=self._gpu_lock,
-                load_lock=self._gpu_load_lock,
-            )
+            if self._embed:
+                self._embedder = Embedder(
+                    idle_timeout=config.embed_idle_timeout,
+                    gpu_lock=self._gpu_lock,
+                    load_lock=self._gpu_load_lock,
+                    abort=self._abort_embedding,
+                )
             if config.reranker_model:
                 self._reranker = Reranker(
                     idle_timeout=config.reranker_idle_timeout,
@@ -205,7 +214,8 @@ class DaemonServer:
                 )
             self._register_index_handlers(store)
             self._backfill_head_watches(store)
-            self._recover_pending_embeds(store)
+            if self._embed:
+                self._recover_pending_embeds(store)
 
     def _register_atexit(self) -> None:
         atexit.register(self._cleanup)
@@ -375,6 +385,9 @@ class DaemonServer:
         push.connect("inproc://progress")
         try:
             self._build_refs(job, store, push)
+        except Exception as exc:
+            _notify(push, IndexErrorNotification(repo_path=job.repo_path, message=str(exc)))
+            raise
         finally:
             push.close()
 
@@ -479,6 +492,11 @@ class DaemonServer:
                         async with self._gpu_lock:
                             results = await asyncio.to_thread(embedder.embed, texts)
                     except (RuntimeError, ValueError):
+                        # A shutdown aborts the batch in progress: no failure.
+                        if self._shutdown:
+                            outcome = EmbedOutcome.STOPPED
+                            log.info("embedding_stopped_shutdown", done=done, total=outstanding)
+                            return
                         log.warning("embedding_batch_failed", exc_info=True)
                         continue
                     # Under `_write_sem` like every other write: gc
@@ -501,12 +519,14 @@ class DaemonServer:
                         return
                     # Stand aside for a build: it wants the worker, which
                     # runs one job at a time, so only returning frees it.
-                    if await asyncio.to_thread(watcher.pending_builds, store):
+                    if await asyncio.to_thread(
+                        watcher.pending_builds, store, frozenset(self._failed_builds)
+                    ):
                         outcome = EmbedOutcome.STOOD_ASIDE
                         log.info("embedding_preempted", done=done, total=outstanding)
                         return
         finally:
-            if done == 0:
+            if done == 0 and outcome is not EmbedOutcome.STOPPED:
                 # Every batch was rejected by the model.  Without this the
                 # run reports an end with nothing embedded and no reason,
                 # and the worker picks the same job up again.
@@ -543,9 +563,27 @@ class DaemonServer:
         """
         return self._ready.wait(timeout=timeout)
 
-    def _is_building(self) -> bool:
-        """Return True if a build is currently active."""
-        return self._active_build is not None
+    def _will_index(self, missing: MissingSnapshot | None) -> bool:
+        """Whether the daemon will index what a read found missing, unasked.
+
+        It will when it is building that commit of that repo, or when the
+        repo watches the ref the read named. With no snapshot named, the
+        index's tables were missing, and any build creates them.  Called
+        from `to_thread`: it reads the store.
+        """
+        active = self._active_build
+        if missing is None:
+            return active is not None
+        # A snapshot was named, so a handler read the store: it is open.
+        store = self._store
+        if store is None:
+            return False
+        building_it = (
+            active is not None
+            and active.ref == missing.snapshot_sha
+            and store.get_repo_id(active.repo_path) == missing.repo_id
+        )
+        return building_it or missing.ref in store.list_watched_refs(missing.repo_id)
 
     def _snapshot_status(
         self,
@@ -581,6 +619,7 @@ class DaemonServer:
         wake is scheduled on the loop that `serve()` recorded.
         """
         self._shutdown = True
+        self._abort_embedding.set()
         loop = self._loop
         if loop is None or loop.is_closed():
             # Not serving: nothing is waiting on the event, and setting
@@ -610,8 +649,11 @@ class DaemonServer:
         if store is None:
             return None
 
-        for target in watcher.pending_builds(store):
+        for target in watcher.pending_builds(store, frozenset(self._failed_builds)):
             return BuildJob(repo_path=target.repo_path, refs=(target.snapshot_sha,))
+
+        if not self._embed:
+            return None
 
         # Embeds: indexed snapshots with un-embedded chunks, newest first.
         # `EmbedJob` names the repo by path; the counts carry only its id.
@@ -698,6 +740,10 @@ class DaemonServer:
                                 await asyncio.to_thread(self._run_build, job)
                     except Exception:
                         log.exception("job_failed", job=str(job))
+                        if isinstance(job, BuildJob):
+                            self._failed_builds.update(
+                                watcher.FailedBuild(job.repo_path, sha) for sha in job.refs
+                            )
                     finally:
                         self._clear_active()
 
@@ -778,6 +824,15 @@ class DaemonServer:
                     )
             relay_task = asyncio.create_task(self._notification_relay(progress_pull, pub))
             worker_task = asyncio.create_task(self._job_worker())
+
+            def stop_when_the_worker_fails(task: asyncio.Task[None]) -> None:
+                # A daemon that answers reads but builds nothing hides the
+                # failure: log it now, and stop, so `serve()` raises it.
+                if not task.cancelled() and (exc := task.exception()) is not None:
+                    log.error("job_worker_failed", exc_info=exc)
+                    self.request_shutdown()
+
+            worker_task.add_done_callback(stop_when_the_worker_fails)
             watcher_task = asyncio.create_task(self._watcher_loop())
             try:
                 while not self._shutdown:
@@ -872,7 +927,9 @@ class DaemonServer:
             if self._store is None:
                 continue
             with structlog.contextvars.bound_contextvars(watch_cycle=uuid4().hex[:8]):
-                for target in await asyncio.to_thread(watcher.pending_builds, self._store):
+                for target in await asyncio.to_thread(
+                    watcher.pending_builds, self._store, frozenset(self._failed_builds)
+                ):
                     match target:
                         case watcher.WatchedTarget():
                             log.info(
@@ -928,12 +985,12 @@ class DaemonServer:
             try:
                 result = await handler(request)
             except IndexNotBuiltError as exc:
-                # A ref/symbol that isn't indexed yet: if a build is
-                # running it will become queryable soon, so say so rather
-                # than tell the caller to start an index that is already
-                # in progress.  This is the daemon's single source of
+                # A ref/symbol that isn't indexed yet: if the daemon will
+                # index it unasked, it will become queryable soon, so say so
+                # rather than tell the caller to start an index that is
+                # already coming.  This is the daemon's single source of
                 # build-awareness; handlers stay build-agnostic.
-                if self._is_building():
+                if await asyncio.to_thread(self._will_index, exc.missing):
                     return ErrorResponse(
                         code=ErrorCode.INDEX_IN_PROGRESS,
                         message="Index is building. Try again shortly.",

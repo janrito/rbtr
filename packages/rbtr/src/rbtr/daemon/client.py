@@ -31,7 +31,7 @@ import structlog
 import zmq
 from pydantic import BaseModel
 
-from rbtr.config import config
+from rbtr.config import config, own_dir
 from rbtr.daemon.messages import (
     ErrorResponse,
     Request,
@@ -83,7 +83,7 @@ def start_daemon(*, allow_missing_plugins: bool = False) -> DaemonStatus:
     becoming ready, or if none is ready within the timeout.
     """
     config.runtime_dir.mkdir(parents=True, exist_ok=True)
-    config.log_dir.mkdir(parents=True, exist_ok=True)
+    own_dir(config.log_dir)
 
     # Stale cleanup: status file with dead PID -> remove status
     # + orphan sockets.  A live PID is left alone.
@@ -110,7 +110,6 @@ def start_daemon(*, allow_missing_plugins: bool = False) -> DaemonStatus:
     cmd = [sys.executable, "-m", "rbtr"]
     for flag, value in (
         ("--data-dir", config.data_dir),
-        ("--config-dir", config.config_dir),
         ("--log-dir", config.log_dir),
         ("--cache-dir", config.cache_dir),
     ):
@@ -310,9 +309,8 @@ class DaemonClient:
                 if live_status(self._runtime_dir) is None:
                     msg = f"Daemon stopped while waiting for a reply ({waited:.0f}s)"
                     raise DaemonBusyError(msg) from exc
-                if time.monotonic() >= deadline:
-                    msg = f"Daemon did not reply within {self._wait_budget_s:g}s"
-                    raise DaemonBusyError(msg) from exc
+                # Before the deadline check: a check that comes after the
+                # deadline still passed the half-way point.
                 if time.monotonic() >= report_at:
                     report_at = math.inf
                     log.warning(
@@ -321,6 +319,9 @@ class DaemonClient:
                         waited_s=round(waited, 1),
                         budget_s=self._wait_budget_s,
                     )
+                if time.monotonic() >= deadline:
+                    msg = f"Daemon did not reply within {self._wait_budget_s:g}s"
+                    raise DaemonBusyError(msg) from exc
 
     def send_or_raise(self, request: Request) -> Response:
         """Like `send`, but raises `RbtrError` on `ErrorResponse`."""

@@ -85,7 +85,7 @@ def case_build_index_defaults() -> MessageScenario:
         raw=b'{"kind":"watch","repo_path":"/r"}',
         adapter=request_adapter,
         expected_type=WatchRequest,
-        checks={"refs": ["HEAD"], "embed": True},
+        checks={"refs": ["HEAD"]},
     )
 
 

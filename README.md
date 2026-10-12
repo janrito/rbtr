@@ -157,7 +157,10 @@ searchable, just without structure.
 ## Development
 
 Development requires Python 3.13, uv, Node.js 22.19 or later,
-npm, and just.
+npm, just, and [pi][pi]: pi-rbtr's tests run against the
+installed pi.
+
+[pi]: https://pi.dev
 
 ```bash
 just setup                  # uv sync + npm install

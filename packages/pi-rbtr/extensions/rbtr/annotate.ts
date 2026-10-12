@@ -9,7 +9,13 @@
  * and nothing when the index has nothing to add.
  */
 
+import { homedir } from "node:os";
+import { resolve, sep } from "node:path";
+
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+
 import type {
+  ChunkKind,
   FindRefsResponse,
   ListSymbolsResponse,
   ReadSymbolResponse,
@@ -20,6 +26,15 @@ export const HEADER = "[rbtr index]";
 const MAX_LINES = 10;
 /** A read of a file shorter than this gets no outline: reading it whole is cheap. */
 export const OUTLINE_FROM_LINES = 200;
+/** An outline name longer than this is cut, so each line stays one short line. */
+const MAX_NAME_CHARS = 80;
+/**
+ * Chunks that name something without defining code. A search for a name
+ * shows them only when no code chunk defines it.
+ */
+const NOT_CODE: ReadonlySet<ChunkKind> = new Set(["doc_section", "config_key", "comment", "raw_chunk", "import"]);
+/** Chunks an outline leaves out: they are not where a reader goes next. */
+const NOT_OUTLINED: ReadonlySet<ChunkKind> = new Set(["import", "comment"]);
 
 /** The lookups the facts come from, against the repository the agent works in. */
 export interface IndexLookups {
@@ -105,23 +120,44 @@ const TAKES_VALUE = new Set([
 
 const SEARCH_COMMANDS = new Set(["grep", "egrep", "fgrep", "rg", "ag"]);
 
-function patternIn(args: string[]): string | null {
+/**
+ * A search's pattern and the paths it searches, from its arguments: the
+ * first `-e`/`--regexp` value, every operand then being a path; or else
+ * the first operand.
+ */
+function searchArgs(args: string[]): { pattern: string | null; paths: string[] } {
+  let given: string | null = null;
+  const operands: string[] = [];
+  let options = true;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg === "--") return args[i + 1] ?? null;
-    if (arg === "-e" || arg === "--regexp") return args[i + 1] ?? null;
-    if (arg.startsWith("--regexp=")) return arg.slice("--regexp=".length);
-    if (arg.startsWith("-")) {
+    if (options && arg === "--") {
+      options = false;
+    } else if (options && (arg === "-e" || arg === "--regexp")) {
+      given ??= args[i + 1] ?? null;
+      i++;
+    } else if (options && arg.startsWith("--regexp=")) {
+      given ??= arg.slice("--regexp=".length);
+    } else if (options && arg.startsWith("-")) {
       if (TAKES_VALUE.has(arg)) i++;
-      continue;
+    } else {
+      operands.push(arg);
     }
-    return arg;
   }
-  return null;
+  if (given !== null) return { pattern: given, paths: operands };
+  const [pattern = null, ...paths] = operands;
+  return { pattern, paths };
 }
 
-/** The pattern of the first `grep`, `rg`, `ag` or `git grep` in a command, if any. */
-export function searchPattern(command: string): string | null {
+interface Search {
+  pattern: string | null;
+  paths: string[];
+  /** The directories `cd` moved to before the search, in order. */
+  cds: string[];
+}
+
+/** The first `grep`, `rg`, `ag` or `git grep` in a command, if any. */
+function findSearch(command: string): Search | null {
   const words = shellWords(command);
   let stage: string[] = [];
   const stages: string[][] = [];
@@ -134,12 +170,38 @@ export function searchPattern(command: string): string | null {
     }
   }
   stages.push(stage);
+  const cds: string[] = [];
   for (const [head, second, ...rest] of stages) {
-    if (head === "git" && second === "grep") return patternIn(rest);
+    if (head === "cd") cds.push(second ?? "~");
+    if (head === "git" && second === "grep") return { ...searchArgs(rest), cds };
     if (head !== undefined && SEARCH_COMMANDS.has(head))
-      return patternIn([second, ...rest].filter((w) => w !== undefined));
+      return { ...searchArgs([second, ...rest].filter((w) => w !== undefined)), cds };
   }
   return null;
+}
+
+/** The pattern of the first `grep`, `rg`, `ag` or `git grep` in a command, if any. */
+export function searchPattern(command: string): string | null {
+  return findSearch(command)?.pattern ?? null;
+}
+
+/** *path* resolved against *dir*, with a leading `~` as the home directory. */
+function resolveFrom(dir: string, path: string): string {
+  if (path === "~" || path.startsWith("~/")) return resolve(homedir(), path.slice(2));
+  return resolve(dir, path);
+}
+
+/**
+ * Whether a command's search looks only outside *root*: every path it
+ * names, or the directory it runs in when it names none, after the
+ * `cd`s before it, starting from *cwd*. A command with no search does not.
+ */
+export function searchesOutside(command: string, cwd: string, root: string): boolean {
+  const search = findSearch(command);
+  if (search === null) return false;
+  const dir = search.cds.reduce(resolveFrom, cwd);
+  const targets = search.paths.length > 0 ? search.paths.map((path) => resolveFrom(dir, path)) : [dir];
+  return targets.every((target) => target !== root && !target.startsWith(root + sep));
 }
 
 const DEFINITION = /^(?:def|class|function|fn|func|struct|interface|type)\s+([A-Za-z_]\w*)/;
@@ -174,7 +236,9 @@ export async function searchFacts(index: IndexLookups, command: string, output: 
   if (pattern === null) return [];
   const name = searchedName(pattern);
   if (name !== null) {
-    const definitions = (await index.readSymbol(name)).chunks.slice(0, 3);
+    const chunks = (await index.readSymbol(name)).chunks;
+    const code = chunks.filter((c) => !NOT_CODE.has(c.kind));
+    const definitions = (code.length > 0 ? code : chunks).slice(0, 3);
     if (definitions.length === 0) return [];
     const lines = definitions
       .filter((d) => !output.includes(`${d.file_path}:${d.line_start}`))
@@ -196,13 +260,39 @@ export async function searchFacts(index: IndexLookups, command: string, output: 
 /** Facts for the first read of a file: its outline, when it is long enough to be worth one. */
 export async function readFacts(index: IndexLookups, filePath: string, lineCount: number): Promise<string[]> {
   if (lineCount < OUTLINE_FROM_LINES) return [];
-  const symbols = (await index.listSymbols(filePath)).chunks;
+  const symbols = (await index.listSymbols(filePath)).chunks.filter((s) => s.name !== "" && !NOT_OUTLINED.has(s.kind));
   if (symbols.length === 0) return [];
   const shown = symbols
     .slice(0, MAX_LINES - 2)
-    .map((s) => `  ${s.name} (${s.kind}) lines ${s.line_start}-${s.line_end}`);
+    .map((s) => `  ${cutName(s.name)} (${s.kind}) lines ${s.line_start}-${s.line_end}`);
   const more = symbols.length > shown.length ? [`  +${symbols.length - shown.length} more: rbtr_list_symbols`] : [];
-  return [`outline of ${filePath}:`, ...shown, ...more];
+  return [outlineHeading(filePath), ...shown, ...more];
+}
+
+/** *name*, cut to `MAX_NAME_CHARS`. */
+function cutName(name: string): string {
+  return name.length > MAX_NAME_CHARS ? `${name.slice(0, MAX_NAME_CHARS - 1)}…` : name;
+}
+
+/** The first line of an outline of *filePath*, as `readFacts` writes it. */
+function outlineHeading(filePath: string): string {
+  return `outline of ${filePath}:`;
+}
+
+/**
+ * Whether *entries*, a session's context, hold a `read` result already
+ * outlining *filePath*. The model has the outline while that result is
+ * in its context, which follows `/tree` and compaction.
+ */
+export function outlinedIn(entries: readonly SessionEntry[], filePath: string): boolean {
+  const heading = outlineHeading(filePath);
+  return entries.some(
+    (entry) =>
+      entry.type === "message" &&
+      entry.message.role === "toolResult" &&
+      entry.message.toolName === "read" &&
+      entry.message.content.some((part) => part.type === "text" && part.text.includes(heading)),
+  );
 }
 
 /** The block to append, or null when there is nothing to say. */

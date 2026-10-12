@@ -30,17 +30,20 @@ def repo_with_stale_watch(fake_repo: str, isolated_db: Path) -> str:
     return fake_repo
 
 
-def test_fresh_repo_indexes_end_to_end(git_repo: pygit2.Repository, isolated_db: Path) -> None:
+def test_fresh_repo_indexes_end_to_end(
+    git_repo: pygit2.Repository, isolated_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A fresh repo indexes end-to-end via the real CLI.
 
     Resilience acceptance for the Aim: opening a new repo gets it
-    indexed.  `--no-daemon --no-embed` runs the build inline and
-    loads no embedding model — GPU-free, and no daemon to contend
+    indexed.  `watch --no-daemon` with embedding off runs the build
+    inline and loads no embedding model — GPU-free, and no daemon to contend
     with the rest of the suite (the daemon-start race is covered by
     `test_start_concurrency`).
     """
+    monkeypatch.setenv("RBTR_EMBED", "false")
     repo = str(git_repo.workdir)
-    result = run_cli(["watch", "--no-daemon", "--no-embed", "--repo-path", repo])
+    result = run_cli(["watch", "--no-daemon", "--repo-path", repo])
     assert result.returncode == 0, result.stderr
 
     store = IndexStore.from_config(writable=True)
@@ -50,7 +53,9 @@ def test_fresh_repo_indexes_end_to_end(git_repo: pygit2.Repository, isolated_db:
         commits = store.list_indexed_snapshots(repo_id)
         assert len(commits) == 1, "HEAD not indexed"
         head = SnapshotRef(repo_id=repo_id, snapshot_sha=commits[0][0])
-        assert store.chunk_counts_for_snapshot(at=head).total > 0, "no symbols extracted"
+        counts = store.chunk_counts_for_snapshot(at=head)
+        assert counts.total > 0, "no symbols extracted"
+        assert counts.embedded == 0, "embedded with embedding off"
     finally:
         store.close()
 

@@ -17,6 +17,7 @@ import dataframely as dy
 import polars as pl
 from pydantic import BaseModel, Field
 
+from rbtr.config import config
 from rbtr.domain.identity import SCOPE_SEPARATOR
 from rbtr.domain.models import SnapshotRef
 from rbtr.index.store import IndexStore
@@ -244,7 +245,6 @@ class ExtractCmd(BaseModel):
     """Generate and subsample queries from indexed symbols."""
 
     slug: str = Field(description="Repo slug.")
-    data_dir: Path = Field(description="Directory for the DuckDB index.")
     out_dir: Path = Field(description="Directory receiving queries parquet.")
     headers_dir: Path = Field(description="Directory receiving header parquet.")
     seed: int = Field(0, description="Deterministic-sampling RNG seed.")
@@ -258,7 +258,7 @@ class ExtractCmd(BaseModel):
     )
 
     def cli_cmd(self) -> None:
-        store = IndexStore(str(self.data_dir / "index.duckdb"), writable=True)
+        store = IndexStore(str(config.db_path), writable=True)
         ref = corpus_ref(store, self.slug)
 
         all_queries, n_symbols, dropped = extract_queries(

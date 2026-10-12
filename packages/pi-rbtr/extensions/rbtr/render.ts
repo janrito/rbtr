@@ -59,6 +59,11 @@ export function formatWatched(watched: WatchedRef[]): string[] {
 
 // ── Helpers ─────────────────────────────────────────────────────
 
+/** A running read's row: what it reported, such as a wait for a build, or *doing*. */
+function partialRow(result: ToolResult, doing: string, theme: Theme): Text {
+  return new Text(theme.fg("warning", getContentText(result) || doing), 0, 0);
+}
+
 function getContentText(result: ToolResult): string {
   for (const part of result.content) {
     if (part.type === "text" && "text" in part) return part.text;
@@ -95,11 +100,6 @@ export function extractPayload<T>(result: ToolResult, responseKind: Response["ki
   return Array.isArray(value) ? (value as T[]) : [];
 }
 
-function shortenPath(filePath: string): string {
-  // Remove common prefixes for readability
-  return filePath.replace(/^packages\/rbtr\/src\//, "");
-}
-
 /**
  * Dim suffix describing a call's `file_paths` scoping, or `""` when the
  * call is unscoped.  Lets the call line distinguish a single-path lookup
@@ -108,7 +108,7 @@ function shortenPath(filePath: string): string {
 export function fileScopeSuffix(args: Record<string, unknown>, theme: Theme): string {
   const paths = decodeStringList(args.file_paths);
   if (paths.length === 0) return "";
-  const label = paths.length === 1 ? shortenPath(paths[0]) : `${paths.length} files`;
+  const label = paths.length === 1 ? paths[0] : `${paths.length} files`;
   return theme.fg("dim", ` in ${label}`);
 }
 
@@ -199,7 +199,7 @@ export function renderSearchResult(
   options: { expanded: boolean; isPartial: boolean },
   theme: Theme,
 ): Text {
-  if (options.isPartial) return new Text(theme.fg("warning", "Searching…"), 0, 0);
+  if (options.isPartial) return partialRow(result, "Searching…", theme);
 
   const results = extractPayload<SearchHitOut>(result, "search", "results") satisfies SearchResponse["results"];
   if (results.length === 0) {
@@ -212,7 +212,7 @@ export function renderSearchResult(
   for (const r of show) {
     // One result, every location it was found at: identical content is
     // one chunk reachable through each of its paths.
-    let path = r.file_paths.map(shortenPath).join(", ");
+    let path = r.file_paths.join(", ");
     if (r.repo_path) {
       const repoName = r.repo_path.replace(/\/+$/, "").split("/").pop() ?? r.repo_path;
       path = `${repoName}/${path}`;
@@ -273,7 +273,7 @@ export function renderReadSymbolResult(
   options: { expanded: boolean; isPartial: boolean },
   theme: Theme,
 ): Text {
-  if (options.isPartial) return new Text(theme.fg("warning", "Reading…"), 0, 0);
+  if (options.isPartial) return partialRow(result, "Reading…", theme);
 
   const chunks = extractPayload<SymbolOut>(result, "read_symbol", "chunks") satisfies ReadSymbolResponse["chunks"];
   const symbol = (result.details as { symbol?: string } | undefined)?.symbol;
@@ -283,7 +283,7 @@ export function renderReadSymbolResult(
 
   const lines: string[] = [];
   for (const c of chunks) {
-    const path = shortenPath(c.file_path);
+    const path = c.file_path;
     lines.push(
       `${theme.fg("accent", path)}${theme.fg("dim", `:${c.line_start}-${c.line_end}`)}  ${theme.fg("muted", c.kind)}  ${c.name}`,
     );
@@ -314,7 +314,7 @@ export function renderListSymbolsCall(args: Record<string, unknown>, theme: Them
 }
 
 export function renderListSymbolsResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
-  if (options.isPartial) return new Text(theme.fg("warning", "Listing…"), 0, 0);
+  if (options.isPartial) return partialRow(result, "Listing…", theme);
 
   const chunks = extractPayload<SymbolOut>(result, "list_symbols", "chunks") satisfies ListSymbolsResponse["chunks"];
   if (chunks.length === 0) {
@@ -347,7 +347,7 @@ export function renderFindRefsCall(args: Record<string, unknown>, theme: Theme):
 }
 
 export function renderFindRefsResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
-  if (options.isPartial) return new Text(theme.fg("warning", "Finding…"), 0, 0);
+  if (options.isPartial) return partialRow(result, "Finding…", theme);
 
   const refs = extractPayload<RefOut>(result, "find_refs", "refs") satisfies FindRefsResponse["refs"];
   if (refs.length === 0) {
@@ -356,7 +356,7 @@ export function renderFindRefsResult(result: ToolResult, options: { isPartial: b
 
   const lines: string[] = [];
   for (const r of refs) {
-    const path = shortenPath(r.file_path);
+    const path = r.file_path;
     lines.push(
       `${theme.fg("accent", path)}${theme.fg("dim", `:${r.line_start}`)}  ${theme.fg("muted", r.kind)}  ${r.name}  ${theme.fg("dim", `(${r.edge})`)}`,
     );
@@ -379,7 +379,7 @@ export function renderChangedSymbolsCall(args: Record<string, unknown>, theme: T
 }
 
 export function renderChangedSymbolsResult(result: ToolResult, options: { isPartial: boolean }, theme: Theme): Text {
-  if (options.isPartial) return new Text(theme.fg("warning", "Comparing…"), 0, 0);
+  if (options.isPartial) return partialRow(result, "Comparing…", theme);
 
   const changes = extractPayload<ChangedSymbol>(
     result,
@@ -405,7 +405,7 @@ export function renderChangedSymbolsResult(result: ToolResult, options: { isPart
   const lines: string[] = [];
   for (const ch of shown) {
     const c = ch.chunk;
-    const path = shortenPath(c.file_path);
+    const path = c.file_path;
     lines.push(
       `${theme.fg(colour[ch.change], sigil[ch.change])} ${theme.fg("muted", c.kind.padEnd(10))}${c.name}  ${theme.fg("dim", path)}`,
     );

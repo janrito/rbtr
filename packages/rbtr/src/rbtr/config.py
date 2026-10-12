@@ -52,6 +52,7 @@ from pydantic import (
 )
 from pydantic_settings import (
     BaseSettings,
+    CliSuppress,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
     TomlConfigSettingsSource,
@@ -116,7 +117,9 @@ class Config(BaseSettings):
         default_factory=lambda: platformdirs.user_data_path(RBTR_NAME, ensure_exists=True),
         description="Directory for the DuckDB index.",
     )
-    config_dir: Path = Field(
+    # Set by `RBTR_CONFIG_DIR` only: it chooses the `config.toml` read, before
+    # the command line is parsed.
+    config_dir: CliSuppress[Path] = Field(
         default_factory=lambda: platformdirs.user_config_path(RBTR_NAME, ensure_exists=True),
         description="Directory for `config.toml`.",
     )
@@ -138,6 +141,12 @@ class Config(BaseSettings):
     )
     chunk_lines: int = Field(default=50, description="Lines per index chunk.")
     chunk_overlap: int = Field(default=5, description="Overlap lines between adjacent chunks.")
+    embed: bool = Field(
+        default=True,
+        description="Compute and use embeddings.  Off: no embedding model is loaded, \
+search ranks without the semantic signal, and new chunks are not embedded; stored \
+embeddings are kept, unread.",
+    )
     embedding_model: str = Field(
         default="Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf",
         description="HuggingFace model ID for embeddings.",
@@ -161,7 +170,8 @@ class Config(BaseSettings):
         "If set too low (e.g. 512) and a chunk has 600 tokens, the "
         "embedding is SILENTLY CORRUPTED — the decoder only sees the "
         "last 512 tokens before pooling.  Larger than needed (e.g. "
-        "32768) wastes ~1 GB Metal memory and slows inference ~1.3x.",
+        "32768) wastes ~1 GB Metal memory and slows inference ~1.3x.  "
+        "Capped at the context the model was trained on.",
     )
     embedding_n_gpu_layers: int = Field(
         default=-1,
@@ -382,3 +392,18 @@ Disable in tests or resource-constrained environments.",
 
 
 config = Config()
+
+
+def own_dir(path: Path) -> Path:
+    """Create *path*, a directory rbtr writes its own files to, and return it.
+
+    The directory holds a `.gitignore` of `*`, so a repository it sits
+    inside sees none of rbtr's files: they are not the repository's code,
+    and each write would otherwise make the repository due for another
+    build.
+    """
+    path.mkdir(parents=True, exist_ok=True)
+    ignore = path / ".gitignore"
+    if not ignore.exists():
+        ignore.write_text("*\n")
+    return path

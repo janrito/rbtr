@@ -74,7 +74,7 @@ from rbtr.domain.models import (
     SnapshotRange,
     SnapshotRef,
 )
-from rbtr.errors import IndexNotBuiltError, RbtrError
+from rbtr.errors import IndexNotBuiltError, MissingSnapshot, RbtrError
 from rbtr.git import (
     HEAD_REF,
     WORKTREE_REF,
@@ -188,7 +188,9 @@ def handle_search(
         repo_paths = {r.repo_id: r.repo_path for r in store.list_repos()}
     else:
         repo_id = store.resolve_repo(request.repo_path)
-        read = _resolve_read_ref(store, request.repo_path, repo_id, request.ref)
+        read = _resolve_read_ref(
+            store, request.repo_path, repo_id, request.ref, require_indexed=True
+        )
         refs = [read.at]
         resolved = ResolvedRef(sha=read.at.snapshot_sha, source=read.source)
         repo_paths = None
@@ -266,8 +268,8 @@ def _require_indexed(store: IndexStore, at: SnapshotRef, requested_ref: str) -> 
     quotes; *at* is what it resolved to.
 
     The daemon's `_dispatch` upgrades this to an "index is building"
-    message when a build is active; inline callers see the plain
-    "not indexed" guidance.
+    message when it will index that snapshot; inline callers see the
+    plain "not indexed" guidance.
     """
     if store.has_indexed(at=at):
         return
@@ -275,7 +277,8 @@ def _require_indexed(store: IndexStore, at: SnapshotRef, requested_ref: str) -> 
         msg = "Working tree is not indexed yet — run rbtr watch first"
     else:
         msg = f"Ref '{requested_ref}' is not indexed — run rbtr watch first"
-    raise IndexNotBuiltError(msg)
+    missing = MissingSnapshot(repo_id=at.repo_id, snapshot_sha=at.snapshot_sha, ref=requested_ref)
+    raise IndexNotBuiltError(msg, missing=missing)
 
 
 def handle_changed_symbols(
@@ -385,6 +388,7 @@ def handle_status(
         ws_repo_id = store.get_repo_id(request.repo_path)
         if ws_repo_id is None:
             return StatusResponse(
+                repo_path=request.repo_path,
                 db_path=store.db_path,
                 db_size_bytes=store.disk_size_bytes(),
                 indexed_refs=[],
@@ -403,6 +407,7 @@ def handle_status(
     if snapshot_status is not None:
         active_build, active_embed = snapshot_status(request.repo_path)
     return StatusResponse(
+        repo_path=None if request.scope == Scope.ALL else request.repo_path,
         db_path=store.db_path,
         db_size_bytes=store.disk_size_bytes(),
         indexed_refs=indexed_refs,

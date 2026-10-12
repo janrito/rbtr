@@ -8,19 +8,30 @@ same question.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pygit2
 import pytest
+import zmq
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.daemon.messages import BuildJob, EmbedJob
+from rbtr.daemon.client import DaemonClient
+from rbtr.daemon.messages import (
+    BuildJob,
+    EmbedJob,
+    IndexErrorNotification,
+    WatchRequest,
+    notification_adapter,
+)
 from rbtr.daemon.server import DaemonServer
 from rbtr.domain.models import FileSnapshot, SnapshotRef
 from rbtr.index.store import IndexStore
 
+from ..conftest import make_commit
 from ..index.conftest import make_chunk
 from .cases_work_queue import NextJobScenario
+from .conftest import serving
 
 # ── Fixtures ─────────────────────────────────────────────────────────
 
@@ -153,3 +164,48 @@ def test_find_next_job_picks_the_embed_work(
     job = server._find_next_job()
 
     assert (job.at.snapshot_sha if isinstance(job, EmbedJob) else job) == scenario.expected_ref
+
+
+def test_a_build_that_fails_is_reported_once_and_not_retried(
+    runtime_dir: Path, seeded_store: IndexStore, fake_repo: str
+) -> None:
+    """A watched ref whose build raises (here, a commit whose tree is gone)
+    gets one `index_error`, and is not built again on each poll."""
+    repo = pygit2.Repository(fake_repo)
+    broken = make_commit(
+        repo,
+        {"broken.py": b"x = 1\n"},
+        parents=[repo.head.peel(pygit2.Commit).id],
+        ref="refs/heads/broken",
+    )
+    tree = str(repo[broken].peel(pygit2.Commit).tree_id)
+    (Path(repo.path) / "objects" / tree[:2] / tree[2:]).unlink()
+
+    server = DaemonServer(
+        runtime_dir, store=seeded_store, idle_poll_interval=0.05, busy_poll_interval=0.05
+    )
+    sub: zmq.Socket[bytes] = zmq.Context.instance().socket(zmq.SUB)
+    errors: list[IndexErrorNotification] = []
+
+    def receive_for(seconds: float, *, until_error: bool) -> None:
+        deadline = time.monotonic() + seconds
+        while (remaining := deadline - time.monotonic()) > 0:
+            if not sub.poll(int(remaining * 1000)):
+                return
+            notification = notification_adapter.validate_json(sub.recv())
+            if isinstance(notification, IndexErrorNotification):
+                errors.append(notification)
+                if until_error:
+                    return
+
+    with serving(server):
+        sub.connect(server.pub_addr)
+        sub.subscribe(b"")
+        time.sleep(0.5)  # the subscription reaches the daemon
+        with DaemonClient(server.runtime_dir) as client:
+            client.send(WatchRequest(repo_path=fake_repo, refs=["broken"]))
+        receive_for(10.0, until_error=True)
+        receive_for(1.0, until_error=False)  # twenty polls
+    sub.close()
+
+    assert len(errors) == 1

@@ -9,6 +9,7 @@ the daemon concurrency tests use `stub_embedding_model`).
 from __future__ import annotations
 
 import math
+import threading
 from collections.abc import Iterator
 
 import pytest
@@ -24,14 +25,20 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 
 @pytest.fixture(scope="module")
-def embedder() -> Iterator[Embedder]:
+def abort() -> threading.Event:
+    """The event `embedder` takes as its *abort*; a test that sets it clears it."""
+    return threading.Event()
+
+
+@pytest.fixture(scope="module")
+def embedder(abort: threading.Event) -> Iterator[Embedder]:
     """The real (tiny) embedding model, loaded once for this module.
 
     Module-scoped: the native model is loaded and freed once, not per
     test — repeated load/free of the GGUF aborts.  Tests only read
     (embed), never mutate, so sharing one instance is safe.
     """
-    instance = Embedder()
+    instance = Embedder(abort=abort)
     yield instance
     instance.close()
 
@@ -41,6 +48,17 @@ def embedder() -> Iterator[Embedder]:
 
 def test_embed_empty_returns_empty(embedder: Embedder) -> None:
     assert embedder.embed([]) == []
+
+
+def test_an_aborted_embed_ends_with_an_error(embedder: Embedder, abort: threading.Event) -> None:
+    """llama.cpp checks *abort* while it computes, so a set event ends the call."""
+    abort.set()
+    try:
+        with pytest.raises(RuntimeError):
+            embedder.embed(["def helper():\n    return 42\n"])
+    finally:
+        abort.clear()
+    assert len(embedder.embed(["def helper():\n    return 42\n"])) == 1
 
 
 def test_embed_returns_one_vector_per_text(embedder: Embedder) -> None:
@@ -68,25 +86,16 @@ def test_embeddings_are_deterministic(embedder: Embedder) -> None:
     assert _cosine(embedder.embed_single(text), embedder.embed_single(text)) > 0.9999
 
 
-def test_over_long_input_is_flagged_truncated(mocker: MockerFixture) -> None:
-    """Inputs exceeding the context window are marked truncated.
-
-    The one case that needs a controllable double: triggering the flag
-    requires a >n_ctx input, and the real model *aborts* when asked to
-    embed one.  A stub with a tiny context window exercises the flag
-    logic safely.
-    """
-    model = mocker.MagicMock()
-    model.n_ctx.return_value = 32
-    model.tokenize.side_effect = lambda b: list(range(len(b) // 4))
-    model.embed.side_effect = lambda texts, **_: [[0.1, 0.2, 0.3] for _ in texts]
-
-    embedder = Embedder(model_loader=lambda: model)
-    short = "hi"  # 2 bytes → 0 tokens → fits
-    long = "x" * 200  # 200 bytes → 50 tokens → exceeds 32
-    flags = [result.truncated for result in embedder.embed([short, long])]
-    embedder.close()
-    assert flags == [False, True]
+def test_a_batch_past_the_models_limits_embeds_and_flags_what_it_cut(
+    embedder: Embedder,
+) -> None:
+    """A batch longer than one micro-batch, holding a text longer than the
+    model's trained context, embeds in full; only that text is truncated."""
+    line = "    return sum(v * {n} for v in values if v > {n})  # filter and weigh\n"
+    ordinary = [f"def helper_{n}(values):\n" + line.format(n=n) * 4 for n in range(31)]
+    long = "def helper(values):\n" + line.format(n=1) * 40
+    flags = [result.truncated for result in embedder.embed([*ordinary, long])]
+    assert flags == [False] * 31 + [True]
 
 
 def test_related_code_outranks_unrelated(embedder: Embedder) -> None:

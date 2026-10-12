@@ -1,14 +1,14 @@
-"""Shipped test tools for rbtr and its language plugins.
+"""Shipped test tools for rbtr, its language plugins and its other packages.
 
-Two things a test suite (in- or out-of-tree) can't easily re-derive: a
+What a test suite (in- or out-of-tree) can't easily re-derive: a
 pydantic-aware snapshot serialiser and a readable edge renderer, both keyed
-off `rbtr.domain.models`. Everything else — running extraction, loading
-samples — is plain setup that belongs in each suite's own fixtures, calling
-`rbtr.languages.extract.extract_file` directly.
+off `rbtr.domain.models`, and an isolated on-disk index. Other setup —
+running extraction, loading samples — belongs in each suite's own fixtures,
+calling `rbtr.languages.extract.extract_file` directly.
 
 Also a pytest plugin (the `pytest11` entry point on `rbtr`): it provides the
-`snapshot_json` fixture, so every plugin test suite gets it with no conftest
-boilerplate.
+`snapshot_json` and `isolated_db` fixtures, so every test suite
+gets them with no conftest boilerplate.
 
 Always shipped (a normal module); it imports `syrupy` and `pytest`, so it is
 only *importable* with the `rbtr[test]` extra installed — exactly the test
@@ -19,6 +19,11 @@ which would hide syrupy's snapshot comparison.
 
 from __future__ import annotations
 
+import os
+import signal
+import time
+from collections.abc import Generator
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -26,6 +31,7 @@ from pydantic import TypeAdapter
 from syrupy.extensions.single_file import SingleFileSnapshotExtension, WriteMode
 from tree_sitter import Parser
 
+from rbtr.daemon.status import is_pid_alive, read_status
 from rbtr.domain.models import Chunk, Edge
 
 if TYPE_CHECKING:
@@ -119,3 +125,56 @@ def assert_document_fully_chunked(
     if dropped:
         # Raised rather than asserted: this ships, and `-O` strips an assert.
         raise DroppedBlocks(file_path, dropped)
+
+
+def _terminate_daemon_for(runtime_dir: Path, *, timeout: float = 5.0) -> None:
+    """Stop a subprocess daemon whose status file is in `runtime_dir`.
+
+    Reads the daemon's own status file for the pid, sends `SIGTERM`,
+    and waits for the process to go.  A daemon that is already gone, or
+    that never wrote a status file, is a no-op.
+    """
+    status = read_status(runtime_dir)
+    if status is None or not is_pid_alive(status.pid):
+        return
+    os.kill(status.pid, signal.SIGTERM)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not is_pid_alive(status.pid):
+            return
+        time.sleep(0.05)
+
+
+@pytest.fixture
+def isolated_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[Path]:
+    """Give a test its own on-disk index DB, and outlive no daemon.
+
+    Subprocess CLI smoke tests can't share an in-memory store, so
+    they read the on-disk DB at `config.db_path`.  A single shared
+    file makes xdist workers collide on DuckDB's write lock and
+    lets one test's repos leak into another's cross-repo search.
+    Repoint both the subprocess (via the `RBTR_DATA_DIR` env it
+    inherits) and the in-process `config` singleton (used by
+    `IndexStore.from_config`) at a per-test directory.
+
+    Teardown kills any daemon still serving this data dir.  The
+    daemon smoke tests stop their own daemon in a `finally`, but that
+    does not run when the run is interrupted part-way through a test,
+    and an orphaned daemon then idles indefinitely on a `tmp_path`
+    that no later run will reuse.
+    """
+    # deferred: pytest imports this plugin before pytest-env applies
+    # `[tool.pytest_env]`; importing `rbtr.config` at the top would build
+    # the `config` singleton from the user's real settings in a
+    # single-process run.  pytest-django defers Django's settings the same
+    # way.
+    from rbtr.config import Config, config
+
+    data_dir = tmp_path / "index"
+    data_dir.mkdir()
+    monkeypatch.setenv("RBTR_DATA_DIR", str(data_dir))
+    monkeypatch.setattr(config, "data_dir", data_dir)
+    yield data_dir
+    # Fixture finalisers still run when pytest unwinds on Ctrl-C; a
+    # SIGKILLed run skips them, and nothing in-process can cover that.
+    _terminate_daemon_for(Config(data_dir=data_dir).runtime_dir)
