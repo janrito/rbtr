@@ -806,6 +806,15 @@ class DaemonServer:
                     )
             relay_task = asyncio.create_task(self._notification_relay(progress_pull, pub))
             worker_task = asyncio.create_task(self._job_worker())
+
+            def stop_when_the_worker_fails(task: asyncio.Task[None]) -> None:
+                # A daemon that answers reads but builds nothing hides the
+                # failure: log it now, and stop, so `serve()` raises it.
+                if not task.cancelled() and (exc := task.exception()) is not None:
+                    log.error("job_worker_failed", exc_info=exc)
+                    self.request_shutdown()
+
+            worker_task.add_done_callback(stop_when_the_worker_fails)
             watcher_task = asyncio.create_task(self._watcher_loop())
             try:
                 while not self._shutdown:

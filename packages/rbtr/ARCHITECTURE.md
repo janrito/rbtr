@@ -598,7 +598,11 @@ protocol code.
   embeds. Runs each job via `asyncio.to_thread`, one at a
   time. Nothing is run twice because nothing is derived
   twice: a built snapshot is in `indexed_snapshots`, an
-  embedded chunk has its vector.
+  embedded chunk has its vector. A job that raises is
+  logged and the worker goes on. An error outside a job,
+  such as one finding the next, ends the worker; the daemon
+  then logs it and stops, because a daemon that answers
+  reads but builds nothing hides the failure from everyone.
 - **`_watcher_loop`** — async task that calls
   `watcher.pending_builds`, the one place the builds that are
   due are derived. Sets `_wake` when any is. The embed worker

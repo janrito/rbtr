@@ -11,7 +11,9 @@ import threading
 from pathlib import Path
 
 import pytest
+import structlog
 import zmq
+from pytest_cases import parametrize_with_cases
 
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import (
@@ -26,98 +28,36 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.server import DaemonServer
 from rbtr.errors import DaemonBusyError, RbtrError
-from rbtr.index.store import IndexStore
+from rbtr.tests.daemon.cases_server import StopScenario
 
 # ── Ping / shutdown ──────────────────────────────────────────────────
 
 
-def test_shutdown(runtime_dir: Path) -> None:
-    """Shutdown test runs its own server so it can assert the thread exits."""
-    server = DaemonServer(runtime_dir, store=None, idle_poll_interval=60.0, busy_poll_interval=60.0)
-    t = threading.Thread(target=lambda: asyncio.run(server.serve()), daemon=True)
-    t.start()
-    assert server.wait_ready(), "daemon did not start within timeout"
-
-    with DaemonClient(runtime_dir) as client:
-        resp = client.send(ShutdownRequest())
-    assert isinstance(resp, OkResponse)
-    t.join(timeout=3)
-    assert not t.is_alive()
-
-
-@pytest.fixture
-def warmup_started() -> threading.Event:
-    """Set once the stubbed warmup begins running."""
-    return threading.Event()
-
-
-@pytest.fixture
-def warmup_gate() -> threading.Event:
-    """Set by the test to let the stubbed warmup finish."""
-    return threading.Event()
-
-
-@pytest.fixture
-def warming_daemon(
-    runtime_dir: Path,
-    unindexed_store: IndexStore,
-    warmup_started: threading.Event,
-    warmup_gate: threading.Event,
-) -> DaemonServer:
-    """A daemon whose embedder warmup blocks until `warmup_gate` is set.
-
-    Forces a warmup task to stay in-flight so a shutdown lands
-    mid-warmup and exercises the cancel path.  The reranker is
-    disabled so a single warmup task suffices.
-    """
-    server = DaemonServer(
-        runtime_dir, store=unindexed_store, idle_poll_interval=60.0, busy_poll_interval=60.0
-    )
-    server._warmup = True
-    server._reranker = None
-
-    def blocking_warmup() -> None:
-        warmup_started.set()
-        warmup_gate.wait(timeout=10)
-
-    assert server._embedder is not None
-    server._embedder.warmup = blocking_warmup  # type: ignore[method-assign]  # stub blocks warmup mid-flight
-    return server
-
-
-def test_shutdown_during_warmup_does_not_raise(
-    runtime_dir: Path,
-    warming_daemon: DaemonServer,
-    warmup_started: threading.Event,
-    warmup_gate: threading.Event,
+@parametrize_with_cases("scenario", cases=".cases_server")
+def test_how_a_daemon_stops(
+    scenario: StopScenario, log_output: structlog.testing.LogCapture
 ) -> None:
-    """Cancelling in-flight warmup on shutdown must not escape `serve()`.
+    """What stops a serving daemon, what `serve()` raises, and what it logs."""
+    raised: list[BaseException] = []
 
-    Regression: warmup tasks were awaited under
-    `contextlib.suppress(Exception)`, which does not catch the
-    `CancelledError` (a `BaseException`) from `task.cancel()`, so a
-    stop during warmup crashed the daemon with a non-zero exit.
-    """
-    errors: list[BaseException] = []
-
-    def run() -> None:
+    def serve() -> None:
         try:
-            asyncio.run(warming_daemon.serve())
-        except BaseException as exc:  # noqa: BLE001 - must capture CancelledError too
-            errors.append(exc)
+            asyncio.run(scenario.server.serve())
+        except BaseException as exc:  # noqa: BLE001 - CancelledError is a BaseException
+            raised.append(exc)
 
-    t = threading.Thread(target=run, daemon=True)
-    t.start()
-    try:
-        assert warming_daemon.wait_ready(), "daemon did not start within timeout"
-        assert warmup_started.wait(timeout=2), "warmup task did not start"
-        with DaemonClient(runtime_dir) as client:
-            client.send(ShutdownRequest())
-    finally:
-        warmup_gate.set()
-    t.join(timeout=5)
-    assert not t.is_alive()
-    assert errors == [], f"serve() raised on shutdown: {errors!r}"
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    assert scenario.server.wait_ready(), "daemon did not start within timeout"
+    scenario.stop()
+    thread.join(timeout=10)
+    if thread.is_alive():
+        scenario.server.request_shutdown()
+        thread.join(timeout=30)
+        pytest.fail("the daemon did not stop")
+
+    assert [str(exc) for exc in raised] == scenario.raised
+    assert [e["event"] for e in log_output.entries if e["log_level"] == "error"] == scenario.logged
 
 
 def test_multiple_requests(running_daemon: DaemonServer, fake_repo: str) -> None:
