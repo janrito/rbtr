@@ -18,13 +18,15 @@ class WorktreeScenario:
     """Declarative description of a `poll_worktree` test scenario.
 
     `dirty_file` — if set, a tracked file is modified on disk
-    after the initial commit.  `tree_sha_indexed` — whether
+    after the initial commit.  `unreadable_file` — if set, that
+    file cannot be read.  `tree_sha_indexed` — whether
     the *current* worktree tree SHA has been pre-indexed.
     `expected_dirty` — whether `poll_worktree` should return
     a `DirtyWorktree` for this repo.
     """
 
     dirty_file: bool = False
+    unreadable_file: bool = False
     tree_sha_indexed: bool = False
     repo_exists: bool = True
     expected_dirty: bool = False
@@ -43,6 +45,11 @@ def case_dirty_not_indexed() -> WorktreeScenario:
 def case_dirty_already_indexed() -> WorktreeScenario:
     """Dirty tree but tree SHA already indexed → skip (no infinite loop)."""
     return WorktreeScenario(dirty_file=True, tree_sha_indexed=True)
+
+
+def case_dirty_unreadable() -> WorktreeScenario:
+    """Dirty tree with a file rbtr cannot read → skipped; the poll goes on."""
+    return WorktreeScenario(dirty_file=True, unreadable_file=True)
 
 
 def case_missing_worktree_repo() -> WorktreeScenario:

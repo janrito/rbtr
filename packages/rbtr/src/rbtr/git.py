@@ -236,7 +236,9 @@ def worktree_tree_sha(repo_path: str) -> str | None:
         repo.index.add_all()
         tree_sha = str(repo.index.write_tree())
         repo.index.read()  # reset in-memory index; on-disk staging untouched
-    except (RbtrError, pygit2.GitError):
+    # pygit2 raises OSError for a working-tree file it cannot read, or one
+    # removed while it reads the tree.
+    except (RbtrError, pygit2.GitError, OSError):
         return None
     else:
         return None if tree_sha == head_tree else tree_sha

@@ -154,6 +154,8 @@ def wt_repo(
     # Dirty the file if the scenario asks.
     if wt_scenario.dirty_file:
         (repo_dir / "main.py").write_text("x = 2\n")
+    if wt_scenario.unreadable_file:
+        (repo_dir / "main.py").chmod(0)
     return str(repo_dir)
 
 
