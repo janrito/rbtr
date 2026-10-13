@@ -661,7 +661,7 @@ def _symbol_kind_table(metrics_df: dy.DataFrame[Metrics]) -> str:
             & (pl.col("provenance") == _ALL)
             & (pl.col("symbol_kind") != _ALL)
         )
-        .sort("mrr", descending=True)
+        .sort("mrr", "symbol_kind", descending=[True, False])
         .select(
             pl.format("`{}`", pl.col("symbol_kind")).alias("symbol_kind"),
             pl.col("n_queries").alias("n"),

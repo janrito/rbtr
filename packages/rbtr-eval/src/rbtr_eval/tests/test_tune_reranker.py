@@ -19,14 +19,15 @@ def reranker_configs() -> pl.DataFrame:
 
     Best MRR (0.90) is at pool 80; pool 50 is within 1% and pool 20
     within 3%, so the pick steps down to smaller pools as tolerance
-    loosens. p50 latency rises with pool.
+    loosens. p50 latency rises with pool. At pool 20 two blends tie on
+    MRR; the lower blend weight is picked.
     """
     return pl.DataFrame(
         {
-            "pool": [80, 50, 20, 80, 50, 20],
-            "blend_weight": [0.5, 0.5, 0.5, 0.0, 0.0, 0.0],
-            "mrr": [0.90, 0.895, 0.88, 0.70, 0.69, 0.68],
-            "search_p50_ms": [7000, 4800, 2100, 7000, 4800, 2100],
+            "pool": [80, 50, 20, 20, 80, 50, 20],
+            "blend_weight": [0.5, 0.5, 0.75, 0.5, 0.0, 0.0, 0.0],
+            "mrr": [0.90, 0.895, 0.88, 0.88, 0.70, 0.69, 0.68],
+            "search_p50_ms": [7000, 4800, 2100, 2100, 7000, 4800, 2100],
         }
     )
 

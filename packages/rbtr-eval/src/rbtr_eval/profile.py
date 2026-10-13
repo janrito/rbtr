@@ -28,14 +28,16 @@ from rbtr.domain.models import QueryKind
 from rbtr_eval.formatting import heading_label, md_table
 from rbtr_eval.kinds import EXCLUDED_KINDS
 from rbtr_eval.queries import load_all_queries, with_query_kind
-from rbtr_eval.shared_schemas import QueryRow, RepoHeader
+from rbtr_eval.shared_schemas import IDENTITY_COLUMNS, QueryRow, RepoHeader
 
 _EXAMPLES_PER_PROVENANCE = 3
 
 
 def _counts(frame: pl.DataFrame, dim: str) -> str:
     """Markdown table of query counts per value of *dim*, descending."""
-    return md_table(frame.group_by(dim).len().rename({"len": "n"}).sort("n", descending=True))
+    return md_table(
+        frame.group_by(dim).len().rename({"len": "n"}).sort("n", dim, descending=[True, False])
+    )
 
 
 def _dropped_languages_table(headers: dy.DataFrame[RepoHeader]) -> str:
@@ -90,7 +92,7 @@ def _symbol_kind_by_provenance(frame: pl.DataFrame) -> str:
             pl.col("symbol_kind").cast(pl.String),
             *provenances,
             pl.sum_horizontal(provenances).alias("total"),
-        ).sort("total", descending=True)
+        ).sort("total", "symbol_kind", descending=[True, False])
     )
 
 
@@ -116,7 +118,7 @@ def _symbol_kind_by_query_kind(frame: pl.DataFrame) -> str:
             pl.col("symbol_kind").cast(pl.String),
             *kinds,
             pl.sum_horizontal(kinds).alias("total"),
-        ).sort("total", descending=True)
+        ).sort("total", "symbol_kind", descending=[True, False])
     )
 
 
@@ -172,7 +174,7 @@ def _examples(frame: pl.DataFrame, seed: int) -> list[dict[str, str]]:
             "label": heading_label(r["name"]),
             "text": r["text"],
         }
-        for r in sampled.sort("provenance", "query_kind").iter_rows(named=True)
+        for r in sampled.sort("provenance", "query_kind", *IDENTITY_COLUMNS).iter_rows(named=True)
     ]
 
 

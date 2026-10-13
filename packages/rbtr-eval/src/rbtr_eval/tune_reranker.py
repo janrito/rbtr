@@ -246,7 +246,7 @@ def _aggregate_grid(results: pl.DataFrame) -> pl.DataFrame:
             latency.quantile(0.5).alias("search_p50_ms"),
             latency.quantile(0.95).alias("search_p95_ms"),
         )
-        .sort("mrr", "pool", descending=[True, False])
+        .sort("mrr", "pool", "blend_weight", descending=[True, False, False])
     )
 
 
@@ -258,7 +258,7 @@ def _aggregate_by_dimension(results: pl.DataFrame, key: str) -> pl.DataFrame:
             *search_metric_aggs(),
             pl.col("latency_ms").quantile(0.5).alias("search_p50_ms"),
         )
-        .sort(key, "mrr", "pool", descending=[False, True, False])
+        .sort(key, "mrr", "pool", "blend_weight", descending=[False, True, False, False])
     )
 
 
@@ -274,12 +274,13 @@ def _cheapest_within_tolerance(configs: pl.DataFrame, tol: float) -> dict[str, f
     `configs` holds one row per `(pool, blend_weight)` with `mrr` and
     `search_p50_ms`.  Latency is monotonic in pool, so the smallest pool
     clearing the threshold is the fastest acceptable config; ties within
-    a pool break to the highest MRR (best blend).
+    a pool break to the highest MRR (best blend), then the lowest blend
+    weight.
     """
     best = float(configs.select(pl.col("mrr").max()).item())
     chosen = (
         configs.filter(pl.col("mrr") >= best * (1.0 - tol))
-        .sort("pool", "mrr", descending=[False, True])
+        .sort("pool", "mrr", "blend_weight", descending=[False, True, False])
         .row(0, named=True)
     )
     return {

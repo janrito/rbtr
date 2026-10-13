@@ -471,7 +471,7 @@ def materialise_scored(
         ]
     collapsed = (
         frame.with_columns(preview_cols)
-        .sort("score", descending=True)
+        .sort("score", "id", descending=[True, False])
         # Keyed by repo as well as chunk: one repo's copy of shared
         # content is a separate result, attributed to it.
         .group_by("id", "repo_id", maintain_order=True)
