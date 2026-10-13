@@ -16,8 +16,6 @@ from rbtr.domain.models import SnapshotRef
 from rbtr.index.search import search
 from rbtr.index.store import IndexStore
 
-# ── Every copy is findable ───────────────────────────────────────────
-
 
 def test_identical_files_are_indexed_at_every_path(
     dup_store: IndexStore, dup_ref: SnapshotRef
@@ -50,9 +48,6 @@ def test_list_symbols_finds_the_duplicated_copy(
     ]
 
     assert "parse_manifest" in names
-
-
-# ── Copies stay distinguishable ──────────────────────────────────────
 
 
 def test_same_bytes_in_two_languages_keep_separate_chunks(
@@ -105,9 +100,6 @@ def test_a_copy_adds_a_location_without_demoting_the_source(
     assert hits[0].file_penalty == 1.0, "the vendored copy set the penalty"
 
 
-# ── Counts are per chunk ─────────────────────────────────────────────
-
-
 def test_counting_collapses_the_copies(dup_store: IndexStore, dup_ref: SnapshotRef) -> None:
     """A chunk at two paths counts once, and is one unit of embedding work.
 
@@ -123,9 +115,6 @@ def test_counting_collapses_the_copies(dup_store: IndexStore, dup_ref: SnapshotR
     assert counts.unembedded == len(chunks)
 
     assert sorted(dup_store.unembedded_chunk_ids(at=dup_ref)) == sorted(chunks)
-
-
-# ── Edges are per location ───────────────────────────────────────────
 
 
 def test_an_import_records_which_copy_it_came_from(

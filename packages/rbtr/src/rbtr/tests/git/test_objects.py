@@ -39,8 +39,6 @@ from .conftest import (
     SampleRepo,
 )
 
-# ── is_binary ───────────────────────────────────────────────────────
-
 
 def test_is_binary_with_null_byte() -> None:
     assert is_binary(b"hello\x00world")
@@ -57,9 +55,6 @@ def test_is_binary_empty() -> None:
 def test_is_binary_null_beyond_sample() -> None:
     data = b"a" * 100 + b"\x00"
     assert not is_binary(data, sample_size=50)
-
-
-# ── read_blob ────────────────────────────────────────────────────────
 
 
 def test_read_blob_existing_file(sample_repo: SampleRepo, handler_v1: bytes) -> None:
@@ -100,9 +95,6 @@ def test_read_blob_by_branch_name(sample_repo: SampleRepo, readme_content: bytes
     blob = read_blob(sample_repo.repo.workdir, "main", "readme.md")
     assert blob is not None
     assert blob.data == readme_content
-
-
-# ── list_files ───────────────────────────────────────────────────────
 
 
 def test_list_files_at_base(sample_repo: SampleRepo) -> None:
@@ -182,9 +174,6 @@ def test_list_files_remote_branch(sample_repo: SampleRepo) -> None:
     assert "config.yaml" in paths  # added at mid
 
 
-# ── changed_files ────────────────────────────────────────────────────
-
-
 def test_changed_files_base_to_head(sample_repo: SampleRepo) -> None:
     paths = changed_files(sample_repo.repo.workdir, "main", "feature")
     # handler.py (modified), readme.md (deleted), config.yaml (added), binary.png (added)
@@ -213,9 +202,6 @@ def test_merge_changed_files_only_pr_changes(merge_repo: MergeRepo) -> None:
     """changed_files base..head returns only `feature.py`."""
     paths = changed_files(merge_repo.repo.workdir, "base", "head")
     assert paths == {"feature.py"}
-
-
-# ── Edge cases with standalone repos ─────────────────────────────────
 
 
 @pytest.fixture
@@ -258,9 +244,6 @@ def test_read_head_missing_path_returns_none(tmp_path: Path) -> None:
     assert read_head(str(tmp_path / "does-not-exist")) is None
 
 
-# ── worktree fixture (shared by worktree_tree_sha and tree SHA tests) ──
-
-
 @pytest.fixture
 def worktree_repo(tmp_path: Path) -> pygit2.Repository:
     """A non-bare repo with files on disk for worktree tests.
@@ -283,9 +266,6 @@ def worktree_repo(tmp_path: Path) -> pygit2.Repository:
     repo.create_commit("HEAD", sig, sig, "init", tree, [])
 
     return repo
-
-
-# ── worktree_tree_sha ──────────────────────────────────────────────────────
 
 
 def test_worktree_tree_sha_clean_returns_none(worktree_repo: pygit2.Repository) -> None:
@@ -350,9 +330,6 @@ def test_worktree_tree_sha_missing_repo(tmp_path: Path) -> None:
     assert worktree_tree_sha(str(tmp_path / "no-such-repo")) is None
 
 
-# ── list_files with tree SHAs ───────────────────────────────────────────
-
-
 def test_list_files_with_tree_sha(worktree_repo: pygit2.Repository) -> None:
     """list_files walks a tree SHA the same as a commit ref."""
     workdir = Path(worktree_repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs
@@ -394,9 +371,6 @@ def test_list_files_tree_sha_excludes_deleted(worktree_repo: pygit2.Repository) 
     paths = {e.path for e in list_files(worktree_repo.workdir, tree_sha, max_file_size=1_000_000)}
     assert "b.py" not in paths
     assert "a.py" in paths
-
-
-# ── changed_files with tree SHAs ────────────────────────────────────────
 
 
 def test_changed_files_commit_vs_tree_sha(worktree_repo: pygit2.Repository) -> None:

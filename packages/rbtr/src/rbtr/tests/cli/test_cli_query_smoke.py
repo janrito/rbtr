@@ -21,8 +21,6 @@ from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
 from rbtr.tests.conftest import run_cli
 
-# ── Fixtures ─────────────────────────────────────────────────────────
-
 
 @dataclass(frozen=True)
 class SeededRepo:
@@ -46,7 +44,6 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
     repo = pygit2.init_repository(str(repo_path), bare=False, initial_head="main")
     sig = pygit2.Signature("t", "t@t.t")
 
-    # ── Commit 1 ─────────────────────────────────────────────
     tb = repo.TreeBuilder()
 
     src_tb = repo.TreeBuilder()
@@ -63,7 +60,6 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
     tb.insert("src", src_tb.write(), pygit2.GIT_FILEMODE_TREE)
     c1 = str(repo.create_commit("refs/heads/main", sig, sig, "c1", tb.write(), []))
 
-    # ── Commit 2 — modified load_config ──────────────────────
     tb2 = repo.TreeBuilder()
     src_tb2 = repo.TreeBuilder()
     src_tb2.insert(
@@ -83,7 +79,6 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
     assert parent is not None
     c2 = str(repo.create_commit("refs/heads/main", sig, sig, "c2", tb2.write(), [parent.id]))
 
-    # ── Seed the IndexStore ──────────────────────────────────
     store = IndexStore.from_config(writable=True)
     with store.session() as ws:
         repo_id = ws.register_repo(str(repo_path))
@@ -197,9 +192,6 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
 
     store.close()
     return SeededRepo(path=repo_path, c1=c1, c2=c2)
-
-
-# ── Tests ────────────────────────────────────────────────────────────
 
 
 def test_status_shows_indexed_refs(seeded_repo: SeededRepo) -> None:

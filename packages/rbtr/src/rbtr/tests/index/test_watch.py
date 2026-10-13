@@ -40,9 +40,6 @@ def stale_store(
     return store
 
 
-# ── remove_stale_refs ────────────────────────────────────────────────
-
-
 def test_a_repo_path_scopes_removal_to_that_repo(
     stale_store: IndexStore, fake_repo: str, second_repo: str
 ) -> None:
@@ -98,9 +95,6 @@ def test_removing_refs_dry_run_reports_without_writing(
     assert "gone-branch" in stale_store.list_watched_refs(stale_store.resolve_repo(fake_repo))
 
 
-# ── unwatch_refs ─────────────────────────────────────────────────────
-
-
 def test_named_refs_are_dropped_and_the_rest_kept(stale_store: IndexStore, fake_repo: str) -> None:
     removed = unwatch_refs(stale_store, repo_path=fake_repo, refs=["main"], dry_run=False)
 
@@ -143,9 +137,6 @@ def test_head_is_refused_before_anything_is_dropped(
         "gone-branch",
         "main",
     ]
-
-
-# ── forget_stale_repos ───────────────────────────────────────────────
 
 
 def test_only_repos_whose_path_is_gone_are_forgotten(

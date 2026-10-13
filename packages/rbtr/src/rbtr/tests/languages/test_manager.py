@@ -17,8 +17,6 @@ from rbtr.errors import MissingLanguagePluginsError, RbtrError
 from rbtr.languages.manager import get_manager, reset_manager
 from rbtr.languages.registration import LanguageRegistration, QueryExtraction
 
-# ── detect_language ──────────────────────────────────────────────────
-
 
 @pytest.mark.parametrize(
     ("path", "expected"),
@@ -98,9 +96,6 @@ def test_detect_filename_priority_over_extension(
     assert get_manager().detect_language("weird.ext") == "byname"
 
 
-# ── get_registration ─────────────────────────────────────────────────
-
-
 def test_get_registration_exists() -> None:
     reg = get_manager().get_registration("python")
     assert reg is not None
@@ -109,9 +104,6 @@ def test_get_registration_exists() -> None:
 
 def test_get_registration_none_for_unknown() -> None:
     assert get_manager().get_registration("nonexistent") is None
-
-
-# ── grammar ──────────────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize(
@@ -137,9 +129,6 @@ def test_grammar_cached() -> None:
     g1 = get_manager().grammar("python")
     g2 = get_manager().grammar("python")
     assert g1 is g2
-
-
-# ── query content ────────────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize(
@@ -195,9 +184,6 @@ def test_every_query_compiles_against_its_grammar() -> None:
         Query(grammar, reg.extraction.query)  # raises QueryError on an unknown node type
 
 
-# ── scope_types ──────────────────────────────────────────────────
-
-
 def test_scope_types_python() -> None:
     reg = get_manager().get_registration("python")
     assert reg is not None
@@ -217,9 +203,6 @@ def test_scope_types_empty(lang_id: str) -> None:
     assert scope_types == frozenset()
 
 
-# ── missing_grammar ──────────────────────────────────────────────────
-
-
 @pytest.mark.parametrize(
     "lang_id",
     ["python", "bash"],
@@ -232,9 +215,6 @@ def test_missing_grammar_false_for_chunker_only() -> None:
     """Languages with a custom chunker but no grammar_module are not 'missing'."""
     assert not get_manager().missing_grammar("markdown")
     assert not get_manager().missing_grammar("rst")
-
-
-# ── all_language_ids ─────────────────────────────────────────────────
 
 
 def test_all_language_ids_not_empty() -> None:
@@ -270,7 +250,6 @@ def test_all_language_ids_contains(lang_id: str) -> None:
     assert lang_id in get_manager().all_language_ids()
 
 
-# ── Entry-point discovery ────────────────────────────────────────────
 #
 # The manager reads only `ep.name` and `ep.load()`, so each test drives it
 # with an inline entry-point double (a `SimpleNamespace`) instead of a real
@@ -316,7 +295,6 @@ def test_broken_plugin_is_skipped(monkeypatch: pytest.MonkeyPatch, fresh_manager
     assert get_manager().all_language_ids() == ["oklang"]
 
 
-# ── require_languages_loaded ─────────────────────────────────────────
 #
 # The index records which languages it was built with; a rebuild in a
 # process missing one of those plugins would re-extract raw chunks and
@@ -348,9 +326,6 @@ def test_require_languages_loaded_raises_for_unloaded(only_oklang: None) -> None
 def test_require_languages_loaded_allow_missing_downgrades(only_oklang: None) -> None:
     """`allow_missing` overrides the failure (warns instead of raising)."""
     get_manager().require_languages_loaded(["python"], allow_missing=True)
-
-
-# ── Distributions ─────────────────────────────────────────────────────
 
 
 def test_distribution_reports_providing_package() -> None:

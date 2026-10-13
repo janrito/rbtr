@@ -13,8 +13,6 @@ from rbtr.index.build import build_index
 from rbtr.index.store import IndexStore
 from rbtr.languages.extract import extract_file
 
-# ── Edge cases ───────────────────────────────────────────────────────
-
 
 def test_build_index_extraction_error_is_nonfatal(
     tmp_path: Path, store: IndexStore, mocker: MockerFixture

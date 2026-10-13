@@ -25,9 +25,6 @@ class SearchScenario:
     expected_hit_names: list[str] = field(default_factory=list)
 
 
-# ── FTS hits ────────────────────────────────────────────────────────
-
-
 @case(tags=["fts_hit"])
 def case_fts_content_keyword() -> SearchScenario:
     """FTS finds a chunk by a keyword in its content."""
@@ -58,9 +55,6 @@ def case_fts_snake_case_split() -> SearchScenario:
     )
 
 
-# ── FTS empty ───────────────────────────────────────────────────────
-
-
 @case(tags=["fts_empty"])
 def case_fts_empty_query() -> SearchScenario:
     """Empty query returns no results."""
@@ -77,9 +71,6 @@ def case_fts_nonsense_query() -> SearchScenario:
         chunks=[make_chunk("a")],
         query="xyzzyplugh",
     )
-
-
-# ── Name search ─────────────────────────────────────────────────────
 
 
 @case(tags=["name_hit"])
@@ -99,9 +90,6 @@ def case_name_no_match() -> SearchScenario:
         chunks=[make_chunk("a", name="helper")],
         query="xyzzy",
     )
-
-
-# ── Unified search (no embeddings) ────────────────────────────
 
 
 @case(tags=["unified_no_embed"])

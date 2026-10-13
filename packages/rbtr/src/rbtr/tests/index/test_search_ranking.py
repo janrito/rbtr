@@ -18,8 +18,6 @@ from rbtr.index.store import IndexStore
 
 from .asserts import assert_outranks, assert_ranked_within
 
-# ── Kind boost ───────────────────────────────────────────────────────
-
 
 def test_class_definition_outranks_its_import(
     ranking_store: IndexStore, ranking_commit: str
@@ -32,9 +30,6 @@ def test_class_definition_outranks_its_import(
         top_k=10,
     )
     assert_outranks(results, "AppConfig", "from config import AppConfig")
-
-
-# ── File-category penalty ───────────────────────────────────────────
 
 
 def test_source_function_outranks_test_with_higher_tf(
@@ -64,9 +59,6 @@ def test_doc_section_ranks_below_code(ranking_store: IndexStore, ranking_commit:
         top_k=10,
     )
     assert_outranks(results, "load_config", "Configuration")
-
-
-# ── Name matching ────────────────────────────────────────────────────
 
 
 def test_exact_name_match_ranks_first(ranking_store: IndexStore, ranking_commit: str) -> None:
@@ -100,9 +92,6 @@ def test_class_name_query_finds_definition(ranking_store: IndexStore, ranking_co
     assert results[0].name == "AppConfig"
 
 
-# ── High-df terms ────────────────────────────────────────────────────
-
-
 def test_high_df_term_still_finds_definition(
     ranking_store: IndexStore, ranking_commit: str
 ) -> None:
@@ -132,9 +121,6 @@ def test_database_query_finds_class(ranking_store: IndexStore, ranking_commit: s
         top_k=10,
     )
     assert_ranked_within(results, "AppConfig", top=2)
-
-
-# ── Score breakdown populated ────────────────────────────────────────
 
 
 def test_score_breakdown_is_populated(ranking_store: IndexStore, ranking_commit: str) -> None:
@@ -183,9 +169,6 @@ def test_no_results_for_gibberish(ranking_store: IndexStore, ranking_commit: str
     assert results == []
 
 
-# ── Expansion integration ─────────────────────────────────────────
-
-
 def test_expansion_keywords_widen_bm25(ranking_store: IndexStore, ranking_commit: str) -> None:
     """Keywords in expansion are appended to the BM25 query.
 
@@ -211,9 +194,6 @@ def test_expansion_keywords_widen_bm25(ranking_store: IndexStore, ranking_commit
     # The keywords caused BM25 to find chunks containing "config" or "load".
     names = [r.name for r in with_keywords]
     assert any("config" in n.lower() or "load" in n.lower() for n in names)
-
-
-# ── Match preview ────────────────────────────────────────
 
 
 def test_match_preview_populated_for_lexical_hit(

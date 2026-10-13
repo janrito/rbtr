@@ -15,9 +15,6 @@ type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
 type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
 
 
-# ── DDL definitions: class ───────────────────────────────────────────
-
-
 @case(tags=["symbol"])
 def case_sql_table() -> SymbolCase:
     """CREATE TABLE — structural definition → class."""
@@ -48,9 +45,6 @@ def case_sql_type_composite() -> SymbolCase:
     """CREATE TYPE ... AS (...) — composite type → class."""
     src = "CREATE TYPE point AS (x DOUBLE PRECISION, y DOUBLE PRECISION);\n"
     return "sql", src, [("class", "point", "")]
-
-
-# ── DDL definitions: variable (standalone named objects) ─────────────
 
 
 @case(tags=["symbol"])
@@ -85,9 +79,6 @@ CREATE TRIGGER audit BEFORE UPDATE ON users
 FOR EACH ROW EXECUTE FUNCTION log_change();
 """
     return "sql", src, [("variable", "audit", "")]
-
-
-# ── Routines and statements: function ────────────────────────────────
 
 
 @case(tags=["symbol"])
@@ -140,9 +131,6 @@ SELECT id FROM recent;
     return "sql", src, [("function", "ranked", ""), ("function", "recent", "")]
 
 
-# ── DDL operations: function (alter/drop) ────────────────────────────
-
-
 @case(tags=["symbol"])
 def case_sql_alter_table() -> SymbolCase:
     """ALTER TABLE → function, named by the table."""
@@ -159,9 +147,6 @@ def case_sql_drop_table() -> SymbolCase:
 def case_sql_drop_index() -> SymbolCase:
     """DROP INDEX → function, named by the index."""
     return "sql", "DROP INDEX idx_old;\n", [("function", "idx_old", "")]
-
-
-# ── Naming invariances (optional clauses must not change the name) ───
 
 
 @case(tags=["symbol"])
@@ -202,9 +187,6 @@ def case_sql_insert_select() -> SymbolCase:
     return "sql", src, [("function", "archive", "")]
 
 
-# ── Unnamed statements (no nameable target) ──────────────────────────
-
-
 @case(tags=["symbol"])
 def case_sql_select_no_table() -> SymbolCase:
     """A SELECT with no table has no name."""
@@ -227,9 +209,6 @@ def case_sql_param_error_recovery() -> SymbolCase:
     still produced and named by its table.
     """
     return "sql", "SELECT * FROM users WHERE id = $id;\n", [("function", "users", "")]
-
-
-# ── Mixed ────────────────────────────────────────────────────────────
 
 
 @case(tags=["mixed"])

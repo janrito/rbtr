@@ -20,8 +20,6 @@ from rbtr.index.results import FusedRow
 
 from .cases_reranker import RerankScenario
 
-# ── Stub model ───────────────────────────────────────────────────────
-
 
 class _StubRerankerModel:
     """Minimal stand-in for `llama_cpp.Llama` with rank pooling.
@@ -52,9 +50,6 @@ class _StubRerankerModel:
 
     def close(self) -> None:
         pass
-
-
-# ── Helpers ──────────────────────────────────────────────────────────
 
 
 def _build_fused_frame(scenario: RerankScenario) -> dy.DataFrame[FusedRow]:
@@ -114,9 +109,6 @@ def _make_reranker(scenario: RerankScenario) -> Reranker:
     return Reranker(model_loader=lambda: stub)  # type: ignore[arg-type,return-value]  # stub satisfies Llama.embed interface
 
 
-# ── Fixture ──────────────────────────────────────────────────────────
-
-
 @fixture
 @parametrize_with_cases("scenario")
 def reranked(scenario: RerankScenario) -> tuple[RerankScenario, list[dict[str, Any]]]:
@@ -133,9 +125,6 @@ def reranked(scenario: RerankScenario) -> tuple[RerankScenario, list[dict[str, A
     finally:
         reranker.close()
     return scenario, result.to_dicts()
-
-
-# ── Tests ────────────────────────────────────────────────────────────
 
 
 def test_count(reranked: tuple[RerankScenario, list[dict[str, Any]]]) -> None:

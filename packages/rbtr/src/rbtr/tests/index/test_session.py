@@ -22,8 +22,6 @@ from .cases_store_repos import RepoSequence
 from .cases_store_watched_refs import WatchedRefScenario
 from .conftest import make_chunk, make_snap, seed_store
 
-# ── Commit / rollback ───────────────────────────────────────────────
-
 
 def test_clean_exit_commits(store: IndexStore) -> None:
     """Data written in a session is visible after clean exit."""
@@ -52,9 +50,6 @@ def test_exception_rolls_back(store: IndexStore) -> None:
 
     chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
     assert chunks == []
-
-
-# ── Guard rails ──────────────────────────────────────────────────────
 
 
 def test_write_outside_session_raises(store: IndexStore) -> None:
@@ -115,9 +110,6 @@ def test_add_chunk_attributes_per_repo_in_one_session(store: IndexStore) -> None
     assert r2_names == {"r2_a"}
 
 
-# ── Sweep behaviour ─────────────────────────────────────────────────
-
-
 def test_sweep_cleans_orphans(store: IndexStore) -> None:
     """Explicit sweep() removes crash residue."""
     # Simulate a crashed build: snapshot without mark_indexed,
@@ -159,9 +151,6 @@ def test_sweep_skips_first_build(store: IndexStore) -> None:
     assert store.count_file_snapshots(at=SnapshotRef(repo_id=1, snapshot_sha="wip_sha")) > 0
 
 
-# ── FTS rebuild ──────────────────────────────────────────────────────
-
-
 def test_fts_rebuilt_after_chunk_insert(store: IndexStore) -> None:
     """Session that inserts chunks rebuilds FTS on exit."""
     with store.session() as ws:
@@ -174,9 +163,6 @@ def test_fts_rebuilt_after_chunk_insert(store: IndexStore) -> None:
         "searchable", within=[SnapshotRef(repo_id=1, snapshot_sha="c1")]
     )
     assert len(results) > 0
-
-
-# ── Chunk buffering ──────────────────────────────────────────────────
 
 
 def test_buffer_flushes_at_batch_size(store: IndexStore, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -210,9 +196,6 @@ def test_buffer_flushes_before_dependent_ops(store: IndexStore) -> None:
     assert len(chunks) == 1
 
 
-# ── Empty operations ─────────────────────────────────────────────────
-
-
 def test_empty_operations_are_noops(store: IndexStore) -> None:
     """Empty lists don't cause errors."""
     with store.session() as ws:
@@ -222,9 +205,6 @@ def test_empty_operations_are_noops(store: IndexStore) -> None:
         ws.delete_chunks_for_blobs(set(), file_language="")
 
 
-# ── register_repo ────────────────────────────────────────────────────
-
-
 @parametrize_with_cases("scenario", cases=".cases_store_repos")
 def test_register_repo(scenario: RepoSequence, store: IndexStore) -> None:
     with store.session() as ws:
@@ -232,9 +212,6 @@ def test_register_repo(scenario: RepoSequence, store: IndexStore) -> None:
             assert ws.register_repo(path) == expected_id
     listing = [(r.repo_id, r.repo_path) for r in store.list_repos()]
     assert listing == scenario.expected_listing
-
-
-# ── watched_refs ─────────────────────────────────────────────────
 
 
 @parametrize_with_cases("scenario", cases=".cases_store_watched_refs")
@@ -252,9 +229,6 @@ def test_watched_refs(scenario: WatchedRefScenario, store: IndexStore) -> None:
         assert store.list_watched_refs(repo_ids[key]) == expected
 
 
-# ── resolve_repo ─────────────────────────────────────
-
-
 def test_resolve_repo_returns_id(store: IndexStore) -> None:
     """resolve_repo returns the id for a registered repo."""
     with store.session() as ws:
@@ -267,9 +241,6 @@ def test_resolve_repo_raises_for_unknown(store: IndexStore) -> None:
     with pytest.raises(RepoNotFoundError, match="not registered") as raised:
         store.resolve_repo("nonexistent")
     assert raised.value.error_code == "repo_not_found"
-
-
-# ── replace_snapshots / replace_edges ────────────────────────────────
 
 
 def test_replace_snapshots_scoped_to_commit(store: IndexStore) -> None:
@@ -316,9 +287,6 @@ def test_replace_edges_scoped_to_commit(store: IndexStore) -> None:
 
     assert store.count_edges(at=SnapshotRef(repo_id=1, snapshot_sha="c1")) == 0
     assert store.count_edges(at=SnapshotRef(repo_id=1, snapshot_sha="c2")) == 1
-
-
-# ── update_embeddings ────────────────────────────────────────────────
 
 
 def test_update_embeddings_round_trip(store: IndexStore) -> None:
@@ -381,9 +349,6 @@ def test_update_embeddings_rejects_mixed_dims(store: IndexStore) -> None:
         )
         with pytest.raises(ValidationError):
             ws.update_embeddings(["a", "b"], [[0.1, 0.2, 0.3], [0.4, 0.5]])
-
-
-# ── delete_snapshots ─────────────────────────────────────────────────
 
 
 def test_delete_snapshots_hides_chunks(

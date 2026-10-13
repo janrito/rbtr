@@ -33,8 +33,6 @@ from ..index.conftest import make_chunk
 from .cases_work_queue import NextJobScenario
 from .conftest import serving
 
-# ── Fixtures ─────────────────────────────────────────────────────────
-
 
 @fixture
 @parametrize_with_cases("scenario", cases=".cases_work_queue", has_tag="next_job")
@@ -61,9 +59,6 @@ def next_job_store(
             if snap.indexed:
                 ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=snap.snapshot_sha))
     return store, scenario
-
-
-# ── Startup recovery ────────────────────────────────────────────────
 
 
 def test_startup_recovery_wakes_the_worker_for_outstanding_embeds(
@@ -96,9 +91,6 @@ def test_startup_backfills_a_head_watch_for_every_repo(
     DaemonServer(runtime_dir, store=store, idle_poll_interval=60.0, busy_poll_interval=60.0)
 
     assert store.list_watched_refs(store.resolve_repo("/test/repo")) == ["HEAD"]
-
-
-# ── Watched-ref builds & HEAD backfill ───────────────────────────────
 
 
 @pytest.fixture
@@ -142,9 +134,6 @@ def test_find_next_job_prefers_stale_watched_ref(
     job = server._find_next_job()
     assert isinstance(job, BuildJob)
     assert job.refs == (head,)
-
-
-# ── Which job comes next ─────────────────────────────────────────────
 
 
 def test_find_next_job_picks_the_embed_work(

@@ -62,9 +62,6 @@ class WatcherScenario:
     expected: list[ExpectedTarget] = field(default_factory=list)
 
 
-# ── No-target scenarios ──────────────────────────────────────────────
-
-
 def case_empty_store() -> WatcherScenario:
     """No repos registered."""
     return WatcherScenario()
@@ -103,9 +100,6 @@ def case_bare_sha_one_shot() -> WatcherScenario:
         indexed_at={"r": 0},
         watched_sha_at={"r": [0]},
     )
-
-
-# ── Target scenarios ─────────────────────────────────────────────────
 
 
 def case_head_never_indexed() -> WatcherScenario:

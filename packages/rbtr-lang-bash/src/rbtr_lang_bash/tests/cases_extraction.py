@@ -106,9 +106,6 @@ check() {
     return "bash", src, [("function", "check", "")]
 
 
-# ── Mixed ───────────────────────────────────────────────────────────
-
-
 @case(tags=["symbol"])
 def case_bash_assignment() -> SymbolCase:
     """Top-level variable assignment."""

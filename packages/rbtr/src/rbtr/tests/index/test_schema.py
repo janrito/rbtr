@@ -29,8 +29,6 @@ from rbtr.index.store import IndexStore
 from .cases_store_versioning import VersioningScenario
 from .conftest import make_chunk
 
-# ── Multi-statement schema ──────────────────────────────────────────
-
 
 def test_all_schema_tables_exist_after_open(tmp_path: Path) -> None:
     """Every table the full schema declares is present on open."""
@@ -50,9 +48,6 @@ def test_all_schema_tables_exist_after_open(tmp_path: Path) -> None:
         ).fetchall()
     }
     assert expected <= tables
-
-
-# ── Version migration ───────────────────────────────────────────────
 
 
 @fixture
@@ -165,9 +160,6 @@ def test_embedding_meta_stored_after_change(
     stored = {str(r[0]): str(r[1]) for r in rows}
     assert stored["embedding_model"] == config.embedding_model
     assert stored["embedding_version"] == str(EMBEDDING_FORMAT_VERSION)
-
-
-# ── DB lifecycle ────────────────────────────────────────────────────
 
 
 def _seed_one_chunk(path: Path) -> None:

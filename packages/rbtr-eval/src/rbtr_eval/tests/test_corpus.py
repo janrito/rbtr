@@ -20,8 +20,6 @@ from rbtr_eval.corpus import Corpus, corpus_refs
 from rbtr_eval.tests.cases_corpus import CorpusScenario
 from rbtr_eval.tests.conftest import seed_corpus
 
-# ── Fixtures ─────────────────────────────────────────────────────────
-
 
 @dataclass(frozen=True)
 class RepoAtHead:
@@ -47,9 +45,6 @@ def repo_at_head(tmp_path: Path) -> RepoAtHead:
 def store(tmp_path: Path) -> IndexStore:
     """A file-backed, writable index, isolated to this test."""
     return IndexStore(str(tmp_path / "index" / "index.duckdb"), writable=True)
-
-
-# ── Tests ────────────────────────────────────────────────────────────
 
 
 @parametrize_with_cases("scenario", cases=".cases_corpus", has_tag="valid")

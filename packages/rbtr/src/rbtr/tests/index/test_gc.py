@@ -110,18 +110,12 @@ def gc(
     store.close()
 
 
-# ── HEAD_ONLY ────────────────────────────────────────────────────────
-
-
 def test_head_only_keeps_head_and_drops_rest(gc: GcFixture) -> None:
     counts = run_gc(gc.store, gc.repo_path, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
     assert counts.snapshots == 2  # c1 and c2 dropped
     assert gc.store.has_indexed(at=SnapshotRef(repo_id=gc.repo_id, snapshot_sha=gc.c3)) is True
     assert gc.store.has_indexed(at=SnapshotRef(repo_id=gc.repo_id, snapshot_sha=gc.c1)) is False
     assert gc.store.has_indexed(at=SnapshotRef(repo_id=gc.repo_id, snapshot_sha=gc.c2)) is False
-
-
-# ── WATCHED (default) ───────────────────────────────────────
 
 
 def test_watched_keeps_watched_refs_and_head(gc: GcFixture) -> None:
@@ -165,9 +159,6 @@ def test_watched_only_drops_unwatched_branches_and_tags(gc: GcFixture) -> None:
     assert gc.store.has_indexed(at=SnapshotRef(repo_id=gc.repo_id, snapshot_sha=gc.c2)) is False
 
 
-# ── KEEP ──────────────────────────────────────────────────────────────
-
-
 def test_keep_preserves_listed_refs_and_head(gc: GcFixture) -> None:
     # Keep v1 (c1). HEAD (c3) is kept implicitly.
     counts = run_gc(gc.store, gc.repo_path, mode=GcMode.KEEP, refs=["v1"], dry_run=False)
@@ -184,9 +175,6 @@ def test_keep_with_no_refs_is_head_only(gc: GcFixture) -> None:
     )  # HEAD kept
     assert gc.store.has_indexed(at=SnapshotRef(repo_id=gc.repo_id, snapshot_sha=gc.c1)) is False
     assert gc.store.has_indexed(at=SnapshotRef(repo_id=gc.repo_id, snapshot_sha=gc.c2)) is False
-
-
-# ── ORPHANS ──────────────────────────────────────────────────────────
 
 
 def test_orphans_never_drops_indexed_snapshots(gc: GcFixture) -> None:
@@ -212,9 +200,6 @@ def test_orphans_sweeps_crashed_residue(gc: GcFixture) -> None:
     )
     # Completed commits untouched.
     assert gc.store.has_indexed(at=SnapshotRef(repo_id=gc.repo_id, snapshot_sha=gc.c1)) is True
-
-
-# ── dry-run ──────────────────────────────────────────────────────────
 
 
 def test_dry_run_reports_without_writing(gc: GcFixture) -> None:
@@ -273,9 +258,6 @@ def test_gc_reports_reclaimed_orphan_chunks(gc: GcFixture) -> None:
     assert gc.store.count_orphan_chunks() == 0
 
 
-# ── error handling ──────────────────────────────────────────────────
-
-
 def test_unknown_ref_in_keep_raises(gc: GcFixture) -> None:
     with pytest.raises(RbtrError, match="nosuchref"):
         run_gc(
@@ -285,9 +267,6 @@ def test_unknown_ref_in_keep_raises(gc: GcFixture) -> None:
             refs=["nosuchref"],
             dry_run=False,
         )
-
-
-# ── Search survives GC ───────────────────────────────────────────────
 
 
 def test_search_works_after_gc(gc: GcFixture) -> None:
@@ -300,9 +279,6 @@ def test_search_works_after_gc(gc: GcFixture) -> None:
 
     # Dropped commits return nothing.
     assert gc.store.get_chunks(at=SnapshotRef(repo_id=gc.repo_id, snapshot_sha=gc.c1)) == []
-
-
-# ── Edge cases ───────────────────────────────────────────────────────
 
 
 def test_gc_preserves_current_worktree_tree_sha(gc: GcFixture) -> None:
@@ -367,9 +343,6 @@ def test_gc_unborn_head_raises(tmp_path: Path) -> None:
     with pytest.raises(RbtrError, match="no commits"):
         run_gc(store, repo_path, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
     store.close()
-
-
-# ── Global GC (no --repo-path): reclaim across every registered repo ──
 
 
 @dataclass(frozen=True)
@@ -540,9 +513,6 @@ def test_post_build_cleanup_drops_a_stale_worktree_whose_object_is_gone(
     assert (
         gc.store.has_indexed(at=SnapshotRef(repo_id=gc.repo_id, snapshot_sha=current_sha)) is True
     )
-
-
-# ── Global GC with the watched-only retention ────────────────────────
 
 
 def test_run_gc_all_watched_only_drops_unwatched_refs_everywhere(

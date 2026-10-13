@@ -22,8 +22,6 @@ from __future__ import annotations
 
 from pytest_cases import case
 
-# ── Accepted ────────────────────────────────────────────────────────
-
 
 @case(tags=["accepted"])
 def case_python_triple_quoted() -> tuple[str, str]:
@@ -57,9 +55,6 @@ def case_jsdoc_block_first_sentence() -> tuple[str, str]:
  */"""
     expected = "/**\n * Compute a hash."
     return raw, expected
-
-
-# ── Rejected ────────────────────────────────────────────────────────
 
 
 @case(tags=["rejected"])
