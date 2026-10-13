@@ -85,7 +85,7 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.status import remove_status, write_status
 from rbtr.domain.models import Chunk, SnapshotRef
-from rbtr.errors import IndexNotBuiltError, MissingSnapshot, RbtrError
+from rbtr.errors import BuildStopped, IndexNotBuiltError, MissingSnapshot, RbtrError
 from rbtr.git import HEAD_REF, non_commit_shas, normalise_repo_path
 from rbtr.index.build import build_index
 from rbtr.index.embeddings import Embedder, embedding_text
@@ -195,8 +195,9 @@ class DaemonServer:
         # Serialises model loading across slots so two concurrent
         # ggml_metal_init calls cannot saturate the GPU.
         self._gpu_load_lock = threading.Lock()
-        # Set on shutdown, so an embedding batch in progress ends at once.
-        self._abort_embedding = threading.Event()
+        # Set on shutdown, so an embedding batch in progress ends at once
+        # and a build ends before its next file.
+        self._stopping = threading.Event()
 
         if store is not None:
             if self._embed:
@@ -204,7 +205,7 @@ class DaemonServer:
                     idle_timeout=config.embed_idle_timeout,
                     gpu_lock=self._gpu_lock,
                     load_lock=self._gpu_load_lock,
-                    abort=self._abort_embedding,
+                    abort=self._stopping,
                 )
             if config.reranker_model:
                 self._reranker = Reranker(
@@ -385,6 +386,8 @@ class DaemonServer:
         push.connect("inproc://progress")
         try:
             self._build_refs(job, store, push)
+        except BuildStopped:
+            log.info("build_stopped_shutdown", repo=job.repo_path)
         except Exception as exc:
             _notify(push, IndexErrorNotification(repo_path=job.repo_path, message=str(exc)))
             raise
@@ -408,6 +411,7 @@ class DaemonServer:
                 sha,
                 store,
                 on_progress=_progress_callback(push, job.repo_path),
+                stop=self._stopping,
             )
             counts = store.chunk_counts_for_snapshot(
                 at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha)
@@ -619,7 +623,7 @@ class DaemonServer:
         wake is scheduled on the loop that `serve()` recorded.
         """
         self._shutdown = True
-        self._abort_embedding.set()
+        self._stopping.set()
         loop = self._loop
         if loop is None or loop.is_closed():
             # Not serving: nothing is waiting on the event, and setting
