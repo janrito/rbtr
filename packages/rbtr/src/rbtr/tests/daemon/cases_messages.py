@@ -67,9 +67,6 @@ class MessageScenario:
     checks: dict[str, object] = field(default_factory=dict)
 
 
-# ── Requests ─────────────────────────────────────────────────────────
-
-
 @case(tags=["request"])
 def case_shutdown() -> MessageScenario:
     return MessageScenario(
@@ -331,9 +328,6 @@ def case_forget_repo() -> MessageScenario:
     )
 
 
-# ── Responses ────────────────────────────────────────────────────────
-
-
 @case(tags=["response"])
 def case_ok() -> MessageScenario:
     return MessageScenario(
@@ -489,9 +483,6 @@ def case_forget_response() -> MessageScenario:
         expected_type=ForgetResponse,
         checks={"forgotten": ["/a", "/b"], "dry_run": False},
     )
-
-
-# ── Notifications ────────────────────────────────────────────────────
 
 
 @case(tags=["notification"])

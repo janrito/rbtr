@@ -18,7 +18,6 @@ from .conftest import make_chunk
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        # ── Core splitting rules ─────────────────────────────────
         ("AgentDeps", "agentdeps agent deps"),
         ("getUserById", "getuserbyid get user by id"),
         ("_deep_merge", "_deep_merge deep merge"),
@@ -35,7 +34,6 @@ from .conftest import make_chunk
         ("= + - / *", ""),
         # Mixed code line.
         ("def build_index(repo, ref):", "def build_index build index repo ref"),
-        # ── Python ───────────────────────────────────────────────
         ("StatisticsCalculator", "statisticscalculator statistics calculator"),
         ("MAX_RETRY_COUNT", "max_retry_count max retry count"),
         ("list[dict[str, Any]]", "list dict str any"),
@@ -44,37 +42,30 @@ from .conftest import make_chunk
         ("ThinkingEffort", "thinkingeffort thinking effort"),
         ("IndexStore", "indexstore index store"),
         ("build_model", "build_model build model"),
-        # ── Java / C# ───────────────────────────────────────────
         ("AbstractHttpRequestHandler", "abstracthttprequesthandler abstract http request handler"),
         ("getResponseBody", "getresponsebody get response body"),
         ("DEFAULT_BUFFER_SIZE", "default_buffer_size default buffer size"),
         ("HashMap<String, List<Integer>>", "hashmap hash map string list integer"),
-        # ── Go ───────────────────────────────────────────────────
         ("HandleHTTPRequest", "handlehttprequest handle http request"),
         ("parseConfig", "parseconfig parse config"),
         ("ReadWriteCloser", "readwritecloser read write closer"),
         ("ErrNotFound", "errnotfound err not found"),
-        # ── Rust ─────────────────────────────────────────────────
         ("process_http_request", "process_http_request process http request"),
         ("HttpResponseBuilder", "httpresponsebuilder http response builder"),
         ("ConnectionRefused", "connectionrefused connection refused"),
-        # ── C / C++ ──────────────────────────────────────────────
         ("ARRAY_SIZE", "array_size array size"),
         ("XMLHttpRequest", "xmlhttprequest xml http request"),
         ("getNodeValue", "getnodevalue get node value"),
         ("std::vector<int>", "std vector int"),
         ("uint32_t", "uint32_t uint 32 t"),
-        # ── JavaScript / TypeScript ──────────────────────────────
         ("getElementById", "getelementbyid get element by id"),
         ("UserProfileCard", "userprofilecard user profile card"),
         ("MAX_CONNECTIONS", "max_connections max connections"),
         ("IEventEmitter", "ieventemitter i event emitter"),
         ("Promise<Response>", "promise response"),
-        # ── Ruby ─────────────────────────────────────────────────
         ("find_or_create_by", "find_or_create_by find or create by"),
         ("ActiveRecord", "activerecord active record"),
         ("RAILS_ENV", "rails_env rails env"),
-        # ── Bash ─────────────────────────────────────────────────
         ("BASH_SOURCE", "bash_source bash source"),
         ("check_dependencies", "check_dependencies check dependencies"),
     ],
@@ -84,7 +75,6 @@ def test_tokenise_code(text: str, expected: str) -> None:
     assert tokenise_code(text) == expected
 
 
-# ── Keywords survive FTS indexing ────────────────────────────────────
 #
 # Language keywords must not be stripped by FTS stopwords.
 # See case_tokenise_keywords.py for the keyword scenarios.
@@ -93,7 +83,6 @@ def test_tokenise_code(text: str, expected: str) -> None:
 @pytest.mark.parametrize(
     ("code", "expected_keywords"),
     [
-        # ── Python ───────────────────────────────────────────────
         ("async def fetch(url): pass", {"async", "def"}),
         ("await response.json()", {"await"}),
         ("with open(path) as f:", {"with", "as"}),
@@ -112,7 +101,6 @@ def test_tokenise_code(text: str, expected: str) -> None:
         ("global counter", {"global"}),
         ("del items[0]", {"del"}),
         ("lambda x: x + 1", {"lambda"}),
-        # ── JavaScript / TypeScript ──────────────────────────────
         ("const data = await fetch(url)", {"const", "await"}),
         ("for (const item of items) {", {"for", "of", "const"}),
         ("this.setState({loading: true})", {"this"}),
@@ -123,7 +111,6 @@ def test_tokenise_code(text: str, expected: str) -> None:
         ("import { useState } from 'react'", {"import", "from"}),
         ("switch (action) { case 'add': break; }", {"switch", "case", "break"}),
         ("try { } catch (e) { throw e; }", {"try", "catch", "throw"}),
-        # ── Go ──────────────────────────────────────────────────
         ("func handle(w http.ResponseWriter, r *http.Request) {", {"func", "handle"}),
         ("defer file.Close()", {"defer"}),
         ("go process(item)", {"go", "process"}),
@@ -132,7 +119,6 @@ def test_tokenise_code(text: str, expected: str) -> None:
         ("package main", {"package", "main"}),
         ("struct { name string }", {"struct", "name", "string"}),
         ("interface { Read() }", {"interface"}),
-        # ── Rust ────────────────────────────────────────────────
         ("impl Display for Config {", {"impl", "for"}),
         ("let mut data = Vec::new();", {"let", "mut"}),
         ("fn process(item: &str) -> Result<T, E> {", {"fn"}),
@@ -146,7 +132,6 @@ def test_tokenise_code(text: str, expected: str) -> None:
         ("unsafe { ptr::read(src) }", {"unsafe", "ptr"}),
         ("loop { break; }", {"loop", "break"}),
         ("where T: Clone + Send", {"where"}),
-        # ── Java ────────────────────────────────────────────────
         ("this.name = name;", {"this", "name"}),
         ("public static void main(String[] args)", {"public", "static", "void", "main"}),
         ("import java.util.List;", {"import", "java", "util"}),
@@ -155,7 +140,6 @@ def test_tokenise_code(text: str, expected: str) -> None:
         ("final int MAX = 100;", {"final", "int"}),
         ("instanceof String", {"instanceof"}),
         ("extends AbstractClass implements Interface", {"extends", "implements"}),
-        # ── C / C++ ─────────────────────────────────────────────
         ("if (not found && ptr != nullptr) {", {"if", "not", "ptr", "nullptr"}),
         ("#include <stdio.h>", {"include", "stdio", "h"}),
         ("typedef struct node_t { } Node;", {"typedef", "struct", "node_t"}),
@@ -164,7 +148,6 @@ def test_tokenise_code(text: str, expected: str) -> None:
         ("namespace fs = std::filesystem;", {"namespace", "fs", "std", "filesystem"}),
         ("virtual void draw() override = 0", {"virtual", "void", "draw", "override"}),
         ("const auto& ref = value;", {"const", "auto", "ref", "value"}),
-        # ── Ruby ────────────────────────────────────────────────
         ("if condition then do_something end", {"if", "then", "end"}),
         ("unless error.nil?", {"unless"}),
         ("def initialize(name)", {"def", "initialize"}),
@@ -172,7 +155,6 @@ def test_tokenise_code(text: str, expected: str) -> None:
         ("require 'json'", {"require", "json"}),
         ("attr_accessor :name", {"attr_accessor"}),
         ("begin rescue ensure end", {"begin", "rescue", "ensure", "end"}),
-        # ── SQL ─────────────────────────────────────────────────
         ("SELECT id, name FROM users", {"select", "id", "name", "from", "users"}),
         ("INSERT INTO chunks (id) VALUES (?)", {"insert", "into", "chunks", "id", "values"}),
         (
@@ -183,7 +165,6 @@ def test_tokenise_code(text: str, expected: str) -> None:
         ("LEFT JOIN edges ON source_id = id", {"left", "join", "on"}),
         ("GROUP BY kind HAVING count > 1", {"group", "by", "having", "count"}),
         ("CREATE TABLE IF NOT EXISTS meta", {"create", "table", "if", "not", "exists", "meta"}),
-        # ── Bash ────────────────────────────────────────────────
         ("if [ -f file ]; then echo found; fi", {"if", "then", "echo", "fi"}),
         ("for f in *.py; do echo $f; done", {"for", "f", "in", "do", "echo", "done"}),
         ("while read line; do process; done", {"while", "read", "line", "do", "done"}),

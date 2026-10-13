@@ -45,9 +45,6 @@ _PYTHON_RESOLUTION = ImportResolution(
 _PYTHON_MAP: dict[str, ImportResolution] = {"python": _PYTHON_RESOLUTION}
 
 
-# ── import edges: structural (tree-sitter metadata) ─────────────────
-
-
 def case_import_from_import() -> EdgeScenario:
     """from src.models import User — module + names → exact target."""
     return EdgeScenario(
@@ -414,9 +411,6 @@ def case_import_suffix_single_segment_guard() -> EdgeScenario:
     )
 
 
-# ── import edges: text-search fallback ──────────────────────────────
-
-
 def case_import_text_fallback_file_stem_match() -> EdgeScenario:
     """No metadata → text search matches repo file stem."""
     return EdgeScenario(
@@ -477,9 +471,6 @@ def case_import_text_fallback_short_stem_skipped() -> EdgeScenario:
     )
 
 
-# ── import edges: coverage gaps ─────────────────────────────────────
-
-
 def case_import_relative_overflow() -> EdgeScenario:
     """Relative import with more dots than path depth."""
     return EdgeScenario(
@@ -528,9 +519,6 @@ def case_import_metadata_without_module_or_dots() -> EdgeScenario:
         resolution_map=_PYTHON_MAP,
         expected=frozenset(),
     )
-
-
-# ── doc edges ───────────────────────────────────────────────────────
 
 
 _DOC_RESOLUTION: dict[str, ImportResolution] = {
@@ -740,9 +728,6 @@ def case_doc_no_references_no_edges() -> EdgeScenario:
         ],
         expected=frozenset(),
     )
-
-
-# ── cross-language import edges ─────────────────────────────────────
 
 
 def case_import_html_script_src_relative() -> EdgeScenario:

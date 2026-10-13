@@ -27,8 +27,6 @@ from rbtr.index.store import IndexStore
 
 from ..index.conftest import make_chunk
 
-# ── Data fixtures ────────────────────────────────────────────────────
-
 
 @pytest.fixture
 def daemon_commit(fake_repo: str) -> str:
@@ -95,9 +93,6 @@ def daemon_edges(daemon_chunks: list[TokenisedChunk]) -> list[Edge]:
             target_path=fn.file_path,
         ),
     ]
-
-
-# ── Server-support fixtures ─────────────────────────────────────────
 
 
 @pytest.fixture

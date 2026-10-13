@@ -15,8 +15,6 @@ from rbtr.index.staging import TokenisedChunk
 
 from .conftest import make_chunk, make_snap
 
-# ── Scenario dataclasses ────────────────────────────────────────────
-
 
 @dataclass(frozen=True)
 class ChunkQueryScenario:
@@ -50,9 +48,6 @@ class BlobCurrentScenario:
     query_language: str
     serial_map: dict[str, int]
     expected: bool
-
-
-# ── get_chunks filter cases ─────────────────────────────────────────
 
 
 @case(tags=["get_chunks"])
@@ -133,9 +128,6 @@ def case_get_chunks_same_blob_two_paths() -> ChunkQueryScenario:
         file_path="a.py",
         expected_names=["shared"],
     )
-
-
-# ── blob_is_current cases ──────────────────────────────────────────────────
 
 
 @case(tags=["blob_is_current"])
@@ -264,9 +256,6 @@ def case_blob_is_current_multilanguage_embedded_bump() -> BlobCurrentScenario:
     )
 
 
-# ── Scenario dataclasses for the GC chunk split ─────────────────────
-
-
 @dataclass(frozen=True)
 class SnapshotGroup:
     """FileSnapshots for one commit of one repo, plus the ref to seed under."""
@@ -285,9 +274,6 @@ class GcCountScenario:
     drop_shas: list[str]
     expected_dropped: int
     expected_kept: int
-
-
-# ── gc_counts cases ─────────────────────────────────────────────────
 
 
 @case(tags=["gc_counts"])
@@ -371,9 +357,6 @@ def case_gc_split_mixed() -> GcCountScenario:
         expected_dropped=1,
         expected_kept=1,
     )
-
-
-# ── embed_order cases ────────────────────────────────────────────────
 
 
 @case(tags=["embed_order"])

@@ -23,8 +23,6 @@ from rbtr_eval.index_stage import (
 )
 from rbtr_eval.tests.conftest import chunk, snap
 
-# ── Fixtures ─────────────────────────────────────────────────────────
-
 INDEXED = "1" * 40
 RESIDUE = "2" * 40
 
@@ -101,9 +99,6 @@ def store_with_copy(tmp_path: Path) -> IndexStore:
     return store
 
 
-# ── Tests ────────────────────────────────────────────────────────────
-
-
 def test_counts_describe_only_indexed_snapshots(
     store_with_residue: IndexStore, corpus: Corpus
 ) -> None:
@@ -138,9 +133,6 @@ def test_a_vendored_file_counts_once_as_content_and_twice_as_location(
         {"repo": "repo", "chunks": 1, "locations": 2, "edges": 0}
     ]
     assert _totals(store_with_copy, corpus) == (1, 2, 0)
-
-
-# ── DVC sentinel hash ────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize(

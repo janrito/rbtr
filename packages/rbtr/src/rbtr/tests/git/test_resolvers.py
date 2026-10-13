@@ -19,9 +19,6 @@ def sample_repo_path(sample_repo: SampleRepo) -> str:
     return str(Path(sample_repo.repo.path).parent)
 
 
-# ── Basic resolution ─────────────────────────────────────────────────
-
-
 @pytest.mark.parametrize("ref", ["HEAD", "main"])
 def test_resolve_ref_returns_base_sha(
     sample_repo: SampleRepo, sample_repo_path: str, ref: str
@@ -49,16 +46,10 @@ def test_resolve_ref_raises_on_missing_repo(tmp_path: Path) -> None:
         resolve_ref(bogus, "HEAD")
 
 
-# ── SHA short-circuit ────────────────────────────────────────────────
-
-
 def test_sha_short_circuits_without_repo(tmp_path: Path) -> None:
     sha = "deadbeef" * 5  # 40 hex chars
     bogus = str(tmp_path / "no-such-repo")
     assert resolve_ref(bogus, sha) == sha
-
-
-# ── Worktree symbolic ref ─────────────────────────────────────────────
 
 
 @pytest.fixture

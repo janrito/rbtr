@@ -9,8 +9,6 @@ from pytest_cases import case
 from rbtr_eval.shared_schemas import QueryMeta
 from rbtr_eval.tune import ScoredCandidate
 
-# ── _rescore_and_rank ────────────────────────────────────────────────────────
-
 
 @case(tags=["rescore"])
 def case_rescore_target_at_rank_one() -> tuple[

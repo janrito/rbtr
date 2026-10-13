@@ -17,8 +17,6 @@ from rbtr.index.results import ChangedSymbolRow
 # A symbol's identity for diff assertions: (name, scope).
 SymbolId = tuple[str, str]
 
-# ── Private projections ─────────────────────────────────────────────
-
 
 def _rank_in(results: list[ScoredChunk], name: str) -> int | None:
     """Return 1-indexed rank of the chunk called *name*, or None."""
@@ -26,9 +24,6 @@ def _rank_in(results: list[ScoredChunk], name: str) -> int | None:
         if r.name == name:
             return i
     return None
-
-
-# ── Public assertion helpers ────────────────────────────────────────
 
 
 def assert_outranks(results: list[ScoredChunk], higher: str, lower: str) -> None:

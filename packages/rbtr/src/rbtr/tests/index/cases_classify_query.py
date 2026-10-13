@@ -15,8 +15,6 @@ from pytest_cases import case, parametrize
 
 from rbtr.domain.models import QueryKind
 
-# ── IDENTIFIER (correctly classified) ────────────────────────────────
-
 
 @case(tags=["identifier"])
 @parametrize(
@@ -67,9 +65,6 @@ def case_identifier(query: str) -> tuple[str, QueryKind]:
     return query, QueryKind.IDENTIFIER
 
 
-# ── CONCEPT (correctly classified) ───────────────────────────────────
-
-
 @case(tags=["concept"])
 @parametrize(
     query=[
@@ -103,9 +98,6 @@ def case_concept(query: str) -> tuple[str, QueryKind]:
     return query, QueryKind.CONCEPT
 
 
-# ── CODE (correctly classified) ──────────────────────────────────────
-
-
 @case(tags=["code"])
 @parametrize(
     query=[
@@ -135,7 +127,6 @@ def case_code(query: str) -> tuple[str, QueryKind]:
     return query, QueryKind.CODE
 
 
-# ── Known misclassifications (heuristic trade-offs) ──────────────────
 #
 # These are queries where the heuristic gets the wrong answer.
 # Each documents the trade-off: why the expected classification

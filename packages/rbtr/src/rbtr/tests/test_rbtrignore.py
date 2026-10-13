@@ -6,8 +6,6 @@ from pathlib import Path
 
 from rbtr.rbtrignore import default_ignore, load_ignore, parse_ignore
 
-# ── parse_ignore ─────────────────────────────────────────────────────
-
 
 def test_parse_excludes_matching_file() -> None:
     spec = parse_ignore("vendor/\n*.gen.go\n")
@@ -37,9 +35,6 @@ def test_parse_empty_string() -> None:
     assert not spec.match_file("anything.py")
 
 
-# ── default_ignore ───────────────────────────────────────────────────
-
-
 def test_default_excludes_rbtr_dir() -> None:
     spec = default_ignore()
     assert spec.match_file(".rbtr/index/data")
@@ -48,9 +43,6 @@ def test_default_excludes_rbtr_dir() -> None:
 def test_default_allows_source_files() -> None:
     spec = default_ignore()
     assert not spec.match_file("src/main.py")
-
-
-# ── load_ignore ──────────────────────────────────────────────────────
 
 
 def test_load_from_file(tmp_path: Path) -> None:

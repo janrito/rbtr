@@ -62,9 +62,6 @@ def wt_sha(worktree_repo: tuple[pygit2.Repository, str]) -> str:
     return sha
 
 
-# ── Build tests ──────────────────────────────────────────────────────
-
-
 def test_build_worktree_creates_chunks(
     worktree_repo: tuple[pygit2.Repository, str], store: IndexStore, wt_sha: str
 ) -> None:
@@ -146,9 +143,6 @@ def test_build_worktree_marks_indexed(
     assert wt_sha in indexed
 
 
-# ── Integration tests ────────────────────────────────────────────────
-
-
 def test_search_returns_worktree_content(
     worktree_repo: tuple[pygit2.Repository, str], store: IndexStore, wt_sha: str
 ) -> None:
@@ -180,9 +174,6 @@ def test_head_still_visible_after_worktree_build(
     # HEAD still has the deleted test file.
     test_chunks = [c for c in head_chunks if c.file_path == "tests/test_utils.py"]
     assert len(test_chunks) > 0
-
-
-# ── Unhappy paths / edge cases ───────────────────────────────────────
 
 
 def test_build_worktree_clean_matches_head(git_repo: pygit2.Repository, store: IndexStore) -> None:

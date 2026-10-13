@@ -72,8 +72,6 @@ import pytest
 
 from ..conftest import make_commit
 
-# ── File-content fixtures ───────────────────────────────────────────
-
 
 @pytest.fixture
 def handler_v1() -> bytes:
@@ -118,9 +116,6 @@ def shared_py_content() -> bytes:
 @pytest.fixture
 def feature_py_content() -> bytes:
     return b"f = 1\n"
-
-
-# ── Repo datasets ───────────────────────────────────────────────────
 
 
 @dataclass

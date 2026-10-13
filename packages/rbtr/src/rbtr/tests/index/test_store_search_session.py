@@ -18,11 +18,6 @@ from rbtr.index.store import IndexStore
 from .cases_search import SearchScenario
 from .conftest import make_chunk, seed_store
 
-# ── Shared seeding fixture ──────────────────────────────────────────
-
-
-# ── FTS hits ────────────────────────────────────────────────────────
-
 
 @fixture
 @parametrize_with_cases("scenario", cases=".cases_search", has_tag="fts_hit")
@@ -37,9 +32,6 @@ def test_fts_finds_hit(fts_hit: SearchScenario, store: IndexStore, head_ref: Sna
     assert matched["name"].to_list()[0] == fts_hit.expected_hit_names[0]
 
 
-# ── FTS empty ───────────────────────────────────────────────────────
-
-
 @fixture
 @parametrize_with_cases("scenario", cases=".cases_search", has_tag="fts_empty")
 def fts_empty(scenario: SearchScenario, store: IndexStore, head_ref: SnapshotRef) -> SearchScenario:
@@ -51,9 +43,6 @@ def test_fts_returns_empty(
     fts_empty: SearchScenario, store: IndexStore, head_ref: SnapshotRef
 ) -> None:
     assert len(store.fulltext_matches(fts_empty.query, within=[head_ref])) == 0
-
-
-# ── Name search ─────────────────────────────────────────────────────
 
 
 @fixture
@@ -88,9 +77,6 @@ def test_name_search_returns_empty(
         at=head_ref,
     )
     assert results == []
-
-
-# ── Standalone tests (single-scenario behaviours) ───────────────────
 
 
 @pytest.fixture
@@ -313,9 +299,6 @@ def test_unified_search_returns_results_with_breakdown(
     assert top.score >= 0.0
     assert top.kind_boost > 0.0
     assert top.file_penalty > 0.0
-
-
-# ── Unified search without embeddings ────────────────────────────────
 
 
 @fixture

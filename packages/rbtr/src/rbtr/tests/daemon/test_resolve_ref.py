@@ -100,7 +100,6 @@ def test_resolve_read_ref(
     assert result.source == ref_scenario.expected_source
 
 
-# ── require_indexed gating ───────────────────────────────────────────
 #
 # These exercise the `require_indexed` path directly (the case matrix
 # above always indexes HEAD). A clean one-commit repo is enough: its

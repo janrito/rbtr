@@ -121,9 +121,6 @@ def test_poll_watched(
     assert poll_watched(seeded_store) == expected_targets
 
 
-# ── poll_worktree ───────────────────────────────────────────────────
-
-
 @fixture
 @parametrize_with_cases("s", cases=".cases_watcher_worktree")
 def wt_scenario(s: WorktreeScenario) -> WorktreeScenario:

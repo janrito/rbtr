@@ -21,8 +21,6 @@ from rbtr.languages.registration import ModuleStyle
 
 from .cases_edges import EdgeScenario
 
-# ── _resolve_module_to_file ──────────────────────────────────────────
-
 
 @pytest.mark.parametrize(
     ("module", "files", "resolution", "expected"),
@@ -112,9 +110,6 @@ def test_resolve_module_to_file_with_resolution(
     assert _resolve_module_to_file(module, files, resolution) == expected
 
 
-# ── infer_* scenarios ────────────────────────────────────────────────
-
-
 @fixture
 @parametrize_with_cases("scenario", cases=".cases_edges")
 def inferred(scenario: EdgeScenario) -> tuple[EdgeScenario, list[Edge], dict[str, str]]:
@@ -164,9 +159,6 @@ def test_inference_edge_kind_is_correct(
         assert e.kind == expected_kind
 
 
-# ── language_hint resolution ─────────────────────────────────────────
-
-
 @pytest.mark.parametrize(
     ("module", "files", "hint", "expected"),
     [
@@ -200,9 +192,6 @@ def test_language_hint_directs_resolution(
     assert resolution is not None
     result = _resolve_module_to_file(module, files, resolution)
     assert result == expected
-
-
-# ── PATH-style resolution ────────────────────────────────────────────
 
 
 @pytest.mark.parametrize(
@@ -274,9 +263,6 @@ def test_resolve_path_style(
 ) -> None:
     """PATH-style resolution: bare filenames, extensions, index files."""
     assert _resolve_module_to_file(module, files, resolution) == expected
-
-
-# ── DOTTED-style resolution ─────────────────────────────────────────
 
 
 @pytest.mark.parametrize(
@@ -424,9 +410,6 @@ def test_resolve_dotted_style(
 ) -> None:
     """DOTTED-style resolution: dot-to-slash conversion."""
     assert _resolve_module_to_file(module, files, resolution) == expected
-
-
-# ── suffix-tier tie-break by importer (Question 5) ────────────────────
 
 
 @pytest.mark.parametrize(

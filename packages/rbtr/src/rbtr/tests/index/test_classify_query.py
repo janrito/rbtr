@@ -14,8 +14,6 @@ from pytest_cases import get_case_tags, parametrize_with_cases
 from rbtr.domain.models import QueryKind
 from rbtr.index.classify import _code_score, classify_query
 
-# ── Classification ───────────────────────────────────────────────────
-
 
 @parametrize_with_cases(
     "query, expected_kind",
@@ -29,9 +27,6 @@ def test_classifies_correctly(query: str, expected_kind: QueryKind) -> None:
 @parametrize_with_cases("query, expected_kind", has_tag="misclassified")
 def test_known_misclassifications(query: str, expected_kind: QueryKind) -> None:
     assert classify_query(query) == expected_kind
-
-
-# ── Scoring ──────────────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize(
