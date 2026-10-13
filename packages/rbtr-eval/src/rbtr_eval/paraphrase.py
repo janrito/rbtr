@@ -391,7 +391,11 @@ def _render_paraphrase_report(
     """Render PARAPHRASE.md from concept + index data."""
     repo_table = concepts.group_by("slug").agg(pl.len().alias("n")).sort("slug")
 
-    lang_table = concepts.group_by("language").agg(pl.len().alias("n")).sort("n", descending=True)
+    lang_table = (
+        concepts.group_by("language")
+        .agg(pl.len().alias("n"))
+        .sort("n", "language", descending=[True, False])
+    )
 
     # Look up source content for sampled examples from the index.
     sampled = concepts.sample(10, seed=42).pipe(QueryRow.validate, cast=True)
