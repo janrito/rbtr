@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Generator
 from dataclasses import replace
 from pathlib import Path
@@ -11,6 +12,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 from rbtr.domain.models import ChunkKind, EdgeKind, FileSnapshot, IndexResult, SnapshotRef
+from rbtr.errors import BuildStopped
 from rbtr.index.build import build_index
 from rbtr.index.search import search
 from rbtr.index.store import IndexStore
@@ -471,6 +473,28 @@ def test_build_index_sweeps_residue_from_crashed_builds(
     # The legit commit is indexed; the crashed residue is gone.
     assert store.has_indexed(at=SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha)) is True
     assert store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="crashed_sha")) == []
+
+
+def test_a_stopped_build_leaves_its_snapshot_for_the_next_build(
+    git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str
+) -> None:
+    """A build asked to stop ends after the file in hand and keeps nothing of
+    the snapshot; the next build indexes it in full."""
+    stop = threading.Event()
+    at = SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha)
+    with pytest.raises(BuildStopped):
+        build_index(
+            git_repo.workdir, snapshot_sha, store, stop=stop, on_progress=lambda *_: stop.set()
+        )
+    assert not store.has_indexed(at=at)
+    assert store.get_chunks(at=at) == []
+
+    build_index(git_repo.workdir, snapshot_sha, store)
+
+    uninterrupted = IndexStore(writable=True)
+    build_index(git_repo.workdir, snapshot_sha, uninterrupted)
+    assert store.has_indexed(at=at)
+    assert len(store.get_chunks(at=at)) == len(uninterrupted.get_chunks(at=at))
 
 
 def test_build_index_empty_repo(tmp_path: Path, store: IndexStore) -> None:

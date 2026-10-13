@@ -7,15 +7,20 @@ stopping shows: the errors `serve()` raises and the errors it logs.
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+import pygit2
 from pytest_mock import MockerFixture
 
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import OkResponse, ShutdownRequest, WatchRequest
 from rbtr.daemon.server import DaemonServer
+from rbtr.domain.models import Chunk
+from rbtr.git import FileEntry
+from rbtr.index import build
 from rbtr.index.store import IndexStore
 
 
@@ -67,6 +72,34 @@ def case_shutdown_during_warmup(runtime_dir: Path, unindexed_store: IndexStore) 
         with DaemonClient(runtime_dir) as client:
             client.send(ShutdownRequest())
         release.set()
+
+    return StopScenario(server=server, stop=stop, raised=[], logged=[])
+
+
+def case_shutdown_during_build(
+    runtime_dir: Path, git_repo: pygit2.Repository, store: IndexStore, mocker: MockerFixture
+) -> StopScenario:
+    """A shutdown during a build ends it after the file in hand, as a stop
+    rather than a failure: no error is published or logged."""
+    with store.session() as ws:
+        ws.register_repo(git_repo.workdir)
+    server = DaemonServer(
+        runtime_dir, store=store, idle_poll_interval=60.0, busy_poll_interval=60.0
+    )
+    extract = build.extract_file
+
+    def slow_extract(entry: FileEntry, language: str) -> list[Chunk]:
+        time.sleep(3)  # five files: a build longer than the test waits
+        return extract(entry, language)
+
+    mocker.patch.object(build, "extract_file", side_effect=slow_extract)
+
+    def stop() -> None:
+        with DaemonClient(runtime_dir) as client:
+            client.send(WatchRequest(repo_path=git_repo.workdir, refs=["HEAD"]))
+            while server._active_build is None:
+                time.sleep(0.05)
+            client.send(ShutdownRequest())
 
     return StopScenario(server=server, stop=stop, raised=[], logged=[])
 

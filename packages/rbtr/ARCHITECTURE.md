@@ -810,11 +810,9 @@ has not landed. `WriteSession` refuses such a commit, so a
 build runs to completion, which its 4.0 s median affords.
 
 Between batches the job asks `watcher.pending_builds`, and
-checks `_shutdown`. A shutdown also ends the batch in
-progress: `request_shutdown` sets the embedder's *abort*
-event, which llama.cpp's abort callback reads while it
-computes, since one batch of long chunks can outlast the
-13 s `rbtr daemon stop` waits. Anything else arriving mid-job is served
+checks `_shutdown`. A stop also ends the batch in progress,
+since one batch of long chunks can outlast the 13 s
+`rbtr daemon stop` waits. Anything else arriving mid-job is served
 by a lock the job releases each batch — `_gpu_lock` for a
 search, `_write_sem` for a `gc` or a watch-set write — or by
 `_wake`, which the worker reads once the job returns.
@@ -841,15 +839,6 @@ load, so a caller whose spawn exited with that code keeps waiting
 until `daemon_start_timeout`. The double-spawn is cheap, so no
 parent-side start lock is needed.
 
-Stopping is asked for from outside the loop — a signal, or
-`request_shutdown` from another thread. The flag is a plain
-bool the RPC loop reads every 100 ms; the worker's wake is
-an `asyncio.Event`, which only its own loop may touch, so
-that is scheduled on the loop `serve()` recorded. Each task
-then finishes the transaction in flight: a build commits its
-snapshot, an embed job ends after its batch, reporting
-`stopped`.
-
 The flip side is deciding a start *failed*. `start_daemon` keys
 that on the spawned child's exit, not on elapsed time: while the
 child is alive it keeps waiting, giving up only when the process
@@ -858,6 +847,19 @@ exits without a live daemon having appeared. A backstop deadline
 binding. Keying on exit rather than a short timer means a slow
 cold start under load — open the store, backfill watches, bind
 sockets — isn't mistaken for failure and killed mid-startup.
+
+### Stopping
+
+A stop ends the work in progress instead of waiting for it.
+`rbtr daemon stop` waits 13 s for the daemon to exit, and a
+build of a large repository takes minutes to hours. A build
+stops before its next file or phase. Its transaction rolls
+back, and the snapshot is built again when the daemon next
+starts, as after a crash. Nothing failed, so no `index_error`
+is published. Edge inference is a single computation, so a
+stop during it waits for it to finish. An embed job ends its
+batch in progress, as [Standing aside](#standing-aside)
+describes.
 
 ### Crash recovery
 

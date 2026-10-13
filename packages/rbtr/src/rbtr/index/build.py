@@ -17,6 +17,7 @@ via `asyncio.to_thread()`.  Progress is reported via a single
 
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
@@ -34,6 +35,7 @@ from rbtr.domain.models import (
     SnapshotRef,
 )
 from rbtr.domain.tokenise import tokenise_code
+from rbtr.errors import BuildStopped
 from rbtr.git import changed_files, list_files, normalise_repo_path
 from rbtr.index.progress import ProgressCallback, _noop_progress
 from rbtr.index.staging import TokenisedChunk
@@ -118,6 +120,7 @@ def _extract_and_store_chunks(
     repo_id: int,
     base_sha: str | None = None,
     on_progress: ProgressCallback = _noop_progress,
+    stop: threading.Event | None = None,
 ) -> _Extracted:
     """Stream files, extract chunks, write snapshots.
 
@@ -168,6 +171,8 @@ def _extract_and_store_chunks(
             max_file_size=config.max_file_size,
             ignore=ignore,
         ):
+            if stop is not None and stop.is_set():
+                raise BuildStopped
             repo_files.add(entry.path)
             if entry.path in manifest_names:
                 manifests[entry.path] = entry.content.decode(errors="replace")
@@ -298,6 +303,7 @@ def build_index(
     *,
     base_sha: str | None = None,
     on_progress: ProgressCallback = _noop_progress,
+    stop: threading.Event | None = None,
 ) -> IndexResult:
     """Build (or incrementally update) the index for *snapshot_sha*.
 
@@ -316,6 +322,10 @@ def build_index(
     When *base_sha* is provided, only files that changed between
     *base_sha* and *snapshot_sha* are considered for extraction.
     Unchanged files are skipped without checking `blob_is_current`.
+
+    When *stop* is set, the build raises `BuildStopped` before its next
+    file or phase. The snapshot is left unindexed, as a build that died
+    there would leave it, and the next build of it starts again.
     """
     t0 = time.monotonic()
 
@@ -334,7 +344,10 @@ def build_index(
         repo_id=repo_id,
         base_sha=base_sha,
         on_progress=on_progress,
+        stop=stop,
     )
+    if stop is not None and stop.is_set():
+        raise BuildStopped
 
     # Fetch committed chunks for edge inference.
     # Lightweight: skips content_tokens/name_tokens (~37% smaller).
@@ -351,6 +364,8 @@ def build_index(
         repo_id=repo_id,
         on_progress=on_progress,
     )
+    if stop is not None and stop.is_set():
+        raise BuildStopped
 
     # Phase 3: mark complete and remove orphaned data.
     _mark_indexed_and_cleanup(
