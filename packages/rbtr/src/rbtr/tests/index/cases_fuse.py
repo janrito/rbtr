@@ -105,14 +105,28 @@ def case_exact_name_match_beats_higher_lexical() -> FuseScenario:
 
 
 def case_class_outranks_import_via_kind_boost() -> FuseScenario:
-    """Identical lexical, no name signal, but CLASS boost > IMPORT boost."""
+    """Identical lexical, no name signal, but CLASS boost > IMPORT boost.
+
+    A third chunk the lexical channel scores lower keeps the pair's
+    normalised score above zero, so the boost has a score to scale.
+    """
     return FuseScenario(
         chunks=[
             ChunkSpec(id="cls", kind=ChunkKind.CLASS, name="Engine"),
             ChunkSpec(id="imp", kind=ChunkKind.IMPORT, name="from .core import Engine"),
+            ChunkSpec(id="other", name="unrelated"),
         ],
         lexical={"cls": 1.0, "imp": 1.0},
         expected_top="cls",
+    )
+
+
+def case_tied_scores_rank_by_id() -> FuseScenario:
+    """Equal scores rank by id, whatever order the chunks arrive in."""
+    return FuseScenario(
+        chunks=[ChunkSpec(id="b"), ChunkSpec(id="a")],
+        lexical={"a": 1.0, "b": 1.0},
+        expected_order=["a", "b"],
     )
 
 
