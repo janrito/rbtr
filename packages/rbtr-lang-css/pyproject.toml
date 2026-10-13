@@ -1,5 +1,5 @@
 [build-system]
-requires = ["uv_build>=0.11.26,<1"]
+requires = ["uv_build>=0.12.24,<1"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
@@ -39,7 +39,7 @@ classifiers = [
 requires-python = ">=3.13"
 dependencies = [
   "rbtr==2026.9.0",
-  "tree-sitter-css",
+  "tree-sitter-css>=0.25.0",
 ]
 
 [project.urls]

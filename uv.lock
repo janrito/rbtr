@@ -3901,20 +3901,20 @@ llama-cpp-source = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dataframely", specifier = ">=2.9.1" },
-    { name = "duckdb", specifier = ">=1.0" },
-    { name = "huggingface-hub" },
-    { name = "llama-cpp-python", specifier = ">=0.3.24" },
-    { name = "pathspec", specifier = ">=1.0.4" },
-    { name = "platformdirs", specifier = ">=4.0" },
-    { name = "polars", specifier = ">=2.0" },
-    { name = "pyarrow", specifier = ">=17.0" },
-    { name = "pydantic", specifier = ">=2.12" },
-    { name = "pydantic-settings", extras = ["toml"], specifier = ">=2.12" },
-    { name = "pygit2" },
-    { name = "pytest", marker = "extra == 'test'", specifier = "<9.1" },
+    { name = "dataframely", specifier = ">=3.1.2" },
+    { name = "duckdb", specifier = ">=1.5.6" },
+    { name = "huggingface-hub", specifier = ">=2.2.0" },
+    { name = "llama-cpp-python", specifier = ">=0.3.36" },
+    { name = "pathspec", specifier = ">=1.1.1" },
+    { name = "platformdirs", specifier = ">=4.13.0" },
+    { name = "polars", specifier = ">=2.0.0" },
+    { name = "pyarrow", specifier = ">=26.0.0" },
+    { name = "pydantic", specifier = ">=2.14.1" },
+    { name = "pydantic-settings", extras = ["toml"], specifier = ">=2.15.0" },
+    { name = "pygit2", specifier = ">=1.20.1" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=9.0.3,<9.1" },
     { name = "pytest-cases", marker = "extra == 'test'", specifier = ">=3.10.1" },
-    { name = "pyzmq", specifier = ">=27.1.0" },
+    { name = "pyzmq", specifier = ">=27.2.0" },
     { name = "rbtr-lang-bash", editable = "packages/rbtr-lang-bash" },
     { name = "rbtr-lang-c", editable = "packages/rbtr-lang-c" },
     { name = "rbtr-lang-cpp", editable = "packages/rbtr-lang-cpp" },
@@ -3953,11 +3953,11 @@ requires-dist = [
     { name = "rbtr-lang-vue", marker = "extra == 'vue'", editable = "packages/rbtr-lang-vue" },
     { name = "rbtr-lang-yaml", marker = "extra == 'all'", editable = "packages/rbtr-lang-yaml" },
     { name = "rbtr-lang-yaml", marker = "extra == 'yaml'", editable = "packages/rbtr-lang-yaml" },
-    { name = "rich", specifier = ">=13.0" },
-    { name = "rich-argparse", specifier = ">=1.7.2" },
-    { name = "structlog", specifier = ">=24.1" },
-    { name = "syrupy", marker = "extra == 'test'", specifier = ">=5.3.4" },
-    { name = "tree-sitter", specifier = ">=0.24" },
+    { name = "rich", specifier = ">=15.0.0" },
+    { name = "rich-argparse", specifier = ">=1.8.0" },
+    { name = "structlog", specifier = ">=26.1.0" },
+    { name = "syrupy", marker = "extra == 'test'", specifier = ">=6.1.1" },
+    { name = "tree-sitter", specifier = ">=0.26.0" },
 ]
 provides-extras = ["css", "go", "hcl", "java", "json", "less", "ruby", "rust", "scss", "sql", "svelte", "toml", "tree-sitter-query", "vue", "yaml", "all", "test"]
 
@@ -4001,17 +4001,17 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dataframely", specifier = ">=2.9.1" },
-    { name = "dvc" },
-    { name = "minijinja", specifier = ">=2.0" },
-    { name = "optuna", specifier = ">=4.0" },
-    { name = "polars", specifier = ">=2.0" },
-    { name = "pydantic", specifier = ">=2.12" },
-    { name = "pydantic-ai", specifier = ">=2.0.0" },
-    { name = "pydantic-settings", extras = ["toml"], specifier = ">=2.12" },
+    { name = "dataframely", specifier = ">=3.1.2" },
+    { name = "dvc", specifier = ">=3.67.1" },
+    { name = "minijinja", specifier = ">=3.0.0" },
+    { name = "optuna", specifier = ">=5.0.0" },
+    { name = "polars", specifier = ">=2.0.0" },
+    { name = "pydantic", specifier = ">=2.14.1" },
+    { name = "pydantic-ai", specifier = ">=2.55.0" },
+    { name = "pydantic-settings", extras = ["toml"], specifier = ">=2.15.0" },
     { name = "rbtr", editable = "packages/rbtr" },
     { name = "tomli-w", specifier = ">=1.2.0" },
-    { name = "vl-convert-python", specifier = ">=1.0" },
+    { name = "vl-convert-python", specifier = ">=1.9.0.post1" },
 ]
 
 [package.metadata.requires-dev]
@@ -4038,7 +4038,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
-    { name = "tree-sitter-bash" },
+    { name = "tree-sitter-bash", specifier = ">=0.25.1" },
 ]
 
 [package.metadata.requires-dev]
@@ -4061,7 +4061,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
-    { name = "tree-sitter-c" },
+    { name = "tree-sitter-c", specifier = ">=0.24.2" },
 ]
 
 [package.metadata.requires-dev]
@@ -4084,7 +4084,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
-    { name = "tree-sitter-cpp" },
+    { name = "tree-sitter-cpp", specifier = ">=0.23.4" },
 ]
 
 [package.metadata.requires-dev]
@@ -4107,7 +4107,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
-    { name = "tree-sitter-css" },
+    { name = "tree-sitter-css", specifier = ">=0.25.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -4130,7 +4130,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
-    { name = "tree-sitter-go" },
+    { name = "tree-sitter-go", specifier = ">=0.25.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -4153,7 +4153,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
-    { name = "tree-sitter-hcl" },
+    { name = "tree-sitter-hcl", specifier = ">=1.2.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -4178,7 +4178,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
-    { name = "tree-sitter-html" },
+    { name = "tree-sitter-html", specifier = ">=0.23.2" },
 ]
 
 [package.metadata.requires-dev]
@@ -4205,7 +4205,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
-    { name = "tree-sitter-java" },
+    { name = "tree-sitter-java", specifier = ">=0.23.5" },
 ]
 
 [package.metadata.requires-dev]
@@ -4230,8 +4230,8 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
-    { name = "tree-sitter-javascript" },
-    { name = "tree-sitter-typescript" },
+    { name = "tree-sitter-javascript", specifier = ">=0.25.0" },
+    { name = "tree-sitter-typescript", specifier = ">=0.23.2" },
 ]
 
 [package.metadata.requires-dev]
@@ -4257,7 +4257,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
-    { name = "tree-sitter-json" },
+    { name = "tree-sitter-json", specifier = ">=0.24.8" },
 ]
 
 [package.metadata.requires-dev]
@@ -4282,7 +4282,7 @@ dev = [
 requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
     { name = "rbtr-lang-css", editable = "packages/rbtr-lang-css" },
-    { name = "tree-sitter-less" },
+    { name = "tree-sitter-less", specifier = ">=1.0.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -4314,7 +4314,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
-    { name = "tree-sitter-markdown" },
+    { name = "tree-sitter-markdown", specifier = ">=0.5.1" },
 ]
 
 [package.metadata.requires-dev]
@@ -4348,7 +4348,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
-    { name = "tree-sitter-python" },
+    { name = "tree-sitter-python", specifier = ">=0.25.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -4372,7 +4372,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
-    { name = "tree-sitter-rst" },
+    { name = "tree-sitter-rst", specifier = ">=0.2.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -4398,7 +4398,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
-    { name = "tree-sitter-ruby" },
+    { name = "tree-sitter-ruby", specifier = ">=0.23.1" },
 ]
 
 [package.metadata.requires-dev]
@@ -4421,7 +4421,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
-    { name = "tree-sitter-rust" },
+    { name = "tree-sitter-rust", specifier = ">=0.24.2" },
 ]
 
 [package.metadata.requires-dev]
@@ -4446,7 +4446,7 @@ dev = [
 requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
     { name = "rbtr-lang-css", editable = "packages/rbtr-lang-css" },
-    { name = "tree-sitter-scss" },
+    { name = "tree-sitter-scss", specifier = ">=1.0.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -4469,7 +4469,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
-    { name = "tree-sitter-sql" },
+    { name = "tree-sitter-sql", specifier = ">=0.3.11" },
 ]
 
 [package.metadata.requires-dev]
@@ -4494,7 +4494,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
-    { name = "tree-sitter-svelte" },
+    { name = "tree-sitter-svelte", specifier = ">=1.0.2" },
 ]
 
 [package.metadata.requires-dev]
@@ -4521,7 +4521,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
-    { name = "tree-sitter-toml" },
+    { name = "tree-sitter-toml", specifier = ">=0.7.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -4544,7 +4544,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
-    { name = "tree-sitter-query" },
+    { name = "tree-sitter-query", specifier = ">=0.8.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -4571,7 +4571,7 @@ dev = [
 requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
     { name = "rbtr-lang-svelte", editable = "packages/rbtr-lang-svelte" },
-    { name = "tree-sitter-language-pack" },
+    { name = "tree-sitter-language-pack", specifier = ">=1.22.1" },
 ]
 
 [package.metadata.requires-dev]
@@ -4598,7 +4598,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "rbtr", editable = "packages/rbtr" },
-    { name = "tree-sitter-yaml" },
+    { name = "tree-sitter-yaml", specifier = ">=0.7.2" },
 ]
 
 [package.metadata.requires-dev]
