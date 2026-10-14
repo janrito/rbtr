@@ -1704,8 +1704,11 @@ globally. A repo is **skipped** when git cannot answer for it: a path
 that no longer resolves (never purged — forgetting it is a separate,
 explicit action; see below) or an unborn HEAD, which `run_gc` raises on
 and which must not end a pass over every other repo. Each repo is
-reported through `on_progress` as it is collected — `progress`
-notifications from the daemon, a bar on stderr inline.
+reported through `on_progress` as it is collected: inline, as a bar on
+stderr; from the daemon, as a `gc_progress` notification between
+`gc_started` and `gc_ended`, which is sent however gc ends. None of
+the three names a repo, since one gc covers many, and none touches a
+running build's progress.
 
 **Forgetting a repo** removes it entirely from the index — its
 `watched_refs`, `indexed_snapshots`, `file_snapshots`, `edges`, and the

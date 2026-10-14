@@ -262,11 +262,31 @@ export const PROTOCOL_DEFS = {
     type: "object",
     required: ["kind"],
   },
+  GcEndedNotification: {
+    additionalProperties: false,
+    description: "gc ended, however it ended.",
+    properties: { kind: { const: "gc_ended", default: "gc_ended", type: "string" } },
+    title: "GcEndedNotification",
+    type: "object",
+    required: ["kind"],
+  },
   GcMode: {
     description: "What a `rbtr gc` invocation is allowed to delete.",
     enum: ["head_only", "keep", "orphans", "watched", "watched_only"],
     title: "GcMode",
     type: "string",
+  },
+  GcProgressNotification: {
+    additionalProperties: false,
+    description: "gc has collected *current* of the *total* repos it covers.",
+    properties: {
+      kind: { const: "gc_progress", default: "gc_progress", type: "string" },
+      current: { type: "integer" },
+      total: { type: "integer" },
+    },
+    required: ["current", "total", "kind"],
+    title: "GcProgressNotification",
+    type: "object",
   },
   GcRequest: {
     additionalProperties: false,
@@ -309,6 +329,14 @@ export const PROTOCOL_DEFS = {
     ],
     title: "GcResponse",
     type: "object",
+  },
+  GcStartedNotification: {
+    additionalProperties: false,
+    description: "gc started.",
+    properties: { kind: { const: "gc_started", default: "gc_started", type: "string" } },
+    title: "GcStartedNotification",
+    type: "object",
+    required: ["kind"],
   },
   ImportMeta: {
     description:
@@ -874,6 +902,9 @@ export const PROTOCOL_DEFS = {
       mapping: {
         auto_rebuild: "#/$defs/AutoRebuildNotification",
         embed_ended: "#/$defs/EmbedEndedNotification",
+        gc_ended: "#/$defs/GcEndedNotification",
+        gc_progress: "#/$defs/GcProgressNotification",
+        gc_started: "#/$defs/GcStartedNotification",
         index_error: "#/$defs/IndexErrorNotification",
         progress: "#/$defs/ProgressNotification",
         ready: "#/$defs/ReadyNotification",
@@ -886,6 +917,9 @@ export const PROTOCOL_DEFS = {
       { $ref: "#/$defs/EmbedEndedNotification" },
       { $ref: "#/$defs/AutoRebuildNotification" },
       { $ref: "#/$defs/IndexErrorNotification" },
+      { $ref: "#/$defs/GcStartedNotification" },
+      { $ref: "#/$defs/GcProgressNotification" },
+      { $ref: "#/$defs/GcEndedNotification" },
     ],
     title: "Notification",
   },

@@ -230,7 +230,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     let ended = false;
     let wake = () => {};
     const stop = session.onNotification((notification) => {
-      if (notification.repo_path !== repoRoot) return;
+      if (!("repo_path" in notification) || notification.repo_path !== repoRoot) return;
       if (notification.kind === "progress" && waiting) onUpdate?.(waitingFor(notification));
       if (notification.kind === "ready" || notification.kind === "index_error") {
         ended = true;
@@ -561,8 +561,26 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
     try {
       session.subscribe((notification) => {
-        if (notification.repo_path !== repoRoot) return;
         if (!footer) return;
+        // One gc covers every repo the daemon watches, so its notifications name none.
+        if (notification.kind === "gc_started") {
+          footer.setSpinner("muted", (frame) => `rbtr: ${frame} collecting…`);
+          return;
+        }
+        if (notification.kind === "gc_progress") {
+          const { current, total } = notification;
+          footer.setSpinner("muted", (frame) => `rbtr: ${frame} collecting ${current}/${total}…`);
+          return;
+        }
+        if (notification.kind === "gc_ended") {
+          void queryIndexStatus(ctx.cwd).then((status) => {
+            const top = status?.indexed_refs?.[0];
+            if (top) footer?.setStatic("success", footerLabel(top, true));
+            else footer?.setStatic("muted", "rbtr: no index");
+          });
+          return;
+        }
+        if (notification.repo_path !== repoRoot) return;
         switch (notification.kind) {
           case "progress": {
             const { phase, current, total } = notification;

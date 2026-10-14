@@ -73,7 +73,10 @@ from rbtr.daemon.messages import (
     EmbedOutcome,
     ErrorCode,
     ErrorResponse,
+    GcEndedNotification,
+    GcProgressNotification,
     GcRequest,
+    GcStartedNotification,
     HasRepoPath,
     IndexErrorNotification,
     OkResponse,
@@ -315,30 +318,26 @@ class DaemonServer:
         )
 
     def _collect(self, request: GcRequest, store: IndexStore) -> Response:
-        """Run gc on this worker thread, publishing per-repo progress.
+        """Run gc on this worker thread, publishing its start, progress and end.
 
         A ZMQ socket belongs to the thread that made it, so this opens
         and closes its own PUSH rather than borrowing the loop thread's
-        `_notify_push` — the same rule the build and embed workers follow.
+        `_notify_push`, the same rule the build and embed workers follow.
         """
         push = self._zmq_shadow.socket(zmq.PUSH)
         push.connect("inproc://progress")
+        _notify(push, GcStartedNotification())
         try:
             return handle_gc(
                 request,
                 store,
                 allow_compact=True,
-                on_progress=lambda repo_path, done, total: _notify(
-                    push,
-                    ProgressNotification(
-                        repo_path=repo_path,
-                        phase="collecting",
-                        current=done,
-                        total=total,
-                    ),
+                on_progress=lambda _repo_path, done, total: _notify(
+                    push, GcProgressNotification(current=done, total=total)
                 ),
             )
         finally:
+            _notify(push, GcEndedNotification())
             push.close()
 
     def _backfill_head_watches(self, store: IndexStore) -> None:

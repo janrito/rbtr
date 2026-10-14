@@ -108,7 +108,10 @@ export type Notification =
   | ReadyNotification
   | EmbedEndedNotification
   | AutoRebuildNotification
-  | IndexErrorNotification;
+  | IndexErrorNotification
+  | GcStartedNotification
+  | GcProgressNotification
+  | GcEndedNotification;
 /**
  * How an embed run ended.
  *
@@ -700,6 +703,26 @@ export interface IndexErrorNotification {
   kind: "index_error";
   repo_path: string;
   message: string;
+}
+/**
+ * gc started.
+ */
+export interface GcStartedNotification {
+  kind: "gc_started";
+}
+/**
+ * gc has collected *current* of the *total* repos it covers.
+ */
+export interface GcProgressNotification {
+  kind: "gc_progress";
+  current: number;
+  total: number;
+}
+/**
+ * gc ended, however it ended.
+ */
+export interface GcEndedNotification {
+  kind: "gc_ended";
 }
 /**
  * CLI output for `rbtr daemon status`.

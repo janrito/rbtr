@@ -741,12 +741,38 @@ class IndexErrorNotification(BaseModel):
     message: str
 
 
+class GcStartedNotification(BaseModel):
+    """gc started."""
+
+    model_config = _STRICT
+    kind: Literal["gc_started"] = "gc_started"
+
+
+class GcProgressNotification(BaseModel):
+    """gc has collected *current* of the *total* repos it covers."""
+
+    model_config = _STRICT
+    kind: Literal["gc_progress"] = "gc_progress"
+    current: int
+    total: int
+
+
+class GcEndedNotification(BaseModel):
+    """gc ended, however it ended."""
+
+    model_config = _STRICT
+    kind: Literal["gc_ended"] = "gc_ended"
+
+
 Notification = Annotated[
     ProgressNotification
     | ReadyNotification
     | EmbedEndedNotification
     | AutoRebuildNotification
-    | IndexErrorNotification,
+    | IndexErrorNotification
+    | GcStartedNotification
+    | GcProgressNotification
+    | GcEndedNotification,
     Field(discriminator="kind"),
 ]
 
