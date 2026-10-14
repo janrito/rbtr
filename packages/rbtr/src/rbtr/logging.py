@@ -15,7 +15,7 @@ Three sinks, selected by caller and `config.log_format`:
   there.
 - **Daemon** (`configure_logging(to_file=True)`) — a
   `RotatingFileHandler` on `config.daemon_log`, always JSON lines,
-  sized by `config.log_max_bytes` / `config.log_backup_count`.
+  sized by `config.log_max_size` / `config.log_backup_count`.
 - **Third-party**                        — stdlib records propagate to
   the root logger and render through the same formatter via
   `foreign_pre_chain`.
@@ -141,7 +141,7 @@ def configure_logging(*, to_file: bool = False, cache: bool = True) -> None:
         own_dir(config.log_dir)
         handler = RotatingFileHandler(
             config.daemon_log,
-            maxBytes=config.log_max_bytes,
+            maxBytes=config.log_max_size,
             backupCount=config.log_backup_count,
         )
         handler.setFormatter(_json_formatter())

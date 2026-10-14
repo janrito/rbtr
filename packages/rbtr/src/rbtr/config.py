@@ -136,9 +136,9 @@ class Config(BaseSettings):
         default="index.duckdb",
         description="Filename of the DuckDB index under `data_dir`.",
     )
-    max_file_size: int = Field(
-        default=512 * 1024,
-        description="Skip files larger than this (bytes).",
+    max_file_size: ByteSize = Field(
+        default=ByteSize(512 * 2**10),
+        description="Skip files larger than this (e.g. `512KiB`).",
     )
     chunk_lines: int = Field(default=50, description="Lines per index chunk.")
     chunk_overlap: int = Field(default=5, description="Overlap lines between adjacent chunks.")
@@ -246,9 +246,9 @@ usable cores, at most one per 128 MiB of `duckdb_memory_limit`, and at least one
         default=LogFormat.AUTO,
         description="Log renderer: auto (console on a TTY, else JSON), console, or json.",
     )
-    log_max_bytes: int = Field(
-        default=10 * 1024 * 1024,
-        description="Max size of `daemon.log` before rotation (bytes).",
+    log_max_size: ByteSize = Field(
+        default=ByteSize(10 * 2**20),
+        description="Max size of `daemon.log` before rotation (e.g. `10MiB`).",
     )
     log_backup_count: int = Field(
         default=5,

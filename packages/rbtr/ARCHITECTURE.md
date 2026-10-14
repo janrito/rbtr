@@ -1004,7 +1004,7 @@ single sink means level, format, and rotation are configured once.
   on a TTY, JSON otherwise. stdout is reserved for command output
   (`cli.output.emit`), so logs never corrupt a `--json` result.
 - **Daemon** → `RotatingFileHandler` on `daemon.log`, always JSON
-  lines, sized by `log_max_bytes` / `log_backup_count`.
+  lines, sized by `log_max_size` / `log_backup_count`.
 
 `log_format=auto` chooses console-on-TTY-else-JSON for the stream;
 `console` and `json` force one. A rendered daemon line:

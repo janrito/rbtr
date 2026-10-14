@@ -465,7 +465,7 @@ Notable settings:
 - `log_level` — root log level (`DEBUG`, `INFO`, …).
 - `log_format` — `auto` (console on a TTY, else JSON), `console`,
   or `json`.
-- `log_max_bytes` / `log_backup_count` — `daemon.log` rotation size
+- `log_max_size` / `log_backup_count` — `daemon.log` rotation size
   and backup count.
 
 Run `rbtr config` to see every field with its current
