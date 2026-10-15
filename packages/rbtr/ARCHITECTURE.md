@@ -946,6 +946,9 @@ Error responses carry a `code` field:
   lock; retry once it has let go.
 - `daemon_busy` — the daemon is running but did not reply
   within the client's wait; retry later.
+- `out_of_memory` — DuckDB needed more memory than
+  `duckdb_memory_limit` allows; the CLI and pi add how to
+  raise it.
 - `invalid_request` — malformed or missing fields; the message
   names each offending field and the value it received, so a
   caller can see how an argument was mis-shaped.
@@ -2112,6 +2115,31 @@ See [Watched refs](#watched-refs).
 **Exact cosine over approximate NN.** Exact recall
 outweighs marginal latency. Revisit when query latency is
 measured as a bottleneck.
+
+**A fixed DuckDB memory limit, not DuckDB's default.** DuckDB's
+default limit is 80% of RAM, and it treats that limit as a cache:
+it keeps every block it reads and does not give memory back. The
+exact cosine scan and compaction's `COPY FROM DATABASE` read the
+whole index, so on a 10 GiB index a compacting `gc` reached a
+5.2 GiB footprint and still held 4.6 GiB afterwards. Every
+connection therefore opens through `IndexStore._connect` with
+`duckdb_memory_limit` (1 GiB by default) and `duckdb_threads`: the
+store's own, and the one compaction adopts, which is a second
+DuckDB instance with limits of its own. Under 1 GiB the same `gc`
+peaked at 1.2 GiB and ran faster (34 s against 43 s), and search
+and `gc` began failing only between 256 MiB and 128 MiB. Past the
+limit DuckDB spills to `<index>.tmp`, or fails that one query with
+`OutOfMemoryException`. The daemon and the CLI reply to that with
+the `out_of_memory` error code, and the CLI and pi add how to raise
+`duckdb_memory_limit`; a build or embed that fails this way is
+logged. The limit covers DuckDB's buffer manager only: query
+results are allocated outside it, and ART index memory (every
+table has a primary key) counts against it but cannot be evicted,
+about 100 MiB at that size. Threads default to half the usable
+cores, capped at one per 128 MiB of the limit, just above DuckDB's
+documented minimum per thread; the thread count barely moved the
+footprint, and half the cores was faster than either a quarter or
+all of them.
 
 **Client-supplied query expansion over static rules.**
 Query expansion (synonym keywords and variant phrasings)

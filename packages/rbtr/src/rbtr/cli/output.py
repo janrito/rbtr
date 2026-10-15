@@ -118,6 +118,8 @@ def fail(error: ErrorResponse | RbtrError, exit_code: ExitCode = ExitCode.FAILED
         sys.stdout.write("\n")
     else:
         print_err(f"[red]error:[/] {response.message}")
+        if response.code is ErrorCode.OUT_OF_MEMORY:
+            print_err("Raise duckdb_memory_limit in config.toml or with RBTR_DUCKDB_MEMORY_LIMIT.")
     sys.exit(exit_code)
 
 

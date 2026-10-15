@@ -26,6 +26,7 @@ import threading
 from enum import StrEnum
 from typing import Annotated, Self
 
+import duckdb
 import structlog
 from pydantic import BaseModel, BeforeValidator, Field, ValidationError, model_validator
 from pydantic_settings import (
@@ -1000,5 +1001,7 @@ def main() -> None:
         CliApp.run(Rbtr, cli_settings_source=cli_source)
     except RbtrError as exc:
         fail(exc, ExitCode.ERROR)
+    except duckdb.OutOfMemoryException as exc:
+        fail(ErrorResponse(code=ErrorCode.OUT_OF_MEMORY, message=str(exc)), ExitCode.ERROR)
     except ValidationError as exc:
         reject_arguments(exc)

@@ -58,6 +58,7 @@ export type ErrorCode =
   | "repo_not_found"
   | "index_locked"
   | "daemon_busy"
+  | "out_of_memory"
   | "internal";
 /**
  * Kind of indexed chunk.

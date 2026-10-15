@@ -175,7 +175,7 @@ class IndexStore:
             own_dir(Path(db_path).parent)
         dsn = str(db_path) if db_path else ":memory:"
         try:
-            self._con = duckdb.connect(dsn)
+            self._con = self._connect(dsn)
         except duckdb.IOException as exc:
             msg = str(exc)
             if "lock" in msg.lower():
@@ -330,6 +330,21 @@ class IndexStore:
         if wal.exists():
             total += wal.stat().st_size
         return total
+
+    @staticmethod
+    def _connect(dsn: str) -> duckdb.DuckDBPyConnection:
+        """Open *dsn* with the configured memory limit and thread count.
+
+        Every connection to an index opens through here: the store's own,
+        and the one compaction adopts, which is a DuckDB instance of its own.
+        """
+        return duckdb.connect(
+            dsn,
+            config={
+                "memory_limit": f"{int(config.duckdb_memory_limit)} bytes",
+                "threads": config.duckdb_threads,
+            },
+        )
 
     def _load_fts(self, con: duckdb.DuckDBPyConnection) -> None:
         """Install and load the full-text-search extension on *con*."""

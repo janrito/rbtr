@@ -45,6 +45,7 @@ from typing import Self
 import platformdirs
 from pydantic import (
     BaseModel,
+    ByteSize,
     Field,
     computed_field,
     field_validator,
@@ -193,6 +194,29 @@ embeddings are kept, unread.",
         default=512,
         description="Max chunks buffered before a DuckDB insert flush. "
         "Caps peak memory during indexing.",
+    )
+    duckdb_memory_limit: ByteSize = Field(
+        default=ByteSize(2**30),
+        description="Memory DuckDB's buffer manager may use, per open index \
+(e.g. `1GiB`).  DuckDB caches index blocks up to this limit and keeps them; \
+past it, a query spills to `<index>.tmp` beside the index, or fails with an \
+out-of-memory error.  Query results are allocated outside it, so the process \
+uses somewhat more.",
+    )
+    duckdb_threads: int = Field(
+        # At most one thread per 128 MiB of the limit, just above DuckDB's
+        # documented minimum memory per thread ("Hardware Configuration" in
+        # its performance guide).
+        default_factory=lambda data: max(
+            1,
+            min(
+                (os.process_cpu_count() or 1) // 2,
+                data["duckdb_memory_limit"] // (128 * 2**20),
+            ),
+        ),
+        ge=1,
+        description="Threads DuckDB runs a query on.  Defaults to half the \
+usable cores, at most one per 128 MiB of `duckdb_memory_limit`, and at least one.",
     )
     reranker_model: str | None = Field(
         default="ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/qwen3-reranker-0.6b-q8_0.gguf",

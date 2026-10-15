@@ -456,6 +456,12 @@ Notable settings:
   `""` to disable reranking.
 - `reranker_settings` — per-query-kind reranker pool size
   and blend weight.
+- `duckdb_memory_limit` — memory the index database may use
+  (1 GiB by default). Past it, a query spills to disk beside the
+  index, or fails with an error that names this setting.
+- `duckdb_threads` — threads the index database runs a query on;
+  by default half the cores, at most one per 128 MiB of
+  `duckdb_memory_limit`.
 - `log_level` — root log level (`DEBUG`, `INFO`, …).
 - `log_format` — `auto` (console on a TTY, else JSON), `console`,
   or `json`.

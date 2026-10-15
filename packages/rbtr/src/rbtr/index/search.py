@@ -597,6 +597,8 @@ def _retrieve(
             sem_fetch = top_k * config.retrieval_multiplier_semantic
             raw_sem = store.similar_matches(query_vecs, within=refs, top_k=sem_fetch)
             sem_frame = _filter_semantic(raw_sem, pool_size)
+        except duckdb.OutOfMemoryException:
+            raise
         except duckdb.Error:
             pass
 

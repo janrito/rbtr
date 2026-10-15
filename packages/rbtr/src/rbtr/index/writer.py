@@ -510,7 +510,7 @@ class WriteSession:
         # to its readers and closes by refcount once they have rebound.
         new_con: duckdb.DuckDBPyConnection | None = None
         try:
-            new_con = duckdb.connect(str(tmp_path))
+            new_con = store._connect(str(tmp_path))
             os.replace(tmp_path, db_path)
         except (OSError, duckdb.Error) as exc:
             if new_con is not None:

@@ -10,6 +10,7 @@ import asyncio
 import threading
 from pathlib import Path
 
+import duckdb
 import pytest
 import structlog
 import zmq
@@ -147,17 +148,26 @@ def test_non_git_repo_path_returns_error_and_daemon_survives(
     assert good.kind == "status"
 
 
-def test_handler_exception_returns_error(running_daemon: DaemonServer) -> None:
+@pytest.mark.parametrize(
+    ("error", "code"),
+    [
+        (ValueError, ErrorCode.INTERNAL),
+        (duckdb.OutOfMemoryException, ErrorCode.OUT_OF_MEMORY),
+    ],
+)
+def test_handler_exception_returns_error(
+    running_daemon: DaemonServer, error: type[Exception], code: ErrorCode
+) -> None:
     async def bad_handler(_request: object) -> Response:
         msg = "handler broke"
-        raise ValueError(msg)
+        raise error(msg)
 
     running_daemon._handlers["shutdown"] = bad_handler
 
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(ShutdownRequest())
     assert isinstance(resp, ErrorResponse)
-    assert resp.code == ErrorCode.INTERNAL
+    assert resp.code == code
     assert "handler broke" in resp.message
 
 

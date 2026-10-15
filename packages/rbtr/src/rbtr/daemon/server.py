@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import duckdb
 import structlog
 import zmq
 import zmq.asyncio
@@ -1004,6 +1005,9 @@ class DaemonServer:
             except RbtrError as exc:
                 log.warning("handler_error", error=str(exc), elapsed_ms=elapsed_ms(t0))
                 return ErrorResponse(code=ErrorCode(exc.error_code), message=str(exc))
+            except duckdb.OutOfMemoryException as exc:
+                log.warning("handler_error", error=str(exc), elapsed_ms=elapsed_ms(t0))
+                return ErrorResponse(code=ErrorCode.OUT_OF_MEMORY, message=str(exc))
             except Exception as exc:
                 log.exception("handler_error", elapsed_ms=elapsed_ms(t0))
                 return ErrorResponse(code=ErrorCode.INTERNAL, message=str(exc))
