@@ -293,12 +293,18 @@ class Watch(BaseModel):
         # Validate every ref (raises on a bad ref); the daemon stores
         # symbolic names so moving refs track their tip.
         for r in self.refs:
-            resolve_ref(resolved_repo, r)
+            resolve_ref(resolved_repo, r, max_untracked_files=config.max_untracked_files)
 
         request = WatchRequest(repo_path=resolved_repo, refs=self.refs)
 
         if not self.daemon:
-            self._run_inline(resolved_repo, [resolve_ref(resolved_repo, r) for r in self.refs])
+            self._run_inline(
+                resolved_repo,
+                [
+                    resolve_ref(resolved_repo, r, max_untracked_files=config.max_untracked_files)
+                    for r in self.refs
+                ],
+            )
             return
 
         # Try daemon first
@@ -318,7 +324,15 @@ class Watch(BaseModel):
             # this failure reads as a mystery.  `_run_inline` opens the
             # store as its first act, so the lock surfaces immediately.
             try:
-                self._run_inline(resolved_repo, [resolve_ref(resolved_repo, r) for r in self.refs])
+                self._run_inline(
+                    resolved_repo,
+                    [
+                        resolve_ref(
+                            resolved_repo, r, max_untracked_files=config.max_untracked_files
+                        )
+                        for r in self.refs
+                    ],
+                )
             except IndexLockedError as locked:
                 message = f"{locked} Inline indexing needs that same lock, so it was not attempted."
                 fail(ErrorResponse(code=ErrorCode(locked.error_code), message=message))

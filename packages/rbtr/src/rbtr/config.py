@@ -140,6 +140,13 @@ class Config(BaseSettings):
         default=ByteSize(512 * 2**10),
         description="Skip files larger than this (e.g. `512KiB`).",
     )
+    max_untracked_files: int = Field(
+        default=1000,
+        ge=0,
+        description="Most untracked files a dirty working tree may hold and \
+still have them indexed with it.  Past that, none are, and `rbtr status` \
+reports how many there are.",
+    )
     chunk_lines: int = Field(default=50, description="Lines per index chunk.")
     chunk_overlap: int = Field(default=5, description="Overlap lines between adjacent chunks.")
     embed: bool = Field(

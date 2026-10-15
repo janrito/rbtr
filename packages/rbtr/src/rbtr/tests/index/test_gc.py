@@ -14,6 +14,7 @@ from pathlib import Path
 import pygit2
 import pytest
 
+from rbtr.config import config
 from rbtr.daemon.server import DaemonServer
 from rbtr.domain.models import ChunkKind, FileSnapshot, GcMode, SnapshotRef
 from rbtr.errors import RbtrError
@@ -286,7 +287,7 @@ def test_gc_preserves_current_worktree_tree_sha(gc: GcFixture) -> None:
     # Dirty the working tree to get a real tree SHA.
     workdir = Path(gc.repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs
     (workdir / "a.py").write_text("dirty\n")
-    tree_sha = worktree_tree_sha(gc.repo.workdir)
+    tree_sha = worktree_tree_sha(gc.repo.workdir, max_untracked_files=config.max_untracked_files)
     assert tree_sha is not None
 
     # Index HEAD and the tree SHA.
@@ -307,12 +308,12 @@ def test_gc_drops_stale_worktree_tree_sha(gc: GcFixture) -> None:
 
     # Create a stale tree SHA.
     (workdir / "a.py").write_text("stale\n")
-    stale_sha = worktree_tree_sha(gc.repo.workdir)
+    stale_sha = worktree_tree_sha(gc.repo.workdir, max_untracked_files=config.max_untracked_files)
     assert stale_sha is not None
 
     # Now edit again to get a different current tree SHA.
     (workdir / "a.py").write_text("current\n")
-    current_sha = worktree_tree_sha(gc.repo.workdir)
+    current_sha = worktree_tree_sha(gc.repo.workdir, max_untracked_files=config.max_untracked_files)
     assert current_sha is not None
     assert stale_sha != current_sha
 
@@ -489,10 +490,10 @@ def test_post_build_cleanup_drops_a_stale_worktree_whose_object_is_gone(
     workdir = Path(gc.repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs
 
     (workdir / "a.py").write_text("stale\n")
-    stale_sha = worktree_tree_sha(gc.repo.workdir)
+    stale_sha = worktree_tree_sha(gc.repo.workdir, max_untracked_files=config.max_untracked_files)
     assert stale_sha is not None
     (workdir / "a.py").write_text("current\n")
-    current_sha = worktree_tree_sha(gc.repo.workdir)
+    current_sha = worktree_tree_sha(gc.repo.workdir, max_untracked_files=config.max_untracked_files)
     assert current_sha is not None
 
     with gc.store.session() as ws:

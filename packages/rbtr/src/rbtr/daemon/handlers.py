@@ -80,6 +80,7 @@ from rbtr.git import (
     WORKTREE_REF,
     names_for_commits,
     resolve_ref,
+    untracked_file_count,
 )
 from rbtr.index.gc import run_gc, run_gc_all
 from rbtr.index.progress import RepoProgressCallback, _noop_repo_progress
@@ -101,7 +102,9 @@ def resolve_refs(repo_path: str, refs: list[str]) -> list[str]:
 
     Raises `RbtrError` if any ref cannot be resolved.
     """
-    return [resolve_ref(repo_path, ref) for ref in refs]
+    return [
+        resolve_ref(repo_path, ref, max_untracked_files=config.max_untracked_files) for ref in refs
+    ]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -148,7 +151,7 @@ def _resolve_read_ref(
             return ResolvedRead(at=dirty, source=RefSource.WORKTREE)
         requested_ref = HEAD_REF
     try:
-        sha = resolve_ref(repo_path, requested_ref)
+        sha = resolve_ref(repo_path, requested_ref, max_untracked_files=config.max_untracked_files)
     except RbtrError:
         if requested_ref == HEAD_REF and (latest := store.latest_indexed_ref(repo_id)) is not None:
             return ResolvedRead(at=latest, source=RefSource.LATEST_INDEXED)
@@ -291,8 +294,12 @@ def handle_changed_symbols(
     reads chunks from both commits).
     """
     repo_id = store.resolve_repo(request.repo_path)
-    base = resolve_ref(request.repo_path, request.base)
-    head = resolve_ref(request.repo_path, request.head)
+    base = resolve_ref(
+        request.repo_path, request.base, max_untracked_files=config.max_untracked_files
+    )
+    head = resolve_ref(
+        request.repo_path, request.head, max_untracked_files=config.max_untracked_files
+    )
     _require_indexed(store, SnapshotRef(repo_id=repo_id, snapshot_sha=base), request.base)
     _require_indexed(store, SnapshotRef(repo_id=repo_id, snapshot_sha=head), request.head)
     frame = store.changed_symbols(
@@ -354,7 +361,9 @@ def _watched_for_repo(
     out: list[WatchedRef] = []
     for ref in store.list_watched_refs(repo_id):
         try:
-            sha: str | None = resolve_ref(repo_path, ref)
+            sha: str | None = resolve_ref(
+                repo_path, ref, max_untracked_files=config.max_untracked_files
+            )
         except RbtrError:
             sha = None
         out.append(
@@ -397,8 +406,9 @@ def handle_status(
                 active_embed=None,
             )
         workspace = Repo(repo_id=ws_repo_id, repo_path=request.repo_path)
+        repos = [workspace]
         indexed_refs = _indexed_refs(
-            [workspace],
+            repos,
             store.chunk_counts_by_snapshot(repo_id=ws_repo_id),
         )
         watched = _watched_for_repo(store, ws_repo_id, request.repo_path)
@@ -412,6 +422,11 @@ def handle_status(
         db_size_bytes=store.disk_size_bytes(),
         indexed_refs=indexed_refs,
         watched=watched,
+        untracked_not_indexed={
+            repo.repo_path: count
+            for repo in repos
+            if (count := untracked_file_count(repo.repo_path)) > config.max_untracked_files
+        },
         active_build=active_build,
         active_embed=active_embed,
     )

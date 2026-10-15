@@ -167,6 +167,15 @@ def case_status_brackets_a_partial_embed_percentage() -> RenderScenario:
     )
 
 
+@case(tags=["status"])
+def case_status_names_repos_whose_untracked_files_are_not_indexed() -> RenderScenario:
+    """A repo over the untracked-file limit is named, with its count and how to exclude."""
+    return RenderScenario(
+        model=StatusResponse(db_path="/db", untracked_not_indexed={"/projects/one": 6489}),
+        expected=("6489 untracked files in /projects/one", ".git/info/exclude"),
+    )
+
+
 @case(tags=["gc"])
 def case_gc_reports_freed_chunks_and_scope() -> RenderScenario:
     """GC output shows chunks freed and the repo scope, beside per-repo counts."""

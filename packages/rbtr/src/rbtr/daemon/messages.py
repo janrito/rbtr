@@ -578,6 +578,9 @@ class StatusResponse(BaseModel):
     db_size_bytes: int | None = None  # whole index file on disk, a global figure
     indexed_refs: list[IndexedRef] = []
     watched: list[WatchedRef] = []
+    # Repo path -> untracked files, for repos over `max_untracked_files`,
+    # whose untracked files the working-tree index leaves out.
+    untracked_not_indexed: dict[str, int] = {}
     active_build: ActiveJob | None = None
     active_embed: ActiveJob | None = None
 

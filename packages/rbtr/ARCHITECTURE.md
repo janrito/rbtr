@@ -1743,7 +1743,8 @@ working tree is indexed as its own git tree SHA.
 ### Identity: tree SHAs
 
 The working tree's identity is a git tree SHA computed by
-`worktree_tree_sha(repo_path)` in `rbtr.git`:
+`worktree_tree_sha(repo_path, max_untracked_files=...)` in
+`rbtr.git`:
 
 ```python
 repo.index.read()  # load on-disk index
@@ -1754,7 +1755,10 @@ repo.index.read()  # reset (no side effects on disk)
 
 This produces a real git tree object that includes all
 committed files plus working-tree modifications (staged,
-unstaged, untracked, deleted). Properties:
+unstaged, untracked, deleted). When git lists more than
+`max_untracked_files` untracked files, `add_all` is given the
+tracked changes only, and `rbtr status` reports the count.
+Properties:
 
 - **Deterministic.** Same file contents → same tree SHA.
 - **Content-sensitive.** Any edit changes the SHA.
@@ -2140,6 +2144,17 @@ cores, capped at one per 128 MiB of the limit, just above DuckDB's
 documented minimum per thread; the thread count barely moved the
 footprint, and half the cores was faster than either a quarter or
 all of them.
+
+**A cap on untracked files.** Staging a file for the working-tree
+snapshot reads, hashes and compresses it, on every watcher poll
+while the tree is dirty, and indexing drops oversized and binary
+files only after that. Without a cap, untracked data, caches and
+nested checkouts are re-read every poll and never indexed: on a
+checkout where git listed 6,749 untracked files, among them a
+10 GiB database, that was 29 MiB/s of reads while the daemon was
+idle. Counting what git's status already lists needs no file
+access, and new work stays well below the cap, so it is indexed
+before `git add`.
 
 **Client-supplied query expansion over static rules.**
 Query expansion (synonym keywords and variant phrasings)

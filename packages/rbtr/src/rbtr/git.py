@@ -15,6 +15,7 @@ Public surface
 - `is_binary`           — null-byte heuristic
 - `read_head`           — tolerant HEAD read for polling
 - `worktree_tree_sha`   — working-tree identity (tree SHA or None)
+- `untracked_file_count` — how many untracked files git lists
 - `non_commit_shas`     — which indexed shas are not commits
 - `resolve_ref`         — unified ref → SHA resolution
 - `list_files`          — file listing (git tree or working tree)
@@ -35,6 +36,7 @@ from typing import TYPE_CHECKING
 import pathspec
 import pygit2
 import structlog
+from pygit2.enums import FileStatus
 
 from rbtr.errors import RbtrError
 
@@ -207,13 +209,29 @@ def read_head(repo_path: str) -> str | None:
         return None
 
 
-def worktree_tree_sha(repo_path: str) -> str | None:
+def untracked_file_count(repo_path: str) -> int:
+    """How many untracked files git lists in the working tree, ignored ones aside.
+
+    Zero when the repo is unreadable.
+    """
+    try:
+        status = _open_repo(repo_path).status(untracked_files="all", ignored=False)
+    except (RbtrError, pygit2.GitError):
+        return 0
+    return sum(1 for flags in status.values() if flags & FileStatus.WT_NEW)
+
+
+def worktree_tree_sha(repo_path: str, *, max_untracked_files: int) -> str | None:
     """Return a tree SHA representing the current working-tree state.
 
     Computes a git tree object that includes all committed files
     plus any working-tree modifications (staged, unstaged, and
     untracked).  The tree SHA is content-addressed: same file
     contents produce the same SHA, and any edit changes it.
+
+    Untracked files are included while git lists at most
+    *max_untracked_files* of them; past that, none are, and the
+    snapshot holds the tracked changes only.
 
     Returns `None` when the working tree is clean (the tree SHA
     would equal HEAD's tree SHA) or when the repo is unreadable.
@@ -227,13 +245,18 @@ def worktree_tree_sha(repo_path: str) -> str | None:
     """
     try:
         repo = _open_repo(repo_path)
-        if not repo.status(untracked_files="normal", ignored=False):
-            return None
-        if repo.head_is_unborn:
+        status = repo.status(untracked_files="all", ignored=False)
+        tracked = [path for path, flags in status.items() if not flags & FileStatus.WT_NEW]
+        include_untracked = len(status) - len(tracked) <= max_untracked_files
+        changes = status if include_untracked else tracked
+        if not changes or repo.head_is_unborn:
             return None
         head_tree = str(repo.head.peel(pygit2.Tree).id)
         repo.index.read()
-        repo.index.add_all()
+        if include_untracked:
+            repo.index.add_all()
+        else:
+            repo.index.add_all(tracked)
         tree_sha = str(repo.index.write_tree())
         repo.index.read()  # reset in-memory index; on-disk staging untouched
     # pygit2 raises OSError for a working-tree file it cannot read, or one
@@ -283,13 +306,14 @@ def _is_commit_sha(repo: pygit2.Repository, sha: str) -> bool:
         return obj is not None and obj.type == pygit2.GIT_OBJECT_COMMIT
 
 
-def resolve_ref(repo_path: str, ref: str) -> str:
+def resolve_ref(repo_path: str, ref: str, *, max_untracked_files: int) -> str:
     """Resolve *ref* to a commit or tree SHA.
 
     Handles several ref kinds:
 
     - `"worktree"` — computes the working-tree tree SHA via
-      `worktree_tree_sha`.  Raises `RbtrError` when clean.
+      `worktree_tree_sha` with *max_untracked_files*.  Raises
+      `RbtrError` when clean.
     - Raw 40-char hex SHA — returned as-is.  This preserves
       backward compatibility with callers that pass stored
       SHAs (commit or tree) without needing repo access.
@@ -297,7 +321,7 @@ def resolve_ref(repo_path: str, ref: str) -> str:
       `_resolve_commit`.
     """
     if ref == WORKTREE_REF:
-        sha = worktree_tree_sha(repo_path)
+        sha = worktree_tree_sha(repo_path, max_untracked_files=max_untracked_files)
         if sha is None:
             msg = "Working tree is clean — no worktree ref to resolve"
             raise RbtrError(msg)

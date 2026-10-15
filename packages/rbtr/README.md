@@ -286,6 +286,16 @@ which every indexed repo shares. Most of it is embeddings —
 one vector per chunk, and they dominate everything else
 stored. `--scope all` breaks the count down per repo.
 
+A dirty working tree is indexed together with its untracked
+files, so new work is searchable before `git add`. When git lists
+more untracked files than `max_untracked_files` (1,000 by
+default), usually data, caches or nested checkouts, none of them
+are indexed, and status says so:
+
+```bash
+!  6489 untracked files in /home/me/projects/rbtr not indexed (over max_untracked_files): add their directories to .gitignore or .git/info/exclude
+```
+
 Pass `--scope all` to list every indexed repo in the
 shared store, grouped by repo:
 
@@ -462,6 +472,8 @@ Notable settings:
 - `duckdb_threads` — threads the index database runs a query on;
   by default half the cores, at most one per 128 MiB of
   `duckdb_memory_limit`.
+- `max_untracked_files` — the most untracked files a dirty working
+  tree may hold and still have them indexed (1,000 by default).
 - `log_level` — root log level (`DEBUG`, `INFO`, …).
 - `log_format` — `auto` (console on a TTY, else JSON), `console`,
   or `json`.

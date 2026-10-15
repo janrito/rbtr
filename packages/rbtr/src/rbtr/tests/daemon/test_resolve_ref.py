@@ -14,6 +14,7 @@ import pygit2
 import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
+from rbtr.config import config
 from rbtr.daemon.handlers import _resolve_read_ref
 from rbtr.domain.models import RefSource, SnapshotRef
 from rbtr.errors import IndexNotBuiltError
@@ -73,7 +74,9 @@ def ref_store(
         repo_id = ws.register_repo(ref_repo.workdir)
         ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=str(ref_repo.head.target)))
         if ref_scenario.tree_sha_indexed:
-            tree_sha = worktree_tree_sha(ref_repo.workdir)
+            tree_sha = worktree_tree_sha(
+                ref_repo.workdir, max_untracked_files=config.max_untracked_files
+            )
             if tree_sha is not None:
                 ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tree_sha))
     return store
@@ -90,7 +93,7 @@ def test_resolve_read_ref(
     # Map symbolic names to actual SHAs.
     head_sha = str(ref_repo.head.target)
     feature_sha = str(ref_repo.references["refs/heads/feature"].target)
-    tree_sha = worktree_tree_sha(ref_repo.workdir)
+    tree_sha = worktree_tree_sha(ref_repo.workdir, max_untracked_files=config.max_untracked_files)
     expected_map: dict[str, str | None] = {
         "HEAD_SHA": head_sha,
         "FEATURE_SHA": feature_sha,

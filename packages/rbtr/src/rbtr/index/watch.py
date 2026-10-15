@@ -9,6 +9,7 @@ reclamation and why a cross-repo pass writes one session per repo.
 
 from __future__ import annotations
 
+from rbtr.config import config
 from rbtr.domain.models import RefsByRepo, Repo, Scope
 from rbtr.errors import RbtrError
 from rbtr.git import HEAD_REF, normalise_repo_path, resolve_ref
@@ -99,7 +100,7 @@ def _unresolvable(store: IndexStore, repo: Repo) -> list[str]:
         if ref == HEAD_REF:
             continue
         try:
-            resolve_ref(repo.repo_path, ref)
+            resolve_ref(repo.repo_path, ref, max_untracked_files=config.max_untracked_files)
         except RbtrError:
             out.append(ref)
     return out

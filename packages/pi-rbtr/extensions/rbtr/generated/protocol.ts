@@ -555,6 +555,9 @@ export interface StatusResponse {
   db_size_bytes?: number | null;
   indexed_refs?: IndexedRef[];
   watched?: WatchedRef[];
+  untracked_not_indexed?: {
+    [k: string]: number;
+  };
   active_build?: ActiveJob | null;
   active_embed?: ActiveJob | null;
 }

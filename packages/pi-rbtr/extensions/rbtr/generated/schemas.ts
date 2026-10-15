@@ -643,6 +643,7 @@ export const PROTOCOL_DEFS = {
       db_size_bytes: { anyOf: [{ type: "integer" }, { type: "null" }], default: null },
       indexed_refs: { default: [], items: { $ref: "#/$defs/IndexedRef" }, type: "array" },
       watched: { default: [], items: { $ref: "#/$defs/WatchedRef" }, type: "array" },
+      untracked_not_indexed: { additionalProperties: { type: "integer" }, default: {}, type: "object" },
       active_build: { anyOf: [{ $ref: "#/$defs/ActiveJob" }, { type: "null" }], default: null },
       active_embed: { anyOf: [{ $ref: "#/$defs/ActiveJob" }, { type: "null" }], default: null },
     },

@@ -203,6 +203,13 @@ describe("renderStatusResult", () => {
     expect(statusLines({ kind: "status" }, theme)).toContain("✗ No index found");
   });
 
+  test("names each repo whose untracked files are not indexed", ({ theme }) => {
+    const over: StatusResponse = { kind: "status", untracked_not_indexed: { "/repo": 6489 } };
+    expect(statusLines(over, theme)).toContain(
+      "! 6489 untracked files in /repo not indexed (over max_untracked_files): add their directories to .gitignore or .git/info/exclude",
+    );
+  });
+
   test("pads the seconds on the minute boundary", ({ theme }) => {
     const justOverAMinute: StatusResponse = {
       kind: "status",

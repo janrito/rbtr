@@ -21,6 +21,7 @@ from pathlib import Path
 import pygit2
 import pytest
 
+from rbtr.config import config
 from rbtr.errors import RbtrError
 from rbtr.git import (
     FileEntry,
@@ -270,7 +271,10 @@ def worktree_repo(tmp_path: Path) -> pygit2.Repository:
 
 def test_worktree_tree_sha_clean_returns_none(worktree_repo: pygit2.Repository) -> None:
     """Clean tree returns None — tree SHA equals HEAD's tree."""
-    assert worktree_tree_sha(worktree_repo.workdir) is None
+    assert (
+        worktree_tree_sha(worktree_repo.workdir, max_untracked_files=config.max_untracked_files)
+        is None
+    )
 
 
 def test_worktree_tree_sha_dirty_returns_hex(worktree_repo: pygit2.Repository) -> None:
@@ -278,7 +282,7 @@ def test_worktree_tree_sha_dirty_returns_hex(worktree_repo: pygit2.Repository) -
     workdir = Path(worktree_repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs
     (workdir / "a.py").write_text("def a_v2(): pass\n")
 
-    sha = worktree_tree_sha(worktree_repo.workdir)
+    sha = worktree_tree_sha(worktree_repo.workdir, max_untracked_files=config.max_untracked_files)
     assert sha is not None
     assert len(sha) == 40
     assert all(c in "0123456789abcdef" for c in sha)
@@ -289,8 +293,8 @@ def test_worktree_tree_sha_deterministic(worktree_repo: pygit2.Repository) -> No
     workdir = Path(worktree_repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs
     (workdir / "a.py").write_text("def a_v2(): pass\n")
 
-    sha1 = worktree_tree_sha(worktree_repo.workdir)
-    sha2 = worktree_tree_sha(worktree_repo.workdir)
+    sha1 = worktree_tree_sha(worktree_repo.workdir, max_untracked_files=config.max_untracked_files)
+    sha2 = worktree_tree_sha(worktree_repo.workdir, max_untracked_files=config.max_untracked_files)
     assert sha1 == sha2
 
 
@@ -298,10 +302,10 @@ def test_worktree_tree_sha_changes_on_edit(worktree_repo: pygit2.Repository) -> 
     """Editing a file changes the tree SHA."""
     workdir = Path(worktree_repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs
     (workdir / "a.py").write_text("v1\n")
-    sha1 = worktree_tree_sha(worktree_repo.workdir)
+    sha1 = worktree_tree_sha(worktree_repo.workdir, max_untracked_files=config.max_untracked_files)
 
     (workdir / "a.py").write_text("v2\n")
-    sha2 = worktree_tree_sha(worktree_repo.workdir)
+    sha2 = worktree_tree_sha(worktree_repo.workdir, max_untracked_files=config.max_untracked_files)
 
     assert sha1 is not None
     assert sha2 is not None
@@ -317,7 +321,7 @@ def test_worktree_tree_sha_no_staging_side_effect(worktree_repo: pygit2.Reposito
     worktree_repo.index.read()
     before = {e.path for e in worktree_repo.index}
 
-    worktree_tree_sha(worktree_repo.workdir)
+    worktree_tree_sha(worktree_repo.workdir, max_untracked_files=config.max_untracked_files)
 
     # Re-read and compare.
     worktree_repo.index.read()
@@ -327,7 +331,12 @@ def test_worktree_tree_sha_no_staging_side_effect(worktree_repo: pygit2.Reposito
 
 def test_worktree_tree_sha_missing_repo(tmp_path: Path) -> None:
     """Non-git path returns None."""
-    assert worktree_tree_sha(str(tmp_path / "no-such-repo")) is None
+    assert (
+        worktree_tree_sha(
+            str(tmp_path / "no-such-repo"), max_untracked_files=config.max_untracked_files
+        )
+        is None
+    )
 
 
 def test_list_files_with_tree_sha(worktree_repo: pygit2.Repository) -> None:
@@ -335,7 +344,9 @@ def test_list_files_with_tree_sha(worktree_repo: pygit2.Repository) -> None:
     workdir = Path(worktree_repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs
     (workdir / "a.py").write_text("def a_v2(): pass\n")
 
-    tree_sha = worktree_tree_sha(worktree_repo.workdir)
+    tree_sha = worktree_tree_sha(
+        worktree_repo.workdir, max_untracked_files=config.max_untracked_files
+    )
     assert tree_sha is not None
 
     entries = list(list_files(worktree_repo.workdir, tree_sha, max_file_size=1_000_000))
@@ -353,11 +364,30 @@ def test_list_files_tree_sha_includes_new_files(worktree_repo: pygit2.Repository
     workdir = Path(worktree_repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs
     (workdir / "c.py").write_text("def c(): pass\n")
 
-    tree_sha = worktree_tree_sha(worktree_repo.workdir)
+    tree_sha = worktree_tree_sha(
+        worktree_repo.workdir, max_untracked_files=config.max_untracked_files
+    )
     assert tree_sha is not None
 
     paths = {e.path for e in list_files(worktree_repo.workdir, tree_sha, max_file_size=1_000_000)}
     assert "c.py" in paths
+
+
+@pytest.mark.parametrize(("max_untracked_files", "untracked_indexed"), [(2, True), (1, False)])
+def test_worktree_tree_sha_includes_untracked_files_up_to_the_limit(
+    worktree_repo: pygit2.Repository, max_untracked_files: int, untracked_indexed: bool
+) -> None:
+    """Untracked files join the snapshot only while there are few enough of them."""
+    workdir = Path(worktree_repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs
+    (workdir / "a.py").write_text("edited\n")
+    (workdir / "c.py").write_text("def c(): pass\n")
+    (workdir / "d.py").write_text("def d(): pass\n")
+
+    tree_sha = worktree_tree_sha(worktree_repo.workdir, max_untracked_files=max_untracked_files)
+    assert tree_sha is not None
+
+    paths = {e.path for e in list_files(worktree_repo.workdir, tree_sha, max_file_size=1_000_000)}
+    assert ({"c.py", "d.py"} <= paths) is untracked_indexed
 
 
 def test_list_files_tree_sha_excludes_deleted(worktree_repo: pygit2.Repository) -> None:
@@ -365,7 +395,9 @@ def test_list_files_tree_sha_excludes_deleted(worktree_repo: pygit2.Repository) 
     workdir = Path(worktree_repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs
     (workdir / "b.py").unlink()
 
-    tree_sha = worktree_tree_sha(worktree_repo.workdir)
+    tree_sha = worktree_tree_sha(
+        worktree_repo.workdir, max_untracked_files=config.max_untracked_files
+    )
     assert tree_sha is not None
 
     paths = {e.path for e in list_files(worktree_repo.workdir, tree_sha, max_file_size=1_000_000)}
@@ -378,7 +410,9 @@ def test_changed_files_commit_vs_tree_sha(worktree_repo: pygit2.Repository) -> N
     workdir = Path(worktree_repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs
     (workdir / "a.py").write_text("edited\n")
 
-    tree_sha = worktree_tree_sha(worktree_repo.workdir)
+    tree_sha = worktree_tree_sha(
+        worktree_repo.workdir, max_untracked_files=config.max_untracked_files
+    )
     assert tree_sha is not None
 
     paths = changed_files(worktree_repo.workdir, "HEAD", tree_sha)
@@ -391,7 +425,9 @@ def test_changed_files_same_tree_sha(worktree_repo: pygit2.Repository) -> None:
     workdir = Path(worktree_repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs
     (workdir / "a.py").write_text("edited\n")
 
-    tree_sha = worktree_tree_sha(worktree_repo.workdir)
+    tree_sha = worktree_tree_sha(
+        worktree_repo.workdir, max_untracked_files=config.max_untracked_files
+    )
     assert tree_sha is not None
 
     paths = changed_files(worktree_repo.workdir, tree_sha, tree_sha)

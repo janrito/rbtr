@@ -526,6 +526,11 @@ def _render_status_response(response: StatusResponse) -> None:
         _out.print("[dim]watching:[/]")
         for w in response.watched:
             _out.print(f"   {_fmt_watched(w)}")
+    for repo_path, count in response.untracked_not_indexed.items():
+        _out.print(
+            f"[yellow]![/]  {count} untracked files in {repo_path} not indexed \
+(over max_untracked_files): add their directories to .gitignore or .git/info/exclude"
+        )
     if response.active_build is not None:
         job = response.active_build
         pct = f" ({100 * job.current / job.total:.0f}%)" if job.total > 0 else ""

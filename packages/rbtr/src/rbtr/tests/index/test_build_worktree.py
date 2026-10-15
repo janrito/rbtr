@@ -7,6 +7,7 @@ from pathlib import Path
 import pygit2
 import pytest
 
+from rbtr.config import config
 from rbtr.domain.models import SnapshotRef
 from rbtr.git import changed_files, worktree_tree_sha
 from rbtr.index.build import build_index
@@ -56,7 +57,7 @@ def serve():
 def wt_sha(worktree_repo: tuple[pygit2.Repository, str]) -> str:
     """The worktree tree SHA for the dirty `worktree_repo`."""
     repo, _ = worktree_repo
-    sha = worktree_tree_sha(repo.workdir)
+    sha = worktree_tree_sha(repo.workdir, max_untracked_files=config.max_untracked_files)
     # worktree_repo always has dirty files.
     assert sha is not None
     return sha
@@ -221,7 +222,7 @@ def format_name(name):
 """)
 
     # New tree SHA — different from v1.
-    tree_sha_v2 = worktree_tree_sha(repo.workdir)
+    tree_sha_v2 = worktree_tree_sha(repo.workdir, max_untracked_files=config.max_untracked_files)
     assert tree_sha_v2 is not None
     assert wt_sha != tree_sha_v2
 

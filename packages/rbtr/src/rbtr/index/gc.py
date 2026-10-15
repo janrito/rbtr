@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import structlog
 
+from rbtr.config import config
 from rbtr.domain.models import GcCounts, GcMode, SnapshotRef
 from rbtr.errors import RbtrError
 from rbtr.git import (
@@ -204,7 +205,7 @@ def _watched_shas(store: IndexStore, repo_id: int, repo_path: str) -> set[str]:
     out: set[str] = set()
     for ref in store.list_watched_refs(repo_id):
         try:
-            out.add(resolve_ref(repo_path, ref))
+            out.add(resolve_ref(repo_path, ref, max_untracked_files=config.max_untracked_files))
         except RbtrError:
             # A watched ref that no longer resolves (deleted branch)
             # keeps nothing; its old commit becomes collectable.
@@ -226,7 +227,7 @@ def _resolve_drop_set(
     # not commits) so indexed - keep_set would include them.
     # The *current* tree SHA should be preserved; stale ones are
     # dropped by the server's post-build cleanup.
-    current_wt = worktree_tree_sha(repo_path)
+    current_wt = worktree_tree_sha(repo_path, max_untracked_files=config.max_untracked_files)
     if current_wt is not None:
         indexed.discard(current_wt)
     return indexed - keep_set

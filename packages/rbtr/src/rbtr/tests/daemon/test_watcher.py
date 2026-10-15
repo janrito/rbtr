@@ -18,6 +18,7 @@ from pathlib import Path
 import pygit2
 from pytest_cases import fixture, parametrize_with_cases
 
+from rbtr.config import config
 from rbtr.daemon.watcher import DirtyWorktree, WatchedTarget, poll_watched, poll_worktree
 from rbtr.domain.models import SnapshotRef
 from rbtr.git import normalise_repo_path, worktree_tree_sha
@@ -170,7 +171,7 @@ def wt_store(
             head_sha = pygit2.Repository(wt_repo).head.target
             ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=str(head_sha)))
         if wt_scenario.tree_sha_indexed:
-            tree_sha = worktree_tree_sha(wt_repo)
+            tree_sha = worktree_tree_sha(wt_repo, max_untracked_files=config.max_untracked_files)
             if tree_sha is not None:
                 ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tree_sha))
     return store
@@ -191,7 +192,9 @@ def test_poll_worktree(
         # tree_sha should be a valid 40-char hex SHA.
         assert len(dirty.snapshot_sha) == 40
         # And it should match the current worktree_tree_sha.
-        assert dirty.snapshot_sha == worktree_tree_sha(wt_repo)
+        assert dirty.snapshot_sha == worktree_tree_sha(
+            wt_repo, max_untracked_files=config.max_untracked_files
+        )
     else:
         assert result == []
 

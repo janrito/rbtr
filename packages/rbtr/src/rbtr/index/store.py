@@ -410,7 +410,7 @@ class IndexStore:
         is gone, or when that tree has never been indexed — in each
         case the caller wants a commit instead.
         """
-        tree_sha = worktree_tree_sha(repo_path)
+        tree_sha = worktree_tree_sha(repo_path, max_untracked_files=config.max_untracked_files)
         if tree_sha is None:
             return None
         at = SnapshotRef(repo_id=repo_id, snapshot_sha=tree_sha)

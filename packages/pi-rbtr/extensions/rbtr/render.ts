@@ -485,6 +485,16 @@ export function renderStatusResult(result: ToolResult, options: { isPartial: boo
     }
   }
 
+  for (const [repoPath, count] of Object.entries(response?.untracked_not_indexed ?? {})) {
+    lines.push(
+      theme.fg(
+        "warning",
+        `! ${count} untracked files in ${repoPath} not indexed (over max_untracked_files): ` +
+          "add their directories to .gitignore or .git/info/exclude",
+      ),
+    );
+  }
+
   const job = response?.active_build;
   if (job) lines.push(theme.fg("muted", `⟳ ${formatActiveBuild(job)}`));
   const ej = response?.active_embed;
