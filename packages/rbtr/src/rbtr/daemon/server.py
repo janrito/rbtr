@@ -55,12 +55,16 @@ from rbtr.daemon.handlers import (
     handle_forget,
     handle_forget_stale,
     handle_gc,
+    handle_gc_all,
     handle_list_symbols,
     handle_read_symbol,
     handle_search,
+    handle_search_all,
     handle_status,
+    handle_status_all,
     handle_unwatch,
     handle_unwatch_stale,
+    handle_unwatch_stale_all,
     handle_watch,
     resolve_refs,
 )
@@ -73,6 +77,7 @@ from rbtr.daemon.messages import (
     EmbedOutcome,
     ErrorCode,
     ErrorResponse,
+    GcAllRequest,
     GcEndedNotification,
     GcProgressNotification,
     GcRequest,
@@ -254,6 +259,16 @@ class DaemonServer:
                     reranker=rnk,
                 )
 
+        async def _async_search_all(req: Any) -> Response:
+            async with self._gpu_lock:
+                return await asyncio.to_thread(
+                    handle_search_all,
+                    req,
+                    store,
+                    embedder=emb,
+                    reranker=rnk,
+                )
+
         async def _async_gc(req: Any) -> Response:
             # Serialise gc against builds/embeds on `_write_sem` so no
             # writer runs during the copy-and-swap (its writes would be
@@ -284,6 +299,10 @@ class DaemonServer:
             async with self._write_sem:
                 return await asyncio.to_thread(handle_unwatch_stale, req, store)
 
+        async def _async_unwatch_stale_all(req: Any) -> Response:
+            async with self._write_sem:
+                return await asyncio.to_thread(handle_unwatch_stale_all, req, store)
+
         async def _async_watch(req: Any) -> Response:
             # Writes the watch set, so same treatment as forget.  `_wake`
             # is set out here because an `asyncio.Event` may only be set
@@ -296,6 +315,7 @@ class DaemonServer:
         self._handlers.update(
             {
                 "search": _async_search,
+                "search_all": _async_search_all,
                 "read_symbol": lambda req: asyncio.to_thread(handle_read_symbol, req, store),
                 "list_symbols": lambda req: asyncio.to_thread(handle_list_symbols, req, store),
                 "find_refs": lambda req: asyncio.to_thread(handle_find_refs, req, store),
@@ -308,16 +328,24 @@ class DaemonServer:
                     store,
                     self._snapshot_status,
                 ),
+                "status_all": lambda req: asyncio.to_thread(
+                    handle_status_all,
+                    req,
+                    store,
+                    self._snapshot_status,
+                ),
                 "gc": _async_gc,
+                "gc_all": _async_gc,
                 "unwatch": _async_unwatch,
                 "unwatch_stale": _async_unwatch_stale,
+                "unwatch_stale_all": _async_unwatch_stale_all,
                 "forget": _async_forget,
                 "forget_stale": _async_forget_stale,
                 "watch": _async_watch,
             }
         )
 
-    def _collect(self, request: GcRequest, store: IndexStore) -> Response:
+    def _collect(self, request: GcRequest | GcAllRequest, store: IndexStore) -> Response:
         """Run gc on this worker thread, publishing its start, progress and end.
 
         A ZMQ socket belongs to the thread that made it, so this opens
@@ -328,14 +356,18 @@ class DaemonServer:
         push.connect("inproc://progress")
         _notify(push, GcStartedNotification())
         try:
-            return handle_gc(
-                request,
-                store,
-                allow_compact=True,
-                on_progress=lambda _repo_path, done, total: _notify(
-                    push, GcProgressNotification(current=done, total=total)
-                ),
-            )
+            match request:
+                case GcRequest():
+                    return handle_gc(request, store, allow_compact=True)
+                case GcAllRequest():
+                    return handle_gc_all(
+                        request,
+                        store,
+                        allow_compact=True,
+                        on_progress=lambda _repo_path, done, total: _notify(
+                            push, GcProgressNotification(current=done, total=total)
+                        ),
+                    )
         finally:
             _notify(push, GcEndedNotification())
             push.close()
@@ -591,26 +623,26 @@ class DaemonServer:
 
     def _snapshot_status(
         self,
-        path: str,
+        path: str | None,
     ) -> tuple[ActiveJob | None, ActiveJob | None]:
         """Return `(active_build, active_embed)`.
 
-        Only returns jobs whose `path` matches so a repo-scoped
-        status query doesn't leak activity from unrelated repos.
+        Only returns jobs whose `path` matches, so a repo's status
+        doesn't show activity from unrelated repos; `None` matches any.
         """
         active_build: ActiveJob | None = None
         if self._active_build is not None and self._started_at is not None:
             job = self._active_build.model_copy(
                 update={"elapsed_seconds": time.monotonic() - self._started_at}
             )
-            if job.repo_path == path:
+            if path in (None, job.repo_path):
                 active_build = job
         active_embed: ActiveJob | None = None
         if self._active_embed is not None and self._started_at is not None:
             job = self._active_embed.model_copy(
                 update={"elapsed_seconds": time.monotonic() - self._started_at}
             )
-            if job.repo_path == path:
+            if path in (None, job.repo_path):
                 active_embed = job
         return active_build, active_embed
 

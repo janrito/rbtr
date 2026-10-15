@@ -20,7 +20,7 @@ from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.dto import ResolvedRef
 from rbtr.daemon.handlers import (
     handle_daemon_config,
-    handle_gc,
+    handle_gc_all,
     handle_status,
     handle_unwatch,
     handle_watch,
@@ -31,12 +31,11 @@ from rbtr.daemon.messages import (
     ErrorResponse,
     FindRefsRequest,
     FindRefsResponse,
-    GcRequest,
+    GcAllRequest,
     ListSymbolsRequest,
     ListSymbolsResponse,
     ReadSymbolRequest,
     ReadSymbolResponse,
-    Scope,
     SearchRequest,
     SearchResponse,
     StatusRequest,
@@ -46,8 +45,7 @@ from rbtr.daemon.messages import (
     WatchSetResponse,
 )
 from rbtr.daemon.server import DaemonServer
-from rbtr.domain.models import EdgeKind, GcMode, QueryKind, RefSource
-from rbtr.errors import RbtrError
+from rbtr.domain.models import EdgeKind, EveryRepoGcMode, GcMode, QueryKind, RefSource
 from rbtr.index.store import IndexStore
 from rbtr.tests.daemon.cases_handlers import StatusRootScenario, UnbuiltRefScenario
 
@@ -74,26 +72,13 @@ def test_daemon_config_reports_version_config_and_plugins() -> None:
     assert all(p.package for p in resp.plugins)
 
 
-@pytest.mark.parametrize(
-    "mode",
-    [GcMode.HEAD_ONLY, GcMode.KEEP, GcMode.ORPHANS],
-)
-def test_handle_gc_global_rejects_a_repo_scoped_mode(mode: GcMode, store: IndexStore) -> None:
-    """A request covering every repo keeps at least HEAD and the watch
-    set of each. The modes that go further than that name refs, or
-    keep one repo's HEAD alone, and are rejected before touching the
-    store."""
-    with pytest.raises(RbtrError, match="one repo"):
-        handle_gc(GcRequest(repo_path="/repo", scope=Scope.ALL, mode=mode), store)
-
-
 @pytest.mark.parametrize("mode", [GcMode.WATCHED, GcMode.WATCHED_ONLY])
 def test_handle_gc_global_accepts_a_retention_every_repo_can_answer(
-    mode: GcMode, store: IndexStore
+    mode: EveryRepoGcMode, store: IndexStore
 ) -> None:
     """Both retentions are expressed in each repo's own terms — its HEAD,
     its watch set — so either can be applied to every repo at once."""
-    resp = handle_gc(GcRequest(repo_path="/repo", scope=Scope.ALL, mode=mode), store)
+    resp = handle_gc_all(GcAllRequest(mode=mode), store)
 
     assert resp.repos_collected == 0  # nothing registered, but not refused
 
@@ -431,7 +416,7 @@ def test_status_names_the_repository_it_reports_on(
     running_daemon: DaemonServer, scenario: StatusRootScenario
 ) -> None:
     with DaemonClient(running_daemon.runtime_dir) as client:
-        resp = client.send(StatusRequest(repo_path=scenario.repo_path, scope=scenario.scope))
+        resp = client.send(scenario.request)
     assert isinstance(resp, StatusResponse)
     assert resp.repo_path == scenario.expected
 

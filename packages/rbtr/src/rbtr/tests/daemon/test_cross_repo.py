@@ -11,8 +11,6 @@ import pytest
 from pytest_cases import parametrize_with_cases
 
 from rbtr.daemon.dto import ResolvedRef
-from rbtr.daemon.handlers import handle_search, handle_status
-from rbtr.daemon.messages import SearchRequest, StatusRequest
 from rbtr.domain.models import FileSnapshot, RefSource, SnapshotRef
 from rbtr.index.store import IndexStore
 
@@ -54,9 +52,7 @@ def test_search_scope(
 ) -> None:
     """Search returns hits from exactly the in-scope repos, attributed."""
     store, paths = two_repos
-    resp = handle_search(
-        SearchRequest(repo_path=paths[1], query="load", scope=scenario.scope), store
-    )
+    resp = scenario.search(store, paths[1])
     # The DTO carries no id; repo_path is the attribution signal. In
     # attributed (cross-repo) mode the set of repo_paths returned must be
     # exactly the in-scope repos; in workspace mode all hits are
@@ -79,7 +75,7 @@ def test_status_scope(
 ) -> None:
     """Status reports refs for exactly the in-scope repos, attributed."""
     store, paths = two_repos
-    resp = handle_status(StatusRequest(repo_path=paths[1], scope=scenario.scope), store)
+    resp = scenario.status(store, paths[1])
 
     expected_paths = {paths[r] for r in scenario.expected_repos}
     assert {ref.repo_path for ref in resp.indexed_refs} == expected_paths

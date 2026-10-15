@@ -21,9 +21,9 @@ from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import (
     ErrorCode,
     ErrorResponse,
+    GcAllRequest,
     GcEndedNotification,
     GcProgressNotification,
-    GcRequest,
     GcStartedNotification,
     OkResponse,
     Response,
@@ -34,7 +34,7 @@ from rbtr.daemon.messages import (
     response_adapter,
 )
 from rbtr.daemon.server import DaemonServer
-from rbtr.domain.models import GcMode, Scope
+from rbtr.domain.models import GcMode
 from rbtr.errors import DaemonBusyError, RbtrError
 from rbtr.tests.daemon.cases_server import StopScenario
 
@@ -74,16 +74,14 @@ def test_multiple_requests(running_daemon: DaemonServer, fake_repo: str) -> None
     assert r2.kind == "status"
 
 
-def test_gc_publishes_its_start_progress_and_end(
-    running_daemon: DaemonServer, fake_repo: str
-) -> None:
+def test_gc_publishes_its_start_progress_and_end(running_daemon: DaemonServer) -> None:
     """A gc over every repo publishes one `gc_progress` per repo, between its start and end."""
     sub: zmq.Socket[bytes] = zmq.Context.instance().socket(zmq.SUB)
     sub.connect(running_daemon.pub_addr)
     sub.subscribe(b"")
     time.sleep(0.5)  # the subscription reaches the daemon
     with DaemonClient(running_daemon.runtime_dir) as client:
-        client.send(GcRequest(repo_path=fake_repo, scope=Scope.ALL, mode=GcMode.WATCHED))
+        client.send(GcAllRequest(mode=GcMode.WATCHED))
     published = []
     while sub.poll(2000):
         published.append(notification_adapter.validate_json(sub.recv()))

@@ -17,9 +17,10 @@ from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import (
     ReadSymbolRequest,
     ReadSymbolResponse,
-    Scope,
+    SearchAllRequest,
     SearchRequest,
     SearchResponse,
+    StatusAllRequest,
     StatusRequest,
     StatusResponse,
 )
@@ -82,7 +83,7 @@ def test_search_scope_all_merges_repos(
 ) -> None:
     """`scope=all` over the socket returns both repos, attributed."""
     with DaemonClient(running_daemon.runtime_dir) as client:
-        resp = client.send(SearchRequest(repo_path=fake_repo, query="shared_fn", scope=Scope.ALL))
+        resp = client.send(SearchAllRequest(query="shared_fn"))
     assert isinstance(resp, SearchResponse)
     # Both repos hold a `shared_fn`; the hit carries repo_path attribution
     # rather than an id, so the merge shows as both repo_paths present.
@@ -112,7 +113,7 @@ def test_status_scope_all_lists_both_repos(
 ) -> None:
     """`status --scope all` over the socket reports both repos."""
     with DaemonClient(running_daemon.runtime_dir) as client:
-        resp = client.send(StatusRequest(repo_path=fake_repo, scope=Scope.ALL))
+        resp = client.send(StatusAllRequest())
     assert isinstance(resp, StatusResponse)
     repo_paths = {ref.repo_path for ref in resp.indexed_refs}
     assert repo_paths == {fake_repo, second_repo}

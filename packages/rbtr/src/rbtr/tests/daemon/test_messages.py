@@ -67,3 +67,19 @@ def test_a_scope_cannot_be_asked_of_named_refs() -> None:
     with pytest.raises(ValidationError) as excinfo:
         request_adapter.validate_json(raw)
     assert "scope" in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    ("raw", "field"),
+    [
+        (b'{"kind":"gc_all","mode":"head_only"}', "mode"),
+        (b'{"kind":"gc_all","mode":"watched","repo_path":"/r"}', "repo_path"),
+        (b'{"kind":"search_all","query":"q","ref":"main"}', "ref"),
+    ],
+)
+def test_a_request_across_every_repo_carries_nothing_of_one_repo(raw: bytes, field: str) -> None:
+    """A path, a ref, or a retention that names one repo's refs means
+    nothing across every repo, so no such request can be built."""
+    with pytest.raises(ValidationError) as excinfo:
+        request_adapter.validate_json(raw)
+    assert field in str(excinfo.value)

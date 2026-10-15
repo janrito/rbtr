@@ -896,23 +896,30 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       if (!params.query) throw new Error("Missing required parameter `query`. Example: {query: 'retry logic'}");
+      if (params.scope === "all" && params.ref !== undefined) {
+        throw new Error("`ref` names one repository's snapshot; `scope: 'all'` searches each one's latest.");
+      }
+      const query = {
+        query: params.query,
+        ...(params.limit !== undefined ? { limit: params.limit } : {}),
+        ...(params.keywords !== undefined ? { keywords: params.keywords } : {}),
+        ...(params.variants !== undefined ? { variants: params.variants } : {}),
+      };
       try {
         const resp = await withFallback<SearchResponse>(
           () =>
-            sendWaitingOutBuild(
-              {
-                kind: "search",
-                repo_path: ctx.cwd,
-                query: params.query,
-                ...(params.ref !== undefined ? { ref: params.ref } : {}),
-                ...(params.limit !== undefined ? { limit: params.limit } : {}),
-                ...(params.keywords !== undefined ? { keywords: params.keywords } : {}),
-                ...(params.variants !== undefined ? { variants: params.variants } : {}),
-                ...(params.scope !== undefined ? { scope: params.scope } : {}),
-              },
-              signal,
-              onUpdate,
-            ),
+            params.scope === "all"
+              ? session.send({ kind: "search_all", ...query }, signal)
+              : sendWaitingOutBuild(
+                  {
+                    kind: "search",
+                    repo_path: ctx.cwd,
+                    ...(params.ref !== undefined ? { ref: params.ref } : {}),
+                    ...query,
+                  },
+                  signal,
+                  onUpdate,
+                ),
           () => {
             if (!resolved) throw new Error("rbtr CLI not available");
             const args = ["search", params.query];
@@ -1275,7 +1282,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       const scope = params.scope ?? "workspace";
       try {
         const status = await withFallback<StatusResponse>(
-          () => session.send({ kind: "status", repo_path: ctx.cwd, scope }, signal),
+          () => session.send(scope === "all" ? { kind: "status_all" } : { kind: "status", repo_path: ctx.cwd }, signal),
           () => {
             if (!resolved) throw new Error("rbtr CLI not available");
             const args = scope === "all" ? ["status", "--scope", "all"] : ["status"];

@@ -1293,9 +1293,9 @@ into parallel SQL or duplicate the channel methods,
 [Snapshot resolution](#snapshot-resolution)) and each channel query
 joins against a cursor-registered temporary view,
 `_snapshot_refs(repo_id, snapshot_sha)`. For a workspace search
-the view holds one row; for `scope=all` it holds one per
-repo. This mirrors the `_qvecs` register/unregister pattern
-used for multi-vector semantic scan — a single table scan
+the view holds one row; for a search across every repo
+(`search_all`) it holds one per repo. This mirrors the `_qvecs`
+register/unregister pattern used for multi-vector semantic scan — a single table scan
 regardless of repo count, and no scalar `repo_id`/
 `snapshot_sha` bind params in the search SQL.
 
@@ -1693,14 +1693,14 @@ itself — that is `rbtr unwatch`'s job — so a thorough tidy trims
 first and collects second.
 
 GC is **per-repo by default**; `rbtr gc --scope all` reclaims across
-**every** registered repo at once (`GcRequest.scope is Scope.ALL` ⇒
-`run_gc_all` loops `run_gc` over `list_repos()`), then the single
+**every** registered repo at once (`GcAllRequest` ⇒ `run_gc_all`
+loops `run_gc` over `list_repos()`), then the single
 cross-repo sweep reclaims chunks no surviving snapshot references.
 Globally it takes **`WATCHED` or `WATCHED_ONLY`** — the retentions
 stated in a repo's own terms, so every repo keeps at least its HEAD and
 its watch set. `HEAD_ONLY` and `KEEP` name one repo's refs and
-`ORPHANS` sweeps one repo's residue, so `handle_gc` rejects them
-globally. A repo is **skipped** when git cannot answer for it: a path
+`ORPHANS` sweeps one repo's residue, so `GcAllRequest` cannot carry
+them. A repo is **skipped** when git cannot answer for it: a path
 that no longer resolves (never purged — forgetting it is a separate,
 explicit action; see below) or an unborn HEAD, which `run_gc` raises on
 and which must not end a pass over every other repo. Each repo is
@@ -2152,6 +2152,15 @@ cores, capped at one per 128 MiB of the limit, just above DuckDB's
 documented minimum per thread; the thread count barely moved the
 footprint, and half the cores was faster than either a quarter or
 all of them.
+
+**A request across every repo is a kind of its own.** `search_all`,
+`status_all`, `gc_all` and `unwatch_stale_all` carry nothing of one
+repo, as `forget_stale` already did. A `scope` field on the
+single-repo requests needed a path that the every-repo handlers
+never read, so `--scope all` failed outside a git repository, and it
+let a `ref` or a single-repo gc mode ride along unread. The CLI
+keeps its `--scope` flag and pi its `scope` argument; each picks the
+request kind.
 
 **Staging one path at a time, not `add_all`.** `add_all` compares
 each changed file through a memory map, and a file that shrinks

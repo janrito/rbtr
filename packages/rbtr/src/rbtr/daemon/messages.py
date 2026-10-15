@@ -43,11 +43,11 @@ from rbtr.daemon.dto import (
 from rbtr.daemon.status import DaemonStatusReport
 from rbtr.domain.models import (
     ChangeKind,
+    EveryRepoGcMode,
     GcMode,
     IndexStats,
     QueryKind,
     RefsByRepo,
-    Scope,
     SnapshotRef,
 )
 
@@ -208,8 +208,8 @@ class WatchRequest(BaseModel):
     refs: RefList = ["HEAD"]
 
 
-class SearchRequest(BaseModel):
-    """Search the code index.
+class SearchQuery(BaseModel):
+    """What a search looks for and how it ranks, in one repo or in all.
 
     `weights` overrides the per-`QueryKind` fusion weights for
     the duration of the call.  When `None`, per-kind defaults
@@ -217,18 +217,14 @@ class SearchRequest(BaseModel):
     """
 
     model_config = _STRICT
-    kind: Literal["search"] = "search"
-    repo_path: str
     query: str
     limit: int = 10
-    ref: str | None = None
     weights: WeightTriple | None = None
     reranker_pool: int | None = None
     reranker_blend_weight: float | None = None
     keywords: OptStrList = None
     variants: OptStrList = None
     explain: bool = False
-    scope: Scope = Scope.WORKSPACE
     query_kind: str | None = Field(
         default=None,
         description=(
@@ -259,6 +255,20 @@ class SearchRequest(BaseModel):
         if v is None:
             return None
         return list(dict.fromkeys(v))[: config.max_expansion_keywords]
+
+
+class SearchRequest(SearchQuery):
+    """Search the repo at `repo_path`, at `ref` or its latest indexed snapshot."""
+
+    kind: Literal["search"] = "search"
+    repo_path: str
+    ref: str | None = None
+
+
+class SearchAllRequest(SearchQuery):
+    """Search every indexed repo, each at its latest indexed snapshot."""
+
+    kind: Literal["search_all"] = "search_all"
 
 
 class ReadSymbolRequest(BaseModel):
@@ -297,10 +307,18 @@ class ChangedSymbolsRequest(BaseModel):
 
 
 class StatusRequest(BaseModel):
+    """Report the index for the repo at `repo_path`."""
+
     model_config = _STRICT
     kind: Literal["status"] = "status"
     repo_path: str
-    scope: Scope = Scope.WORKSPACE
+
+
+class StatusAllRequest(BaseModel):
+    """Report the index for every indexed repo."""
+
+    model_config = _STRICT
+    kind: Literal["status_all"] = "status_all"
 
 
 class DaemonConfigRequest(BaseModel):
@@ -315,19 +333,30 @@ class DaemonConfigRequest(BaseModel):
 
 
 class GcRequest(BaseModel):
-    """Reclaim index storage, in one repo or across every indexed one.
+    """Reclaim index storage in the repo at `repo_path`.
 
     `mode` is the set kept; `refs` carries it for `GcMode.KEEP`.
-    Under `Scope.ALL` only the retentions each repo can answer in its
-    own terms apply, and `repo_path` is not read.
     """
 
     model_config = _STRICT
     kind: Literal["gc"] = "gc"
     repo_path: str
-    scope: Scope = Scope.WORKSPACE
     mode: GcMode
     refs: list[str] = []
+    dry_run: bool = False
+    compact: bool = True  # rewrite the index to reclaim freed disk space
+
+
+class GcAllRequest(BaseModel):
+    """Reclaim index storage across every indexed repo.
+
+    Only the retentions each repo states in its own terms apply: its
+    HEAD and watch set.
+    """
+
+    model_config = _STRICT
+    kind: Literal["gc_all"] = "gc_all"
+    mode: EveryRepoGcMode
     dry_run: bool = False
     compact: bool = True  # rewrite the index to reclaim freed disk space
 
@@ -348,17 +377,26 @@ class UnwatchRequest(BaseModel):
 
 
 class UnwatchStaleRequest(BaseModel):
-    """Stop watching the refs git can no longer resolve.
+    """Stop watching the refs git can no longer resolve in the repo at `repo_path`.
 
-    Covers the repo at `repo_path`, or every registered repo under
-    `Scope.ALL`. Which refs those are is found here, never named by
-    the caller. `dry_run` reports without writing.
+    Which refs those are is found here, never named by the caller.
+    `dry_run` reports without writing.
     """
 
     model_config = _STRICT
     kind: Literal["unwatch_stale"] = "unwatch_stale"
     repo_path: str
-    scope: Scope = Scope.WORKSPACE
+    dry_run: bool = False
+
+
+class UnwatchStaleAllRequest(BaseModel):
+    """Stop watching the refs git can no longer resolve, in every indexed repo.
+
+    `dry_run` reports without writing.
+    """
+
+    model_config = _STRICT
+    kind: Literal["unwatch_stale_all"] = "unwatch_stale_all"
     dry_run: bool = False
 
 
@@ -393,15 +431,19 @@ Request = Annotated[
     ShutdownRequest
     | WatchRequest
     | SearchRequest
+    | SearchAllRequest
     | ReadSymbolRequest
     | ListSymbolsRequest
     | FindRefsRequest
     | ChangedSymbolsRequest
     | StatusRequest
+    | StatusAllRequest
     | DaemonConfigRequest
     | GcRequest
+    | GcAllRequest
     | UnwatchRequest
     | UnwatchStaleRequest
+    | UnwatchStaleAllRequest
     | ForgetRequest
     | ForgetStaleRequest,
     Field(discriminator="kind"),
@@ -563,12 +605,13 @@ class WatchedRef(BaseModel):
 
 
 class StatusResponse(BaseModel):
-    """Index status for one repository, or every one under `Scope.ALL`.
+    """Index status for one repository (`StatusRequest`), or every one
+    (`StatusAllRequest`).
 
-    `repo_path` is the repository's root, normalised, under workspace
-    scope, whether or not anything of it is indexed; a caller in a
+    `repo_path` is the repository's root, normalised, for one
+    repository, whether or not anything of it is indexed; a caller in a
     subdirectory learns from it what its paths are relative to. It is
-    `None` under `Scope.ALL`.
+    `None` for every repository.
     """
 
     model_config = _STRICT

@@ -9,7 +9,7 @@ reclamation and why a cross-repo pass writes one session per repo.
 
 from __future__ import annotations
 
-from rbtr.domain.models import RefsByRepo, Repo, Scope
+from rbtr.domain.models import RefsByRepo, Repo
 from rbtr.errors import RbtrError
 from rbtr.git import HEAD_REF, normalise_repo_path, resolve_refs_to_shas
 from rbtr.index.store import IndexStore
@@ -38,24 +38,17 @@ def unwatch_refs(
     return {repo_path: refs}
 
 
-def remove_stale_refs(
-    store: IndexStore, *, repo_path: str, scope: Scope, dry_run: bool
-) -> RefsByRepo:
-    """Stop watching refs git can no longer resolve, keyed by repo path.
+def remove_stale_refs(store: IndexStore, repos: list[Repo], *, dry_run: bool) -> RefsByRepo:
+    """Stop watching the refs git can no longer resolve in *repos*, keyed by repo path.
 
-    Covers the repo at *repo_path*, or every registered repo under
-    `Scope.ALL`.  `HEAD` resolves for as long as the repo does and is
-    never removed, and a repo whose path has vanished is left entirely
-    alone: git cannot answer for it, and every ref it watches would
-    look stale.  Under *dry_run* nothing is written.
-
-    Raises `RbtrError` if *repo_path* names a repo that was never
-    indexed.
+    `HEAD` resolves for as long as the repo does and is never removed,
+    and a repo whose path has vanished is left entirely alone: git
+    cannot answer for it, and every ref it watches would look stale.
+    Under *dry_run* nothing is written.
     """
-    scoped_id = store.resolve_repo(repo_path) if scope is Scope.WORKSPACE else None
     removed: RefsByRepo = {}
-    for repo in store.list_repos():
-        if (scoped_id is not None and repo.repo_id != scoped_id) or not _resolves(repo):
+    for repo in repos:
+        if not _resolves(repo):
             continue
         stale = _unresolvable(store, repo)
         if not stale:

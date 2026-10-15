@@ -35,7 +35,7 @@ from __future__ import annotations
 import structlog
 
 from rbtr.config import config
-from rbtr.domain.models import GcCounts, GcMode, SnapshotRef
+from rbtr.domain.models import EveryRepoGcMode, GcCounts, GcMode, SnapshotRef
 from rbtr.errors import RbtrError
 from rbtr.git import (
     head_sha,
@@ -54,8 +54,7 @@ log = structlog.get_logger(__name__)
 def run_gc_all(
     store: IndexStore,
     *,
-    mode: GcMode,
-    refs: list[str],
+    mode: EveryRepoGcMode,
     dry_run: bool,
     compact: bool = False,
     on_progress: RepoProgressCallback = _noop_repo_progress,
@@ -86,7 +85,7 @@ def run_gc_all(
     for collected, repo in enumerate(live, start=1):
         # Never compact per repo: a rewrite is expensive, so compact once
         # after every repo's logical deletes have landed.
-        total = total + run_gc(store, repo.repo_path, mode=mode, refs=refs, dry_run=dry_run)
+        total = total + run_gc(store, repo.repo_path, mode=mode, refs=[], dry_run=dry_run)
         on_progress(repo.repo_path, collected, len(live))
     if compact and not dry_run:
         with store.session() as session:

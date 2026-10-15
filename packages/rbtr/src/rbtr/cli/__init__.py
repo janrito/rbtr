@@ -61,12 +61,16 @@ from rbtr.daemon.handlers import (
     handle_forget,
     handle_forget_stale,
     handle_gc,
+    handle_gc_all,
     handle_list_symbols,
     handle_read_symbol,
     handle_search,
+    handle_search_all,
     handle_status,
+    handle_status_all,
     handle_unwatch,
     handle_unwatch_stale,
+    handle_unwatch_stale_all,
 )
 from rbtr.daemon.messages import (
     ChangedSymbolsRequest,
@@ -80,6 +84,7 @@ from rbtr.daemon.messages import (
     ForgetRequest,
     ForgetResponse,
     ForgetStaleRequest,
+    GcAllRequest,
     GcRequest,
     GcResponse,
     ListSymbolsRequest,
@@ -87,13 +92,15 @@ from rbtr.daemon.messages import (
     OkResponse,
     ReadSymbolRequest,
     ReadSymbolResponse,
-    Scope,
+    SearchAllRequest,
     SearchRequest,
     SearchResponse,
+    StatusAllRequest,
     StatusRequest,
     StatusResponse,
     UnwatchRequest,
     UnwatchResponse,
+    UnwatchStaleAllRequest,
     UnwatchStaleRequest,
     WatchRequest,
     WatchResponse,
@@ -102,7 +109,7 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.server import DaemonServer
 from rbtr.daemon.status import DaemonStatusReport, uptime_seconds as _uptime_seconds
-from rbtr.domain.models import GcMode
+from rbtr.domain.models import GcMode, Scope
 from rbtr.errors import ExitCode, IndexLockedError, IndexNotBuiltError, RbtrError
 from rbtr.git import HEAD_REF, normalise_repo_path, resolve_ref
 from rbtr.index.build import build_index
@@ -458,21 +465,28 @@ class Unwatch(BaseModel):
         return self
 
     def cli_cmd(self) -> None:
-        repo_path = normalise_repo_path(self.repo_path)
-        request: UnwatchRequest | UnwatchStaleRequest = (
-            UnwatchStaleRequest(repo_path=repo_path, scope=self.scope, dry_run=self.dry_run)
-            if self.stale
-            else UnwatchRequest(repo_path=repo_path, refs=self.refs, dry_run=self.dry_run)
-        )
+        request: UnwatchRequest | UnwatchStaleRequest | UnwatchStaleAllRequest
+        if self.scope is Scope.ALL:
+            request = UnwatchStaleAllRequest(dry_run=self.dry_run)
+        elif self.stale:
+            request = UnwatchStaleRequest(
+                repo_path=normalise_repo_path(self.repo_path), dry_run=self.dry_run
+            )
+        else:
+            request = UnwatchRequest(
+                repo_path=normalise_repo_path(self.repo_path), refs=self.refs, dry_run=self.dry_run
+            )
         resp = try_daemon(request) if self.daemon else None
         if resp is None:
             store = IndexStore.from_config(writable=True)
             try:
-                resp = (
-                    handle_unwatch_stale(request, store)
-                    if isinstance(request, UnwatchStaleRequest)
-                    else handle_unwatch(request, store)
-                )
+                match request:
+                    case UnwatchStaleAllRequest():
+                        resp = handle_unwatch_stale_all(request, store)
+                    case UnwatchStaleRequest():
+                        resp = handle_unwatch_stale(request, store)
+                    case UnwatchRequest():
+                        resp = handle_unwatch(request, store)
             finally:
                 store.close()
         match resp:
@@ -579,22 +593,39 @@ class Search(BaseModel):
         description="Search scope: workspace (this repo) or all (every indexed repo).",
     )
 
+    @model_validator(mode="after")
+    def _check_ref(self) -> Self:
+        """A ref is one repo's: every repo is searched at its latest snapshot."""
+        if self.scope is Scope.ALL and self.ref is not None:
+            msg = "--ref names one repo's snapshot; --scope all searches each repo's latest"
+            raise ValueError(msg)
+        return self
+
     def cli_cmd(self) -> None:
-        resolved_repo = normalise_repo_path(self.repo_path)
         weights = None
         if self.alpha is not None and self.beta is not None and self.gamma is not None:
             weights = WeightTriple(alpha=self.alpha, beta=self.beta, gamma=self.gamma)
-        request = SearchRequest(
-            repo_path=resolved_repo,
-            query=self.query,
-            limit=self.limit,
-            ref=self.ref,
-            weights=weights,
-            query_kind=self.query_kind,
-            keywords=self.keywords,
-            variants=self.variants,
-            scope=self.scope,
-        )
+        request: SearchRequest | SearchAllRequest
+        if self.scope is Scope.ALL:
+            request = SearchAllRequest(
+                query=self.query,
+                limit=self.limit,
+                weights=weights,
+                query_kind=self.query_kind,
+                keywords=self.keywords,
+                variants=self.variants,
+            )
+        else:
+            request = SearchRequest(
+                repo_path=normalise_repo_path(self.repo_path),
+                ref=self.ref,
+                query=self.query,
+                limit=self.limit,
+                weights=weights,
+                query_kind=self.query_kind,
+                keywords=self.keywords,
+                variants=self.variants,
+            )
 
         match try_daemon(request):
             case SearchResponse() as resp:
@@ -608,12 +639,15 @@ class Search(BaseModel):
                 embedder = Embedder(load_lock=gpu_load_lock) if config.embed else None
                 reranker = Reranker(load_lock=gpu_load_lock) if config.reranker_model else None
                 try:
-                    resp = handle_search(
-                        request,
-                        store,
-                        embedder=embedder,
-                        reranker=reranker,
-                    )
+                    match request:
+                        case SearchAllRequest():
+                            resp = handle_search_all(
+                                request, store, embedder=embedder, reranker=reranker
+                            )
+                        case SearchRequest():
+                            resp = handle_search(
+                                request, store, embedder=embedder, reranker=reranker
+                            )
                     emit(resp)
                 except RbtrError as exc:
                     fail(exc)
@@ -778,8 +812,11 @@ class Status(BaseModel):
     )
 
     def cli_cmd(self) -> None:
-        resolved_repo = normalise_repo_path(self.repo_path)
-        request = StatusRequest(repo_path=resolved_repo, scope=self.scope)
+        request = (
+            StatusAllRequest()
+            if self.scope is Scope.ALL
+            else StatusRequest(repo_path=normalise_repo_path(self.repo_path))
+        )
 
         match try_daemon(request):
             case StatusResponse() as resp:
@@ -790,7 +827,7 @@ class Status(BaseModel):
                 db = config.db_path
                 # No index yet: the reply still names the repository.
                 empty = StatusResponse(
-                    repo_path=resolved_repo if self.scope == Scope.WORKSPACE else None
+                    repo_path=request.repo_path if isinstance(request, StatusRequest) else None
                 )
                 if not db.exists():
                     emit(empty)
@@ -802,7 +839,11 @@ class Status(BaseModel):
                     return
 
                 try:
-                    emit(handle_status(request, store))
+                    match request:
+                        case StatusAllRequest():
+                            emit(handle_status_all(request, store))
+                        case StatusRequest():
+                            emit(handle_status(request, store))
                 except RbtrError as exc:
                     fail(exc)
             case resp:
@@ -879,13 +920,19 @@ class Gc(BaseModel):
         return self
 
     def cli_cmd(self) -> None:
-        request = GcRequest(
-            repo_path=normalise_repo_path(self.repo_path),
-            scope=self.scope,
-            mode=self.mode,
-            refs=self.keep_refs,
-            dry_run=self.dry_run,
-            compact=self.compact,
+        request = (
+            # `_check_retention` has refused every mode but the two `GcAllRequest` takes.
+            GcAllRequest.model_validate(
+                {"mode": self.mode, "dry_run": self.dry_run, "compact": self.compact}
+            )
+            if self.scope is Scope.ALL
+            else GcRequest(
+                repo_path=normalise_repo_path(self.repo_path),
+                mode=self.mode,
+                refs=self.keep_refs,
+                dry_run=self.dry_run,
+                compact=self.compact,
+            )
         )
 
         match try_daemon(request):
@@ -906,20 +953,24 @@ class Gc(BaseModel):
                 fail(ErrorResponse(code=ErrorCode.INTERNAL, message=f"unexpected response: {resp}"))
 
     @staticmethod
-    def _run_inline(request: GcRequest, store: IndexStore) -> None:
+    def _run_inline(request: GcRequest | GcAllRequest, store: IndexStore) -> None:
         """Collect in this process, reporting progress on stderr.
 
         A pass over many repos says nothing until it finishes; the bar
         goes to stderr, leaving stdout to the response.
         """
-        with progress_reporter("Collecting repos") as (on_repo,):
-            response = handle_gc(
-                request,
-                store,
-                allow_compact=True,
-                on_progress=lambda _repo_path, done, total: on_repo(done, total),
-            )
-        emit(response)
+        match request:
+            case GcRequest():
+                emit(handle_gc(request, store, allow_compact=True))
+            case GcAllRequest():
+                with progress_reporter("Collecting repos") as (on_repo,):
+                    response = handle_gc_all(
+                        request,
+                        store,
+                        allow_compact=True,
+                        on_progress=lambda _repo_path, done, total: on_repo(done, total),
+                    )
+                emit(response)
 
 
 class SchemaDump(BaseModel):

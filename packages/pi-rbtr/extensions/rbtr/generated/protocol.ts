@@ -11,28 +11,26 @@ export type Request =
   | ShutdownRequest
   | WatchRequest
   | SearchRequest
+  | SearchAllRequest
   | ReadSymbolRequest
   | ListSymbolsRequest
   | FindRefsRequest
   | ChangedSymbolsRequest
   | StatusRequest
+  | StatusAllRequest
   | DaemonConfigRequest
   | GcRequest
+  | GcAllRequest
   | UnwatchRequest
   | UnwatchStaleRequest
+  | UnwatchStaleAllRequest
   | ForgetRequest
   | ForgetStaleRequest;
-/**
- * Breadth of an operation over the shared store.
- *
- * `WORKSPACE` is the single repo identified by `repo_path`;
- * `ALL` is every indexed repo.
- */
-export type Scope = "workspace" | "all";
 /**
  * What a `rbtr gc` invocation is allowed to delete.
  */
 export type GcMode = "head_only" | "keep" | "orphans" | "watched" | "watched_only";
+export type EveryRepoGcMode = "watched" | "watched_only";
 export type Response =
   | ErrorResponse
   | OkResponse
@@ -135,29 +133,24 @@ export interface WatchRequest {
   refs?: string[];
 }
 /**
- * Search the code index.
- *
- * `weights` overrides the per-`QueryKind` fusion weights for
- * the duration of the call.  When `None`, per-kind defaults
- * apply.
+ * Search the repo at `repo_path`, at `ref` or its latest indexed snapshot.
  */
 export interface SearchRequest {
-  kind: "search";
-  repo_path: string;
   query: string;
   limit?: number;
-  ref?: string | null;
   weights?: WeightTriple | null;
   reranker_pool?: number | null;
   reranker_blend_weight?: number | null;
   keywords?: string[] | null;
   variants?: string[] | null;
   explain?: boolean;
-  scope?: Scope;
   /**
    * Force expansion pipeline. One of concept|identifier|code. None means heuristic.
    */
   query_kind?: string | null;
+  kind: "search";
+  repo_path: string;
+  ref?: string | null;
 }
 /**
  * Fusion channel weights (must sum to 1.0).
@@ -177,6 +170,24 @@ export interface WeightTriple {
    * Name-match: identifier matching.
    */
   gamma: number;
+}
+/**
+ * Search every indexed repo, each at its latest indexed snapshot.
+ */
+export interface SearchAllRequest {
+  query: string;
+  limit?: number;
+  weights?: WeightTriple | null;
+  reranker_pool?: number | null;
+  reranker_blend_weight?: number | null;
+  keywords?: string[] | null;
+  variants?: string[] | null;
+  explain?: boolean;
+  /**
+   * Force expansion pipeline. One of concept|identifier|code. None means heuristic.
+   */
+  query_kind?: string | null;
+  kind: "search_all";
 }
 export interface ReadSymbolRequest {
   kind: "read_symbol";
@@ -205,10 +216,18 @@ export interface ChangedSymbolsRequest {
   head: string;
   file_paths?: string[] | null;
 }
+/**
+ * Report the index for the repo at `repo_path`.
+ */
 export interface StatusRequest {
   kind: "status";
   repo_path: string;
-  scope?: Scope;
+}
+/**
+ * Report the index for every indexed repo.
+ */
+export interface StatusAllRequest {
+  kind: "status_all";
 }
 /**
  * Ask the daemon for its live config and loaded plugins.
@@ -220,18 +239,27 @@ export interface DaemonConfigRequest {
   kind: "daemon_config";
 }
 /**
- * Reclaim index storage, in one repo or across every indexed one.
+ * Reclaim index storage in the repo at `repo_path`.
  *
  * `mode` is the set kept; `refs` carries it for `GcMode.KEEP`.
- * Under `Scope.ALL` only the retentions each repo can answer in its
- * own terms apply, and `repo_path` is not read.
  */
 export interface GcRequest {
   kind: "gc";
   repo_path: string;
-  scope?: Scope;
   mode: GcMode;
   refs?: string[];
+  dry_run?: boolean;
+  compact?: boolean;
+}
+/**
+ * Reclaim index storage across every indexed repo.
+ *
+ * Only the retentions each repo states in its own terms apply: its
+ * HEAD and watch set.
+ */
+export interface GcAllRequest {
+  kind: "gc_all";
+  mode: EveryRepoGcMode;
   dry_run?: boolean;
   compact?: boolean;
 }
@@ -252,16 +280,23 @@ export interface UnwatchRequest {
   dry_run?: boolean;
 }
 /**
- * Stop watching the refs git can no longer resolve.
+ * Stop watching the refs git can no longer resolve in the repo at `repo_path`.
  *
- * Covers the repo at `repo_path`, or every registered repo under
- * `Scope.ALL`. Which refs those are is found here, never named by
- * the caller. `dry_run` reports without writing.
+ * Which refs those are is found here, never named by the caller.
+ * `dry_run` reports without writing.
  */
 export interface UnwatchStaleRequest {
   kind: "unwatch_stale";
   repo_path: string;
-  scope?: Scope;
+  dry_run?: boolean;
+}
+/**
+ * Stop watching the refs git can no longer resolve, in every indexed repo.
+ *
+ * `dry_run` reports without writing.
+ */
+export interface UnwatchStaleAllRequest {
+  kind: "unwatch_stale_all";
   dry_run?: boolean;
 }
 /**
@@ -544,12 +579,13 @@ export interface ChangedSymbol {
   change: ChangeKind;
 }
 /**
- * Index status for one repository, or every one under `Scope.ALL`.
+ * Index status for one repository (`StatusRequest`), or every one
+ * (`StatusAllRequest`).
  *
- * `repo_path` is the repository's root, normalised, under workspace
- * scope, whether or not anything of it is indexed; a caller in a
+ * `repo_path` is the repository's root, normalised, for one
+ * repository, whether or not anything of it is indexed; a caller in a
  * subdirectory learns from it what its paths are relative to. It is
- * `None` under `Scope.ALL`.
+ * `None` for every repository.
  */
 export interface StatusResponse {
   kind: "status";

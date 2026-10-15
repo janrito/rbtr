@@ -7,6 +7,7 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import (
     BaseModel,
@@ -444,6 +445,11 @@ class GcMode(StrEnum):
     ORPHANS = "orphans"  # sweep residue only, drop no commits
     WATCHED = "watched"  # default: HEAD + local branches/tags/notes + watched
     WATCHED_ONLY = "watched_only"  # HEAD + resolved watched_refs only
+
+
+# The retentions every repo states in its own terms, so the only ones a
+# gc across every repo can apply.
+type EveryRepoGcMode = Literal[GcMode.WATCHED, GcMode.WATCHED_ONLY]
 
 
 @dataclass(frozen=True)

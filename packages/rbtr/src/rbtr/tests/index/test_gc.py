@@ -419,7 +419,7 @@ def test_run_gc_all_drops_unreferenced_in_every_repo(global_gc: GlobalGcFixture)
     """Global GC drops each repo's unreferenced commits and keeps its ref
     tips — in the default (watched) reclamation that global GC is limited
     to. Here each repo's `c0` is unreachable, so it is dropped everywhere."""
-    _counts, repos = run_gc_all(global_gc.store, mode=GcMode.WATCHED, refs=[], dry_run=False)
+    _counts, repos = run_gc_all(global_gc.store, mode=GcMode.WATCHED, dry_run=False)
     s = global_gc.store
     assert repos == 2  # both registered repos collected
     assert s.has_indexed(at=SnapshotRef(repo_id=global_gc.a_id, snapshot_sha=global_gc.a1)) is True
@@ -431,7 +431,7 @@ def test_run_gc_all_drops_unreferenced_in_every_repo(global_gc: GlobalGcFixture)
 def test_run_gc_all_keeps_chunk_shared_across_repos(global_gc: GlobalGcFixture) -> None:
     """A chunk a dropped commit referenced survives while another repo's
     surviving commit still references it; only the unshared ones are freed."""
-    counts, _repos = run_gc_all(global_gc.store, mode=GcMode.WATCHED, refs=[], dry_run=False)
+    counts, _repos = run_gc_all(global_gc.store, mode=GcMode.WATCHED, dry_run=False)
     # a_old and b_old freed; shared kept (repo B HEAD still references it).
     assert counts.chunks == 2
     # Shared chunk still queryable from repo B's HEAD.
@@ -446,7 +446,7 @@ def test_run_gc_all_skips_repo_with_vanished_path(
     crashed; live repos are still collected."""
     with global_gc.store.session() as ws:
         ws.register_repo(str(tmp_path / "gone"))  # never created on disk
-    _counts, repos = run_gc_all(global_gc.store, mode=GcMode.WATCHED, refs=[], dry_run=False)
+    _counts, repos = run_gc_all(global_gc.store, mode=GcMode.WATCHED, dry_run=False)
     assert repos == 2  # the vanished repo skipped, the two live ones collected
     # Live repos were still GC'd.
     assert (
@@ -468,7 +468,7 @@ def test_run_gc_all_freed_matches_physical_deletion(global_gc: GlobalGcFixture) 
     survives the pass (the global-aggregation consistency guard)."""
     cur = global_gc.store._cursor
     before = cur.execute("SELECT count(*) FROM chunks").fetchone()
-    counts, _repos = run_gc_all(global_gc.store, mode=GcMode.WATCHED, refs=[], dry_run=False)
+    counts, _repos = run_gc_all(global_gc.store, mode=GcMode.WATCHED, dry_run=False)
     after = cur.execute("SELECT count(*) FROM chunks").fetchone()
     assert before is not None
     assert after is not None
@@ -526,7 +526,7 @@ def test_run_gc_all_watched_only_drops_unwatched_refs_everywhere(
     with s.session() as ws:
         ws.add_watched_refs(global_gc.b_id, [global_gc.b0])
 
-    _counts, repos = run_gc_all(s, mode=GcMode.WATCHED_ONLY, refs=[], dry_run=False)
+    _counts, repos = run_gc_all(s, mode=GcMode.WATCHED_ONLY, dry_run=False)
 
     assert repos == 2
     assert s.has_indexed(at=SnapshotRef(repo_id=global_gc.a_id, snapshot_sha=global_gc.a1)) is True
@@ -544,7 +544,7 @@ def test_run_gc_all_watched_only_keeps_head_of_an_unwatched_repo(
     set must still keep its HEAD, or the repo loses everything."""
     store = global_gc.store
 
-    run_gc_all(store, mode=GcMode.WATCHED_ONLY, refs=[], dry_run=False)
+    run_gc_all(store, mode=GcMode.WATCHED_ONLY, dry_run=False)
 
     head = SnapshotRef(repo_id=global_gc.a_id, snapshot_sha=global_gc.a1)
     assert store.has_indexed(at=head) is True
@@ -559,7 +559,7 @@ def test_run_gc_all_skips_a_repo_with_no_commits(
     with global_gc.store.session() as ws:
         ws.register_repo(normalise_repo_path(str(tmp_path / "empty")))
 
-    _counts, repos = run_gc_all(global_gc.store, mode=GcMode.WATCHED_ONLY, refs=[], dry_run=False)
+    _counts, repos = run_gc_all(global_gc.store, mode=GcMode.WATCHED_ONLY, dry_run=False)
 
     assert repos == 2  # the two real repos; the empty one skipped
     assert (
@@ -580,7 +580,6 @@ def test_run_gc_all_reports_each_repo_as_it_is_collected(
     run_gc_all(
         global_gc.store,
         mode=GcMode.WATCHED_ONLY,
-        refs=[],
         dry_run=False,
         on_progress=lambda repo_path, done, total: seen.append((repo_path, done, total)),
     )

@@ -17,8 +17,9 @@ from rbtr.daemon.messages import (
     FindRefsRequest,
     ListSymbolsRequest,
     ReadSymbolRequest,
-    Scope,
     SearchRequest,
+    StatusAllRequest,
+    StatusRequest,
 )
 
 
@@ -92,34 +93,33 @@ def case_unbuilt_watched_not_yet_built(unindexed_ref: str) -> UnbuiltRefScenario
 
 @dataclass(frozen=True)
 class StatusRootScenario:
-    """Where a status request is asked from, its scope, and the root it should name."""
+    """A status request, and the root its reply should name."""
 
-    repo_path: str
-    scope: Scope
+    request: StatusRequest | StatusAllRequest
     expected: str | None
 
 
 @case(id="from_the_root")
 def case_status_from_the_root(fake_repo: str) -> StatusRootScenario:
-    return StatusRootScenario(repo_path=fake_repo, scope=Scope.WORKSPACE, expected=fake_repo)
+    return StatusRootScenario(request=StatusRequest(repo_path=fake_repo), expected=fake_repo)
 
 
 @case(id="from_a_subdirectory")
 def case_status_from_a_subdirectory(fake_repo: str, fake_repo_subdir: str) -> StatusRootScenario:
     """A caller in a subdirectory learns the root its paths are relative to."""
-    return StatusRootScenario(repo_path=fake_repo_subdir, scope=Scope.WORKSPACE, expected=fake_repo)
+    return StatusRootScenario(request=StatusRequest(repo_path=fake_repo_subdir), expected=fake_repo)
 
 
 @case(id="unregistered")
 def case_status_unregistered(second_repo: str) -> StatusRootScenario:
     """A repository with nothing indexed still has a root."""
-    return StatusRootScenario(repo_path=second_repo, scope=Scope.WORKSPACE, expected=second_repo)
+    return StatusRootScenario(request=StatusRequest(repo_path=second_repo), expected=second_repo)
 
 
-@case(id="scope_all")
-def case_status_scope_all(fake_repo: str) -> StatusRootScenario:
+@case(id="every_repo")
+def case_status_every_repo() -> StatusRootScenario:
     """Every repository's status names no single root."""
-    return StatusRootScenario(repo_path=fake_repo, scope=Scope.ALL, expected=None)
+    return StatusRootScenario(request=StatusAllRequest(), expected=None)
 
 
 # Each read a client can make at a ref: one the daemon has not indexed is
