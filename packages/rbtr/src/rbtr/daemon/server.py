@@ -828,17 +828,19 @@ class DaemonServer:
                         asyncio.create_task(asyncio.to_thread(self._reranker.warmup))
                     )
             relay_task = asyncio.create_task(self._notification_relay(progress_pull, pub))
-            worker_task = asyncio.create_task(self._job_worker())
+            worker_task = asyncio.create_task(self._job_worker(), name="job_worker")
+            watcher_task = asyncio.create_task(self._watcher_loop(), name="watcher")
 
-            def stop_when_the_worker_fails(task: asyncio.Task[None]) -> None:
-                # A daemon that answers reads but builds nothing hides the
-                # failure: log it now, and stop, so `serve()` raises it.
+            def stop_when_it_fails(task: asyncio.Task[None]) -> None:
+                # A daemon that answers reads but builds or watches nothing
+                # hides the failure: log it now, and stop, so `serve()`
+                # raises it.
                 if not task.cancelled() and (exc := task.exception()) is not None:
-                    log.error("job_worker_failed", exc_info=exc)
+                    log.error("task_failed", task=task.get_name(), exc_info=exc)
                     self.request_shutdown()
 
-            worker_task.add_done_callback(stop_when_the_worker_fails)
-            watcher_task = asyncio.create_task(self._watcher_loop())
+            worker_task.add_done_callback(stop_when_it_fails)
+            watcher_task.add_done_callback(stop_when_it_fails)
             try:
                 while not self._shutdown:
                     if await rep.poll(timeout=100):

@@ -119,6 +119,14 @@ def case_job_worker_fails(
         with DaemonClient(runtime_dir) as client:
             client.send(WatchRequest(repo_path=fake_repo, refs=["HEAD"]))
 
+    return StopScenario(server=server, stop=stop, raised=["unexpected"], logged=["task_failed"])
+
+
+def case_watcher_fails(runtime_dir: Path, mocker: MockerFixture) -> StopScenario:
+    """An error the watcher does not expect stops the daemon, logged,
+    rather than leaving it answering reads with nothing being watched."""
+    server = DaemonServer(runtime_dir, store=None, idle_poll_interval=60.0, busy_poll_interval=60.0)
+    mocker.patch.object(server, "_next_poll_interval", side_effect=RuntimeError("unexpected"))
     return StopScenario(
-        server=server, stop=stop, raised=["unexpected"], logged=["job_worker_failed"]
+        server=server, stop=lambda: None, raised=["unexpected"], logged=["task_failed"]
     )
