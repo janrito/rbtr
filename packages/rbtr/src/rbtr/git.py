@@ -231,7 +231,8 @@ def worktree_tree_sha(repo_path: str, *, max_untracked_files: int) -> str | None
 
     Untracked files are included while git lists at most
     *max_untracked_files* of them; past that, none are, and the
-    snapshot holds the tracked changes only.
+    snapshot holds the tracked changes only.  A repository nested in
+    the working tree is left out.
 
     Returns `None` when the working tree is clean (the tree SHA
     would equal HEAD's tree SHA) or when the repo is unreadable.
@@ -246,17 +247,26 @@ def worktree_tree_sha(repo_path: str, *, max_untracked_files: int) -> str | None
     try:
         repo = _open_repo(repo_path)
         status = repo.status(untracked_files="all", ignored=False)
-        tracked = [path for path, flags in status.items() if not flags & FileStatus.WT_NEW]
-        include_untracked = len(status) - len(tracked) <= max_untracked_files
-        changes = status if include_untracked else tracked
+        untracked = sum(1 for flags in status.values() if flags & FileStatus.WT_NEW)
+        include_untracked = untracked <= max_untracked_files
+        changes = {
+            path: flags
+            for path, flags in status.items()
+            # git lists a nested repository as one `dir/` entry, which it cannot stage.
+            if not path.endswith("/") and (include_untracked or not flags & FileStatus.WT_NEW)
+        }
         if not changes or repo.head_is_unborn:
             return None
         head_tree = str(repo.head.peel(pygit2.Tree).id)
         repo.index.read()
-        if include_untracked:
-            repo.index.add_all()
-        else:
-            repo.index.add_all(tracked)
+        # One path at a time: `add_all` compares changed files through a
+        # memory map, and a file that shrinks meanwhile kills the process
+        # with SIGBUS.  Staging a path reads the file instead.
+        for path, flags in changes.items():
+            if flags & FileStatus.WT_DELETED:
+                repo.index.remove(path)
+            elif flags != FileStatus.INDEX_DELETED:  # a staged deletion is already in the index
+                repo.index.add(path)
         tree_sha = str(repo.index.write_tree())
         repo.index.read()  # reset in-memory index; on-disk staging untouched
     # pygit2 raises OSError for a working-tree file it cannot read, or one

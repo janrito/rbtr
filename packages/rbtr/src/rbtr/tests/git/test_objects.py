@@ -390,10 +390,16 @@ def test_worktree_tree_sha_includes_untracked_files_up_to_the_limit(
     assert ({"c.py", "d.py"} <= paths) is untracked_indexed
 
 
-def test_list_files_tree_sha_excludes_deleted(worktree_repo: pygit2.Repository) -> None:
-    """Tree SHA excludes deleted files."""
+@pytest.mark.parametrize("staged", [False, True])
+def test_list_files_tree_sha_excludes_deleted(
+    worktree_repo: pygit2.Repository, staged: bool
+) -> None:
+    """Tree SHA excludes deleted files, whether or not the deletion is staged."""
     workdir = Path(worktree_repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs
     (workdir / "b.py").unlink()
+    if staged:
+        worktree_repo.index.remove("b.py")
+        worktree_repo.index.write()
 
     tree_sha = worktree_tree_sha(
         worktree_repo.workdir, max_untracked_files=config.max_untracked_files
@@ -403,6 +409,24 @@ def test_list_files_tree_sha_excludes_deleted(worktree_repo: pygit2.Repository) 
     paths = {e.path for e in list_files(worktree_repo.workdir, tree_sha, max_file_size=1_000_000)}
     assert "b.py" not in paths
     assert "a.py" in paths
+
+
+def test_worktree_tree_sha_leaves_out_a_nested_repository(
+    worktree_repo: pygit2.Repository,
+) -> None:
+    """A repository inside the working tree is left out; the rest is still snapshotted."""
+    workdir = Path(worktree_repo.workdir)  # type: ignore[arg-type]  # pygit2 stubs
+    pygit2.init_repository(str(workdir / "nested"), initial_head="main")
+    (workdir / "nested" / "n.py").write_text("def n(): pass\n")
+    (workdir / "c.py").write_text("def c(): pass\n")
+
+    tree_sha = worktree_tree_sha(
+        worktree_repo.workdir, max_untracked_files=config.max_untracked_files
+    )
+    assert tree_sha is not None
+
+    paths = {e.path for e in list_files(worktree_repo.workdir, tree_sha, max_file_size=1_000_000)}
+    assert paths == {"a.py", "b.py", "c.py"}
 
 
 def test_changed_files_commit_vs_tree_sha(worktree_repo: pygit2.Repository) -> None:

@@ -1748,7 +1748,11 @@ The working tree's identity is a git tree SHA computed by
 
 ```python
 repo.index.read()  # load on-disk index
-repo.index.add_all()  # stage all changes in memory
+for path, flags in changes.items():  # each path git status lists
+    if flags & FileStatus.WT_DELETED:
+        repo.index.remove(path)
+    elif flags != FileStatus.INDEX_DELETED:
+        repo.index.add(path)  # stage it in memory
 tree_sha = str(repo.index.write_tree())  # write tree object
 repo.index.read()  # reset (no side effects on disk)
 ```
@@ -1756,15 +1760,16 @@ repo.index.read()  # reset (no side effects on disk)
 This produces a real git tree object that includes all
 committed files plus working-tree modifications (staged,
 unstaged, untracked, deleted). When git lists more than
-`max_untracked_files` untracked files, `add_all` is given the
-tracked changes only, and `rbtr status` reports the count.
-Properties:
+`max_untracked_files` untracked files, only the tracked changes
+are staged, and `rbtr status` reports the count. A repository
+nested in the working tree, which git lists as one `dir/`
+entry, is left out. Properties:
 
 - **Deterministic.** Same file contents → same tree SHA.
 - **Content-sensitive.** Any edit changes the SHA.
 - **Clean tree = HEAD tree.** `worktree_tree_sha` returns
   `None` when the tree SHA equals HEAD's tree SHA.
-- **Blobs are persisted.** `add_all()` writes blob objects
+- **Blobs are persisted.** Staging writes blob objects
   to `.git/objects`, so `list_files` can walk the tree
   directly — the same code path as commit trees.
 
@@ -1786,7 +1791,7 @@ When a worktree build runs, the store receives:
 
 - **`file_snapshots`** with `snapshot_sha = <tree_sha>`.
   One row per file in the working tree. Each row's
-  `blob_sha` is the git blob hash written by `add_all()`
+  `blob_sha` is the git blob hash written by staging
   (dirty files) or the committed blob SHA (clean files).
 - **`chunks`** are content-addressed and carry no `repo_id`
   (see [Data model](#data-model)). Because `id` includes the
@@ -2144,6 +2149,16 @@ cores, capped at one per 128 MiB of the limit, just above DuckDB's
 documented minimum per thread; the thread count barely moved the
 footprint, and half the cores was faster than either a quarter or
 all of them.
+
+**Staging one path at a time, not `add_all`.** `add_all` compares
+each changed file through a memory map, and a file that shrinks
+while it is mapped kills the process with SIGBUS, which nothing in
+Python can catch: the daemon died this way, mid-snapshot, with
+nothing logged. With a writer truncating a changed file, `add_all`
+crashed within 60 s; staging each path git status lists ran 12,674
+snapshots in 60 s without a crash, and was no slower (290–371 ms
+against 324–644 ms for 1,100 changed files). The errors it raises
+instead, for a file that changes mid-read, skip that poll's snapshot.
 
 **A cap on untracked files.** Staging a file for the working-tree
 snapshot reads, hashes and compresses it, on every watcher poll
