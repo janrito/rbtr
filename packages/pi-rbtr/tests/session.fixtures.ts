@@ -75,12 +75,12 @@ const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
 export const DAEMON_AT = join(FIXTURES, "daemon-at.ts");
 
 /**
- * Run *executable* as `rbtr --json` with *args*. The fixtures' own calls are
- * not recorded in `processes`.
+ * Run *executable* as `rbtr --json` with *args*, in *env*. The fixtures' own
+ * calls are not recorded in `processes`.
  */
-function runRbtr(executable: string, ...args: string[]): string {
-  const { RECORDED_PROCESSES: _, ...env } = process.env;
-  return execFileSync(executable, ["--json", ...args], { encoding: "utf8", env });
+function runRbtr(executable: string, env: NodeJS.ProcessEnv, ...args: string[]): string {
+  const { RECORDED_PROCESSES: _, ...unrecorded } = env;
+  return execFileSync(executable, ["--json", ...args], { encoding: "utf8", env: unrecorded });
 }
 
 /**
@@ -366,7 +366,6 @@ export const test = base.extend<{
     const agentDir = mkdtempSync(join(temp, "pi-agent-"));
     const savedAgentDir = process.env.PI_CODING_AGENT_DIR;
     process.env.PI_CODING_AGENT_DIR = agentDir;
-    const cli = (...args: string[]) => runRbtr(shared.executable, ...args);
     const own = ownDaemon
       ? {
           RBTR_DATA_DIR: mkdtempSync(join(temp, "rbtr-d-")),
@@ -379,6 +378,10 @@ export const test = base.extend<{
       appendFileSync(inject("run").daemons, `${own.RBTR_DATA_DIR}\n`);
       Object.assign(process.env, own);
     }
+    // Fixed now, so a call from a test still running after teardown has
+    // restored `process.env` goes to this test's rbtr, never the user's.
+    const env = { ...process.env };
+    const cli = (...args: string[]) => runRbtr(shared.executable, env, ...args);
     const dirs = own ?? shared.dirs;
     await use({ agentDir, dataDir: dirs.RBTR_DATA_DIR, logDir: dirs.RBTR_LOG_DIR, cli });
     if (own) {
