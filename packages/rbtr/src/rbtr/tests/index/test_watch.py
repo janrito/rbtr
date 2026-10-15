@@ -19,6 +19,12 @@ from rbtr.index.watch import forget_stale_repos, remove_stale_refs, unwatch_refs
 
 
 @pytest.fixture
+def lost_commit() -> str:
+    """A full SHA naming a commit the repo does not have, as after git prunes one."""
+    return "deadbeef" * 5
+
+
+@pytest.fixture
 def vanished_repo(tmp_path: Path) -> str:
     """A path that was never created: a checkout someone deleted."""
     return str(tmp_path / "gone")
@@ -26,39 +32,39 @@ def vanished_repo(tmp_path: Path) -> str:
 
 @pytest.fixture
 def stale_store(
-    store: IndexStore, fake_repo: str, second_repo: str, vanished_repo: str
+    store: IndexStore, fake_repo: str, second_repo: str, vanished_repo: str, lost_commit: str
 ) -> IndexStore:
-    """Two live repos watching a dead branch each, beside a registration
-    whose checkout is gone."""
+    """Two live repos watching a dead branch each, the first also a commit
+    git does not have, beside a registration whose checkout is gone."""
     with store.session() as ws:
         first = ws.register_repo(fake_repo)
         second = ws.register_repo(second_repo)
         vanished = ws.register_repo(vanished_repo)
-        ws.add_watched_refs(first, ["HEAD", "main", "gone-branch"])
+        ws.add_watched_refs(first, ["HEAD", "main", "gone-branch", lost_commit])
         ws.add_watched_refs(second, ["HEAD", "deleted-branch"])
         ws.add_watched_refs(vanished, ["HEAD", "main"])
     return store
 
 
 def test_a_repo_path_scopes_removal_to_that_repo(
-    stale_store: IndexStore, fake_repo: str, second_repo: str
+    stale_store: IndexStore, fake_repo: str, second_repo: str, lost_commit: str
 ) -> None:
     removed = remove_stale_refs(
         stale_store, repo_path=fake_repo, scope=Scope.WORKSPACE, dry_run=False
     )
 
-    assert removed == {fake_repo: ["gone-branch"]}
+    assert removed == {fake_repo: [lost_commit, "gone-branch"]}
     assert stale_store.list_watched_refs(stale_store.resolve_repo(fake_repo)) == ["HEAD", "main"]
     assert "deleted-branch" in stale_store.list_watched_refs(stale_store.resolve_repo(second_repo))
 
 
 def test_every_repo_scope_covers_every_live_repo(
-    stale_store: IndexStore, fake_repo: str, second_repo: str
+    stale_store: IndexStore, fake_repo: str, second_repo: str, lost_commit: str
 ) -> None:
     """Each removed ref says which repo it came from."""
     removed = remove_stale_refs(stale_store, repo_path=fake_repo, scope=Scope.ALL, dry_run=False)
 
-    assert removed == {fake_repo: ["gone-branch"], second_repo: ["deleted-branch"]}
+    assert removed == {fake_repo: [lost_commit, "gone-branch"], second_repo: ["deleted-branch"]}
     assert stale_store.list_watched_refs(stale_store.resolve_repo(fake_repo)) == ["HEAD", "main"]
     assert stale_store.list_watched_refs(stale_store.resolve_repo(second_repo)) == ["HEAD"]
 
@@ -87,20 +93,23 @@ def test_head_is_never_stale(store: IndexStore, fake_repo: str) -> None:
 
 
 def test_removing_refs_dry_run_reports_without_writing(
-    stale_store: IndexStore, fake_repo: str, second_repo: str
+    stale_store: IndexStore, fake_repo: str, second_repo: str, lost_commit: str
 ) -> None:
     removed = remove_stale_refs(stale_store, repo_path=fake_repo, scope=Scope.ALL, dry_run=True)
 
-    assert removed == {fake_repo: ["gone-branch"], second_repo: ["deleted-branch"]}
+    assert removed == {fake_repo: [lost_commit, "gone-branch"], second_repo: ["deleted-branch"]}
     assert "gone-branch" in stale_store.list_watched_refs(stale_store.resolve_repo(fake_repo))
 
 
-def test_named_refs_are_dropped_and_the_rest_kept(stale_store: IndexStore, fake_repo: str) -> None:
+def test_named_refs_are_dropped_and_the_rest_kept(
+    stale_store: IndexStore, fake_repo: str, lost_commit: str
+) -> None:
     removed = unwatch_refs(stale_store, repo_path=fake_repo, refs=["main"], dry_run=False)
 
     assert removed == {fake_repo: ["main"]}
     assert stale_store.list_watched_refs(stale_store.resolve_repo(fake_repo)) == [
         "HEAD",
+        lost_commit,
         "gone-branch",
     ]
 
@@ -126,7 +135,7 @@ def test_a_repo_that_was_never_indexed_is_left_unregistered(
 
 
 def test_head_is_refused_before_anything_is_dropped(
-    stale_store: IndexStore, fake_repo: str
+    stale_store: IndexStore, fake_repo: str, lost_commit: str
 ) -> None:
     """A request naming HEAD alongside others changes nothing at all."""
     with pytest.raises(RbtrError, match="HEAD"):
@@ -134,6 +143,7 @@ def test_head_is_refused_before_anything_is_dropped(
 
     assert stale_store.list_watched_refs(stale_store.resolve_repo(fake_repo)) == [
         "HEAD",
+        lost_commit,
         "gone-branch",
         "main",
     ]

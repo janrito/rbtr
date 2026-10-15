@@ -9,10 +9,9 @@ reclamation and why a cross-repo pass writes one session per repo.
 
 from __future__ import annotations
 
-from rbtr.config import config
 from rbtr.domain.models import RefsByRepo, Repo, Scope
 from rbtr.errors import RbtrError
-from rbtr.git import HEAD_REF, normalise_repo_path, resolve_ref
+from rbtr.git import HEAD_REF, normalise_repo_path, resolve_refs_to_shas
 from rbtr.index.store import IndexStore
 
 
@@ -94,13 +93,17 @@ def _resolves(repo: Repo) -> bool:
 
 
 def _unresolvable(store: IndexStore, repo: Repo) -> list[str]:
-    """The repo's watched refs git can no longer resolve, `HEAD` aside."""
+    """The repo's watched refs git can no longer resolve, `HEAD` aside.
+
+    A full SHA is asked of git too, so one whose commit git has lost is
+    stale.
+    """
     out: list[str] = []
     for ref in store.list_watched_refs(repo.repo_id):
         if ref == HEAD_REF:
             continue
         try:
-            resolve_ref(repo.repo_path, ref, max_untracked_files=config.max_untracked_files)
+            resolve_refs_to_shas(repo.repo_path, [ref])
         except RbtrError:
             out.append(ref)
     return out
