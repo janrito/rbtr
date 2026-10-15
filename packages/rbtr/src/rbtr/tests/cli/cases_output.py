@@ -138,7 +138,7 @@ def case_status_grouped_by_repo() -> RenderScenario:
     return RenderScenario(
         model=StatusResponse(
             db_path="/db",
-            db_size_bytes=1_500_000,  # 1.5 MB
+            db_size_bytes=3 * 2**19,  # 1.5 MiB
             indexed_refs=[
                 IndexedRef(sha="a" * 40, total=10, embedded=10, repo_path="/projects/one"),
                 IndexedRef(sha="b" * 40, total=20, embedded=20, repo_path="/projects/two"),
@@ -147,7 +147,7 @@ def case_status_grouped_by_repo() -> RenderScenario:
         # "indexed repos" header is the cross-repo grouping cue,
         # rendered only in TTY mode — proves the rich path, not JSON. The
         # whole-DB size renders on that line too.
-        expected=("indexed repos", "1.5 MB", "/projects/one", "/projects/two"),
+        expected=("indexed repos", "1.5 MiB", "/projects/one", "/projects/two"),
     )
 
 
@@ -193,11 +193,11 @@ def case_gc_reports_compaction_shrink() -> RenderScenario:
             file_snapshots_dropped=1,
             edges_dropped=1,
             chunks_freed=1,
-            size_before_bytes=2_000_000_000,  # 2.0 GB
-            size_after_bytes=1_000_000_000,  # 1.0 GB
+            size_before_bytes=2 * 2**30,  # 2.0 GiB
+            size_after_bytes=2**30,  # 1.0 GiB
             elapsed_seconds=0.1,
         ),
-        expected=("index 2.0 GB → 1.0 GB", "-1.0 GB"),
+        expected=("index 2.0 GiB → 1.0 GiB", "-1.0 GiB"),
     )
 
 
@@ -211,11 +211,11 @@ def case_gc_reports_compaction_growth() -> RenderScenario:
             file_snapshots_dropped=0,
             edges_dropped=0,
             chunks_freed=0,
-            size_before_bytes=1_000_000,  # 1.0 MB
-            size_after_bytes=2_000_000,  # 2.0 MB
+            size_before_bytes=2**20,  # 1.0 MiB
+            size_after_bytes=2 * 2**20,  # 2.0 MiB
             elapsed_seconds=0.1,
         ),
-        expected=("index 1.0 MB → 2.0 MB", "+1.0 MB"),
+        expected=("index 1.0 MiB → 2.0 MiB", "+1.0 MiB"),
     )
 
 
@@ -229,11 +229,11 @@ def case_gc_reports_compaction_unchanged() -> RenderScenario:
             file_snapshots_dropped=0,
             edges_dropped=0,
             chunks_freed=0,
-            size_before_bytes=1_000_000,  # 1.0 MB
-            size_after_bytes=1_000_000,
+            size_before_bytes=2**20,  # 1.0 MiB
+            size_after_bytes=2**20,
             elapsed_seconds=0.1,
         ),
-        expected=("index 1.0 MB",),
+        expected=("index 1.0 MiB",),
         forbidden=("→",),
     )
 

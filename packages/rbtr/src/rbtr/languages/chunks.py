@@ -54,7 +54,7 @@ _MD_FENCED = re.compile(r"^```", re.MULTILINE)
 def detect_prose_format(content: str) -> str | None:
     """Detect RST or Markdown from content heuristics.
 
-    Checks the first 2KB for distinctive signals. Returns
+    Checks the first 2 KiB for distinctive signals. Returns
     `"rst"`, `"markdown"`, or `None` (neither detected).
     """
     sample = content[:2048]

@@ -277,7 +277,7 @@ size, and active builds.
 
 ```bash
 $ rbtr status
-✓  5.8k chunks  1.3 GB · ~/.local/share/rbtr/index.duckdb
+✓  5.8k chunks  1.2 GiB · ~/.local/share/rbtr/index.duckdb
    aa2ecc4bbefb (HEAD, main)  5.8k indexed  5.8k embedded ✓
 ```
 
@@ -291,7 +291,7 @@ shared store, grouped by repo:
 
 ```bash
 $ rbtr status --scope all
-✓  indexed repos  1.3 GB · ~/.local/share/rbtr/index.duckdb
+✓  indexed repos  1.2 GiB · ~/.local/share/rbtr/index.duckdb
   /home/me/projects/ukf
      a4aa7830ad87 (HEAD, main)  68.8k indexed  68.8k embedded ✓
   /home/me/projects/rbtr
@@ -364,7 +364,7 @@ longer if a large repo is building.
 After deleting, gc rewrites the index file to hand the freed disk
 space back to the operating system — deleting alone keeps that space
 inside the file, so it never shrinks on its own. The rewrite reports
-the size change (`index 2.08 GB → 1.28 GB (-800 MB)`). Pass
+the size change (`index 2.0 GiB → 1.2 GiB (-819.2 MiB)`). Pass
 `--no-compact` to skip it.
 
 **When to run it.** Never on a schedule — the daemon does not
@@ -410,7 +410,7 @@ for the full response models.
 ## Logs
 
 The daemon writes structured logs — one JSON object per line — to
-`daemon.log` in the log directory, rotating at 10 MB and keeping five
+`daemon.log` in the log directory, rotating at 10 MiB and keeping five
 backups. CLI commands log to stderr: coloured on a terminal, JSON when
 piped. stdout is reserved for command output, so logs never pollute a
 `--json` result.

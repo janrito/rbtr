@@ -562,16 +562,16 @@ export function humanCount(n: number): string {
   return `${(n / 1000).toFixed(1)}k`;
 }
 
-/** Database size as ` · 1.5 MB`, or nothing when the daemon sends no size. */
+/** Database size as ` · 1.5 MiB` in binary units, as the CLI's `human_bytes`; nothing when the daemon sends no size. */
 function formatSizeSuffix(response: StatusResponse | undefined): string {
   const bytes = response?.db_size_bytes;
   if (bytes == null) return "";
   let size = bytes;
-  for (const unit of ["B", "KB", "MB"]) {
+  for (const unit of ["B", "KiB", "MiB"]) {
     if (size < 1024) return unit === "B" ? ` · ${Math.round(size)} ${unit}` : ` · ${size.toFixed(1)} ${unit}`;
     size /= 1024;
   }
-  return ` · ${size.toFixed(1)} GB`;
+  return ` · ${size.toFixed(1)} GiB`;
 }
 
 /** Render one indexed ref as a single line: sha, names, indexed count, embed state. */

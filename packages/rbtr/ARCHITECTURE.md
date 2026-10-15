@@ -1525,7 +1525,7 @@ order:
    (step 1), not instead of it.
 3. **Plaintext fallback** - only if neither of the above
    applied. If no language was detected (unknown
-   extension), `detect_prose_format` sniffs the first 2 KB:
+   extension), `detect_prose_format` sniffs the first 2 KiB:
    RST by underline headings (`Title\n=====`) or directives
    (`.. note::`), Markdown by ATX headings (`# Title`); a
    detected format uses its registered chunker. Otherwise,
@@ -2196,7 +2196,7 @@ before creating them — so a misconfigured run fails loudly
 instead of writing to real data. `cache_dir` is deliberately not
 redirected: it holds the shared model cache and is safe to
 reuse. Tests run a tiny CPU embedding model (all-MiniLM-L6-v2,
-~20 MB) rather than the production GGUF; `stub_embedding_model`
+~19 MiB) rather than the production GGUF; `stub_embedding_model`
 is opt-in, for tests that drive the model from several threads.
 
 **Fixture composition.** Three layers: root conftest

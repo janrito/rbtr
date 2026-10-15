@@ -230,11 +230,11 @@ describe("renderStatusResult size suffix", () => {
     return plain(renderStatusResult(daemonResult(response), { isPartial: false }, theme).render(1000)[0]).trimEnd();
   }
 
-  test("climbs the unit ladder, rounding bytes and fixing one decimal above", ({ theme }) => {
+  test("climbs binary units as the CLI does, rounding bytes and fixing one decimal above", ({ theme }) => {
     expect(sizeLine(512, theme)).toContain(" · 512 B");
-    expect(sizeLine(2048, theme)).toContain(" · 2.0 KB");
-    expect(sizeLine(1_500_000, theme)).toContain(" · 1.4 MB");
-    expect(sizeLine(3 * 1024 ** 3, theme)).toContain(" · 3.0 GB");
+    expect(sizeLine(2048, theme)).toContain(" · 2.0 KiB");
+    expect(sizeLine(3 * 2 ** 19, theme)).toContain(" · 1.5 MiB");
+    expect(sizeLine(3 * 2 ** 30, theme)).toContain(" · 3.0 GiB");
   });
 
   test("omits the suffix when the daemon sends no size", ({ theme }) => {

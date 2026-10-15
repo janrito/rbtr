@@ -187,7 +187,7 @@ RBTR_LOG_DIR = {value = "/tmp/rbtr-test-logs", transform = true}
 RBTR_DB_NAME = "test_index.duckdb"
 RBTR_WARMUP = "false"
 # Tests run the tiny CPU embedding model (all-MiniLM-L6-v2, 384-dim,
-# ~20 MB) instead of the 600 MB production model.  In-process tests
+# ~19 MiB) instead of the 610 MiB production model.  In-process tests
 # use StubModel (instant); only the subprocess CLI smoke tests load
 # the real GGUF.  Reranker disabled — irrelevant to routing tests.
 RBTR_EMBEDDING_MODEL = "second-state/All-MiniLM-L6-v2-Embedding-GGUF/all-MiniLM-L6-v2-Q4_0.gguf"

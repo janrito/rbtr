@@ -582,19 +582,17 @@ def _human(n: int) -> str:
 
 
 def human_bytes(n: int) -> str:
-    """Format a byte count for humans: `512 B`, `1.5 MB`, `2.1 GB`.
+    """Format a byte count for humans: `512 B`, `1.5 MiB`, `2.1 GiB`.
 
-    Decimal (SI) units: each step divides by 1000 and is labelled
-    accordingly (`KB`/`MB`/`GB`), matching how macOS Finder reports
-    file sizes.
+    Binary units, as rbtr's size settings use: each step divides by 1024.
     """
-    if n < 1000:
+    if n < 2**10:
         return f"{n} B"
-    if n < 1000 * 1000:
-        return f"{n / 1000:.1f} KB"
-    if n < 1000 * 1000 * 1000:
-        return f"{n / (1000 * 1000):.1f} MB"
-    return f"{n / (1000 * 1000 * 1000):.1f} GB"
+    if n < 2**20:
+        return f"{n / 2**10:.1f} KiB"
+    if n < 2**30:
+        return f"{n / 2**20:.1f} MiB"
+    return f"{n / 2**30:.1f} GiB"
 
 
 def _format_elapsed(seconds: float) -> str:
