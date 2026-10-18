@@ -22,7 +22,7 @@ dependencies = [
   "polars>=2.0.0",
   "dataframely>=3.1.2",
   "optuna>=5.0.0",
-  "pydantic-ai>=2.55.0",
+  "pydantic-ai-slim[openai]>=2.55.0",
   "vl-convert-python>=1.9.0.post1",
   "tomli-w>=1.2.0",
 ]
