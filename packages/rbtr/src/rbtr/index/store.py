@@ -55,7 +55,7 @@ import duckdb
 import polars as pl
 
 # duckdb requires this imported before any thread uses a connection.
-import pyarrow  # type: ignore[import-untyped]  # noqa: F401
+import pyarrow  # noqa: F401
 import structlog
 
 from rbtr.config import config, own_dir
