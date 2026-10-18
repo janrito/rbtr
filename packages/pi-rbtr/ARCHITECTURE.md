@@ -143,9 +143,9 @@ most two guidelines.
 
 `rbtr_status` and `rbtr_gc` start inactive, so the prompt
 the model reads first is about finding code; the loader,
-`rbtr_index_tools`, activates them on request. pi 1.0 does
-not restore loaded tools in a forked or resumed session, so
-the model loads them again there.
+`rbtr_index_tools`, activates them on request. pi restores
+the tools a session loaded when it forks or resumes it, so
+they stay active there.
 
 The line saying the repository has an index is pi's `rbtr`
 prompt section. Returning a whole `systemPrompt` instead

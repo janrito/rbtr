@@ -61,6 +61,10 @@ export default defineConfig({
     globalSetup: ["tests/global-setup.ts"],
     provide: { piVersion: pi.version },
     fileParallelism: true,
+    // A transformed module keeps the pi it was resolved to, and its cache key
+    // is its own content, so a module unchanged across a pi upgrade would go
+    // on loading the old pi. A cache per pi version starts afresh instead.
+    fsModuleCachePath: join("node_modules", ".vitest-cache", `pi-${pi.version}`),
     // A test with a daemon of its own (`ownDaemon`) indexes a copy of the
     // repository and starts that daemon: 7–10 s at load average 24.
     testTimeout: 30_000,
