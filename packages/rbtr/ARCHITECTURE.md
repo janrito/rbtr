@@ -1304,10 +1304,10 @@ regardless of repo count, and no scalar `repo_id`/
 `snapshot_sha` bind params in the search SQL.
 
 `handle_search` builds the refs list: a one-element list
-from `_resolve_read_ref` for `workspace`, or
-`index.list_latest_refs()` for `all`. `list_latest_refs`
+from `resolve_read_ref` for `workspace`, or
+`list_latest_refs(index)` for `all`. `list_latest_refs`
 applies the same dirty-or-HEAD resolution as
-`_resolve_read_ref` to every registered repo — preferring
+`resolve_read_ref` to every registered repo — preferring
 an indexed dirty worktree tree SHA, else the newest indexed
 commit — and skips repos with no indexed data.
 
@@ -1345,10 +1345,13 @@ a result shows what it is as well as where it matched.
 
 ### Read-ref resolution and scoping
 
-Read handlers pick their ref through `_resolve_read_ref`:
-with no explicit ref, the indexed dirty-worktree tree SHA if
-there is one, else `HEAD`. The ref has to be indexed to read
-from, and the two cases differ on purpose:
+Read handlers pick their ref through `resolve_read_ref`, in
+`index/refs.py`, the one module that decides which snapshot a
+read means. It asks git about the worktree and the index which
+snapshots are indexed. With no explicit ref, a read takes the
+indexed dirty-worktree tree SHA if there is one, else `HEAD`. The
+ref has to be indexed to read from, and the two cases differ on
+purpose:
 
 - An explicit ref that isn't indexed is an error — you asked
   for that ref, so we don't quietly answer from another.
@@ -1956,7 +1959,7 @@ State: tree_A indexed. User runs `git checkout .`.
 
 poll_worktree → worktree_tree_sha = None → skip.
 tree_A row lingers in indexed_snapshots but is inert:
-  _resolve_read_ref(None) computes worktree_tree_sha (None)
+  resolve_read_ref(None) computes worktree_tree_sha (None)
   → falls back to HEAD.
 
 tree_A is cleaned up by:

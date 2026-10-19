@@ -76,7 +76,6 @@ from rbtr.errors import (
     RbtrError,
     RepoNotFoundError,
 )
-from rbtr.git import worktree_tree_sha
 from rbtr.index import load_sql
 from rbtr.index.constants import SCHEMA_VERSION
 from rbtr.index.results import (
@@ -402,55 +401,6 @@ class Index:
         """Return the repo's watched refs (symbolic names), sorted by name."""
         rows = self._cursor.execute(_LIST_WATCHED_REFS_SQL, {"repo_id": repo_id}).fetchall()
         return [str(r[0]) for r in rows]
-
-    def indexed_worktree_ref(self, repo_path: str, repo_id: int) -> SnapshotRef | None:
-        """The worktree's tree SHA, when the tree is dirty and indexed.
-
-        `None` when the worktree matches HEAD's tree, when the repo
-        is gone, or when that tree has never been indexed — in each
-        case the caller wants a commit instead.
-        """
-        tree_sha = worktree_tree_sha(repo_path, max_untracked_files=config.max_untracked_files)
-        if tree_sha is None:
-            return None
-        at = SnapshotRef(repo_id=repo_id, snapshot_sha=tree_sha)
-        return at if self.has_indexed(at=at) else None
-
-    def latest_indexed_ref(self, repo_id: int) -> SnapshotRef | None:
-        """The most recently indexed snapshot for one repo, if any.
-
-        `None` when the repo has never been indexed.
-        """
-        indexed = self.list_indexed_snapshots(repo_id)
-        if not indexed:
-            return None
-        return SnapshotRef(repo_id=repo_id, snapshot_sha=indexed[0][0])
-
-    def latest_ref(self, repo: Repo) -> SnapshotRef | None:
-        """Resolve the most recent indexed ref for one repo.
-
-        Prefers the current worktree tree SHA when the worktree is
-        dirty and that tree has been indexed; otherwise falls back
-        to the newest indexed commit.  Returns `None` when the repo
-        has no indexed commits at all.
-        """
-        dirty = self.indexed_worktree_ref(repo.repo_path, repo.repo_id)
-        return dirty if dirty is not None else self.latest_indexed_ref(repo.repo_id)
-
-    def list_latest_refs(self) -> list[SnapshotRef]:
-        """Return one `SnapshotRef` per registered repo with indexed data.
-
-        Applies `latest_ref` to every repo from `list_repos`,
-        skipping repos that have never been indexed.  The basis for
-        cross-repo search: the returned list is passed straight to
-        `search()`.
-        """
-        refs: list[SnapshotRef] = []
-        for repo in self.list_repos():
-            ref = self.latest_ref(repo)
-            if ref is not None:
-                refs.append(ref)
-        return refs
 
     # ── Completion tracking (indexed_snapshots) ──────────────────────
 

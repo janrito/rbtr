@@ -36,6 +36,7 @@ from rbtr.domain.identity import SCOPE_SEPARATOR
 from rbtr.domain.models import CODE_KINDS, ChunkKind, SnapshotRef
 from rbtr.git import read_head
 from rbtr.index.index import Index
+from rbtr.index.refs import list_latest_refs
 from rbtr.index.results import ChunkContentRow
 from rbtr_eval.formatting import heading_label, md_table
 from rbtr_eval.shared_schemas import IDENTITY_COLUMNS, QueryRow
@@ -390,7 +391,7 @@ def _sampled_content(index: Index, sampled: dy.DataFrame[QueryRow]) -> dy.DataFr
         .with_columns(pl.col("kind").alias("symbol_kind"))
         .select(*IDENTITY_COLUMNS, "content")
         .with_columns(pl.lit(by_id[ref.repo_id]).alias("slug"))
-        for ref in index.list_latest_refs()
+        for ref in list_latest_refs(index)
         if by_id.get(ref.repo_id) in slugs
     ]
     if not frames:

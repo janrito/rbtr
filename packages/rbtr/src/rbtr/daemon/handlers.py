@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import structlog
@@ -72,22 +71,21 @@ from rbtr.domain.models import (
     Chunk,
     GcCounts,
     QueryKind,
-    RefSource,
     Repo,
     SnapshotCounts,
     SnapshotRange,
     SnapshotRef,
 )
-from rbtr.errors import IndexNotBuiltError, MissingSnapshot, RbtrError
+from rbtr.errors import RbtrError
 from rbtr.git import (
     HEAD_REF,
-    WORKTREE_REF,
     names_for_commits,
     resolve_ref,
     untracked_file_count,
 )
 from rbtr.index.gc import run_gc, run_gc_all
 from rbtr.index.progress import RepoProgressCallback, _noop_repo_progress
+from rbtr.index.refs import ensure_indexed, list_latest_refs, resolve_read_ref
 from rbtr.index.results import changed_to_symbols
 from rbtr.index.search import search
 from rbtr.index.watch import forget_stale_repos, remove_stale_refs, unwatch_refs
@@ -111,64 +109,6 @@ def resolve_refs(repo_path: str, refs: list[str]) -> list[str]:
     ]
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ResolvedRead:
-    """The snapshot a read resolved to, and how it was chosen."""
-
-    at: SnapshotRef
-    source: RefSource
-
-
-def _resolve_read_ref(
-    index: Index,
-    repo_path: str,
-    repo_id: int,
-    requested_ref: str | None,
-    *,
-    require_indexed: bool = False,
-) -> ResolvedRead:
-    """Resolve a ref for read operations to the snapshot it names.
-
-    When *requested_ref* is `None`, prefers the worktree's tree SHA
-    when the tree is dirty and indexed (`indexed_worktree_ref`).
-    Otherwise resolves `"HEAD"`.  Explicit `"HEAD"` always resolves
-    to the committed state.  Falls back to the latest indexed commit
-    when the repo is missing.  Raises `RbtrError` if the ref cannot
-    be resolved.
-
-    When *require_indexed* is set, the resolved SHA must be usable:
-
-    - An explicit *requested_ref* whose SHA is not indexed is an
-      error (`_require_indexed`) rather than a silent empty result.
-    - The implicit worktree/HEAD path falls back to the latest
-      indexed commit when the resolved SHA is not indexed (e.g. a
-      build is still finalising), and only errors when the repo has
-      no indexed commits at all. So an older indexed version of a
-      symbol is preferred over an error.
-
-    The result says which of these choices was made (`RefSource`).
-    """
-
-    explicit = requested_ref is not None
-    if requested_ref is None:
-        if (dirty := index.indexed_worktree_ref(repo_path, repo_id)) is not None:
-            return ResolvedRead(at=dirty, source=RefSource.WORKTREE)
-        requested_ref = HEAD_REF
-    try:
-        sha = resolve_ref(repo_path, requested_ref, max_untracked_files=config.max_untracked_files)
-    except RbtrError:
-        if requested_ref == HEAD_REF and (latest := index.latest_indexed_ref(repo_id)) is not None:
-            return ResolvedRead(at=latest, source=RefSource.LATEST_INDEXED)
-        msg = f"Cannot resolve ref '{requested_ref}' in {repo_path}"
-        raise RbtrError(msg) from None
-    at = SnapshotRef(repo_id=repo_id, snapshot_sha=sha)
-    if require_indexed and not index.has_indexed(at=at):
-        if not explicit and (latest := index.latest_indexed_ref(repo_id)) is not None:
-            return ResolvedRead(at=latest, source=RefSource.LATEST_INDEXED)
-        _require_indexed(index, at, requested_ref)
-    return ResolvedRead(at=at, source=RefSource.REQUESTED if explicit else RefSource.HEAD)
-
-
 # ── Read-only handlers ───────────────────────────────────────────────
 
 
@@ -186,7 +126,7 @@ def handle_search(
     build is active.
     """
     repo_id = index.resolve_repo(request.repo_path)
-    read = _resolve_read_ref(index, request.repo_path, repo_id, request.ref, require_indexed=True)
+    read = resolve_read_ref(index, request.repo_path, repo_id, request.ref, require_indexed=True)
     return _search(
         request,
         index,
@@ -209,7 +149,7 @@ def handle_search_all(
     return _search(
         request,
         index,
-        index.list_latest_refs(),
+        list_latest_refs(index),
         resolved=None,
         repo_paths={r.repo_id: r.repo_path for r in index.list_repos()},
         embedder=embedder,
@@ -262,7 +202,7 @@ def _scope_chunks(chunks: list[Chunk], file_paths: list[str] | None) -> list[Chu
 
 def handle_read_symbol(request: ReadSymbolRequest, index: Index) -> ReadSymbolResponse:
     repo_id = index.resolve_repo(request.repo_path)
-    read = _resolve_read_ref(index, request.repo_path, repo_id, request.ref, require_indexed=True)
+    read = resolve_read_ref(index, request.repo_path, repo_id, request.ref, require_indexed=True)
     scoped = _scope_chunks(index.match_by_name(request.symbol, at=read.at), request.file_paths)
     return ReadSymbolResponse(
         chunks=[SymbolOut.from_chunk(c) for c in scoped],
@@ -273,7 +213,7 @@ def handle_read_symbol(request: ReadSymbolRequest, index: Index) -> ReadSymbolRe
 
 def handle_list_symbols(request: ListSymbolsRequest, index: Index) -> ListSymbolsResponse:
     repo_id = index.resolve_repo(request.repo_path)
-    read = _resolve_read_ref(index, request.repo_path, repo_id, request.ref, require_indexed=True)
+    read = resolve_read_ref(index, request.repo_path, repo_id, request.ref, require_indexed=True)
     chunks = index.get_chunks(at=read.at, file_path=request.file_path)
     return ListSymbolsResponse(
         chunks=[SymbolRefOut.from_chunk(c) for c in chunks],
@@ -284,7 +224,7 @@ def handle_list_symbols(request: ListSymbolsRequest, index: Index) -> ListSymbol
 
 def handle_find_refs(request: FindRefsRequest, index: Index) -> FindRefsResponse:
     repo_id = index.resolve_repo(request.repo_path)
-    read = _resolve_read_ref(index, request.repo_path, repo_id, request.ref, require_indexed=True)
+    read = resolve_read_ref(index, request.repo_path, repo_id, request.ref, require_indexed=True)
     chunks = _scope_chunks(index.match_by_name(request.symbol, at=read.at), request.file_paths)
     frame = index.inbound_refs([chunk.id for chunk in chunks], at=read.at)
     refs = RefOuts.validate_python(frame.to_dicts())
@@ -293,26 +233,6 @@ def handle_find_refs(request: FindRefsRequest, index: Index) -> FindRefsResponse
         resolved=ResolvedRef(sha=read.at.snapshot_sha, source=read.source),
         file_paths=request.file_paths,
     )
-
-
-def _require_indexed(index: Index, at: SnapshotRef, requested_ref: str) -> None:
-    """Raise `IndexNotBuiltError` if the snapshot at *at* is not indexed.
-
-    *requested_ref* is what the client asked for, which the message
-    quotes; *at* is what it resolved to.
-
-    The daemon's `_dispatch` upgrades this to an "index is building"
-    message when it will index that snapshot; inline callers see the
-    plain "not indexed" guidance.
-    """
-    if index.has_indexed(at=at):
-        return
-    if requested_ref == WORKTREE_REF:
-        msg = "Working tree is not indexed yet — run rbtr watch first"
-    else:
-        msg = f"Ref '{requested_ref}' is not indexed — run rbtr watch first"
-    missing = MissingSnapshot(repo_id=at.repo_id, snapshot_sha=at.snapshot_sha, ref=requested_ref)
-    raise IndexNotBuiltError(msg, missing=missing)
 
 
 def handle_changed_symbols(request: ChangedSymbolsRequest, index: Index) -> ChangedSymbolsResponse:
@@ -329,8 +249,8 @@ def handle_changed_symbols(request: ChangedSymbolsRequest, index: Index) -> Chan
     head = resolve_ref(
         request.repo_path, request.head, max_untracked_files=config.max_untracked_files
     )
-    _require_indexed(index, SnapshotRef(repo_id=repo_id, snapshot_sha=base), request.base)
-    _require_indexed(index, SnapshotRef(repo_id=repo_id, snapshot_sha=head), request.head)
+    ensure_indexed(index, SnapshotRef(repo_id=repo_id, snapshot_sha=base), request.base)
+    ensure_indexed(index, SnapshotRef(repo_id=repo_id, snapshot_sha=head), request.head)
     frame = index.changed_symbols(
         between=SnapshotRange(repo_id=repo_id, base_sha=base, head_sha=head),
         file_paths=request.file_paths,

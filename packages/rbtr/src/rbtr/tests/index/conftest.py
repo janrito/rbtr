@@ -31,6 +31,7 @@ from rbtr.domain.models import (
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.index.build import build_index
 from rbtr.index.index import Index
+from rbtr.index.refs import latest_ref
 from rbtr.index.staging import TokenisedChunk
 
 # ═════════════════════════════════════════════════════════════════════
@@ -307,7 +308,7 @@ def render_widget(widget):
 @pytest.fixture
 def dup_ref(dup_index: Index) -> SnapshotRef:
     """The duplicated repo at its head commit."""
-    ref = dup_index.latest_ref(dup_index.list_repos()[0])
+    ref = latest_ref(dup_index, dup_index.list_repos()[0])
     assert ref is not None
     return ref
 

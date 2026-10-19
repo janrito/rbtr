@@ -1,4 +1,4 @@
-"""Tests for `_resolve_read_ref` routing logic.
+"""Tests for `resolve_read_ref` routing logic.
 
 Verifies the ref behaviours:
 - `None` → worktree tree SHA if dirty and indexed, HEAD otherwise
@@ -15,11 +15,11 @@ import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.config import config
-from rbtr.daemon.handlers import _resolve_read_ref
 from rbtr.domain.models import RefSource, SnapshotRef
 from rbtr.errors import IndexNotBuiltError
 from rbtr.git import worktree_tree_sha
 from rbtr.index.index import Index
+from rbtr.index.refs import resolve_read_ref
 
 from .cases_resolve_ref import RefScenario
 
@@ -88,7 +88,7 @@ def test_resolve_read_ref(
     ref_index: Index,
 ) -> None:
     repo_id = ref_index.resolve_repo(ref_repo.workdir)
-    result = _resolve_read_ref(ref_index, ref_repo.workdir, repo_id, ref_scenario.requested_ref)
+    result = resolve_read_ref(ref_index, ref_repo.workdir, repo_id, ref_scenario.requested_ref)
 
     # Map symbolic names to actual SHAs.
     head_sha = str(ref_repo.head.target)
@@ -133,7 +133,7 @@ def test_implicit_unindexed_head_falls_back_to_latest_indexed(
         repo_id = ws.register_repo(repo.workdir)
         ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=older))
 
-    result = _resolve_read_ref(index, repo.workdir, repo_id, None, require_indexed=True)
+    result = resolve_read_ref(index, repo.workdir, repo_id, None, require_indexed=True)
 
     assert result.at == SnapshotRef(repo_id=repo_id, snapshot_sha=older)
     assert result.source == RefSource.LATEST_INDEXED
@@ -154,4 +154,4 @@ def test_implicit_unindexed_head_nothing_indexed_errors(
         repo_id = ws.register_repo(repo.workdir)
 
     with pytest.raises(IndexNotBuiltError, match="not indexed"):
-        _resolve_read_ref(index, repo.workdir, repo_id, None, require_indexed=True)
+        resolve_read_ref(index, repo.workdir, repo_id, None, require_indexed=True)
