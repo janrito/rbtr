@@ -718,12 +718,16 @@ and run concurrently with writes. `store.py` imports pyarrow
 eagerly because duckdb's [Multiple Python Threads
 guide][ddb-threads] requires the interop library to be imported
 before threading starts — it names pandas, and the Arrow path
-needs pyarrow the same way. Without it, a frame reaches duckdb as
-an Arrow stream and registering one from a thread that then exits
-corrupts the connection. Rebuilding the FTS index on a long-lived
-thread does not avoid this, and nor does closing the writer's
-cursor before it exits: the registration does the damage, not the
-writing.
+needs pyarrow the same way: registering a polars frame calls
+polars' `to_arrow`, which imports pyarrow, and the first
+registration is usually on a worker thread. On duckdb 1.5.5,
+without the import, a thread that registers a frame and then exits
+leaves the connection corrupt. Rebuilding the FTS index on a
+long-lived thread does not avoid this, and nor does closing the
+writer's cursor before it exits: the registration does the damage,
+not the writing. duckdb 1.5.6 does not show the fault with or
+without the import; the import stays because the guide asks for
+it.
 
 Compaction is the one
 write that swaps the connection: it publishes the rewritten

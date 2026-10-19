@@ -174,9 +174,10 @@ def test_store_survives_threads_that_write_and_exit(
 ) -> None:
     """A thread may write and exit; another thread still reads the store.
 
-    The build worker is such a thread. Without pyarrow imported before
-    threading, duckdb leaves the connection corrupt when the writing
-    thread dies, and this segfaults instead of failing.
+    The build worker is such a thread. On duckdb 1.5.5, without pyarrow
+    imported before threading, the writing thread's exit leaves the
+    connection corrupt and this segfaults instead of failing; on 1.5.6
+    it passes with or without the import.
     """
     store = IndexStore(writable=True)
     seen: list[int] = []
