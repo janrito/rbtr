@@ -243,6 +243,540 @@ The tree-sitter path — the most common case. The build loop calls
 ![The tree-sitter extraction call flow, from the build loop through
 LanguageManager and the write session to extract_symbols](docs/diagrams/extraction.png)
 
+## Language decomposition
+
+The extraction engine lives in `rbtr.languages`, beside the
+`LanguageRegistration` contract and the manager that runs it: `treesitter`
+(query execution and doc-span recovery), `extract` (per-file strategy dispatch
+and injection), `edges` (import/doc inference), and `chunks` (the
+plaintext fallback, and the span arithmetic every chunker shares).
+`rbtr.index` depends on `languages` in just two places — the build loop,
+which composes extraction with storage, and `classify`, which reuses the
+language registry for search — while `languages` reaches down only to the
+`rbtr.domain` kernel (`models`, `identity`), so the dependency stays
+one-directional.
+
+Each file is routed to one of three extraction strategies
+by the language plugin:
+
+- **Tree-sitter** - grammar + query → functions, classes,
+  methods, variables, imports as structured `Chunk` objects.
+- **Custom chunker** - plugin-provided (e.g. markdown
+  heading-hierarchy splitting).
+- **Plaintext fallback** - fixed-size overlapping line
+  chunks.
+
+The first two are a discriminated union on the registration's
+`extraction` field (`QueryExtraction` | `ChunkExtraction` | `None`),
+so a file has exactly one primary strategy — "query and chunker both
+set" is unrepresentable — and `extract_primary` dispatches by type.
+Injection (`injection_query`) is orthogonal and runs in addition.
+
+Scope addressing: each chunk's `scope` is the full path of its
+enclosing named scopes, outermost-first, joined by `::` (e.g.
+`Outer::Inner`, `make_adder::handler`), composed by walking the
+parse tree's scope-bearing nodes (per the plugin's
+`QueryExtraction.scope_types`); Markdown/RST compose their heading
+hierarchy the same way. A function becomes a `METHOD` only when its
+nearest enclosing scope is class-like
+(`QueryExtraction.class_scope_types`), so a closure inside a function
+or method stays a function.
+
+Variable chunks cover module-level bindings only; class
+attributes and function-locals stay within their enclosing
+chunk.
+
+Comments: every tree-sitter plugin captures its grammar's comment
+nodes as `@comment`, scoped to the file root, plus the module
+docstring where the language has one (Python's bare top-level
+string). `extract_symbols` groups consecutive captured comments into
+blank-line-delimited blocks and routes each one. A block sitting flush
+above a definition folds into that definition's chunk, so a symbol
+carries its own documentation; a block inside a symbol's body is
+already part of that chunk; every other block — a licence or banner
+header, a note between definitions, a comment at end of file — becomes
+a standalone chunk of kind `COMMENT` at module level (empty scope). A
+comment trailing code on its line documents that statement, so it never
+folds into what follows. Comment text is therefore indexed and
+searchable wherever it sits, not only when it happens to precede a
+symbol.
+
+A file can also *embed* another language — a Markdown fenced
+block, or an SFC/HTML `<script>`/`<style>`. A host plugin's
+`injection_query` marks each embedded block; the engine
+delegates the block's byte range to the target's full
+extraction (chunker or query) and recurses into that
+target's own injection, so nested embeds (an HTML block
+inside Markdown) resolve too. Delegated chunks carry the
+embedded language. See [Language plugins](#language-plugins)
+for the dispatch chain.
+
+## Language plugins
+
+Each plugin is a package (a `plugin.py` plus its tree-sitter
+queries as sibling `.scm` files, loaded via `load_query`) that
+exposes module-level `LanguageRegistration` values. A plugin
+provides whatever combination of fields its language needs -
+there are no tiers or categories. Discovery is by entry point
+(see below); there is no hook framework — the domain is
+single-dispatch by language id, so a plain registry suffices.
+
+For the plugin author's API (field reference, examples,
+capture conventions), see
+[Writing a language plugin](README.md#writing-a-language-plugin).
+
+### Dispatch chain
+
+`extract_file` (`rbtr.languages.extract`) builds each file's chunks in this
+order:
+
+1. **Primary extraction** - a registered `chunker` if the
+   language has one (`chunker(path, sha, content, grammar,
+   ranges)`; markdown, rst, svelte, vue), else tree-sitter
+   `extract_symbols` for a `grammar` + `query` (python,
+   rust, go, ...; json, css, html, toml, yaml, hcl; and
+   `tree_sitter_query` itself, indexing `.scm` files).
+2. **Injection (additive)** - if the registration has an
+   `injection_query`, the engine *also* runs
+   `extract_injections`: it matches embedded blocks
+   (`@injection.content`), determines each block's target
+   language, resolves overlaps by highest
+   `injection.priority`, and delegates each range to that
+   language's `extract_query`. The target is either a
+   static `#set! injection.language` on the pattern
+   (HTML and Svelte/Vue `<script>` / `<style>`) or a
+   dynamic
+   `@injection.language` capture whose text is resolved to a
+   language id (a Markdown fence's info string — `python`,
+   `sh`). Injection runs *alongside* the host chunker
+   (step 1), not instead of it.
+3. **Plaintext fallback** - only if neither of the above
+   applied. If no language was detected (unknown
+   extension), `detect_prose_format` sniffs the first 2 KiB:
+   RST by underline headings (`Title\n=====`) or directives
+   (`.. note::`), Markdown by ATX headings (`# Title`); a
+   detected format uses its registered chunker. Otherwise,
+   line-based raw chunks (`RAW_CHUNK`, fixed-size
+   overlapping windows).
+4. **Host-language trace** - if no chunk so far carried the
+   file's detected language, a content-less host-presence
+   chunk is appended (see
+   [Content-addressed chunks and blob dedup](#content-addressed-chunks-and-blob-dedup))
+   so the blob-dedup check can skip the file on later builds.
+
+**We author our own injection queries** rather than reuse a
+grammar's shipped `injections.scm`, which over-matches — a
+bare `(raw_text)` fallback catches every block, including
+styles. `injection.priority` disambiguates: a `lang`-tagged
+block outranks the bare fallback. The language mapping (step
+2) stays out of Python — static `#set!` values, and
+free-form hints resolved through the registry's own
+id/extension maps — so delegation is language-agnostic, with
+no per-language code.
+
+Delegation runs the target's *full* primary extraction
+(`extract_primary` — its chunker or query, range-scoped via
+`included_ranges`), so the block extracts as if it were its
+own file of that language: query targets (python, ts, html,
+...) and chunker targets (yaml, toml, ...) alike, imports
+included. Delegation also recurses into the target's own
+injection, so an HTML block inside Markdown that contains an
+inline `<script>` yields its js too (bounded by a depth
+cap). Only per-file orchestration — the plaintext fallback
+and host-presence trace — is not re-run per block.
+
+### External plugins
+
+Every language registers through the `rbtr.languages`
+entry-point group, and every language is a separate
+`rbtr-lang-*` distribution — core declares none of its own. Eight
+are required dependencies of `rbtr`, so they arrive with it; the
+rest are extras. See the README for a step-by-step guide to
+writing a plugin.
+
+The entry-point *value* resolves to a module-level
+`LanguageRegistration`, named by its language id
+(`my_pkg.plugin:swift`, where `swift = LanguageRegistration(...)`).
+The manager (`rbtr.languages.LanguageManager`) collects them via
+`importlib.metadata.entry_points`; a duplicate language id raises,
+and a plugin whose module fails to import is logged and skipped.
+
+### Plugin → core contract
+
+A plugin (built-in or external `rbtr-lang-*` package) depends
+on a small, stable surface of core symbols. This is the
+contract that survives packaging each language as its own
+distribution:
+
+- `rbtr.languages.registration` — `LanguageRegistration`,
+  `ModuleStyle`, the wrap-override resolver type aliases
+  (`NameResolver` / `ScopeResolver` / `ImportResolver`), and the
+  capture/import helpers `collect_scoped_path`,
+  `enclosing_nodes_of_type`, `build_quoted_import`,
+  `parse_path_relative`, and `load_query` (loads a plugin's co-located
+  `.scm` query as package data). (Overrides receive the built-in resolver
+  as their wrap `resolver` argument and delegate to it, so plugins never
+  import the built-ins; those built-ins live in the private
+  `rbtr.languages._resolvers`.)
+- `rbtr.domain.models` — `Chunk`, `ChunkKind`, `ImportMeta`. A chunk's
+  `id` is a property over its own fields, so a plugin yields chunks and
+  never computes an identity.
+- `rbtr.languages.chunks` — `chunk_plaintext`, and `last_line`,
+  which turns a tree-sitter end point into the 1-based last line a
+  node occupies. The query engine and every chunker share it, so a
+  span means the same thing in every language.
+
+One dependency crosses *between* plugins rather than to core:
+scss and less import `css_nesting_scope` from the css plugin
+(CSS-family nesting behaviour). That is a legitimate
+plugin-to-plugin dependency, not part of the core contract.
+
+### Sample fixtures
+
+Each plugin owns its samples, beside its code:
+`src/rbtr_lang_<id>/tests/samples/` holds a small example project
+exercising the constructs that plugin extracts. They are both
+worked examples of extraction and golden-tested fixtures.
+
+A plugin's `test_samples.py` runs the real per-file entry point
+(`rbtr.languages.extract.extract_file`) over the sample tree and
+compares the result against a committed snapshot under
+`__snapshots__/`, so any drift in extraction output turns the
+test red. The `snapshot_json` fixture that serialises chunks to
+canonical JSON ships with core's pytest plugin
+(`rbtr.testing`), so a plugin needs no `conftest.py`.
+
+Regenerate every plugin's snapshots after an intended extraction
+change with `just snapshots`, and review the diff before
+committing.
+
+The samples are exempt from the repo's linters and
+type-checker — they are fixtures, validated by their own
+tests rather than held to product-code standards.
+
+## Dependency graph
+
+`edges.py` infers cross-file relationships:
+
+- **Import edges** - structural (tree-sitter import
+  extractor) or text-search fallback.
+- **Doc edges** - markdown sections mentioning symbol names.
+- **Data references** - a JSON Schema or OpenAPI `$ref`, a
+  tsconfig `extends`, a local Actions `uses`, a Cargo or Poetry
+  `path` dependency. A `$ref`'s pointer names a key inside the
+  document it reaches, as a Markdown link's fragment names a
+  heading, so a data language's keys are in the symbol index.
+
+Import resolution maps a module string to a repo file. A
+reference carrying its own depth — `../b`, or a `dots` the
+extractor set — is anchored to the importing file and has one
+place to look. Anything else is tried from the repository root
+first, then, for a `ModuleStyle.PATH` language, beside the
+importing file: `@import "b.css"` in `css/a.css` means
+`css/b.css`, and the root is tried first so a reference that
+already resolves keeps the file it resolved to. Failing both, a
+dotted path matches as a *suffix* of a candidate file path (so
+`rbtr.index.index` → `…/rbtr/index/index.py`) — which lets a
+single index span a monorepo. `module_style` and
+`source_roots` tune the mapping per language; ambiguous
+matches are dropped rather than guessed, and a file never
+resolves to itself.
+
+Some references name a directory rather than a file. Where the
+language names a directory's stand-in — `__init__.py`,
+`index.js`, `mod.rs`, a crate's `Cargo.toml` — `index_files`
+resolves it to that one file. Where every file in the directory
+belongs to the unit instead, the language says `package_directory`
+and the reference reaches all of them: a Go package is its
+directory, a Terraform module is a directory of `.tf` files. A
+Markdown link to a directory reaches nothing, which is why this
+is declared rather than assumed.
+
+A prefix a language's imports carry may be written down in the
+repository rather than in the language: `go.mod` states `module
+example.com/m`, which makes `example.com/m/b` the directory `b`.
+A registration names such a file as its `manifest`, the
+extraction loop reads it while the content is in hand, and
+`build_resolution_map` turns it into path substitutions — the
+edge pass itself reads no files.
+
+Whether each language's own syntax reaches a file is pinned per
+language by `test_import_resolution.py`, which extracts two real
+files in nested directories and follows the edge. Nested because
+two files at the repository root cannot tell a sibling reference
+from a root-relative one.
+
+Powers `find-refs` and the importance signal in search
+ranking. `find-refs` first resolves the user's symbol *name*
+to chunk IDs via `name_matches` (edges are keyed on chunk
+IDs, not names), then a single `inbound_refs` query joins the
+inbound edges to their *source* chunk so the response names
+the referring symbol (`RefOut`) rather than exposing an opaque
+hash.
+
+## Working-tree indexing
+
+Working-tree indexing extends the commit pipeline to staged,
+unstaged, and untracked changes, so searches reflect the user's
+current edits. The unit of work is no longer only a commit: the
+working tree is indexed as its own git tree SHA.
+
+### Identity: tree SHAs
+
+The working tree's identity is a git tree SHA computed by
+`worktree_tree_sha(repo_path, max_untracked_files=...)` in
+`rbtr.git`:
+
+```python
+repo.index.read()  # load on-disk index
+for path, flags in changes.items():  # each path git status lists
+    if flags & FileStatus.WT_DELETED:
+        repo.index.remove(path)
+    elif flags != FileStatus.INDEX_DELETED:
+        repo.index.add(path)  # stage it in memory
+tree_sha = str(repo.index.write_tree())  # write tree object
+repo.index.read()  # reset (no side effects on disk)
+```
+
+This produces a real git tree object that includes all
+committed files plus working-tree modifications (staged,
+unstaged, untracked, deleted). When git lists more than
+`max_untracked_files` untracked files, only the tracked changes
+are staged, and `rbtr status` reports the count. A repository
+nested in the working tree, which git lists as one `dir/`
+entry, is left out. Properties:
+
+- **Deterministic.** Same file contents → same tree SHA.
+- **Content-sensitive.** Any edit changes the SHA.
+- **Clean tree = HEAD tree.** `worktree_tree_sha` returns
+  `None` when the tree SHA equals HEAD's tree SHA.
+- **Blobs are persisted.** Staging writes blob objects
+  to `.git/objects`, so `list_files` can walk the tree
+  directly — the same code path as commit trees.
+
+Tree SHAs never collide with commit SHAs (different git
+object types), so they coexist safely in `indexed_snapshots`.
+
+Describing an indexed SHA back to the user — `status` naming a
+worktree snapshot rather than printing a hash — tests the SHAs
+already in hand with `is_tree_sha`, which reads. It does not
+recompute `worktree_tree_sha`, which would write a tree and a
+blob per changed file into the repository being described.
+
+### What a worktree build writes
+
+The working tree is indexed under its tree SHA in the
+same schema as commits — no sentinel, no special columns.
+
+When a worktree build runs, the store receives:
+
+- **`file_snapshots`** with `snapshot_sha = <tree_sha>`.
+  One row per file in the working tree. Each row's
+  `blob_sha` is the git blob hash written by staging
+  (dirty files) or the committed blob SHA (clean files).
+- **`chunks`** are content-addressed and carry no `repo_id`
+  (see [Data model](#data-model)). Because `id` includes the
+  `blob_sha`, a dirty file produces different chunk IDs from the
+  committed version of the same file, even when symbol name and
+  position are identical.
+- **`edges`** with `snapshot_sha = <tree_sha>`.
+- **`indexed_snapshots`** with `snapshot_sha = <tree_sha>`.
+
+Queries scope results through `file_snapshots` exactly as for
+commits ([Snapshot resolution](#snapshot-resolution)) — the join is
+on `blob_sha + file_language`, with the repo scope *and the path*
+coming from the snapshot, never the chunk:
+
+```sql
+FROM chunks c
+JOIN file_snapshots fs
+  ON c.blob_sha = fs.blob_sha
+  AND c.file_language = fs.detected_language
+WHERE fs.repo_id = $repo_id AND fs.snapshot_sha = $snapshot_sha
+```
+
+When `$snapshot_sha` is a tree SHA, the join resolves to
+the working-tree snapshots. When it's a commit SHA, the
+join resolves to committed blobs. The same chunk row can
+be visible through both paths if the file hasn't changed.
+
+### What is shared, what is duplicated
+
+**Shared (not duplicated):**
+
+- **Chunks for clean files.** A file that hasn't changed
+  has the same `blob_sha` in both HEAD and worktree
+  snapshots. The `file_snapshots` rows differ (different
+  `snapshot_sha`) but point at the same chunks. No chunk
+  rows are duplicated.
+- **Embeddings.** Since clean files share chunk rows,
+  their embeddings are shared too. A dirty file's new
+  chunks start with `embedding IS NULL` and are embedded
+  in a subsequent pass.
+
+**Duplicated (per tree SHA):**
+
+- **`file_snapshots`** — one full set per tree SHA.
+  `replace_snapshots` deletes old snapshots for that SHA
+  and inserts the current set.
+- **`edges`** — one full set per tree SHA.
+- **`indexed_snapshots`** — one row per tree SHA.
+
+**New content-addressed rows (per dirty blob, not per repo):**
+
+- **Chunks for dirty files.** A modified file has a new
+  `blob_sha`, so its chunks get new content-addressed IDs
+  distinct from the committed version's. Both sets coexist —
+  HEAD snapshots point at the committed chunks, worktree
+  snapshots at the dirty ones. These rows are still shared:
+  any other checkout of the project holding the same dirty
+  blob reaches the very same chunks (nothing is duplicated per
+  checkout).
+
+### Build lifecycle
+
+`build_index(repo_path, tree_sha, store, ...)` runs the
+same pipeline as a commit build, preceded by registering
+the repo — and since `repo_path` canonicalises to the
+worktree's own directory, a linked worktree registers as a
+repo of its own:
+
+1. **Extract** — `list_files(repo_path, tree_sha)` walks
+   the tree object directly (same as commit trees). Each
+   file gets a `FileEntry` with `blob_sha` from the tree.
+   The `blob_is_current` check skips files whose blob SHA already
+   has chunks in the store.
+2. **Edges** — inferred from the worktree's chunk set.
+3. **Finalise** — `mark_indexed(repo_id, tree_sha)`,
+   cleanup orphans.
+4. **Embed** — deferred, same as commits.
+
+Because `blob_is_current` works on content identity (blob SHA),
+a rebuild where nothing changed skips all files.
+
+### Staleness detection
+
+`has_indexed`, asked about the worktree's tree SHA, is the
+staleness check — the same mechanism as commits. When the user edits a file,
+`worktree_tree_sha` returns a different SHA,
+`has_indexed` misses, and a rebuild is triggered. When
+the same content is polled again, `has_indexed` hits and
+the rebuild is skipped.
+
+### Lifecycle scenarios
+
+The daemon's watcher drives the worktree lifecycle. On
+each poll cycle:
+
+- `poll_watched()` resolves each watched ref (HEAD is the
+  default) and checks `indexed_snapshots`.
+- `pending_builds()` calls both, in that order, and is what
+  the watcher and the embed worker use.
+- `poll_worktree()` computes `worktree_tree_sha` and
+  checks `has_indexed`. It writes no index rows, but computing
+  the SHA writes git objects into the repository being polled:
+  a tree, plus a blob for each changed file whose content git
+  does not already hold. No ref reaches them, so `git gc` may
+  prune them at any time — which is why neither cleanup nor
+  labelling may ask git to look one up again.
+
+#### Dirty repo (first edit)
+
+```text
+State: HEAD=abc123 indexed. User edits foo.py.
+
+poll_worktree → worktree_tree_sha = tree_A (≠ HEAD tree)
+             → has_indexed(tree_A) = False
+             → returns DirtyWorktree(tree_sha=tree_A)
+
+_find_next_job → BuildJob(refs=(tree_A,))
+build_index(tree_A):
+  list_files(tree_A) → walks tree object
+  foo.py: dirty blob_sha → blob_is_current miss → extract
+  other files: same blob_sha as HEAD → skip
+  replace_snapshots(tree_A), replace_edges(tree_A)
+  mark_indexed(tree_A)
+
+Next poll: worktree_tree_sha = tree_A (same edit)
+         → has_indexed(tree_A) = True → skip
+```
+
+Every later edit repeats this against a new tree SHA, and each
+build ends by calling `_drop_stale_worktree_shas`, which drops
+any indexed tree SHA that is not the one just built — so at
+most one worktree snapshot survives per repo.
+
+The two scenarios below are the ones that do not follow from
+that; the [rules](#rules) cover the rest.
+
+#### New commit while still dirty
+
+```text
+State: HEAD=abc123, tree_A indexed. User commits → HEAD=def456.
+
+poll_watched → WatchedTarget(ref=HEAD, sha=def456)
+_find_next_job → BuildJob(refs=(def456,))  # watched refs first
+
+build_index(def456) completes.
+_drop_stale_worktree_shas → drops tree_A.
+
+Next poll: worktree_tree_sha = tree_C (against new HEAD)
+         → has_indexed(tree_C) = False → rebuild
+```
+
+#### Clean tree, worktree lingering
+
+```text
+State: tree_A indexed. User runs `git checkout .`.
+
+poll_worktree → worktree_tree_sha = None → skip.
+tree_A row lingers in indexed_snapshots but is inert:
+  resolve_read_ref(None) computes worktree_tree_sha (None)
+  → falls back to HEAD.
+
+tree_A is cleaned up by:
+  - The next build (commit or worktree) via _drop_stale_worktree_shas
+  - GC (tree SHAs are not reachable from any ref)
+```
+
+### Rules
+
+1. **`has_indexed(tree_sha)` is the staleness check.**
+   Same mechanism as commits. No fingerprint, no
+   in-memory state.
+2. **The watcher is read-only.** All writes go through
+   `WriteSession`, under `_write_sem`.
+3. **Stale worktree SHAs are cleaned eagerly.** After each
+   build, `_drop_stale_worktree_shas` scans
+   `indexed_snapshots` and drops any indexed SHA that is not a
+   commit and is not the one just built. The cleanup asks whether
+   a SHA *is not a commit*, rather than whether it is a tree,
+   so a row whose object git has already pruned is still
+   dropped. Labelling asks the opposite question, because the
+   two tolerate different mistakes: dropping a SHA that names
+   nothing is harmless, calling it a worktree is a lie.
+4. **GC protects the current tree SHA.** `_resolve_drop_set`
+   calls `worktree_tree_sha` and excludes it. Stale tree
+   SHAs are included in the drop set (not reachable from
+   any ref).
+5. **Watched-ref builds have priority over worktree
+   builds.** `pending_builds()` checks `poll_watched()`
+   before `poll_worktree()`.
+6. **A build makes an embed job stand aside.** The embed
+   worker calls `pending_builds()` between batches and
+   returns if one is due; the remainder is re-derived (see
+   [Standing aside](#standing-aside)).
+7. **A linked worktree is a separate repo.** Its path
+   canonicalises to its own directory rather than the main
+   checkout's, so it gets its own `repos` row, watch set,
+   `file_snapshots`, `edges`, `indexed_snapshots` and HEAD,
+   and is built and collected independently. Any path inside
+   it — a subdirectory, or the trailing-slash form `pygit2`
+   reports — leads back to that same directory, so one
+   checkout is always one repo. The two share only `chunks`,
+   by content — see [What is shared, what is
+   duplicated](#what-is-shared-what-is-duplicated).
+
 ## Data model
 
 The index is a registry and one DuckDB file per project (see
@@ -581,6 +1115,473 @@ older `schema_version` and is replaced on open.
 
 rbtr declares no foreign keys; see
 [Design decisions](#design-decisions).
+
+## Garbage collection
+
+`indexed_snapshots` is the authority. Data without a matching
+row is orphan. Both operations live on `WriteSession`:
+
+- `drop_snapshot` — removes all trace of a commit
+  (indexed_snapshots row, snapshots, edges, orphaned chunks).
+- `cleanup` — removes residue from crashed builds
+  (snapshots/edges for uncommitted commits) and stale data
+  (chunks not referenced by any snapshot, edges whose
+  commit has no snapshots).
+
+Because chunks are content-addressed and **shared by a project's
+checkouts**, the orphan sweep is a reference count over the
+project's file: a chunk is deleted only when **no** `file_snapshots`
+row of **any** of its checkouts references its blob. Dropping a
+commit (or a whole checkout) that shared content with another
+checkout leaves the shared chunks intact until the last referencing
+snapshot is gone. Consequently the chunk count in `GcCounts` is a
+per-project figure, not a per-repo one. Content two projects hold
+is a copy in each file, collected in each on its own.
+
+This sweep rests on **a chunk entering only for a blob somebody
+claims**. `WriteSession._commit` counts the `(blob_sha,
+file_language)` pairs the session stored chunks for, and rolls back
+when any of them has no `file_snapshots` row in the file. An
+unreferenced chunk is therefore one whose claims were removed later,
+never a half-written build, so the sweep cannot take chunks another
+checkout still needs. The check keys on the blob rather than on
+writing a claim in the same session, which is what lets one
+re-extraction re-chunk a blob for every checkout sharing it.
+
+**Compaction.** Deleting rows does not shrink a DuckDB file — the
+freed space is kept inside it for reuse, so a file only ever grows.
+To hand that space back, `gc` finishes by rewriting each project
+file it collected: `Index.compact` switches the project to a
+fresh copy, search index included (see
+[Index files](#index-files)), so search keeps working without a
+rebuild.
+
+The switch either commits or leaves the old file live, and the row
+deletions are already durable by then, so an interrupted or failed
+rewrite leaves the index correct — just not smaller. `gc` logs the
+failure and carries on; `--no-compact` skips the rewrite entirely.
+The size `gc` reports counts live files only, not the old ones
+waiting out `retire_delay_s`.
+
+Both modes rewrite the same way: standalone, `rbtr gc` owns the
+database (`handle_gc(..., allow_compact=True)`); in the daemon gc
+takes `_write_sem` like every write, and searches keep running
+throughout (see [Concurrency model](#concurrency-model)).
+
+The keep-set depends on the `GcMode`. The **default** is
+`WATCHED`: keep HEAD, every local branch / tag / note,
+**and** every resolved [watched ref](#watched-refs) (the
+current worktree tree is always protected). So a routine
+`rbtr gc` only drops genuinely unreferenced snapshots — it
+never discards anything a branch points at or that you
+asked to keep indexed. `WATCHED_ONLY` keeps just HEAD plus
+the watch set, dropping unwatched branches/tags — the opt-in
+way to reclaim refs you no longer index. `HEAD_ONLY`,
+`KEEP`, and `ORPHANS` are the other explicit modes. Each
+names a different keep-set, so the CLI refuses two at once
+rather than resolving them by precedence. If a mode drops a
+still-watched snapshot, the watcher rebuilds it on the next
+poll (self-healing); an unwatched ref is rebuilt when
+somebody asks to read it. Collection never edits the watch set
+itself — that is `rbtr unwatch`'s job — so a thorough tidy trims
+first and collects second.
+
+GC is **per-repo by default**; `rbtr gc --scope all` reclaims across
+**every** registered repo at once (`GcAllRequest` ⇒ `run_gc_all`
+loops `run_gc` over `repos()`), and each repo's sweep reclaims
+the chunks no surviving snapshot of its project references.
+Globally it takes **`WATCHED` or `WATCHED_ONLY`** — the retentions
+stated in a repo's own terms, so every repo keeps at least its HEAD and
+its watch set. `HEAD_ONLY` and `KEEP` name one repo's refs and
+`ORPHANS` sweeps one repo's residue, so `GcAllRequest` cannot carry
+them. A repo is **skipped** when git cannot answer for it: a path
+that no longer resolves (never purged — forgetting it is a separate,
+explicit action; see below) or an unborn HEAD, which `run_gc` raises on
+and which must not end a pass over every other repo. Each repo is
+reported through `on_progress` as it is collected: inline, as a bar on
+stderr; from the daemon, as a `gc_progress` notification between
+`gc_started` and `gc_ended`, which is sent however gc ends. None of
+the three names a repo, since one gc covers many, and none touches a
+running build's progress.
+
+**Forgetting a repo** removes it entirely from the index, undoing what
+[registration](#repo-registration) set up (`Store.forget`).
+A project's last checkout takes the project with it: one registry
+transaction deletes both rows, and the project's file is retired and
+deleted. Another checkout's `watched_refs`, `indexed_snapshots`,
+`file_snapshots` and `edges` are deleted from the project's file in one
+transaction, then its `repos` row.
+That is **metadata-only**: it deliberately does not sweep chunks, so it
+reports no statistics; the chunks it orphans are reclaimed by the next
+GC (or build cleanup), keeping removal cheap and uniform with ref
+removal.
+
+`rbtr forget` forgets the current repo, but only when HEAD is its sole
+watched ref; `rbtr forget --stale` forgets every repo whose stored path
+no longer resolves. The latter is **daemon-driven enumeration**, not a
+per-path request: a removed checkout's path cannot be normalised into a
+request, which is why it is a request of its own —
+`ForgetStaleRequest` carries no path, and
+`rbtr.index.watch.forget_stale_repos` walks `repos()` and forgets
+the unresolvable ones.
+
+Its sibling `remove_stale_refs` answers the other
+question — which of a *live* repo's watched refs git still resolves, in
+one repo or in all of them — and leaves a vanished repo alone, since git
+cannot answer for it. The two are separate commands over separate state,
+so each runs in its own request and its own sessions.
+
+Outside [maintenance](#maintenance), forgetting is **explicit**:
+`poll_watched` skips a vanished path rather than purging it, since the
+absence may be transient (an unmounted volume). The wire surface is a dedicated
+`ForgetRequest`/`ForgetResponse` (the response carries only the
+forgotten paths), kept separate from the reclamation-shaped
+`GcResponse`.
+
+### Maintenance
+
+When the daemon's worker has had no job for `maintenance_idle_s`
+(10 min), and at most every `maintenance_interval_s` (6 h), the
+daemon runs `run_maintenance` under `_write_sem`. In order, it:
+
+1. stops watching refs git no longer resolves (`remove_stale_refs`);
+2. forgets checkouts whose path has been gone for `forget_after_s`
+   (3 h): `repos.missing_since` records the first pass that found a
+   path gone, and is cleared when the path is back;
+3. collects every repo in `WATCHED` mode (`run_gc_all`);
+4. compacts each project file grown past `compact_growth_ratio` (2)
+   times its `compacted_bytes`.
+
+Each step removes only what `rbtr unwatch --stale`, `rbtr forget
+--stale`, `rbtr gc --scope all` and `rbtr gc --compact` would. A pass
+is published as a gc (`gc_started`, `gc_progress` per repo,
+`gc_ended`), which clients already show, and logged as
+`maintenance_started` and `maintenance_finished` with what it
+removed. The same task deletes the files compactions replaced, every
+idle poll, once `retire_delay_s` has passed.
+
+## Search fusion
+
+![How a search is answered: prepare the query, run three searches on
+every project file at once, then merge, fuse and rerank](docs/diagrams/search-flow.png)
+
+Three channels fused into one ranked list:
+
+- **Name matching** — case-insensitive substring matching.
+- **BM25 keyword search** — DuckDB FTS over code-aware
+  tokenised content.
+- **Semantic similarity** — exact cosine between query and
+  chunk embeddings. Local GGUF model, no API calls.
+
+![How scores are fused: normalise, weigh, multiply, then blend the top few
+with the reranker](docs/diagrams/fusion.png)
+
+Each channel is normalised to [0, 1], then combined:
+
+```text
+score = alpha × semantic + beta × lexical + gamma × name
+```
+
+Four multipliers then scale that score. They carry what a
+channel score cannot see: that some kinds of chunk are better
+answers than others, that some files matter less than their
+contents suggest, and that a symbol many things depend on is
+more often the one you meant.
+
+**Kind boost** — what the chunk is. A class scores 1.5, a
+function or method 1.3, a variable 1.0, a doc section 0.8, a
+test function 0.7, a config key 0.6, a comment or raw
+line-chunk 0.5, a migration 0.4, an import 0.3. An import line
+matches a name as well as the definition does and is almost
+never what was wanted, which is what the bottom of that range
+is for.
+
+**File category** — where it lives. Vendored and generated
+code 0.3, tests 0.5, config 0.7, documentation 0.8, ordinary
+source 1.0. Classified by path pattern, first match wins.
+
+**Importance** — how much depends on it:
+`1 + log2(1 + degree) / 4`, capped at 3.0, where `degree` is
+the inbound edge count. One inbound edge gives 1.25, three
+1.5, fifteen 2.0. Logarithmic because the step from one
+dependent to three says far more than the step from thirty to
+thirty-two.
+
+**Proximity** — distance from the current diff, when there is
+one. 1.5 for a chunk in a changed file, 1.2 for one with an
+edge to a changed file, 1.1 for one in a changed directory,
+1.0 otherwise.
+
+These magnitudes are hand-set. The fusion weights below are
+not — they are measured (see
+[`rbtr-eval`](../rbtr-eval/README.md)).
+
+Weights are configured per query kind. Every search
+classifies the query via `classify_query` and selects the
+matching `(alpha, beta, gamma)` triple from
+`config.search_weights`. The classifier is a cheap
+heuristic (additive scoring on syntax characters and
+language keywords), so it runs on every query regardless
+of whether expansion is enabled. Per-query overrides
+via `SearchRequest.weights` take precedence over the
+config (used by the tuner). Run `rbtr config` for
+current defaults.
+
+### Cross-repo search
+
+`SearchRequest.scope` (`workspace` | `all`) controls
+breadth. `workspace` searches the single repo at `path`;
+`all` searches every indexed repo in the index and
+merges the hits into one ranked list.
+
+Both modes run the *same* pipeline — `_retrieve` →
+`fuse_scores` → reranker → `materialise_scored`. The only
+difference is the list of refs fed in. Rather than branch
+into parallel SQL or duplicate the channel methods,
+`_retrieve` takes a `list[SnapshotRef]` (see
+[Snapshot resolution](#snapshot-resolution)) and each channel query
+joins against a cursor-registered temporary view,
+`_snapshot_refs(repo_id, snapshot_sha)`. For a workspace search
+the view holds one row; for a search across every repo
+(`search_all`) it holds one per repo. This mirrors the `_qvecs`
+register/unregister pattern used for multi-vector semantic scan,
+and needs no scalar `repo_id`/`snapshot_sha` bind params in the
+search SQL.
+
+Each channel runs on every project file the refs span, all at
+once, with that file's refs in its view (see
+[Index files](#index-files)). The store merges what the files
+return: the lexical and semantic channels keep the best *k* of
+each file's best *k*, the name channel keeps the best match tier
+any file found, and a chunk's inbound degree is summed over files.
+Each file scores BM25 against its own document lengths, so lexical
+scores differ slightly from those of one shared index.
+
+`handle_search` builds the refs list: a one-element list
+from `resolve_read_ref` for `workspace`, or
+`latest_refs(index)` for `all`. `latest_refs`
+applies the same dirty-or-HEAD resolution as
+`resolve_read_ref` to every registered repo — preferring
+an indexed dirty worktree tree SHA, else the newest indexed
+commit — and skips repos with no indexed data.
+
+Result attribution flows through a `repo_id` column carried
+on the chunk-result frames (`ChunkResultRow` →
+`FusedRow`). When the handler asks for attribution
+(`attribute_repos`), `materialise_scored` maps `repo_id` to
+the path of the searched ref's repo, populating
+`ScoredChunk.repo_path`. It stays `None` for workspace
+searches, so single-repo consumers are unaffected. `find_refs`,
+`changed_symbols`, `read_symbol`, and `list_symbols` remain
+single-repo: their edges and ref comparisons don't span
+repos.
+
+### Preview anchor
+
+`materialise_scored` attaches a render hint to each result:
+`match_line_offset` (the `"\n"`-line of `content` that best
+matches the query) and `matched_terms` (the query tokens
+present in it). Both come from `match_preview_exprs` — polars
+expressions evaluated over the fused top-k frame, so there is
+no extra pass or DB round-trip. The token set is
+`tokenise_code(query + keywords)`, the same tokens BM25 saw,
+so the preview agrees with why the lexical channel retrieved
+the hit; substring containment lets a fragment like `deps`
+anchor inside `AgentDeps`. A hit with no literal overlap
+(e.g. a purely semantic match) gets `None`/`[]`, and renderers
+fall back to the first lines. The CLI emphasises the whole
+matched line (rich `Syntax` highlight, which can't overlay
+sub-spans); the pi TUI highlights the matched terms within it.
+Both renderers window a few lines around the anchor; when that
+window scrolls past the chunk's start to reach a deep match,
+they keep the first line (the signature) above the elision, so
+a result shows what it is as well as where it matched.
+
+### Read-ref resolution and scoping
+
+Read handlers pick their ref through `resolve_read_ref`, in
+`index/refs.py`, the one module that decides which snapshot a
+read means. It asks git about the worktree and the index which
+snapshots are indexed. With no explicit ref, a read takes the
+indexed dirty-worktree tree SHA if there is one, else `HEAD`. The
+ref has to be indexed to read from, and the two cases differ on
+purpose:
+
+- An explicit ref that isn't indexed is an error — you asked
+  for that ref, so we don't quietly answer from another.
+- An *implicit* ref that isn't indexed yet (a build still
+  finalising) falls back to the latest indexed snapshot, so a
+  read returns a slightly stale answer rather than nothing. It
+  only errors when the repo has no indexed snapshots at all.
+
+`file_paths` is normalised to repo-root-relative POSIX form,
+so absolute, `./`-prefixed, and relative inputs all match the
+stored (repo-relative) chunk paths.
+
+### Query expansion
+
+Query expansion is client-supplied: the caller passes
+`keywords` and `variants` directly on `SearchRequest`,
+which strips, de-duplicates, and caps them
+(`config.max_expansion_keywords`). In pi sessions the
+session LLM generates them inline as tool-call
+parameters, guided by `promptGuidelines`. In eval the
+`expand` DVC stage pre-generates them via an LLM API.
+
+A heuristic classifier (`classify_query` in
+`index/classify.py`) determines the query kind, from
+which `search()` selects the per-kind fusion weights.
+The caller may force the kind with the
+`SearchRequest.query_kind` override; otherwise the
+query text is classified.
+Classification uses additive scoring: syntax characters
+(braces, operators, function-call patterns) and language
+keywords each contribute points. A query is classified
+as `CODE` when its total reaches a threshold of 2.
+Keywords are extracted at runtime from all registered
+tree-sitter grammars, so new language plugins
+automatically contribute.
+
+`CONCEPT` additionally requires low punctuation density
+(`_punct_ratio <= 0.04`) on top of the word-count minimum.
+Word count alone routes any structured name long enough to
+split — a CSS selector, a dot-joined path — down the concept
+path, where it gets variant rephrasings that dilute the exact
+lexical signal it needed. The density threshold costs a fraction of true
+concept queries and removes most of that misrouting; the
+[eval](../rbtr-eval/README.md) has the measured trade.
+
+| Kind           | Example                       | Expansion strategy       |
+| -------------- | ----------------------------- | ------------------------ |
+| **concept**    | `"how does idle unload work"` | keywords + NL variants   |
+| **identifier** | `fuse_scores`                 | keywords only            |
+| **code**       | `def fuse_scores(`            | expansion skipped        |
+
+Keywords are synonym identifiers (e.g.
+`getName` → `fetchName`, `retrieveName`) appended to
+the BM25 query. Variants are natural-language
+rephrasings embedded alongside the original query to
+widen the semantic candidate pool. Identifier and code
+queries skip variant generation — NL rephrasings would
+add noise to queries already well-served by BM25 and
+name matching.
+
+### Cross-encoder reranking
+
+When a reranker model is configured (on by default), a
+cross-encoder re-scores the top fusion candidates before
+results are returned. The reranker evaluates each
+`(query, chunk)` pair with full cross-attention, improving
+ranking precision — particularly promoting correct results
+from lower fusion positions to position 1.
+
+The pipeline after fusion becomes:
+
+```text
+fuse → rerank → materialise
+```
+
+`rerank()` takes the fused frame, scores each row with
+the cross-encoder, normalises scores to [0, 1], and
+blends them with the fusion score:
+
+```text
+score = w × fusion + (1 − w) × reranker
+```
+
+where `w` is the per-kind `blend_weight` from
+`config.reranker_settings`. The result is re-sorted
+and trimmed to `top_k`.
+
+Pool size and blend weight are configured per query kind
+via `reranker_settings` (a `dict[QueryKind,
+RerankerSettings]`). Every search classifies the query
+and selects the matching entry. `SearchRequest` can
+override both via `reranker_pool` and
+`reranker_blend_weight`. The actual pool is
+`max(pool, request.limit)` so the reranker never
+discards candidates the caller asked for.
+
+The `Reranker` class follows the same `GpuModelSlot`
+lifecycle as the embedder — lazy load, idle
+unload, `_gpu_lock` serialisation. On model failure,
+`rerank()` returns fusion-order results with `reranker`
+scores at `0.0` (graceful fallback).
+
+### Multi-vector semantic scan
+
+When expansion produces variants, the original query
+vector and all variant vectors are evaluated in a
+single DuckDB scan. The vectors are loaded into a
+cursor-scoped register (`SELECT $vectors`) and joined
+via `CROSS JOIN` + `MAX(cosine_similarity)` so each
+chunk is scored against the closest matching vector.
+This avoids N separate table scans — benchmarked at
+7–32× faster than sequential scans for 3 vectors.
+
+### FTS index lifecycle
+
+DuckDB's FTS extension persists its inverted index to disk.
+The persisted index survives connection close + reopen and
+is queryable immediately. It does **not** auto-update after
+INSERT or DELETE.
+
+Each project file has its own FTS index, made with the file over
+its still empty `chunks` table, so every file has one.
+
+**Write path** (build, GC): a [write session](#write-path) that
+modified chunks rebuilds its file's FTS index after it commits
+(`overwrite = 1`, an atomic drop and create). Making a file and
+this are the only paths that write FTS DDL; a compaction copies
+the index with the rest of the file.
+
+**Read path** (search): queries the existing persisted
+index. Never rebuilds.
+
+DuckDB's MVCC ensures readers see a consistent snapshot
+during a concurrent rebuild — they block briefly on the DDL
+and then execute against the fresh index. A stale index
+(built before the latest inserts) is acceptable during a
+build; it still returns results for previously-indexed
+chunks.
+
+## Storage models vs API DTOs
+
+The read commands (`search`, `read-symbol`, `list-symbols`,
+`find-refs`, `changed-symbols`) do not return the storage
+models (`Chunk`, `ScoredChunk`, `Edge`). Those carry
+persistence detail — identity hashes (`id`, `blob_sha`), the
+embedding, the full ranking-signal breakdown, an
+always-present `metadata` bag — that no caller needs and that
+adds noise and tokens to an agent's context. Handlers instead
+project to output DTOs in `rbtr.daemon.dto` (`SymbolRefOut`,
+`SymbolOut`, `SearchHitOut`, `RefOut`): a curated, low-noise
+public contract. The boundary is also a vocabulary shift: the
+internal unit is a content-addressed `chunk`, but the public
+API speaks of `symbol`s — the term agents actually navigate by.
+
+How much source a shape carries follows from what its command
+is for. `read-symbol` returns a body, in `SymbolOut`; that is
+the command whose whole job is to fetch one. `search` returns
+a capped preview, enough to judge a hit's relevance. Anything
+that enumerates — `list-symbols`, `changed-symbols` — returns
+`SymbolRefOut`: a name, a place, a span, and no `content` field
+to put a body in. An outline of a large file would otherwise
+cost an agent more context than reading the file, which is the
+opposite of what it is asked for. Each shape is its own type
+rather than one type with an optional body, so the wrong
+payload cannot be assembled by accident.
+
+Empty `metadata` and null `repo_path` are omitted,
+as is the preview anchor (`match_line_offset`, `matched_terms`)
+when the hit has no literal match; the nine search signals
+collapse to a single `score` unless
+the request sets `explain`, which attaches a nested
+`SearchSignals` (used by the eval tuners). The DTOs are
+output-only — never fed to the write/staging path — which is
+what lets them omit fields freely; the storage models, which
+the same `model_dump` serialises into DuckDB staging frames,
+cannot.
 
 ## Daemon
 
@@ -1064,1008 +2065,72 @@ Log behaviour is asserted on captured event dicts via
 `structlog.testing` (the autouse `log_output` fixture); see the
 `rbtr-testing` skill for the fixture and conventions.
 
-## Language decomposition
-
-The extraction engine lives in `rbtr.languages`, beside the
-`LanguageRegistration` contract and the manager that runs it: `treesitter`
-(query execution and doc-span recovery), `extract` (per-file strategy dispatch
-and injection), `edges` (import/doc inference), and `chunks` (the
-plaintext fallback, and the span arithmetic every chunker shares).
-`rbtr.index` depends on `languages` in just two places — the build loop,
-which composes extraction with storage, and `classify`, which reuses the
-language registry for search — while `languages` reaches down only to the
-`rbtr.domain` kernel (`models`, `identity`), so the dependency stays
-one-directional.
-
-Each file is routed to one of three extraction strategies
-by the language plugin:
-
-- **Tree-sitter** - grammar + query → functions, classes,
-  methods, variables, imports as structured `Chunk` objects.
-- **Custom chunker** - plugin-provided (e.g. markdown
-  heading-hierarchy splitting).
-- **Plaintext fallback** - fixed-size overlapping line
-  chunks.
-
-The first two are a discriminated union on the registration's
-`extraction` field (`QueryExtraction` | `ChunkExtraction` | `None`),
-so a file has exactly one primary strategy — "query and chunker both
-set" is unrepresentable — and `extract_primary` dispatches by type.
-Injection (`injection_query`) is orthogonal and runs in addition.
-
-Scope addressing: each chunk's `scope` is the full path of its
-enclosing named scopes, outermost-first, joined by `::` (e.g.
-`Outer::Inner`, `make_adder::handler`), composed by walking the
-parse tree's scope-bearing nodes (per the plugin's
-`QueryExtraction.scope_types`); Markdown/RST compose their heading
-hierarchy the same way. A function becomes a `METHOD` only when its
-nearest enclosing scope is class-like
-(`QueryExtraction.class_scope_types`), so a closure inside a function
-or method stays a function.
-
-Variable chunks cover module-level bindings only; class
-attributes and function-locals stay within their enclosing
-chunk.
-
-Comments: every tree-sitter plugin captures its grammar's comment
-nodes as `@comment`, scoped to the file root, plus the module
-docstring where the language has one (Python's bare top-level
-string). `extract_symbols` groups consecutive captured comments into
-blank-line-delimited blocks and routes each one. A block sitting flush
-above a definition folds into that definition's chunk, so a symbol
-carries its own documentation; a block inside a symbol's body is
-already part of that chunk; every other block — a licence or banner
-header, a note between definitions, a comment at end of file — becomes
-a standalone chunk of kind `COMMENT` at module level (empty scope). A
-comment trailing code on its line documents that statement, so it never
-folds into what follows. Comment text is therefore indexed and
-searchable wherever it sits, not only when it happens to precede a
-symbol.
-
-A file can also *embed* another language — a Markdown fenced
-block, or an SFC/HTML `<script>`/`<style>`. A host plugin's
-`injection_query` marks each embedded block; the engine
-delegates the block's byte range to the target's full
-extraction (chunker or query) and recurses into that
-target's own injection, so nested embeds (an HTML block
-inside Markdown) resolve too. Delegated chunks carry the
-embedded language. See [Language plugins](#language-plugins)
-for the dispatch chain.
-
-## Dependency graph
-
-`edges.py` infers cross-file relationships:
-
-- **Import edges** - structural (tree-sitter import
-  extractor) or text-search fallback.
-- **Doc edges** - markdown sections mentioning symbol names.
-- **Data references** - a JSON Schema or OpenAPI `$ref`, a
-  tsconfig `extends`, a local Actions `uses`, a Cargo or Poetry
-  `path` dependency. A `$ref`'s pointer names a key inside the
-  document it reaches, as a Markdown link's fragment names a
-  heading, so a data language's keys are in the symbol index.
-
-Import resolution maps a module string to a repo file. A
-reference carrying its own depth — `../b`, or a `dots` the
-extractor set — is anchored to the importing file and has one
-place to look. Anything else is tried from the repository root
-first, then, for a `ModuleStyle.PATH` language, beside the
-importing file: `@import "b.css"` in `css/a.css` means
-`css/b.css`, and the root is tried first so a reference that
-already resolves keeps the file it resolved to. Failing both, a
-dotted path matches as a *suffix* of a candidate file path (so
-`rbtr.index.index` → `…/rbtr/index/index.py`) — which lets a
-single index span a monorepo. `module_style` and
-`source_roots` tune the mapping per language; ambiguous
-matches are dropped rather than guessed, and a file never
-resolves to itself.
-
-Some references name a directory rather than a file. Where the
-language names a directory's stand-in — `__init__.py`,
-`index.js`, `mod.rs`, a crate's `Cargo.toml` — `index_files`
-resolves it to that one file. Where every file in the directory
-belongs to the unit instead, the language says `package_directory`
-and the reference reaches all of them: a Go package is its
-directory, a Terraform module is a directory of `.tf` files. A
-Markdown link to a directory reaches nothing, which is why this
-is declared rather than assumed.
-
-A prefix a language's imports carry may be written down in the
-repository rather than in the language: `go.mod` states `module
-example.com/m`, which makes `example.com/m/b` the directory `b`.
-A registration names such a file as its `manifest`, the
-extraction loop reads it while the content is in hand, and
-`build_resolution_map` turns it into path substitutions — the
-edge pass itself reads no files.
-
-Whether each language's own syntax reaches a file is pinned per
-language by `test_import_resolution.py`, which extracts two real
-files in nested directories and follows the edge. Nested because
-two files at the repository root cannot tell a sibling reference
-from a root-relative one.
-
-Powers `find-refs` and the importance signal in search
-ranking. `find-refs` first resolves the user's symbol *name*
-to chunk IDs via `name_matches` (edges are keyed on chunk
-IDs, not names), then a single `inbound_refs` query joins the
-inbound edges to their *source* chunk so the response names
-the referring symbol (`RefOut`) rather than exposing an opaque
-hash.
-
-## Storage models vs API DTOs
-
-The read commands (`search`, `read-symbol`, `list-symbols`,
-`find-refs`, `changed-symbols`) do not return the storage
-models (`Chunk`, `ScoredChunk`, `Edge`). Those carry
-persistence detail — identity hashes (`id`, `blob_sha`), the
-embedding, the full ranking-signal breakdown, an
-always-present `metadata` bag — that no caller needs and that
-adds noise and tokens to an agent's context. Handlers instead
-project to output DTOs in `rbtr.daemon.dto` (`SymbolRefOut`,
-`SymbolOut`, `SearchHitOut`, `RefOut`): a curated, low-noise
-public contract. The boundary is also a vocabulary shift: the
-internal unit is a content-addressed `chunk`, but the public
-API speaks of `symbol`s — the term agents actually navigate by.
-
-How much source a shape carries follows from what its command
-is for. `read-symbol` returns a body, in `SymbolOut`; that is
-the command whose whole job is to fetch one. `search` returns
-a capped preview, enough to judge a hit's relevance. Anything
-that enumerates — `list-symbols`, `changed-symbols` — returns
-`SymbolRefOut`: a name, a place, a span, and no `content` field
-to put a body in. An outline of a large file would otherwise
-cost an agent more context than reading the file, which is the
-opposite of what it is asked for. Each shape is its own type
-rather than one type with an optional body, so the wrong
-payload cannot be assembled by accident.
-
-Empty `metadata` and null `repo_path` are omitted,
-as is the preview anchor (`match_line_offset`, `matched_terms`)
-when the hit has no literal match; the nine search signals
-collapse to a single `score` unless
-the request sets `explain`, which attaches a nested
-`SearchSignals` (used by the eval tuners). The DTOs are
-output-only — never fed to the write/staging path — which is
-what lets them omit fields freely; the storage models, which
-the same `model_dump` serialises into DuckDB staging frames,
-cannot.
-
-## Search fusion
-
-![How a search is answered: prepare the query, run three searches on
-every project file at once, then merge, fuse and rerank](docs/diagrams/search-flow.png)
-
-Three channels fused into one ranked list:
-
-- **Name matching** — case-insensitive substring matching.
-- **BM25 keyword search** — DuckDB FTS over code-aware
-  tokenised content.
-- **Semantic similarity** — exact cosine between query and
-  chunk embeddings. Local GGUF model, no API calls.
-
-![How scores are fused: normalise, weigh, multiply, then blend the top few
-with the reranker](docs/diagrams/fusion.png)
-
-Each channel is normalised to [0, 1], then combined:
-
-```text
-score = alpha × semantic + beta × lexical + gamma × name
-```
-
-Four multipliers then scale that score. They carry what a
-channel score cannot see: that some kinds of chunk are better
-answers than others, that some files matter less than their
-contents suggest, and that a symbol many things depend on is
-more often the one you meant.
-
-**Kind boost** — what the chunk is. A class scores 1.5, a
-function or method 1.3, a variable 1.0, a doc section 0.8, a
-test function 0.7, a config key 0.6, a comment or raw
-line-chunk 0.5, a migration 0.4, an import 0.3. An import line
-matches a name as well as the definition does and is almost
-never what was wanted, which is what the bottom of that range
-is for.
-
-**File category** — where it lives. Vendored and generated
-code 0.3, tests 0.5, config 0.7, documentation 0.8, ordinary
-source 1.0. Classified by path pattern, first match wins.
-
-**Importance** — how much depends on it:
-`1 + log2(1 + degree) / 4`, capped at 3.0, where `degree` is
-the inbound edge count. One inbound edge gives 1.25, three
-1.5, fifteen 2.0. Logarithmic because the step from one
-dependent to three says far more than the step from thirty to
-thirty-two.
-
-**Proximity** — distance from the current diff, when there is
-one. 1.5 for a chunk in a changed file, 1.2 for one with an
-edge to a changed file, 1.1 for one in a changed directory,
-1.0 otherwise.
-
-These magnitudes are hand-set. The fusion weights below are
-not — they are measured (see
-[`rbtr-eval`](../rbtr-eval/README.md)).
-
-Weights are configured per query kind. Every search
-classifies the query via `classify_query` and selects the
-matching `(alpha, beta, gamma)` triple from
-`config.search_weights`. The classifier is a cheap
-heuristic (additive scoring on syntax characters and
-language keywords), so it runs on every query regardless
-of whether expansion is enabled. Per-query overrides
-via `SearchRequest.weights` take precedence over the
-config (used by the tuner). Run `rbtr config` for
-current defaults.
-
-### Cross-repo search
-
-`SearchRequest.scope` (`workspace` | `all`) controls
-breadth. `workspace` searches the single repo at `path`;
-`all` searches every indexed repo in the index and
-merges the hits into one ranked list.
-
-Both modes run the *same* pipeline — `_retrieve` →
-`fuse_scores` → reranker → `materialise_scored`. The only
-difference is the list of refs fed in. Rather than branch
-into parallel SQL or duplicate the channel methods,
-`_retrieve` takes a `list[SnapshotRef]` (see
-[Snapshot resolution](#snapshot-resolution)) and each channel query
-joins against a cursor-registered temporary view,
-`_snapshot_refs(repo_id, snapshot_sha)`. For a workspace search
-the view holds one row; for a search across every repo
-(`search_all`) it holds one per repo. This mirrors the `_qvecs`
-register/unregister pattern used for multi-vector semantic scan,
-and needs no scalar `repo_id`/`snapshot_sha` bind params in the
-search SQL.
-
-Each channel runs on every project file the refs span, all at
-once, with that file's refs in its view (see
-[Index files](#index-files)). The store merges what the files
-return: the lexical and semantic channels keep the best *k* of
-each file's best *k*, the name channel keeps the best match tier
-any file found, and a chunk's inbound degree is summed over files.
-Each file scores BM25 against its own document lengths, so lexical
-scores differ slightly from those of one shared index.
-
-`handle_search` builds the refs list: a one-element list
-from `resolve_read_ref` for `workspace`, or
-`latest_refs(index)` for `all`. `latest_refs`
-applies the same dirty-or-HEAD resolution as
-`resolve_read_ref` to every registered repo — preferring
-an indexed dirty worktree tree SHA, else the newest indexed
-commit — and skips repos with no indexed data.
-
-Result attribution flows through a `repo_id` column carried
-on the chunk-result frames (`ChunkResultRow` →
-`FusedRow`). When the handler asks for attribution
-(`attribute_repos`), `materialise_scored` maps `repo_id` to
-the path of the searched ref's repo, populating
-`ScoredChunk.repo_path`. It stays `None` for workspace
-searches, so single-repo consumers are unaffected. `find_refs`,
-`changed_symbols`, `read_symbol`, and `list_symbols` remain
-single-repo: their edges and ref comparisons don't span
-repos.
-
-### Preview anchor
-
-`materialise_scored` attaches a render hint to each result:
-`match_line_offset` (the `"\n"`-line of `content` that best
-matches the query) and `matched_terms` (the query tokens
-present in it). Both come from `match_preview_exprs` — polars
-expressions evaluated over the fused top-k frame, so there is
-no extra pass or DB round-trip. The token set is
-`tokenise_code(query + keywords)`, the same tokens BM25 saw,
-so the preview agrees with why the lexical channel retrieved
-the hit; substring containment lets a fragment like `deps`
-anchor inside `AgentDeps`. A hit with no literal overlap
-(e.g. a purely semantic match) gets `None`/`[]`, and renderers
-fall back to the first lines. The CLI emphasises the whole
-matched line (rich `Syntax` highlight, which can't overlay
-sub-spans); the pi TUI highlights the matched terms within it.
-Both renderers window a few lines around the anchor; when that
-window scrolls past the chunk's start to reach a deep match,
-they keep the first line (the signature) above the elision, so
-a result shows what it is as well as where it matched.
-
-### Read-ref resolution and scoping
-
-Read handlers pick their ref through `resolve_read_ref`, in
-`index/refs.py`, the one module that decides which snapshot a
-read means. It asks git about the worktree and the index which
-snapshots are indexed. With no explicit ref, a read takes the
-indexed dirty-worktree tree SHA if there is one, else `HEAD`. The
-ref has to be indexed to read from, and the two cases differ on
-purpose:
-
-- An explicit ref that isn't indexed is an error — you asked
-  for that ref, so we don't quietly answer from another.
-- An *implicit* ref that isn't indexed yet (a build still
-  finalising) falls back to the latest indexed snapshot, so a
-  read returns a slightly stale answer rather than nothing. It
-  only errors when the repo has no indexed snapshots at all.
-
-`file_paths` is normalised to repo-root-relative POSIX form,
-so absolute, `./`-prefixed, and relative inputs all match the
-stored (repo-relative) chunk paths.
-
-### Query expansion
-
-Query expansion is client-supplied: the caller passes
-`keywords` and `variants` directly on `SearchRequest`,
-which strips, de-duplicates, and caps them
-(`config.max_expansion_keywords`). In pi sessions the
-session LLM generates them inline as tool-call
-parameters, guided by `promptGuidelines`. In eval the
-`expand` DVC stage pre-generates them via an LLM API.
-
-A heuristic classifier (`classify_query` in
-`index/classify.py`) determines the query kind, from
-which `search()` selects the per-kind fusion weights.
-The caller may force the kind with the
-`SearchRequest.query_kind` override; otherwise the
-query text is classified.
-Classification uses additive scoring: syntax characters
-(braces, operators, function-call patterns) and language
-keywords each contribute points. A query is classified
-as `CODE` when its total reaches a threshold of 2.
-Keywords are extracted at runtime from all registered
-tree-sitter grammars, so new language plugins
-automatically contribute.
-
-`CONCEPT` additionally requires low punctuation density
-(`_punct_ratio <= 0.04`) on top of the word-count minimum.
-Word count alone routes any structured name long enough to
-split — a CSS selector, a dot-joined path — down the concept
-path, where it gets variant rephrasings that dilute the exact
-lexical signal it needed. The density threshold costs a fraction of true
-concept queries and removes most of that misrouting; the
-[eval](../rbtr-eval/README.md) has the measured trade.
-
-| Kind           | Example                       | Expansion strategy       |
-| -------------- | ----------------------------- | ------------------------ |
-| **concept**    | `"how does idle unload work"` | keywords + NL variants   |
-| **identifier** | `fuse_scores`                 | keywords only            |
-| **code**       | `def fuse_scores(`            | expansion skipped        |
-
-Keywords are synonym identifiers (e.g.
-`getName` → `fetchName`, `retrieveName`) appended to
-the BM25 query. Variants are natural-language
-rephrasings embedded alongside the original query to
-widen the semantic candidate pool. Identifier and code
-queries skip variant generation — NL rephrasings would
-add noise to queries already well-served by BM25 and
-name matching.
-
-### Cross-encoder reranking
-
-When a reranker model is configured (on by default), a
-cross-encoder re-scores the top fusion candidates before
-results are returned. The reranker evaluates each
-`(query, chunk)` pair with full cross-attention, improving
-ranking precision — particularly promoting correct results
-from lower fusion positions to position 1.
-
-The pipeline after fusion becomes:
-
-```text
-fuse → rerank → materialise
-```
-
-`rerank()` takes the fused frame, scores each row with
-the cross-encoder, normalises scores to [0, 1], and
-blends them with the fusion score:
-
-```text
-score = w × fusion + (1 − w) × reranker
-```
-
-where `w` is the per-kind `blend_weight` from
-`config.reranker_settings`. The result is re-sorted
-and trimmed to `top_k`.
-
-Pool size and blend weight are configured per query kind
-via `reranker_settings` (a `dict[QueryKind,
-RerankerSettings]`). Every search classifies the query
-and selects the matching entry. `SearchRequest` can
-override both via `reranker_pool` and
-`reranker_blend_weight`. The actual pool is
-`max(pool, request.limit)` so the reranker never
-discards candidates the caller asked for.
-
-The `Reranker` class follows the same `GpuModelSlot`
-lifecycle as the embedder — lazy load, idle
-unload, `_gpu_lock` serialisation. On model failure,
-`rerank()` returns fusion-order results with `reranker`
-scores at `0.0` (graceful fallback).
-
-### Multi-vector semantic scan
-
-When expansion produces variants, the original query
-vector and all variant vectors are evaluated in a
-single DuckDB scan. The vectors are loaded into a
-cursor-scoped register (`SELECT $vectors`) and joined
-via `CROSS JOIN` + `MAX(cosine_similarity)` so each
-chunk is scored against the closest matching vector.
-This avoids N separate table scans — benchmarked at
-7–32× faster than sequential scans for 3 vectors.
-
-### FTS index lifecycle
-
-DuckDB's FTS extension persists its inverted index to disk.
-The persisted index survives connection close + reopen and
-is queryable immediately. It does **not** auto-update after
-INSERT or DELETE.
-
-Each project file has its own FTS index, made with the file over
-its still empty `chunks` table, so every file has one.
-
-**Write path** (build, GC): a [write session](#write-path) that
-modified chunks rebuilds its file's FTS index after it commits
-(`overwrite = 1`, an atomic drop and create). Making a file and
-this are the only paths that write FTS DDL; a compaction copies
-the index with the rest of the file.
-
-**Read path** (search): queries the existing persisted
-index. Never rebuilds.
-
-DuckDB's MVCC ensures readers see a consistent snapshot
-during a concurrent rebuild — they block briefly on the DDL
-and then execute against the fresh index. A stale index
-(built before the latest inserts) is acceptable during a
-build; it still returns results for previously-indexed
-chunks.
-
-## Language plugins
-
-Each plugin is a package (a `plugin.py` plus its tree-sitter
-queries as sibling `.scm` files, loaded via `load_query`) that
-exposes module-level `LanguageRegistration` values. A plugin
-provides whatever combination of fields its language needs -
-there are no tiers or categories. Discovery is by entry point
-(see below); there is no hook framework — the domain is
-single-dispatch by language id, so a plain registry suffices.
-
-For the plugin author's API (field reference, examples,
-capture conventions), see
-[Writing a language plugin](README.md#writing-a-language-plugin).
-
-### Dispatch chain
-
-`extract_file` (`rbtr.languages.extract`) builds each file's chunks in this
-order:
-
-1. **Primary extraction** - a registered `chunker` if the
-   language has one (`chunker(path, sha, content, grammar,
-   ranges)`; markdown, rst, svelte, vue), else tree-sitter
-   `extract_symbols` for a `grammar` + `query` (python,
-   rust, go, ...; json, css, html, toml, yaml, hcl; and
-   `tree_sitter_query` itself, indexing `.scm` files).
-2. **Injection (additive)** - if the registration has an
-   `injection_query`, the engine *also* runs
-   `extract_injections`: it matches embedded blocks
-   (`@injection.content`), determines each block's target
-   language, resolves overlaps by highest
-   `injection.priority`, and delegates each range to that
-   language's `extract_query`. The target is either a
-   static `#set! injection.language` on the pattern
-   (HTML and Svelte/Vue `<script>` / `<style>`) or a
-   dynamic
-   `@injection.language` capture whose text is resolved to a
-   language id (a Markdown fence's info string — `python`,
-   `sh`). Injection runs *alongside* the host chunker
-   (step 1), not instead of it.
-3. **Plaintext fallback** - only if neither of the above
-   applied. If no language was detected (unknown
-   extension), `detect_prose_format` sniffs the first 2 KiB:
-   RST by underline headings (`Title\n=====`) or directives
-   (`.. note::`), Markdown by ATX headings (`# Title`); a
-   detected format uses its registered chunker. Otherwise,
-   line-based raw chunks (`RAW_CHUNK`, fixed-size
-   overlapping windows).
-4. **Host-language trace** - if no chunk so far carried the
-   file's detected language, a content-less host-presence
-   chunk is appended (see
-   [Content-addressed chunks and blob dedup](#content-addressed-chunks-and-blob-dedup))
-   so the blob-dedup check can skip the file on later builds.
-
-**We author our own injection queries** rather than reuse a
-grammar's shipped `injections.scm`, which over-matches — a
-bare `(raw_text)` fallback catches every block, including
-styles. `injection.priority` disambiguates: a `lang`-tagged
-block outranks the bare fallback. The language mapping (step
-2) stays out of Python — static `#set!` values, and
-free-form hints resolved through the registry's own
-id/extension maps — so delegation is language-agnostic, with
-no per-language code.
-
-Delegation runs the target's *full* primary extraction
-(`extract_primary` — its chunker or query, range-scoped via
-`included_ranges`), so the block extracts as if it were its
-own file of that language: query targets (python, ts, html,
-...) and chunker targets (yaml, toml, ...) alike, imports
-included. Delegation also recurses into the target's own
-injection, so an HTML block inside Markdown that contains an
-inline `<script>` yields its js too (bounded by a depth
-cap). Only per-file orchestration — the plaintext fallback
-and host-presence trace — is not re-run per block.
-
-### External plugins
-
-Every language registers through the `rbtr.languages`
-entry-point group, and every language is a separate
-`rbtr-lang-*` distribution — core declares none of its own. Eight
-are required dependencies of `rbtr`, so they arrive with it; the
-rest are extras. See the README for a step-by-step guide to
-writing a plugin.
-
-The entry-point *value* resolves to a module-level
-`LanguageRegistration`, named by its language id
-(`my_pkg.plugin:swift`, where `swift = LanguageRegistration(...)`).
-The manager (`rbtr.languages.LanguageManager`) collects them via
-`importlib.metadata.entry_points`; a duplicate language id raises,
-and a plugin whose module fails to import is logged and skipped.
-
-### Plugin → core contract
-
-A plugin (built-in or external `rbtr-lang-*` package) depends
-on a small, stable surface of core symbols. This is the
-contract that survives packaging each language as its own
-distribution:
-
-- `rbtr.languages.registration` — `LanguageRegistration`,
-  `ModuleStyle`, the wrap-override resolver type aliases
-  (`NameResolver` / `ScopeResolver` / `ImportResolver`), and the
-  capture/import helpers `collect_scoped_path`,
-  `enclosing_nodes_of_type`, `build_quoted_import`,
-  `parse_path_relative`, and `load_query` (loads a plugin's co-located
-  `.scm` query as package data). (Overrides receive the built-in resolver
-  as their wrap `resolver` argument and delegate to it, so plugins never
-  import the built-ins; those built-ins live in the private
-  `rbtr.languages._resolvers`.)
-- `rbtr.domain.models` — `Chunk`, `ChunkKind`, `ImportMeta`. A chunk's
-  `id` is a property over its own fields, so a plugin yields chunks and
-  never computes an identity.
-- `rbtr.languages.chunks` — `chunk_plaintext`, and `last_line`,
-  which turns a tree-sitter end point into the 1-based last line a
-  node occupies. The query engine and every chunker share it, so a
-  span means the same thing in every language.
-
-One dependency crosses *between* plugins rather than to core:
-scss and less import `css_nesting_scope` from the css plugin
-(CSS-family nesting behaviour). That is a legitimate
-plugin-to-plugin dependency, not part of the core contract.
-
-### Sample fixtures
-
-Each plugin owns its samples, beside its code:
-`src/rbtr_lang_<id>/tests/samples/` holds a small example project
-exercising the constructs that plugin extracts. They are both
-worked examples of extraction and golden-tested fixtures.
-
-A plugin's `test_samples.py` runs the real per-file entry point
-(`rbtr.languages.extract.extract_file`) over the sample tree and
-compares the result against a committed snapshot under
-`__snapshots__/`, so any drift in extraction output turns the
-test red. The `snapshot_json` fixture that serialises chunks to
-canonical JSON ships with core's pytest plugin
-(`rbtr.testing`), so a plugin needs no `conftest.py`.
-
-Regenerate every plugin's snapshots after an intended extraction
-change with `just snapshots`, and review the diff before
-committing.
-
-The samples are exempt from the repo's linters and
-type-checker — they are fixtures, validated by their own
-tests rather than held to product-code standards.
-
-## Garbage collection
-
-`indexed_snapshots` is the authority. Data without a matching
-row is orphan. Both operations live on `WriteSession`:
-
-- `drop_snapshot` — removes all trace of a commit
-  (indexed_snapshots row, snapshots, edges, orphaned chunks).
-- `cleanup` — removes residue from crashed builds
-  (snapshots/edges for uncommitted commits) and stale data
-  (chunks not referenced by any snapshot, edges whose
-  commit has no snapshots).
-
-Because chunks are content-addressed and **shared by a project's
-checkouts**, the orphan sweep is a reference count over the
-project's file: a chunk is deleted only when **no** `file_snapshots`
-row of **any** of its checkouts references its blob. Dropping a
-commit (or a whole checkout) that shared content with another
-checkout leaves the shared chunks intact until the last referencing
-snapshot is gone. Consequently the chunk count in `GcCounts` is a
-per-project figure, not a per-repo one. Content two projects hold
-is a copy in each file, collected in each on its own.
-
-This sweep rests on **a chunk entering only for a blob somebody
-claims**. `WriteSession._commit` counts the `(blob_sha,
-file_language)` pairs the session stored chunks for, and rolls back
-when any of them has no `file_snapshots` row in the file. An
-unreferenced chunk is therefore one whose claims were removed later,
-never a half-written build, so the sweep cannot take chunks another
-checkout still needs. The check keys on the blob rather than on
-writing a claim in the same session, which is what lets one
-re-extraction re-chunk a blob for every checkout sharing it.
-
-**Compaction.** Deleting rows does not shrink a DuckDB file — the
-freed space is kept inside it for reuse, so a file only ever grows.
-To hand that space back, `gc` finishes by rewriting each project
-file it collected: `Index.compact` switches the project to a
-fresh copy, search index included (see
-[Index files](#index-files)), so search keeps working without a
-rebuild.
-
-The switch either commits or leaves the old file live, and the row
-deletions are already durable by then, so an interrupted or failed
-rewrite leaves the index correct — just not smaller. `gc` logs the
-failure and carries on; `--no-compact` skips the rewrite entirely.
-The size `gc` reports counts live files only, not the old ones
-waiting out `retire_delay_s`.
-
-Both modes rewrite the same way: standalone, `rbtr gc` owns the
-database (`handle_gc(..., allow_compact=True)`); in the daemon gc
-takes `_write_sem` like every write, and searches keep running
-throughout (see [Concurrency model](#concurrency-model)).
-
-The keep-set depends on the `GcMode`. The **default** is
-`WATCHED`: keep HEAD, every local branch / tag / note,
-**and** every resolved [watched ref](#watched-refs) (the
-current worktree tree is always protected). So a routine
-`rbtr gc` only drops genuinely unreferenced snapshots — it
-never discards anything a branch points at or that you
-asked to keep indexed. `WATCHED_ONLY` keeps just HEAD plus
-the watch set, dropping unwatched branches/tags — the opt-in
-way to reclaim refs you no longer index. `HEAD_ONLY`,
-`KEEP`, and `ORPHANS` are the other explicit modes. Each
-names a different keep-set, so the CLI refuses two at once
-rather than resolving them by precedence. If a mode drops a
-still-watched snapshot, the watcher rebuilds it on the next
-poll (self-healing); an unwatched ref is rebuilt when
-somebody asks to read it. Collection never edits the watch set
-itself — that is `rbtr unwatch`'s job — so a thorough tidy trims
-first and collects second.
-
-GC is **per-repo by default**; `rbtr gc --scope all` reclaims across
-**every** registered repo at once (`GcAllRequest` ⇒ `run_gc_all`
-loops `run_gc` over `repos()`), and each repo's sweep reclaims
-the chunks no surviving snapshot of its project references.
-Globally it takes **`WATCHED` or `WATCHED_ONLY`** — the retentions
-stated in a repo's own terms, so every repo keeps at least its HEAD and
-its watch set. `HEAD_ONLY` and `KEEP` name one repo's refs and
-`ORPHANS` sweeps one repo's residue, so `GcAllRequest` cannot carry
-them. A repo is **skipped** when git cannot answer for it: a path
-that no longer resolves (never purged — forgetting it is a separate,
-explicit action; see below) or an unborn HEAD, which `run_gc` raises on
-and which must not end a pass over every other repo. Each repo is
-reported through `on_progress` as it is collected: inline, as a bar on
-stderr; from the daemon, as a `gc_progress` notification between
-`gc_started` and `gc_ended`, which is sent however gc ends. None of
-the three names a repo, since one gc covers many, and none touches a
-running build's progress.
-
-**Forgetting a repo** removes it entirely from the index, undoing what
-[registration](#repo-registration) set up (`Store.forget`).
-A project's last checkout takes the project with it: one registry
-transaction deletes both rows, and the project's file is retired and
-deleted. Another checkout's `watched_refs`, `indexed_snapshots`,
-`file_snapshots` and `edges` are deleted from the project's file in one
-transaction, then its `repos` row.
-That is **metadata-only**: it deliberately does not sweep chunks, so it
-reports no statistics; the chunks it orphans are reclaimed by the next
-GC (or build cleanup), keeping removal cheap and uniform with ref
-removal.
-
-`rbtr forget` forgets the current repo, but only when HEAD is its sole
-watched ref; `rbtr forget --stale` forgets every repo whose stored path
-no longer resolves. The latter is **daemon-driven enumeration**, not a
-per-path request: a removed checkout's path cannot be normalised into a
-request, which is why it is a request of its own —
-`ForgetStaleRequest` carries no path, and
-`rbtr.index.watch.forget_stale_repos` walks `repos()` and forgets
-the unresolvable ones.
-
-Its sibling `remove_stale_refs` answers the other
-question — which of a *live* repo's watched refs git still resolves, in
-one repo or in all of them — and leaves a vanished repo alone, since git
-cannot answer for it. The two are separate commands over separate state,
-so each runs in its own request and its own sessions.
-
-Outside [maintenance](#maintenance), forgetting is **explicit**:
-`poll_watched` skips a vanished path rather than purging it, since the
-absence may be transient (an unmounted volume). The wire surface is a dedicated
-`ForgetRequest`/`ForgetResponse` (the response carries only the
-forgotten paths), kept separate from the reclamation-shaped
-`GcResponse`.
-
-### Maintenance
-
-When the daemon's worker has had no job for `maintenance_idle_s`
-(10 min), and at most every `maintenance_interval_s` (6 h), the
-daemon runs `run_maintenance` under `_write_sem`. In order, it:
-
-1. stops watching refs git no longer resolves (`remove_stale_refs`);
-2. forgets checkouts whose path has been gone for `forget_after_s`
-   (3 h): `repos.missing_since` records the first pass that found a
-   path gone, and is cleared when the path is back;
-3. collects every repo in `WATCHED` mode (`run_gc_all`);
-4. compacts each project file grown past `compact_growth_ratio` (2)
-   times its `compacted_bytes`.
-
-Each step removes only what `rbtr unwatch --stale`, `rbtr forget
---stale`, `rbtr gc --scope all` and `rbtr gc --compact` would. A pass
-is published as a gc (`gc_started`, `gc_progress` per repo,
-`gc_ended`), which clients already show, and logged as
-`maintenance_started` and `maintenance_finished` with what it
-removed. The same task deletes the files compactions replaced, every
-idle poll, once `retire_delay_s` has passed.
-
-## Working-tree indexing
-
-Working-tree indexing extends the commit pipeline to staged,
-unstaged, and untracked changes, so searches reflect the user's
-current edits. The unit of work is no longer only a commit: the
-working tree is indexed as its own git tree SHA.
-
-### Identity: tree SHAs
-
-The working tree's identity is a git tree SHA computed by
-`worktree_tree_sha(repo_path, max_untracked_files=...)` in
-`rbtr.git`:
-
-```python
-repo.index.read()  # load on-disk index
-for path, flags in changes.items():  # each path git status lists
-    if flags & FileStatus.WT_DELETED:
-        repo.index.remove(path)
-    elif flags != FileStatus.INDEX_DELETED:
-        repo.index.add(path)  # stage it in memory
-tree_sha = str(repo.index.write_tree())  # write tree object
-repo.index.read()  # reset (no side effects on disk)
-```
-
-This produces a real git tree object that includes all
-committed files plus working-tree modifications (staged,
-unstaged, untracked, deleted). When git lists more than
-`max_untracked_files` untracked files, only the tracked changes
-are staged, and `rbtr status` reports the count. A repository
-nested in the working tree, which git lists as one `dir/`
-entry, is left out. Properties:
-
-- **Deterministic.** Same file contents → same tree SHA.
-- **Content-sensitive.** Any edit changes the SHA.
-- **Clean tree = HEAD tree.** `worktree_tree_sha` returns
-  `None` when the tree SHA equals HEAD's tree SHA.
-- **Blobs are persisted.** Staging writes blob objects
-  to `.git/objects`, so `list_files` can walk the tree
-  directly — the same code path as commit trees.
-
-Tree SHAs never collide with commit SHAs (different git
-object types), so they coexist safely in `indexed_snapshots`.
-
-Describing an indexed SHA back to the user — `status` naming a
-worktree snapshot rather than printing a hash — tests the SHAs
-already in hand with `is_tree_sha`, which reads. It does not
-recompute `worktree_tree_sha`, which would write a tree and a
-blob per changed file into the repository being described.
-
-### What a worktree build writes
-
-The working tree is indexed under its tree SHA in the
-same schema as commits — no sentinel, no special columns.
-
-When a worktree build runs, the store receives:
-
-- **`file_snapshots`** with `snapshot_sha = <tree_sha>`.
-  One row per file in the working tree. Each row's
-  `blob_sha` is the git blob hash written by staging
-  (dirty files) or the committed blob SHA (clean files).
-- **`chunks`** are content-addressed and carry no `repo_id`
-  (see [Data model](#data-model)). Because `id` includes the
-  `blob_sha`, a dirty file produces different chunk IDs from the
-  committed version of the same file, even when symbol name and
-  position are identical.
-- **`edges`** with `snapshot_sha = <tree_sha>`.
-- **`indexed_snapshots`** with `snapshot_sha = <tree_sha>`.
-
-Queries scope results through `file_snapshots` exactly as for
-commits ([Snapshot resolution](#snapshot-resolution)) — the join is
-on `blob_sha + file_language`, with the repo scope *and the path*
-coming from the snapshot, never the chunk:
-
-```sql
-FROM chunks c
-JOIN file_snapshots fs
-  ON c.blob_sha = fs.blob_sha
-  AND c.file_language = fs.detected_language
-WHERE fs.repo_id = $repo_id AND fs.snapshot_sha = $snapshot_sha
-```
-
-When `$snapshot_sha` is a tree SHA, the join resolves to
-the working-tree snapshots. When it's a commit SHA, the
-join resolves to committed blobs. The same chunk row can
-be visible through both paths if the file hasn't changed.
-
-### What is shared, what is duplicated
-
-**Shared (not duplicated):**
-
-- **Chunks for clean files.** A file that hasn't changed
-  has the same `blob_sha` in both HEAD and worktree
-  snapshots. The `file_snapshots` rows differ (different
-  `snapshot_sha`) but point at the same chunks. No chunk
-  rows are duplicated.
-- **Embeddings.** Since clean files share chunk rows,
-  their embeddings are shared too. A dirty file's new
-  chunks start with `embedding IS NULL` and are embedded
-  in a subsequent pass.
-
-**Duplicated (per tree SHA):**
-
-- **`file_snapshots`** — one full set per tree SHA.
-  `replace_snapshots` deletes old snapshots for that SHA
-  and inserts the current set.
-- **`edges`** — one full set per tree SHA.
-- **`indexed_snapshots`** — one row per tree SHA.
-
-**New content-addressed rows (per dirty blob, not per repo):**
-
-- **Chunks for dirty files.** A modified file has a new
-  `blob_sha`, so its chunks get new content-addressed IDs
-  distinct from the committed version's. Both sets coexist —
-  HEAD snapshots point at the committed chunks, worktree
-  snapshots at the dirty ones. These rows are still shared:
-  any other checkout of the project holding the same dirty
-  blob reaches the very same chunks (nothing is duplicated per
-  checkout).
-
-### Build lifecycle
-
-`build_index(repo_path, tree_sha, store, ...)` runs the
-same pipeline as a commit build, preceded by registering
-the repo — and since `repo_path` canonicalises to the
-worktree's own directory, a linked worktree registers as a
-repo of its own:
-
-1. **Extract** — `list_files(repo_path, tree_sha)` walks
-   the tree object directly (same as commit trees). Each
-   file gets a `FileEntry` with `blob_sha` from the tree.
-   The `blob_is_current` check skips files whose blob SHA already
-   has chunks in the store.
-2. **Edges** — inferred from the worktree's chunk set.
-3. **Finalise** — `mark_indexed(repo_id, tree_sha)`,
-   cleanup orphans.
-4. **Embed** — deferred, same as commits.
-
-Because `blob_is_current` works on content identity (blob SHA),
-a rebuild where nothing changed skips all files.
-
-### Staleness detection
-
-`has_indexed`, asked about the worktree's tree SHA, is the
-staleness check — the same mechanism as commits. When the user edits a file,
-`worktree_tree_sha` returns a different SHA,
-`has_indexed` misses, and a rebuild is triggered. When
-the same content is polled again, `has_indexed` hits and
-the rebuild is skipped.
-
-### Lifecycle scenarios
-
-The daemon's watcher drives the worktree lifecycle. On
-each poll cycle:
-
-- `poll_watched()` resolves each watched ref (HEAD is the
-  default) and checks `indexed_snapshots`.
-- `pending_builds()` calls both, in that order, and is what
-  the watcher and the embed worker use.
-- `poll_worktree()` computes `worktree_tree_sha` and
-  checks `has_indexed`. It writes no index rows, but computing
-  the SHA writes git objects into the repository being polled:
-  a tree, plus a blob for each changed file whose content git
-  does not already hold. No ref reaches them, so `git gc` may
-  prune them at any time — which is why neither cleanup nor
-  labelling may ask git to look one up again.
-
-#### Dirty repo (first edit)
-
-```text
-State: HEAD=abc123 indexed. User edits foo.py.
-
-poll_worktree → worktree_tree_sha = tree_A (≠ HEAD tree)
-             → has_indexed(tree_A) = False
-             → returns DirtyWorktree(tree_sha=tree_A)
-
-_find_next_job → BuildJob(refs=(tree_A,))
-build_index(tree_A):
-  list_files(tree_A) → walks tree object
-  foo.py: dirty blob_sha → blob_is_current miss → extract
-  other files: same blob_sha as HEAD → skip
-  replace_snapshots(tree_A), replace_edges(tree_A)
-  mark_indexed(tree_A)
-
-Next poll: worktree_tree_sha = tree_A (same edit)
-         → has_indexed(tree_A) = True → skip
-```
-
-Every later edit repeats this against a new tree SHA, and each
-build ends by calling `_drop_stale_worktree_shas`, which drops
-any indexed tree SHA that is not the one just built — so at
-most one worktree snapshot survives per repo.
-
-The two scenarios below are the ones that do not follow from
-that; the [rules](#rules) cover the rest.
-
-#### New commit while still dirty
-
-```text
-State: HEAD=abc123, tree_A indexed. User commits → HEAD=def456.
-
-poll_watched → WatchedTarget(ref=HEAD, sha=def456)
-_find_next_job → BuildJob(refs=(def456,))  # watched refs first
-
-build_index(def456) completes.
-_drop_stale_worktree_shas → drops tree_A.
-
-Next poll: worktree_tree_sha = tree_C (against new HEAD)
-         → has_indexed(tree_C) = False → rebuild
-```
-
-#### Clean tree, worktree lingering
-
-```text
-State: tree_A indexed. User runs `git checkout .`.
-
-poll_worktree → worktree_tree_sha = None → skip.
-tree_A row lingers in indexed_snapshots but is inert:
-  resolve_read_ref(None) computes worktree_tree_sha (None)
-  → falls back to HEAD.
-
-tree_A is cleaned up by:
-  - The next build (commit or worktree) via _drop_stale_worktree_shas
-  - GC (tree SHAs are not reachable from any ref)
-```
-
-### Rules
-
-1. **`has_indexed(tree_sha)` is the staleness check.**
-   Same mechanism as commits. No fingerprint, no
-   in-memory state.
-2. **The watcher is read-only.** All writes go through
-   `WriteSession`, under `_write_sem`.
-3. **Stale worktree SHAs are cleaned eagerly.** After each
-   build, `_drop_stale_worktree_shas` scans
-   `indexed_snapshots` and drops any indexed SHA that is not a
-   commit and is not the one just built. The cleanup asks whether
-   a SHA *is not a commit*, rather than whether it is a tree,
-   so a row whose object git has already pruned is still
-   dropped. Labelling asks the opposite question, because the
-   two tolerate different mistakes: dropping a SHA that names
-   nothing is harmless, calling it a worktree is a lie.
-4. **GC protects the current tree SHA.** `_resolve_drop_set`
-   calls `worktree_tree_sha` and excludes it. Stale tree
-   SHAs are included in the drop set (not reachable from
-   any ref).
-5. **Watched-ref builds have priority over worktree
-   builds.** `pending_builds()` checks `poll_watched()`
-   before `poll_worktree()`.
-6. **A build makes an embed job stand aside.** The embed
-   worker calls `pending_builds()` between batches and
-   returns if one is due; the remainder is re-derived (see
-   [Standing aside](#standing-aside)).
-7. **A linked worktree is a separate repo.** Its path
-   canonicalises to its own directory rather than the main
-   checkout's, so it gets its own `repos` row, watch set,
-   `file_snapshots`, `edges`, `indexed_snapshots` and HEAD,
-   and is built and collected independently. Any path inside
-   it — a subdirectory, or the trailing-slash form `pygit2`
-   reports — leads back to that same directory, so one
-   checkout is always one repo. The two share only `chunks`,
-   by content — see [What is shared, what is
-   duplicated](#what-is-shared-what-is-duplicated).
-
 ## Design decisions
+
+### Git and extraction
+
+**pygit2 over git CLI.** A build reads every blob in a tree.
+Through the CLI that is a subprocess per object, and the cost
+is process spawn rather than I/O. pygit2 reads the object
+store directly, so walking a tree and fetching blobs stays
+in-process, and the working-tree tree SHA
+([Identity: tree SHAs](#identity-tree-shas)) can be computed by
+building an index in memory and writing a tree object — no
+staging area is touched, which a CLI-based equivalent could
+not promise. The cost is a compiled dependency with its own
+libgit2 version skew, paid at install time rather than per
+build.
+
+**Staging one path at a time, not `add_all`.** `add_all` compares
+each changed file through a memory map, and a file that shrinks
+while it is mapped kills the process with SIGBUS, which nothing in
+Python can catch: a daemon dies this way mid-snapshot, with
+nothing logged. With a writer truncating a changed file, `add_all`
+crashed within 60 s; staging each path git status lists ran 12,674
+snapshots in 60 s without a crash, and was no slower (290–371 ms
+against 324–644 ms for 1,100 changed files). The errors it raises
+instead, for a file that changes mid-read, skip that poll's snapshot.
+
+**A cap on untracked files.** Staging a file for the working-tree
+snapshot reads, hashes and compresses it, on every watcher poll
+while the tree is dirty, and indexing drops oversized and binary
+files only after that. Without a cap, untracked data, caches and
+nested checkouts are re-read every poll and never indexed: on a
+checkout where git listed 6,749 untracked files, among them a
+10 GiB database, that was 29 MiB/s of reads while the daemon was
+idle. Counting what git's status already lists needs no file
+access, and new work stays well below the cap, so it is indexed
+before `git add`.
+
+**Entry-point registry for language plugins.** Languages are
+discovered from the `rbtr.languages` entry-point group via
+`importlib.metadata`, each resolving to a `LanguageRegistration`.
+No hook framework (pluggy): the domain is single-dispatch by
+language id, where a plain registry is simpler and a
+multi-dispatch hook loop buys nothing (YAGNI).
+
+**Suffix-match import resolution.** Absolute/dotted
+imports resolve by matching the module path as a suffix
+of candidate file paths, not by per-repo module-root
+configuration. This supports monorepos transparently;
+genuinely ambiguous matches are dropped rather than
+guessed.
+
+**Standalone comments as their own `COMMENT` kind.** A comment
+that isn't a symbol's documentation — a banner, licence header,
+section note, or module docstring — is indexed as its own chunk
+rather than dropped, so its text is searchable even before a
+reader knows the symbol names. It gets a dedicated kind, not
+`DOC_SECTION` (which is structured prose that participates in doc
+edges), ranked at 0.5: genuine natural-language signal, but below
+structured prose because a comment is rarely the thing you
+navigate *to*. Capture is query-driven — a per-grammar `@comment`
+capture, like every other construct — rather than a bespoke engine
+tree-walk, so one extraction model covers every language. The cost
+is that tree-sitter cannot see blank lines, so grouping comment
+runs into blocks is one small post-pass in the engine.
+
+### Storage
 
 **DuckDB over SQLite.** Three channels have to run over one
 store. SQLite gives BM25 through FTS5, but not the other two:
@@ -2083,48 +2148,6 @@ migration — hence the wipe-and-rebuild policy in
 [Versioning](#versioning) — and one writer at a time. Both are
 acceptable for derived data with a single writing daemon.
 Revisit if the index ever needs concurrent writers.
-
-**pygit2 over git CLI.** A build reads every blob in a tree.
-Through the CLI that is a subprocess per object, and the cost
-is process spawn rather than I/O. pygit2 reads the object
-store directly, so walking a tree and fetching blobs stays
-in-process, and the working-tree tree SHA
-([Identity: tree SHAs](#identity-tree-shas)) can be computed by
-building an index in memory and writing a tree object — no
-staging area is touched, which a CLI-based equivalent could
-not promise. The cost is a compiled dependency with its own
-libgit2 version skew, paid at install time rather than per
-build.
-
-**Entry-point registry for language plugins.** Languages are
-discovered from the `rbtr.languages` entry-point group via
-`importlib.metadata`, each resolving to a `LanguageRegistration`.
-No hook framework (pluggy): the domain is single-dispatch by
-language id, where a plain registry is simpler and a
-multi-dispatch hook loop buys nothing (YAGNI).
-
-**Embedding completeness is counted.** Whether a snapshot is fully
-embedded is derived, by counting the chunks it reaches and the
-subset of those carrying an `embedding`. The counts are grouped, so
-one pass over the embedding column answers for every snapshot in a
-repo, and the cost follows the size of the column rather than the
-number of snapshots asked about.
-
-A denormalised `embedded` column on `indexed_snapshots` would make
-it a lookup. It loses on correctness, not speed: every write path
-that sets or clears an embedding would have to maintain it, and
-"flag says embedded, column is NULL" becomes a state the schema
-admits. Revisit if one grouped pass grows to dominate a status
-request.
-
-**No foreign keys.** The data tables cannot reference `repos`:
-they live in other files. `repos.project_id` could reference
-`projects`, but DuckDB rejects an `UPDATE` of a referenced row
-whose indexed column changes, and switching a project to a new file
-updates `projects.file`; it also rejects `ON DELETE CASCADE`
-outright. The mappings are inexpensive to keep correct in code: the
-store inserts a project in the registry transaction that registers
-its first checkout, and deletes it in the one that forgets its last.
 
 **One data file per project, named by a registry.** Deleting rows
 never shrinks a DuckDB file, so reclaiming space means writing the
@@ -2182,6 +2205,15 @@ would still need `SnapshotRef`s, giving a snapshot two names. Revisit
 if a second storage backend arrives: a port at the store's boundary
 would then pay for itself.
 
+**No foreign keys.** The data tables cannot reference `repos`:
+they live in other files. `repos.project_id` could reference
+`projects`, but DuckDB rejects an `UPDATE` of a referenced row
+whose indexed column changes, and switching a project to a new file
+updates `projects.file`; it also rejects `ON DELETE CASCADE`
+outright. The mappings are inexpensive to keep correct in code: the
+store inserts a project in the registry transaction that registers
+its first checkout, and deletes it in the one that forgets its last.
+
 **`build_index` canonicalises paths; store lookups do not.**
 `find_repo` and `repo` match a path exactly as it
 was stored. That is what lets a deleted checkout still be
@@ -2191,51 +2223,19 @@ recorded when it was registered. Canonicalising inside the
 lookups would leave a vanished checkout's rows in the database
 with no way left to name them.
 
-**pydantic-settings for CLI + config.** Every setting has to
-be reachable three ways — `config.toml`, a `RBTR_` environment
-variable, and a command-line flag — with a documented
-precedence between them. Written by hand that is three parsers
-and a merge; here the `Config` model *is* all three, so a new
-field gains a flag, an env var and a TOML key at once, and
-`rbtr config` renders the merged result from the same object.
-The cost is that the CLI's `--help` is generated from field
-names and types, so flag naming is not free to diverge from
-the config schema.
+**Embedding completeness is counted.** Whether a snapshot is fully
+embedded is derived, by counting the chunks it reaches and the
+subset of those carrying an `embedding`. The counts are grouped, so
+one pass over the embedding column answers for every snapshot in a
+repo, and the cost follows the size of the column rather than the
+number of snapshots asked about.
 
-**ZMQ for the daemon.** The transport needs
-request/response for queries and fan-out for build progress,
-over a local socket, with clients that come and go. HTTP gives
-the first and needs polling, SSE or websockets bolted on for
-the second, plus a port to allocate and defend. ZMQ has both
-patterns natively over IPC — REP for queries, PUB for
-progress — and its SUB sockets reconnect on their own, which
-is what lets a pi session survive a daemon restart without
-re-discovering an endpoint (see
-[Daemon protocol](#daemon-protocol)). The cost is a
-hand-rolled message contract; `messages.py` and
-`just schema-check` exist to keep it honest.
-
-**structlog through one stdlib sink.** Application code uses
-structlog, but the renderer is a `ProcessorFormatter` on a single
-stdlib handler so third-party `logging` output is captured and
-formatted identically. A pure `WriteLoggerFactory` was rejected:
-third-party libraries still log via stdlib, so capturing them would
-need a second handler writing the same file. See [Observability](#observability).
-
-**Watched refs over hardcoded HEAD tracking.** The daemon
-derives builds from a durable `watched_refs` table rather
-than a hardcoded HEAD poll: this keeps the “derive work from
-DB + git” design (no in-memory queue), survives restart, and
-lets review run against arbitrary refs, with HEAD as the
-default entry. GC follows suit — `rbtr gc` defaults to
-keeping HEAD, local branches/tags, and the watch set, so it
-never discards anything reachable from a branch
-(`--keep watched-only` opts into reclaiming unwatched branches).
-See [Watched refs](#watched-refs).
-
-**Exact cosine over approximate NN.** Exact recall
-outweighs marginal latency. Revisit when query latency is
-measured as a bottleneck.
+A denormalised `embedded` column on `indexed_snapshots` would make
+it a lookup. It loses on correctness, not speed: every write path
+that sets or clears an embedding would have to maintain it, and
+"flag says embedded, column is NULL" becomes a state the schema
+admits. Revisit if one grouped pass grows to dominate a status
+request.
 
 **A fixed DuckDB memory limit, not DuckDB's default.** DuckDB's
 default limit is 80% of RAM, and it treats that limit as a cache:
@@ -2262,35 +2262,11 @@ documented minimum per thread; the thread count barely moved the
 footprint, and half the cores was faster than either a quarter or
 all of them.
 
-**A request across every repo is a kind of its own.** `search_all`,
-`status_all`, `gc_all`, `unwatch_stale_all` and `forget_stale` carry
-nothing of one repo. A `scope` field on the single-repo requests
-does not work: it needs a path the every-repo handlers never read,
-so `--scope all` would fail outside a git repository, and it lets a
-`ref` or a single-repo gc mode ride along unread. The CLI
-keeps its `--scope` flag and pi its `scope` argument; each picks the
-request kind.
+### Search
 
-**Staging one path at a time, not `add_all`.** `add_all` compares
-each changed file through a memory map, and a file that shrinks
-while it is mapped kills the process with SIGBUS, which nothing in
-Python can catch: a daemon dies this way mid-snapshot, with
-nothing logged. With a writer truncating a changed file, `add_all`
-crashed within 60 s; staging each path git status lists ran 12,674
-snapshots in 60 s without a crash, and was no slower (290–371 ms
-against 324–644 ms for 1,100 changed files). The errors it raises
-instead, for a file that changes mid-read, skip that poll's snapshot.
-
-**A cap on untracked files.** Staging a file for the working-tree
-snapshot reads, hashes and compresses it, on every watcher poll
-while the tree is dirty, and indexing drops oversized and binary
-files only after that. Without a cap, untracked data, caches and
-nested checkouts are re-read every poll and never indexed: on a
-checkout where git listed 6,749 untracked files, among them a
-10 GiB database, that was 29 MiB/s of reads while the daemon was
-idle. Counting what git's status already lists needs no file
-access, and new work stays well below the cap, so it is indexed
-before `git add`.
+**Exact cosine over approximate NN.** Exact recall
+outweighs marginal latency. Revisit when query latency is
+measured as a bottleneck.
 
 **Client-supplied query expansion over static rules.**
 Query expansion (synonym keywords and variant phrasings)
@@ -2313,26 +2289,58 @@ two seconds at p50. Current figures are in
 regenerated by each eval run — not repeated here, where they
 would go stale silently.
 
-**Suffix-match import resolution.** Absolute/dotted
-imports resolve by matching the module path as a suffix
-of candidate file paths, not by per-repo module-root
-configuration. This supports monorepos transparently;
-genuinely ambiguous matches are dropped rather than
-guessed.
+### Daemon and interface
 
-**Standalone comments as their own `COMMENT` kind.** A comment
-that isn't a symbol's documentation — a banner, licence header,
-section note, or module docstring — is indexed as its own chunk
-rather than dropped, so its text is searchable even before a
-reader knows the symbol names. It gets a dedicated kind, not
-`DOC_SECTION` (which is structured prose that participates in doc
-edges), ranked at 0.5: genuine natural-language signal, but below
-structured prose because a comment is rarely the thing you
-navigate *to*. Capture is query-driven — a per-grammar `@comment`
-capture, like every other construct — rather than a bespoke engine
-tree-walk, so one extraction model covers every language. The cost
-is that tree-sitter cannot see blank lines, so grouping comment
-runs into blocks is one small post-pass in the engine.
+**ZMQ for the daemon.** The transport needs
+request/response for queries and fan-out for build progress,
+over a local socket, with clients that come and go. HTTP gives
+the first and needs polling, SSE or websockets bolted on for
+the second, plus a port to allocate and defend. ZMQ has both
+patterns natively over IPC — REP for queries, PUB for
+progress — and its SUB sockets reconnect on their own, which
+is what lets a pi session survive a daemon restart without
+re-discovering an endpoint (see
+[Daemon protocol](#daemon-protocol)). The cost is a
+hand-rolled message contract; `messages.py` and
+`just schema-check` exist to keep it honest.
+
+**Watched refs over hardcoded HEAD tracking.** The daemon
+derives builds from a durable `watched_refs` table rather
+than a hardcoded HEAD poll: this keeps the “derive work from
+DB + git” design (no in-memory queue), survives restart, and
+lets review run against arbitrary refs, with HEAD as the
+default entry. GC follows suit — `rbtr gc` defaults to
+keeping HEAD, local branches/tags, and the watch set, so it
+never discards anything reachable from a branch
+(`--keep watched-only` opts into reclaiming unwatched branches).
+See [Watched refs](#watched-refs).
+
+**A request across every repo is a kind of its own.** `search_all`,
+`status_all`, `gc_all`, `unwatch_stale_all` and `forget_stale` carry
+nothing of one repo. A `scope` field on the single-repo requests
+does not work: it needs a path the every-repo handlers never read,
+so `--scope all` would fail outside a git repository, and it lets a
+`ref` or a single-repo gc mode ride along unread. The CLI
+keeps its `--scope` flag and pi its `scope` argument; each picks the
+request kind.
+
+**pydantic-settings for CLI + config.** Every setting has to
+be reachable three ways — `config.toml`, a `RBTR_` environment
+variable, and a command-line flag — with a documented
+precedence between them. Written by hand that is three parsers
+and a merge; here the `Config` model *is* all three, so a new
+field gains a flag, an env var and a TOML key at once, and
+`rbtr config` renders the merged result from the same object.
+The cost is that the CLI's `--help` is generated from field
+names and types, so flag naming is not free to diverge from
+the config schema.
+
+**structlog through one stdlib sink.** Application code uses
+structlog, but the renderer is a `ProcessorFormatter` on a single
+stdlib handler so third-party `logging` output is captured and
+formatted identically. A pure `WriteLoggerFactory` was rejected:
+third-party libraries still log via stdlib, so capturing them would
+need a second handler writing the same file. See [Observability](#observability).
 
 ## Testing
 
