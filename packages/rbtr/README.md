@@ -777,7 +777,7 @@ def go_module_prefix(text: str) -> tuple[tuple[str, str], ...]:
 ```
 
 Add a case to `test_import_resolution.py` for the language: two real files
-in a subdirectory, one referencing the other, asserting the edge lands.
+in a subdirectory, one referencing the other, asserting the edge is recorded.
 Nested because two files at the repository root cannot tell a reference to
 a sibling from a reference from the root.
 

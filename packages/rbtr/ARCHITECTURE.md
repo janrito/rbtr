@@ -22,7 +22,7 @@ A build walks a git tree. Each file is matched to a language
 and, unless its bytes have been chunked already, handed to
 that language's plugin, which returns chunks — named spans of
 source, each with a kind, a scope, and a line range. The
-chunks go into a DuckDB file; an edge pass infers imports and
+chunks go into the project's DuckDB file; an edge pass infers imports and
 doc links between them; a later, lower-priority pass embeds
 them.
 
@@ -47,14 +47,22 @@ layering is a DAG enforced by import-linter (run in
 `just lint`), so boundary drift fails the build instead
 of relying on convention.
 
-Inside `index` the imports point one way too, and import-linter
-checks that as well: `refs.py` imports `index.py`, which imports
-`store.py` and `writer.py`, which import `db.py`. Only `Index`
-imports `Store` and `WriteSession`, so every read and write goes
-through it.
-
 ![The layers: cli, daemon, index, languages and domain, each importing
 only from those below it](docs/diagrams/components.png)
+
+Inside `index` the imports point one way too, and import-linter
+checks that as well. `Index` (`index.py`) is the index's API: the
+reads, and the sessions that write. It owns a `Store` (`store.py`),
+which holds the connection, the registry and every change to it, the
+attached files, the routing and the per-thread cursors, and which
+nothing else imports; `Index` hands registry changes to it.
+`WriteSession` writes a repo's rows. `refs.py` decides which
+snapshot a read means, and `search` takes an index and ranks what
+it returns. An index created with `writable=False` (the default)
+rejects `session`, `register`, `forget` and `compact`.
+
+![The index's code: callers use refs.py and Index; Index has a
+Store and creates WriteSessions](docs/diagrams/index-code.png)
 
 ### Chunk and symbol
 
@@ -74,7 +82,7 @@ persistence detail on the way out — see
    with tree-sitter grammars get structural extraction;
    everything else gets line-based chunking.
 2. **Local and offline.** Embeddings run on-device (GGUF on
-   Metal/CPU). The index is a DuckDB file. No API calls.
+   Metal/CPU). The index is a set of DuckDB files. No API calls.
 3. **Incremental.** Builds are keyed by git blob SHA, and
    chunks are content-addressed: only changed files are
    re-extracted, embeddings persist, and byte-identical content
@@ -152,7 +160,7 @@ produce different IDs the upsert can't reconcile):
   (`language=""`), then a plugin registered for its extension,
   has no chunk in the new language → miss → re-extract. Prose
   (Markdown/RST) is detected by extension or content sniff and
-  persisted on the snapshot, so the gate sees its real
+  persisted on the snapshot, so the dedup check sees its real
   language and dedups normally.
 - **A plugin's extraction serial bumped.** Chunks stored at the
   old serial no longer match the map → re-extract.
@@ -176,7 +184,7 @@ embedded language, so such a file dedups like any other: a
 bump to *any* contributor (the host or a delegated language)
 re-extracts it, and an unchanged file is skipped.
 
-Language is resolved once per file before the gate, in order:
+Language is resolved once per file before the dedup check, in order:
 file extension → the `detected_language` recorded on an earlier
 `file_snapshots` row for that path (`get_snapshot_language`) →
 a prose content-sniff for never-seen files. Persisting the
@@ -186,38 +194,28 @@ and the needless re-extraction — on every subsequent build.
 
 ### Write path
 
-A repo's rows are written through a `WriteSession`, obtained
-via `Index.session(repo)`; every row it writes belongs to that
-repo. The session is a context manager:
+A repo's rows are written through a `WriteSession`, obtained via
+`Index.session(repo)`. The session is a context manager:
 
-- `__enter__`: begins a transaction on the cursor the index
+- `__enter__`: begins a transaction on the cursor the store
   gave it.
 - `__exit__`: flushes buffered chunks, commits the
   transaction, and rebuilds the FTS index if chunks
   were modified. Rolls back on exception.
 
-The reads a write depends on (`blob_is_current`,
-`get_snapshot_language`) are on the session too, so they see
-what its transaction has written and deleted. A build's last
-session runs `ws.cleanup()`, which deletes its repo's residue from
-builds that stopped part-way and the chunks no snapshot claims any
-more.
+A build's last session runs `ws.cleanup()`, which deletes its
+repo's residue from builds that stopped part-way and the chunks no
+snapshot claims any more.
 
-`Index` owns the reads, and hands `register`, `forget` and
-`compact` to its `Store` (`index/store.py`), which holds the
-connection, the registry and every change to it, the attached
-files, the routing and each thread's cursors (see
-[Index files](#index-files)). `search`
-takes an index and ranks what it returns. An index created
-with `writable=False` (the default) rejects `session`,
-`register`, `forget` and `compact`.
+![A write session: writes and the reads inside a write go through
+one session, which holds one cursor and one repo](docs/diagrams/write-session.png)
 
-The build pipeline registers the repo, then opens one
-session per phase: extract → edges → finalise →
-(separate) embed. Registering the repo first (see
-[Repo registration](#repo-registration)) means a crash part-way
-through leaves an empty `repos` row, rather than indexed rows
-that nothing can find.
+A build registers the repo first, in a registry transaction (see
+[Repo registration](#repo-registration)), so a crash part-way
+through leaves an empty `repos` row rather than indexed rows that
+nothing can find. It then opens one session for each of its three
+transactions: extraction, edges, and finishing. Embedding is a
+separate job.
 
 Embedding is deferred and lower-priority. After
 indexing completes, the daemon submits an `EmbedJob`
@@ -243,7 +241,7 @@ The tree-sitter path — the most common case. The build loop calls
 (`rbtr.languages.treesitter`); that call chain:
 
 ![The tree-sitter extraction call flow, from the build loop through
-LanguageManager and Index to extract_symbols](docs/diagrams/extraction.png)
+LanguageManager and the write session to extract_symbols](docs/diagrams/extraction.png)
 
 ## Data model
 
@@ -291,7 +289,7 @@ the registry names it.
 ![Inside one project's file: chunks shared by the project, and each
 checkout's rows and snapshots](docs/diagrams/project-file.png)
 
-`Index` connects once, to an in-memory DuckDB instance with the
+`Store` connects once, to an in-memory DuckDB instance with the
 configured memory limit and threads, and attaches the registry and
 every live project file to it. Holding the registry is owning the
 index. DuckDB's lock on the file keeps other processes out, and its
@@ -307,10 +305,8 @@ each change ends by reloading the copy, which also retires any file
 the registry stopped naming. The copy is reloaded rather than edited
 in step with each transaction, so the two cannot disagree.
 
-There is one instance, not one per project: the memory and thread caps
-hold for the whole daemon only when every file shares them, compaction's
-`COPY FROM DATABASE` needs the old and the new file attached to the same
-instance, and DuckDB attaches a file once per process.
+One instance holds every file;
+[Design decisions](#design-decisions) explains why.
 
 ![One DuckDB, many files: the daemon's one instance attaches the registry
 and every project's file](docs/diagrams/index-instance.png)
@@ -381,13 +377,13 @@ The link between `repos` and the tables that reference it is maintained in
 code rather than declared as a foreign key;
 [Design decisions](#design-decisions) explains why.
 
+### Record identity
+
 The tables and their keys. `projects` and `repos` are in the registry;
 the others are in each project's file:
 
 ![The index data model: the registry's meta, projects and repos, and a
 project file's tables, with the joins between them](docs/diagrams/data-model.png)
-
-### Record identity
 
 | Table               | Natural key                                                                                                                                                                                               |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -552,9 +548,11 @@ refuses to open the index (`IndexSchemaTooNewError`), changing
 nothing.
 
 A fourth invalidation axis lives outside `meta`, per chunk:
-`chunks.extraction_serial`. It is not a global
-compatibility key — it scopes the blob-dedup gate so a plugin
-can invalidate only its own stale extractions (see
+`chunks.extraction_serial`, the extraction serial of the chunk's
+*own* `language`. For a multi-language file a delegated TypeScript
+chunk carries TypeScript's serial, not the host svelte plugin's.
+Its only reader is the blob-dedup check, so a plugin can invalidate
+only its own stale extractions (see
 [Content-addressed chunks and blob dedup](#content-addressed-chunks-and-blob-dedup)),
 without the rebuild a `schema_version` bump forces.
 
@@ -578,19 +576,11 @@ with it.
 
 `chunks` carries two: a span ends on or after the line it
 starts on, and truncation describes an embedding that exists.
-Both arrived with a `schema_version` bump for that reason.
+Every index has both, because an index built without them has an
+older `schema_version` and is replaced on open.
 
 rbtr declares no foreign keys; see
 [Design decisions](#design-decisions).
-
-`extraction_serial` is a per-chunk column, not a `meta`
-key: each chunk stamps the extraction serial of *its own*
-`language`. For single-language files this equals the host
-file's serial; for a multi-language file a delegated
-TypeScript chunk carries TypeScript's serial, not the host
-svelte plugin's. Its only reader is the `blob_is_current` dedup
-gate; see [Content-addressed chunks and blob
-dedup](#content-addressed-chunks-and-blob-dedup).
 
 ## Daemon
 
@@ -671,8 +661,8 @@ single source the watcher derives builds from;
   whose SHA is not in `indexed_snapshots`, de-duplicated by
   `(repo, sha)`.
 - On startup, `_backfill_head_watches` seeds a `HEAD` watch
-  for every already-registered repo, so HEAD tracking
-  survives the upgrade from the previous HEAD-only poll.
+  for every registered repo that lacks one, so every repo
+  tracks HEAD.
 - A build that raises publishes `index_error`, and the
   daemon keeps its snapshot in memory as failed:
   `pending_builds` skips it, so it is neither retried on
@@ -689,37 +679,9 @@ are reclaimed by [garbage collection](#garbage-collection),
 which is why forgetting a repo reports no statistics.
 
 A pass covering several repos opens one write session per
-repo rather than one spanning all of them. A repo is the
-consistency boundary: a session per repo keeps an unrelated
-repo's rows out of the transaction, and both operations are
+repo, since a session writes for one repo. Both operations are
 idempotent, so a pass interrupted part-way is finished by
 running it again.
-
-Requests and responses are pydantic models discriminated on
-a `kind` field (`messages.py`). The daemon writes a status
-file to `runtime_dir` on startup; `DaemonClient` reads it
-to connect. That file is a model too (`DaemonStatus`), read
-through pydantic like any other message: unknown fields are
-ignored, so an older client still finds a newer daemon's
-endpoints, and a missing or malformed file reads as no
-daemon.
-
-`StatusResponse` is the most complex response. Under
-workspace scope, `repo_path` is the repository's normalised
-root, even when nothing in it is indexed, so a client in a
-subdirectory or behind a symlink learns what its paths are
-relative to. Per-ref
-state is grouped in `IndexedRef` (sha, symbolic names,
-chunk count, embed completeness) — a single list rather
-than parallel maps. `active_build` and `active_embed`
-share the same `ActiveJob` type; the field name
-distinguishes them. Both are filtered to the requested
-repo so a status query never leaks activity from
-unrelated repos. Text renderers (CLI, TUI, LLM) derive
-output solely from the response model — never from
-external state like config. `watched` lists the repo's
-watch set (each `WatchedRef` carries the resolved sha and
-whether it is indexed yet).
 
 ### Concurrency model
 
@@ -760,11 +722,8 @@ not the writing. duckdb 1.5.6 does not show the fault with or
 without the import; the import stays because the guide asks for
 it.
 
-Compaction never swaps the connection. It copies a project's
-file into a fresh one and switches the registry to the copy;
-reads already running finish on the old file, so a `gc`
-rewrite never blocks or cuts off an in-flight search (see
-[Index files](#index-files)).
+A compaction cuts off no read: reads already running finish
+on the old file (see [Index files](#index-files)).
 
 [ddb-threads]: https://duckdb.org/docs/current/guides/python/multiple_threads
 
@@ -938,6 +897,30 @@ Two ZMQ sockets, both bound in `runtime_dir`:
 Messages are JSON, discriminated on a `kind` field. Every
 request has a `kind`; every response echoes it or returns
 `kind: "error"`.
+
+Requests and responses are pydantic models (`messages.py`).
+The daemon writes a status file to `runtime_dir` on startup;
+`DaemonClient` reads it to connect. That file is a model too (`DaemonStatus`), read
+through pydantic like any other message: unknown fields are
+ignored, so an older client still finds a newer daemon's
+endpoints, and a missing or malformed file reads as no
+daemon.
+
+`StatusResponse` is the most complex response. For one
+repo (`status`), `repo_path` is the repository's normalised
+root, even when nothing in it is indexed, so a client in a
+subdirectory or behind a symlink learns what its paths are
+relative to. Per-ref state is grouped in `IndexedRef` (sha, symbolic names,
+chunk count, embed completeness) — a single list rather
+than parallel maps. `active_build` and `active_embed`
+share the same `ActiveJob` type; the field name
+distinguishes them. Both are filtered to the requested
+repo so a status query never leaks activity from
+unrelated repos. Text renderers (CLI, TUI, LLM) derive
+output solely from the response model — never from
+external state like config. `watched` lists the repo's
+watch set (each `WatchedRef` carries the resolved sha and
+whether it is indexed yet).
 
 Five notification kinds go out on PUB: `progress` during a
 build, `ready` when a snapshot is indexed, `embed_ended`
@@ -1434,7 +1417,7 @@ automatically contribute.
 Word count alone routes any structured name long enough to
 split — a CSS selector, a dot-joined path — down the concept
 path, where it gets variant rephrasings that dilute the exact
-lexical signal it needed. The gate costs a fraction of true
+lexical signal it needed. The density threshold costs a fraction of true
 concept queries and removes most of that misrouting; the
 [eval](../rbtr-eval/README.md) has the measured trade.
 
@@ -1516,15 +1499,11 @@ INSERT or DELETE.
 Each project file has its own FTS index, made with the file over
 its still empty `chunks` table, so every file has one.
 
-**Write path** (build, GC): uses `index.session(repo)`,
-which yields a `WriteSession` on the project's file, writing
-for that repo — the exclusive write surface for its rows. On
-clean exit it commits the transaction and, if chunks were
-modified, rebuilds that file's FTS index (with
-`overwrite = 1`, atomic drop + create). On exception it
-rolls back. Making a file and this are the only paths that
-write FTS DDL; a compaction copies the index with the rest
-of the file.
+**Write path** (build, GC): a [write session](#write-path) that
+modified chunks rebuilds its file's FTS index after it commits
+(`overwrite = 1`, an atomic drop and create). Making a file and
+this are the only paths that write FTS DDL; a compaction copies
+the index with the rest of the file.
 
 **Read path** (search): queries the existing persisted
 index. Never rebuilds.
@@ -1587,7 +1566,7 @@ order:
    file's detected language, a content-less host-presence
    chunk is appended (see
    [Content-addressed chunks and blob dedup](#content-addressed-chunks-and-blob-dedup))
-   so the blob-dedup gate can skip the file on later builds.
+   so the blob-dedup check can skip the file on later builds.
 
 **We author our own injection queries** rather than reuse a
 grammar's shipped `injections.scm`, which over-matches — a
@@ -1727,9 +1706,9 @@ The size `gc` reports counts live files only, not the old ones
 waiting out `retire_delay_s`.
 
 Both modes rewrite the same way: standalone, `rbtr gc` owns the
-database (`handle_gc(..., allow_compact=True)`); in the daemon the
-rewrite is lock-free, so live searches keep running throughout (see
-[Concurrency model](#concurrency-model)).
+database (`handle_gc(..., allow_compact=True)`); in the daemon gc
+takes `_write_sem` like every write, and searches keep running
+throughout (see [Concurrency model](#concurrency-model)).
 
 The keep-set depends on the `GcMode`. The **default** is
 `WATCHED`: keep HEAD, every local branch / tag / note,
@@ -1778,6 +1757,7 @@ That is **metadata-only**: it deliberately does not sweep chunks, so it
 reports no statistics; the chunks it orphans are reclaimed by the next
 GC (or build cleanup), keeping removal cheap and uniform with ref
 removal.
+
 `rbtr forget` forgets the current repo, but only when HEAD is its sole
 watched ref; `rbtr forget --stale` forgets every repo whose stored path
 no longer resolves. The latter is **daemon-driven enumeration**, not a
@@ -1785,12 +1765,15 @@ per-path request: a removed checkout's path cannot be normalised into a
 request, which is why it is a request of its own —
 `ForgetStaleRequest` carries no path, and
 `rbtr.index.watch.forget_stale_repos` walks `repos()` and forgets
-the unresolvable ones. Its sibling `remove_stale_refs` answers the other
+the unresolvable ones.
+
+Its sibling `remove_stale_refs` answers the other
 question — which of a *live* repo's watched refs git still resolves, in
 one repo or in all of them — and leaves a vanished repo alone, since git
 cannot answer for it. The two are separate commands over separate state,
 so each runs in its own request and its own sessions.
-Outside [maintenance](#maintenance), forgetting is **explicit** —
+
+Outside [maintenance](#maintenance), forgetting is **explicit**:
 `poll_watched` skips a vanished path rather than purging it, since the
 absence may be transient (an unmounted volume). The wire surface is a dedicated
 `ForgetRequest`/`ForgetResponse` (the response carries only the
@@ -1949,7 +1932,7 @@ repo of its own:
 1. **Extract** — `list_files(repo_path, tree_sha)` walks
    the tree object directly (same as commit trees). Each
    file gets a `FileEntry` with `blob_sha` from the tree.
-   The `blob_is_current` gate skips files whose blob SHA already
+   The `blob_is_current` check skips files whose blob SHA already
    has chunks in the store.
 2. **Edges** — inferred from the worktree's chunk set.
 3. **Finalise** — `mark_indexed(repo_id, tree_sha)`,
@@ -2012,7 +1995,7 @@ any indexed tree SHA that is not the one just built — so at
 most one worktree snapshot survives per repo.
 
 The two scenarios below are the ones that do not follow from
-that; the [invariants](#invariants) cover the rest.
+that; the [rules](#rules) cover the rest.
 
 #### New commit while still dirty
 
@@ -2044,17 +2027,17 @@ tree_A is cleaned up by:
   - GC (tree SHAs are not reachable from any ref)
 ```
 
-### Invariants
+### Rules
 
 1. **`has_indexed(tree_sha)` is the staleness check.**
    Same mechanism as commits. No fingerprint, no
    in-memory state.
 2. **The watcher is read-only.** All writes go through
-   `WriteSession` on the job worker thread.
+   `WriteSession`, under `_write_sem`.
 3. **Stale worktree SHAs are cleaned eagerly.** After each
    build, `_drop_stale_worktree_shas` scans
    `indexed_snapshots` and drops any indexed SHA that is not a
-   commit and is not the one just built. The gate asks whether
+   commit and is not the one just built. The cleanup asks whether
    a SHA *is not a commit*, rather than whether it is a tree,
    so a row whose object git has already pruned is still
    dropped. Labelling asks the opposite question, because the
@@ -2120,17 +2103,6 @@ No hook framework (pluggy): the domain is single-dispatch by
 language id, where a plain registry is simpler and a
 multi-dispatch hook loop buys nothing (YAGNI).
 
-**Indexing a path registers it; collecting one does not.**
-Registering a repo is not a user action of its own — only
-`index` and `watch` add a `repos` row — so `build_index`
-inserts it rather than expecting the caller to have done so
-first. `run_gc` and search behave the other way round and fail
-on a path with no row, since a repo that was never indexed has
-nothing to collect or search. Neither takes a `repo_id`
-argument; both work it out from the path, so a caller cannot
-pair an id with a path it does not belong to. See
-[Repo registration](#repo-registration).
-
 **Embedding completeness is counted.** Whether a snapshot is fully
 embedded is derived, by counting the chunks it reaches and the
 subset of those carrying an `embedding`. The counts are grouped, so
@@ -2157,15 +2129,15 @@ its first checkout, and deletes it in the one that forgets its last.
 **One data file per project, named by a registry.** Deleting rows
 never shrinks a DuckDB file, so reclaiming space means writing the
 live data into a new file and using that one instead. Renaming a
-compacted copy over the open index lost writes after a crash: the
-adopted connection kept writing its WAL under the copy's old name,
-which the next open did not look for, and a crash could replay the
-old WAL's committed inserts onto the compacted file (2,000 rows for
-1,000 primary keys in the reproduction). Switching which file a
+compacted copy over the open index loses writes after a crash: a
+connection adopted after the rename goes on writing its WAL under
+the copy's old name, which the next open does not look for, and a
+crash can replay the old WAL's committed inserts onto the compacted
+file (2,000 rows for 1,000 primary keys in the reproduction). Switching which file a
 registry names never renames an open file.
 
 One data file named by the registry would get the same switch, but
-searches at today's speed. On a 13-repo, 304,278-chunk index
+search is slower in it. On a 13-repo, 304,278-chunk index
 compacted into one file, the database part of a one-repo search
 took 2.74 s against 1.26 s on the repo's own file, and a 13-repo
 search 2.85 s against 1.69 s with the 13 files read at once.
@@ -2188,6 +2160,27 @@ the project would be wanted by the old file and the new at once
 during a switch. Revisit if DuckDB gains a way to vacuum a file in
 place: one file would then need neither the registry nor the
 switch.
+
+**One store; scope is a value; a session holds its repo.**
+Callers name what they read by value: a `Repo` from the registry,
+`repo.at(sha)` for one snapshot, a list of `SnapshotRef`s for a
+search. The store routes each to its file. A `WriteSession` is bound
+to one file and one repo: a DuckDB transaction writes one file, and a
+session that took a repo with every write could file rows under a
+repo of another project.
+
+Two other shapes were considered and rejected. A store, or a DuckDB
+instance, per repo or per project breaks four things: the memory and
+thread caps cover the daemon only when one instance holds every file,
+compaction's `COPY FROM DATABASE` needs the old and new file in the
+same instance, DuckDB attaches a file once per process, and a
+cross-repo search reads every file from one pool of threads. A handle
+object per repo is scoped to the wrong thing: the file, the
+transaction, blob dedup and compaction belong to the project, so the
+handle's `compact` would rewrite its sibling checkouts too, and search
+would still need `SnapshotRef`s, giving a snapshot two names. Revisit
+if a second storage backend arrives: a port at the store's boundary
+would then pay for itself.
 
 **`build_index` canonicalises paths; store lookups do not.**
 `find_repo` and `repo` match a path exactly as it
@@ -2270,18 +2263,18 @@ footprint, and half the cores was faster than either a quarter or
 all of them.
 
 **A request across every repo is a kind of its own.** `search_all`,
-`status_all`, `gc_all` and `unwatch_stale_all` carry nothing of one
-repo, as `forget_stale` already did. A `scope` field on the
-single-repo requests needed a path that the every-repo handlers
-never read, so `--scope all` failed outside a git repository, and it
-let a `ref` or a single-repo gc mode ride along unread. The CLI
+`status_all`, `gc_all`, `unwatch_stale_all` and `forget_stale` carry
+nothing of one repo. A `scope` field on the single-repo requests
+does not work: it needs a path the every-repo handlers never read,
+so `--scope all` would fail outside a git repository, and it lets a
+`ref` or a single-repo gc mode ride along unread. The CLI
 keeps its `--scope` flag and pi its `scope` argument; each picks the
 request kind.
 
 **Staging one path at a time, not `add_all`.** `add_all` compares
 each changed file through a memory map, and a file that shrinks
 while it is mapped kills the process with SIGBUS, which nothing in
-Python can catch: the daemon died this way, mid-snapshot, with
+Python can catch: a daemon dies this way mid-snapshot, with
 nothing logged. With a writer truncating a changed file, `add_all`
 crashed within 60 s; staging each path git status lists ran 12,674
 snapshots in 60 s without a crash, and was no slower (290–371 ms
