@@ -132,7 +132,7 @@ or co-located clones share `.git` object SHAs, so their blobs
 and chunk `id`s coincide, and the existing chunks are reused —
 no re-parsing, no re-embedding.
 
-The build checks `index.blob_is_current(blob_sha, language,
+The build checks `session.blob_is_current(blob_sha, language,
 serials)` before extracting a file, where `language` is the
 file's detected host language and `serials` is the current
 `{language: extraction serial}` registry map (plus `""` for
@@ -186,26 +186,33 @@ and the needless re-extraction — on every subsequent build.
 
 ### Write path
 
-All mutations go through `WriteSession`, obtained via
-`Index.session()`. The session is a context manager:
+A repo's rows are written through a `WriteSession`, obtained
+via `Index.session(repo)`; every row it writes belongs to that
+repo. The session is a context manager:
 
-- `__enter__`: bootstraps the schema on first use,
-  begins a transaction.
+- `__enter__`: begins a transaction on the cursor the index
+  gave it.
 - `__exit__`: flushes buffered chunks, commits the
   transaction, and rebuilds the FTS index if chunks
   were modified. Rolls back on exception.
 
-Sweep is explicit: `ws.sweep()` removes residue from
-crashed builds.
+The reads a write depends on (`blob_is_current`,
+`get_snapshot_language`) are on the session too, so they see
+what its transaction has written and deleted. A build's last
+session runs `ws.cleanup()`, which deletes its repo's residue from
+builds that stopped part-way and the chunks no snapshot claims any
+more.
 
-`Index` owns the connection and the reads; `search`
-takes a store and ranks what it returns. `WriteSession`
-owns all data mutations. A store created with
-`writable=False` (the default) rejects `session()` calls.
+`Index` owns the connection, the schema, the reads, and the
+writes that are not one repo's rows: `register`, `forget`
+and `compact`. `search` takes an index and ranks what it
+returns. An index created with `writable=False` (the
+default) rejects `session`, `register`, `forget` and
+`compact`.
 
-The build pipeline opens one session per phase:
-register → extract → edges → finalise → (separate) embed.
-Registering the repo first (see
+The build pipeline registers the repo, then opens one
+session per phase: extract → edges → finalise →
+(separate) embed. Registering the repo first (see
 [Repo registration](#repo-registration)) means a crash part-way
 through leaves an empty `repos` row, rather than indexed rows
 that nothing can find.
@@ -237,15 +244,15 @@ The tree-sitter path — the most common case. The build loop calls
 sequenceDiagram
     participant O as build loop
     participant M as LanguageManager
-    participant S as Index
+    participant W as WriteSession
     participant T as languages.treesitter
 
     O->>M: detect_language(path)
     M-->>O: lang_id (else stored detected_language / prose sniff)
     O->>M: get_registration(lang_id)
     M-->>O: reg (extraction: QueryExtraction, resolve_* overrides, id, plugin_version, ...)
-    O->>S: blob_is_current(sha, language, serials)
-    S-->>O: hit then skip; miss then delete_chunks_for_blobs(sha) and extract
+    O->>W: blob_is_current(sha, language, serials)
+    W-->>O: hit then skip; miss then delete_chunks_for_blobs(sha) and extract
     O->>M: load_grammar(lang_id)
     M-->>O: grammar
     O->>T: extract_symbols(reg, path, sha, content, grammar)
@@ -284,8 +291,8 @@ id with the checkout's absolute path. **Registering** a repo means adding
 that row.
 
 In code a repo is a `Repo` value, its id and path together, and the
-registry hands them out (a session's `register_repo`, and `repo`,
-`find_repo` and `repos` on the index). Every method about one repo takes
+registry hands them out (`register`, `repo`, `find_repo` and
+`repos` on the index). Every method about one repo takes
 one, and `repo.at(sha)` names one of its snapshots, so an id and a path
 cannot be paired wrongly.
 
@@ -873,8 +880,10 @@ describes.
 
 ### Crash recovery
 
-**Indexing:** `WriteSession.sweep` deletes data
-for snapshots never `mark_indexed`. On next startup the
+**Indexing:** `WriteSession.cleanup`, at the end of the repo's
+next build or gc, deletes the rows of its snapshots never
+`mark_indexed`. A build of a snapshot a failed build left reuses its
+complete chunks and replaces its rows. On next startup the
 watcher re-derives any un-indexed watched ref (HEAD is
 one) and re-triggers the build; startup also runs
 `_backfill_head_watches` (a `WriteSession` write, like
@@ -1478,7 +1487,7 @@ The persisted index survives connection close + reopen and
 is queryable immediately. It does **not** auto-update after
 INSERT or DELETE.
 
-**Write path** (build, GC): uses `index.session()`, which
+**Write path** (build, GC): uses `index.session(repo)`, which
 yields a `WriteSession` — the exclusive write surface.
 All mutations go through the session. On clean exit it
 commits the transaction and, if chunks were modified,
@@ -1673,7 +1682,7 @@ re-extraction re-chunk a blob for every repo sharing it.
 **Compaction.** Deleting rows does not shrink the database file — the
 freed space is kept inside it for reuse, so the file only ever grows.
 To hand that space back, `gc` finishes by rewriting the database:
-`WriteSession.compact` copies the live data, search index included,
+`Index.compact` copies the live data, search index included,
 into a temporary sibling file and atomically renames it over the
 original, so search keeps working without a rebuild.
 
@@ -1725,7 +1734,7 @@ running build's progress.
 
 **Forgetting a repo** removes it entirely from the index — its
 `watched_refs`, `indexed_snapshots`, `file_snapshots`, `edges`, and the
-`repos` row, in one transaction (`WriteSession.forget_repo`) — undoing
+`repos` row, in one transaction (`Index.forget`) — undoing
 what [registration](#repo-registration) set up. It is
 **metadata-only**: it deliberately does not sweep chunks, so it reports
 no statistics; the now-orphaned chunks are reclaimed by the next GC (or
@@ -2079,12 +2088,10 @@ candidate for one, but DuckDB will not delete a row and its
 dependent rows in the same transaction, and rejects
 `ON DELETE CASCADE` outright — and removing a repo together
 with everything indexed under it, in one transaction, is
-exactly what `forget_repo` does. Declaring the key would mean
-splitting that deletion in two and either running both halves
-from the handlers or moving the deletion off `WriteSession`:
-giving up both atomic removal and the rule that every mutation
-goes through the write session. The mapping is inexpensive to
-keep correct in code, so it is kept there.
+exactly what `Index.forget` does. Declaring the key would mean
+splitting that deletion into two transactions, giving up atomic
+removal. The mapping is inexpensive to keep correct in code, so
+it is kept there.
 
 **`build_index` canonicalises paths; store lookups do not.**
 `find_repo` and `repo` match a path exactly as it

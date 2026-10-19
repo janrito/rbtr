@@ -196,3 +196,29 @@ def staged_embeddings(
     return pl.DataFrame(
         {"id": ids, "embedding": embeddings, "embedding_truncated": truncated}
     ).pipe(EmbeddingStagingRow.validate, cast=True)
+
+
+class SerialMapRow(dy.Schema):
+    """Backs the cursor-registered `_serial_map` join view.
+
+    Not an insert target: `blob_is_current` left-joins a blob's chunks against
+    this view to check every chunk is at its language's current
+    extraction serial. Maps language id -> current serial (the full
+    registry, plus `""` for plaintext). `extraction_serial` is `Int32` to
+    match the column on `chunks`.
+    """
+
+    language = dy.String(nullable=False)
+    extraction_serial = dy.Int32(nullable=False)
+
+
+def serial_map_view(serials: dict[str, int]) -> dy.DataFrame[SerialMapRow]:
+    """Build the `_serial_map` join view from a language -> serial map."""
+    if not serials:
+        return SerialMapRow.create_empty()
+    return pl.DataFrame(
+        {
+            "language": list(serials.keys()),
+            "extraction_serial": list(serials.values()),
+        }
+    ).pipe(SerialMapRow.validate, cast=True)

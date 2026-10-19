@@ -87,14 +87,14 @@ def seeded_index(
         if not spec.register:
             continue
         built = built_repos[spec.name]
-        with index.session() as ws:
-            repo = ws.register_repo(built.path)
+        repo = index.register(built.path)
+        with index.session(repo) as ws:
             marked_index = scenario.indexed_at.get(spec.name)
             if marked_index is not None:
-                ws.mark_indexed(at=repo.at(built.shas[marked_index]))
+                ws.mark_indexed(snapshot_sha=built.shas[marked_index])
             symbolic = scenario.watched.get(spec.name, [])
             bare = [built.shas[i] for i in scenario.watched_sha_at.get(spec.name, [])]
-            ws.add_watched_refs(repo, [*symbolic, *bare])
+            ws.add_watched_refs([*symbolic, *bare])
     return index
 
 
@@ -161,16 +161,16 @@ def wt_index(
     index: Index,
 ) -> Index:
     """Store with the repo registered and optionally tree-SHA-indexed."""
-    with index.session() as ws:
-        repo = ws.register_repo(wt_repo)
+    repo = index.register(wt_repo)
+    with index.session(repo) as ws:
         # Mark HEAD indexed (so poll() doesn't interfere).
         if wt_scenario.repo_exists:
             head_sha = pygit2.Repository(wt_repo).head.target
-            ws.mark_indexed(at=repo.at(str(head_sha)))
+            ws.mark_indexed(snapshot_sha=str(head_sha))
         if wt_scenario.tree_sha_indexed:
             tree_sha = worktree_tree_sha(wt_repo, max_untracked_files=config.max_untracked_files)
             if tree_sha is not None:
-                ws.mark_indexed(at=repo.at(tree_sha))
+                ws.mark_indexed(snapshot_sha=tree_sha)
     return index
 
 
@@ -203,10 +203,10 @@ def test_poll_watched_never_forgets_a_vanished_repo(
     **not** purged. Forgetting is always an explicit action — the daemon
     must never auto-reclaim, since the path may be transiently absent (an
     unmounted volume)."""
-    with index.session() as ws:
-        repo = ws.register_repo(fake_repo)
-        ws.mark_indexed(at=repo.at(daemon_commit))
-        ws.add_watched_refs(repo, ["HEAD"])
+    repo = index.register(fake_repo)
+    with index.session(repo) as ws:
+        ws.mark_indexed(snapshot_sha=daemon_commit)
+        ws.add_watched_refs(["HEAD"])
     registered_before = index.repos()
 
     shutil.rmtree(fake_repo)  # the checkout disappears
@@ -225,8 +225,7 @@ def test_rbtrs_own_data_inside_a_repo_leaves_it_clean(
     there does not make the repository due for another build."""
     index = Index.from_config(writable=True)
     try:
-        with index.session() as ws:
-            ws.register_repo(normalise_repo_path(git_repo.workdir))
+        index.register(normalise_repo_path(git_repo.workdir))
         assert poll_worktree(index) == []
     finally:
         index.close()

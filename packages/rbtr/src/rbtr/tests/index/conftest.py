@@ -107,7 +107,7 @@ def seed_index(index: Index, chunks: list[TokenisedChunk], ref: SnapshotRef) -> 
     per ref.  Passing the same chunk under two refs models content shared
     across worktrees or clones.
     """
-    with index.session() as ws:
+    with index.session(ref.repo) as ws:
         for c in chunks:
             ws.add_chunk(c)
         ws.insert_snapshots(
@@ -117,9 +117,8 @@ def seed_index(index: Index, chunks: list[TokenisedChunk], ref: SnapshotRef) -> 
                 )
                 for c in chunks
             ],
-            repo=ref.repo,
         )
-        ws.mark_indexed(at=ref)
+        ws.mark_indexed(snapshot_sha=ref.snapshot_sha)
 
 
 @pytest.fixture
@@ -130,9 +129,7 @@ def head_ref(index: Index) -> SnapshotRef:
     that exists.  The path is synthetic: these are store-level tests
     that never read git, and registration establishes identity.
     """
-    with index.session() as ws:
-        repo = ws.register_repo("/repo")
-    return repo.at("head")
+    return index.register("/repo").at("head")
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -156,14 +153,15 @@ def shared_chunk_index(index: Index, shared_chunk: TokenisedChunk) -> Index:
     same blob — mirroring the `blob_is_current` skip that happens when a
     second repo indexes already-chunked content.
     """
-    with index.session() as ws:
-        repo1 = ws.register_repo("/repo1")
-        repo2 = ws.register_repo("/repo2")
+    repo1 = index.register("/repo1")
+    repo2 = index.register("/repo2")
+    with index.session(repo1) as ws:
         ws.add_chunk(shared_chunk)
-        ws.insert_snapshots([make_snap("head", "x.py", "b_shared")], repo=repo1)
-        ws.insert_snapshots([make_snap("head", "x.py", "b_shared")], repo=repo2)
-        ws.mark_indexed(at=repo1.at("head"))
-        ws.mark_indexed(at=repo2.at("head"))
+        ws.insert_snapshots([make_snap("head", "x.py", "b_shared")])
+        ws.mark_indexed(snapshot_sha="head")
+    with index.session(repo2) as ws:
+        ws.insert_snapshots([make_snap("head", "x.py", "b_shared")])
+        ws.mark_indexed(snapshot_sha="head")
     return index
 
 
@@ -540,8 +538,8 @@ def ranking_index(
 ) -> Generator[Index]:
     """An in-memory Index pre-loaded with the ranking dataset."""
     index = Index(writable=True)
-    with index.session() as ws:
-        repo = ws.register_repo("/repo")
+    repo = index.register("/repo")
+    with index.session(repo) as ws:
         for c in ranking_chunks:
             tc = c if isinstance(c, TokenisedChunk) else TokenisedChunk(**c.model_dump())
             ws.add_chunk(tc)
@@ -552,9 +550,8 @@ def ranking_index(
                 )
                 for c in ranking_chunks
             ],
-            repo=repo,
         )
-        ws.insert_edges(ranking_edges, at=repo.at(ranking_commit))
+        ws.insert_edges(ranking_edges, snapshot_sha=ranking_commit)
     yield index
     index.close()
 

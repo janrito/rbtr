@@ -22,9 +22,9 @@ from rbtr.tests.conftest import run_cli
 def repo_with_stale_watch(fake_repo: str, isolated_db: Path) -> str:
     """A real repo whose watch set holds HEAD, main, and a deleted branch."""
     index = Index.from_config(writable=True)
-    with index.session() as ws:
-        repo = ws.register_repo(fake_repo)
-        ws.add_watched_refs(repo, ["HEAD", "main", "gone-branch"])
+    repo = index.register(fake_repo)
+    with index.session(repo) as ws:
+        ws.add_watched_refs(["HEAD", "main", "gone-branch"])
     index.close()
     return fake_repo
 
@@ -80,9 +80,9 @@ def second_repo_with_stale_watch(repo_with_stale_watch: str, second_repo: str) -
     """A second live repo with its own dead branch, beside
     `repo_with_stale_watch`."""
     index = Index.from_config(writable=True)
-    with index.session() as ws:
-        repo = ws.register_repo(second_repo)
-        ws.add_watched_refs(repo, ["HEAD", "deleted-branch"])
+    repo = index.register(second_repo)
+    with index.session(repo) as ws:
+        ws.add_watched_refs(["HEAD", "deleted-branch"])
     index.close()
     return second_repo
 
@@ -92,8 +92,7 @@ def vanished_repo(repo_with_stale_watch: str, tmp_path: Path) -> str:
     """A registered path that was never created on disk."""
     path = str(tmp_path / "gone")
     index = Index.from_config(writable=True)
-    with index.session() as ws:
-        ws.register_repo(path)
+    index.register(path)
     index.close()
     return path
 
@@ -143,9 +142,9 @@ def test_unwatch_dry_run_removes_nothing(
 def head_only_repo(fake_repo: str, isolated_db: Path) -> str:
     """A real repo registered with HEAD as its only watched ref."""
     index = Index.from_config(writable=True)
-    with index.session() as ws:
-        repo = ws.register_repo(fake_repo)
-        ws.add_watched_refs(repo, ["HEAD"])
+    repo = index.register(fake_repo)
+    with index.session(repo) as ws:
+        ws.add_watched_refs(["HEAD"])
     index.close()
     return fake_repo
 
@@ -166,8 +165,7 @@ def test_forget_stale_forgets_vanished_repos(tmp_path: Path, isolated_db: Path) 
     current repo of its own."""
     gone = str(tmp_path / "gone")  # never created on disk
     index = Index.from_config(writable=True)
-    with index.session() as ws:
-        ws.register_repo(gone)
+    index.register(gone)
     index.close()
 
     r = run_cli(["forget", "--stale", "--no-daemon"])

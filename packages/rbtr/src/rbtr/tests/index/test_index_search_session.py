@@ -78,8 +78,7 @@ def repo_one_ref(index: Index) -> SnapshotRef:
     query reaches both repos; the rest of the name is distinct, so a
     result says which repo it came from.
     """
-    with index.session() as ws:
-        repo = ws.register_repo("/repo_one")
+    repo = index.register("/repo_one")
     ref = repo.at("head")
     seed_index(index, [make_chunk("r1_a", name="alpha_func", path="a.py", blob="b_r1")], ref)
     return ref
@@ -88,8 +87,7 @@ def repo_one_ref(index: Index) -> SnapshotRef:
 @pytest.fixture
 def repo_two_ref(index: Index) -> SnapshotRef:
     """`/repo_two` at `head`, holding `beta_func` — see `repo_one_ref`."""
-    with index.session() as ws:
-        repo = ws.register_repo("/repo_two")
+    repo = index.register("/repo_two")
     ref = repo.at("head")
     seed_index(index, [make_chunk("r2_b", name="beta_func", path="b.py", blob="b_r2")], ref)
     return ref
@@ -125,7 +123,7 @@ def test_shared_chunk_found_via_semantic_from_both_repos(
     """A shared chunk's single embedding is reachable by semantic search from either repo."""
     index = shared_chunk_index
     repo1, repo2 = index.repos()
-    with index.session() as ws:
+    with index.session(repo1) as ws:
         ws.update_embeddings([shared_chunk.id], [[1.0, 0.0, 0.0, 0.0]])
     query_vec = [1.0, 0.0, 0.0, 0.0]
     r1 = index.similar_matches([query_vec], within=[repo1.at("head")], top_k=5)
@@ -177,7 +175,7 @@ def semantic_ref(index: Index, head_ref: SnapshotRef) -> SnapshotRef:
     seed_index(index, [close, far], head_ref)
     vec_close = [0.9, 0.1, 0.1, 0.1]
     vec_far = [0.3, 0.7, 0.7, 0.7]
-    with index.session() as ws:
+    with index.session(head_ref.repo) as ws:
         ws.update_embeddings([close.id, far.id], [vec_close, vec_far])
     return head_ref
 
@@ -225,7 +223,7 @@ def test_seeded_chunks_have_embedding_flag(index: Index, head_ref: SnapshotRef) 
     chunk = make_chunk("a")
     seed_index(index, [chunk], head_ref)
     vec = [0.5, 0.5, 0.5, 0.5]
-    with index.session() as ws:
+    with index.session(head_ref.repo) as ws:
         ws.update_embeddings([chunk.id], [vec])
     chunks = index.chunks(at=head_ref)
     assert chunks[0].has_embedding
@@ -261,7 +259,7 @@ def unified_ref(index: Index, head_ref: SnapshotRef) -> SnapshotRef:
         query="config",
     )
     seed_index(index, s.chunks, head_ref)
-    with index.session() as ws:
+    with index.session(head_ref.repo) as ws:
         ws.insert_edges(
             [
                 Edge(
@@ -272,7 +270,7 @@ def unified_ref(index: Index, head_ref: SnapshotRef) -> SnapshotRef:
                     target_path="src/a.py",
                 )
             ],
-            at=head_ref,
+            snapshot_sha=head_ref.snapshot_sha,
         )
     return head_ref
 

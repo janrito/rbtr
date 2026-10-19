@@ -21,9 +21,9 @@ class RepoSpec:
     """A repository to build for a watcher scenario.
 
     `commits == 0` means do not create a repo on disk — used to
-    exercise the path where `list_repos` returns a path the
+    exercise the path where `repos` returns a path the
     filesystem no longer has.
-    `register == False` means do not call `ws.register_repo`
+    `register == False` means do not call `index.register`
     on this repo; used to prove the watcher only considers
     registered repos.
     """

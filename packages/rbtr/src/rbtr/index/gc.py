@@ -25,9 +25,9 @@ HEAD_ONLY
 KEEP
     Keep the union of HEAD and the caller-supplied refs; drop rest.
 ORPHANS
-    Do not drop any indexed commits.  Only sweep residue from
-    crashed builds (`sweep_orphan_commits`, which also removes
-    orphaned chunks).
+    Do not drop any indexed commits.  Only clear the repo's residue
+    from builds that stopped part-way, and the chunks it orphans
+    (`WriteSession.cleanup`).
 """
 
 from __future__ import annotations
@@ -88,8 +88,7 @@ def run_gc_all(
         total = total + run_gc(index, repo.repo_path, mode=mode, refs=[], dry_run=dry_run)
         on_progress(repo.repo_path, collected, len(live))
     if compact and not dry_run:
-        with index.session() as session:
-            session.compact()
+        index.compact()
     return total, len(live)
 
 
@@ -144,14 +143,13 @@ def run_gc(
     # Real run: accumulate the *actual* deletions (commit drops + the
     # global orphan prune in `cleanup`), so the chunk figure is the true
     # reclamation — including orphans left by a forgotten repo.
-    with index.session() as session:
-        session.sweep()
+    with index.session(repo) as session:
         total = GcCounts()
         for sha in drop_set:
-            total = total + session.drop_snapshot(at=repo.at(sha))
-        total = total + session.cleanup(repo)
-        if compact:
-            session.compact()
+            total = total + session.drop_snapshot(snapshot_sha=sha)
+        total = total + session.cleanup()
+    if compact:
+        index.compact()
     return total
 
 
@@ -162,11 +160,10 @@ def _run_orphans_only(
         # ORPHANS dry-run is conservative: report zero rather than
         # adding a read-only counterpart to sweep_orphan_commits.
         return GcCounts()
-    with index.session() as session:
-        session.sweep()
-        total = session.cleanup(repo)
-        if compact:
-            session.compact()
+    with index.session(repo) as session:
+        total = session.cleanup()
+    if compact:
+        index.compact()
     return total
 
 

@@ -112,8 +112,8 @@ def channel_index(
         ("ch_greet", "src/greet.py", "greet", "def greet(name): return f'hello {name}'"),
         ("ch_parse", "src/parse.py", "parse_config", "def parse_config(path): return load(path)"),
     ]
-    with index.session() as ws:
-        repo = ws.register_repo(fake_repo)
+    repo = index.register(fake_repo)
+    with index.session(repo) as ws:
         chunks = [
             make_chunk(cid, name=name, content=content, path=path, blob=f"b_{cid}")
             for cid, path, name, content in specs
@@ -129,9 +129,8 @@ def channel_index(
                 FileSnapshot(snapshot_sha=sha, file_path=c.file_path, blob_sha=c.blob_sha)
                 for c in chunks
             ],
-            repo=repo,
         )
-        ws.mark_indexed(at=repo.at(sha))
+        ws.mark_indexed(snapshot_sha=sha)
     return index
 
 

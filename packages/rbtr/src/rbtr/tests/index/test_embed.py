@@ -185,7 +185,7 @@ def test_the_work_list_names_only_chunks_without_vectors(
 
     chunks = index.chunks(at=repo.at(snapshot_sha))
     first_chunk = chunks[0]
-    with index.session() as ws:
+    with index.session(repo) as ws:
         ws.update_embeddings([first_chunk.id], [[0.1, 0.2, 0.3]])
 
     outstanding = index.unembedded_chunk_ids(at=ref)

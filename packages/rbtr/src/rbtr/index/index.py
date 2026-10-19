@@ -15,15 +15,17 @@ which chunks belong to a given snapshot.
 ## Type architecture
 
 `Index` owns the DuckDB connection, thread-local cursor
-cache, FTS index, and all read methods.  Write operations
-live on `WriteSession` (in `writer.py`), obtained via
-`Index.session()`.  The session is a context manager
-that wraps all writes in a transaction: commit + FTS rebuild
+cache, FTS index, the registry changes, compaction, and all
+read methods.  The rows of one repo are written through a
+`WriteSession` (in `writer.py`), obtained via
+`Index.session(repo)`.  The session is a context manager
+that wraps its writes in a transaction: commit + FTS rebuild
 on clean exit, rollback on exception.
 
-The store defaults to read-only (`writable=False`).  Pass
-`writable=True` to enable `session()`.  This prevents
-accidental writes from search handlers.
+The index defaults to read-only (`writable=False`).  Pass
+`writable=True` to enable `session`, `register`, `forget`
+and `compact`.  This prevents accidental writes from search
+handlers.
 
 ## FTS rebuild contract
 
@@ -36,8 +38,8 @@ session that inserts chunks rebuilds it.
 ## Blob dedup and language-change invalidation
 
 See the "Blob dedup and language invalidation" section in
-`ARCHITECTURE.md` for the full flow.  `blob_is_current` gates
-extraction by `(blob_sha, file_language)` — the language the *file* was
+`ARCHITECTURE.md` for the full flow.  `WriteSession.blob_is_current`
+decides extraction by `(blob_sha, file_language)` — the language the *file* was
 read as, not a chunk's own, so an empty `.html` is still extracted after
 an identical empty `.py`.  The `blob_is_current`
 docstring documents the semantics and prose special case.
@@ -45,10 +47,12 @@ docstring documents the semantics and prose special case.
 
 from __future__ import annotations
 
+import os
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from uuid import uuid4
 
 import dataframely as dy
 import duckdb
@@ -79,7 +83,8 @@ from rbtr.errors import (
     RepoNotFoundError,
 )
 from rbtr.index import load_sql
-from rbtr.index.constants import SCHEMA_VERSION
+from rbtr.index.constants import EMBEDDING_FORMAT_VERSION, SCHEMA_VERSION
+from rbtr.index.db import registered_views
 from rbtr.index.results import (
     ChangedSymbolRow,
     ChunkContentRow,
@@ -95,7 +100,6 @@ from rbtr.index.results import (
     file_paths_view,
     frame_to_chunks,
     frame_to_snapshot_counts,
-    serial_map_view,
     snapshot_refs_view,
 )
 from rbtr.index.writer import WriteSession
@@ -114,7 +118,6 @@ _SEARCH_FULLTEXT_SQL = load_sql("search_fulltext.sql")
 _COUNT_ORPHAN_CHUNKS_SQL = load_sql("count_orphan_chunks.sql")
 _COUNT_GC_CHUNK_SPLIT_SQL = load_sql("count_gc_chunk_split.sql")
 _INBOUND_DEGREE_SQL = load_sql("inbound_degree.sql")
-_BLOB_IS_CURRENT_SQL = load_sql("blob_is_current.sql")
 _GET_SCHEMA_VERSION_SQL = load_sql("get_schema_version.sql")
 _GET_REPO_SQL = load_sql("get_repo.sql")
 _LIST_REPOS_SQL = load_sql("list_repos.sql")
@@ -126,13 +129,28 @@ _LIST_INDEXED_COMMITS_SQL = load_sql("list_indexed_snapshots.sql")
 _LIST_WATCHED_REFS_SQL = load_sql("list_watched_refs.sql")
 _COUNT_FILE_SNAPSHOTS_SQL = load_sql("count_file_snapshots.sql")
 _COUNT_EDGES_SQL = load_sql("count_edges.sql")
-_GET_SNAPSHOT_LANGUAGE_SQL = load_sql("get_snapshot_language.sql")
 _UNEMBEDDED_CHUNK_IDS_SQL = load_sql("unembedded_chunk_ids.sql")
 _GET_CHUNKS_BY_ID_SQL = load_sql("get_chunks_by_id.sql")
 _HAS_FTS_INDEX_SQL = load_sql("has_fts_index.sql")
 _DROP_FTS_INDEX_SQL = load_sql("drop_fts_index.sql")
 _WIPE_SCHEMA_SQL = load_sql("wipe_schema.sql")
 _DATA_SIZE_BYTES_SQL = load_sql("data_size_bytes.sql")
+_REGISTER_REPO_SQL = load_sql("register_repo.sql")
+_FORGET_REPO_SQL = load_sql("delete_repo.sql")
+# A repo's rows, deleted when it is forgotten.
+_FORGET_ROWS_SQL = [
+    load_sql("delete_snapshots_for_repo.sql"),
+    load_sql("delete_edges_for_repo.sql"),
+    load_sql("delete_indexed_snapshots_for_repo.sql"),
+    load_sql("delete_watched_refs_for_repo.sql"),
+]
+_SCHEMA_SQL = load_sql("schema.sql")
+_SET_SCHEMA_VERSION_SQL = load_sql("set_schema_version.sql")
+_GET_EMBEDDING_META_SQL = load_sql("get_embedding_meta.sql")
+_COUNT_EMBEDDINGS_SQL = load_sql("count_embeddings.sql")
+_CLEAR_ALL_EMBEDDINGS_SQL = load_sql("clear_all_embeddings.sql")
+_SET_EMBEDDING_VERSION_SQL = load_sql("set_embedding_version.sql")
+_SET_EMBEDDING_MODEL_SQL = load_sql("set_embedding_model.sql")
 
 
 # ── Row mapping ──────────────────────────────────────────────────────
@@ -158,8 +176,9 @@ class Index:
     """DuckDB-backed storage for the code index.
 
     Owns the DuckDB connection, thread-local cursor cache, FTS
-    index, and read methods.  Write operations live on
-    `WriteSession`, obtained via `session()`.
+    index, the registry changes, compaction, and read methods.
+    The rows of one repo are written through a `WriteSession`,
+    obtained via `session(repo)`.
 
     DuckDB connections are **not** thread-safe, but cursors
     obtained via `connection.cursor()` are isolated per-call.
@@ -170,7 +189,6 @@ class Index:
     def __init__(self, db_path: Path | str | None = None, *, writable: bool = False) -> None:
         self.db_path: str | None = str(db_path) if db_path else None
         self._writable = writable
-        self._bootstrapped = False
         self._repo_cache: dict[str, Repo] = {}
         if db_path is not None:
             own_dir(Path(db_path).parent)
@@ -197,8 +215,45 @@ class Index:
         if db_path is not None:
             self._enforce_schema_version()
         if writable:
-            with self.session():
-                pass  # schema DDL + embedding version check
+            self._bootstrap()
+
+    def _bootstrap(self) -> None:
+        """Create the schema and check the embedding version, in one transaction."""
+        cur = self._cursor
+        cur.begin()
+        cur.execute(_SCHEMA_SQL)
+        cur.execute(_SET_SCHEMA_VERSION_SQL, {"schema_version": str(SCHEMA_VERSION)})
+        self._check_embedding_version(cur)
+        cur.commit()
+
+    @staticmethod
+    def _check_embedding_version(cur: duckdb.DuckDBPyConnection) -> None:
+        """Clear embeddings if the format version or model changed."""
+        rows = cur.execute(_GET_EMBEDDING_META_SQL).fetchall()
+        stored: dict[str, str] = {str(r[0]): str(r[1]) for r in rows}
+
+        stored_version = stored.get("embedding_version", "")
+        stored_model = stored.get("embedding_model", "")
+        current_version = str(EMBEDDING_FORMAT_VERSION)
+        current_model = config.embedding_model
+
+        if stored_version == current_version and stored_model == current_model:
+            return
+
+        n = cur.execute(_COUNT_EMBEDDINGS_SQL).fetchone()
+        count = n[0] if n else 0
+        if count > 0:
+            log.warning(
+                "embedding_config_changed",
+                stored_model=stored_model or "<none>",
+                current_model=current_model,
+                stored_version=stored_version or "<none>",
+                current_version=current_version,
+                cleared=count,
+            )
+            cur.execute(_CLEAR_ALL_EMBEDDINGS_SQL)
+        cur.execute(_SET_EMBEDDING_VERSION_SQL, {"embedding_version": current_version})
+        cur.execute(_SET_EMBEDDING_MODEL_SQL, {"embedding_model": current_model})
 
     def _enforce_schema_version(self) -> None:
         """Keep, wipe, or refuse the open DB by its stored schema version.
@@ -274,29 +329,142 @@ class Index:
         alive for this read. It also replaces the register/try/finally/
         unregister boilerplate each such read would otherwise repeat.
         """
-        cur = self._cursor
-        for name, frame in frames.items():
-            cur.register(name, frame)
-        try:
+        with registered_views(self._cursor, **frames) as cur:
             yield cur
-        finally:
-            for name in frames:
-                cur.unregister(name)
 
-    def session(self) -> WriteSession:
-        """Create a `WriteSession` for use as a context manager.
+    def session(self, repo: Repo) -> WriteSession:
+        """Create a `WriteSession` writing for *repo*, on this thread's cursor.
 
         **Concurrency warning:** in the daemon, write sessions must
         only be opened from the job worker thread (serialised by
         `_write_sem`).  The watcher, RPC handlers, and embed
         preemption checks must be read-only.
 
-        Raises `RuntimeError` if the store was opened read-only.
+        Raises `RuntimeError` if the index was opened read-only.
         """
+        self._require_writable()
+        return WriteSession(self._cursor, repo)
+
+    def register(self, path: str) -> Repo:
+        """Register a repo path and return the repo.
+
+        Idempotent — returns the existing repo if already registered.
+        *path* must be canonical, since it is what identifies the repo:
+        two spellings of one checkout would become two repos.  Pass it
+        through `normalise_repo_path` first, as `build_index` does.
+        """
+        self._require_writable()
+        existing = self.find_repo(path)
+        if existing is not None:
+            return existing
+        row = self._cursor.execute(_REGISTER_REPO_SQL, {"path": path}).fetchall()
+        return Repo(repo_id=int(row[0][0]), repo_path=path)
+
+    def forget(self, repo: Repo) -> None:
+        """Delete a registered repo and every row it owns, in one transaction.
+
+        Its `file_snapshots`, `edges`, `indexed_snapshots` and
+        `watched_refs` go with its `repos` row.  Its chunks stay: other
+        repos may share them, so reclaiming the ones it orphans is GC's
+        job.
+        """
+        self._require_writable()
+        cur = self._cursor
+        cur.begin()
+        for sql in (*_FORGET_ROWS_SQL, _FORGET_REPO_SQL):
+            cur.execute(sql, {"repo_id": repo.repo_id})
+        cur.commit()
+
+    def compact(self) -> None:
+        """Rewrite the database into a fresh file, live.
+
+        Deleting rows does not shrink a DuckDB file: the freed space is
+        kept inside it for reuse.  Copying the live data into a fresh
+        file and swapping it in is the only way to hand that space back
+        to the operating system.  The copy (search index included) is
+        opened as its own connection, atomically renamed over the
+        original, and published (read-copy-update): reads still on the
+        old connection finish against the old file and rebind on their
+        next call, so none is cut off.  A failure leaves the original
+        file and connection untouched; the index is simply not shrunk.
+        """
+        self._require_writable()
+        if self.db_path is None:
+            return  # in-memory: nothing on disk to compact
+        db_path = Path(self.db_path)
+        # Unique per compaction: the previous compaction's live connection
+        # still identifies its database by its own temp path, so reusing
+        # the name would collide on ATTACH.
+        tmp_path = db_path.with_name(f"{db_path.name}.compact-{uuid4().hex}")
+        try:
+            self._write_compacted_copy(tmp_path)
+        except (OSError, duckdb.Error) as exc:
+            tmp_path.unlink(missing_ok=True)
+            log.warning("gc_compaction_failed", error=str(exc))
+            return
+        # Open the compacted copy as its own connection (a distinct path,
+        # so DuckDB's one-instance-per-path cache gives a fresh instance),
+        # make it canonical with an atomic rename (the open file handle
+        # follows the inode), then publish it. The old connection is left
+        # to its readers and closes by refcount once they have rebound.
+        new_con: duckdb.DuckDBPyConnection | None = None
+        try:
+            new_con = self._connect(str(tmp_path))
+            os.replace(tmp_path, db_path)
+        except (OSError, duckdb.Error) as exc:
+            if new_con is not None:
+                new_con.close()
+            tmp_path.unlink(missing_ok=True)
+            log.warning("gc_compaction_failed", error=str(exc))
+            return
+        self._adopt_connection(new_con)
+
+    def _write_compacted_copy(self, tmp_path: Path) -> None:
+        """Copy the live database into a fresh file at *tmp_path*.
+
+        The statements below are written inline, not loaded from `.sql`
+        files, deliberately. Two of them interpolate a value into the SQL
+        text, and interpolation can only be reviewed for safety when the
+        value and the statement it lands in are visible together — hiding
+        the template in another file makes that worse. DuckDB forces the
+        interpolation here: it parses an ATTACH path as a string literal
+        and a database name as an identifier, and *neither* can be a
+        bound parameter (`ATTACH $p` / `ATTACH ?` are parser errors),
+        nor is there a Python-API equivalent — `duckdb.DuckDBPyConnection`
+        has no `attach`/`detach`/`copy` method (only `execute`). So each
+        value is escaped for the exact quoting context it sits in.
+        """
+        tmp_path.unlink(missing_ok=True)
+        # Capture the cursor once: the ATTACH, COPY and DETACH must all
+        # run on the same connection (as `reader` does).
+        cur = self._cursor
+
+        # Source database name, needed to name it in the COPY below. This
+        # is the engine's own identifier for the open file (e.g. `index`),
+        # produced by DuckDB, never user-supplied text.
+        row = cur.execute("SELECT current_database()").fetchone()
+        source = str(row[0]) if row is not None else ""
+
+        # ATTACH the (empty) target file. `tmp_path` derives from the
+        # configured index path, not per-call input; it sits inside a
+        # single-quoted string literal, so every single quote in it is
+        # doubled ('->'') to keep the literal well-formed and unbreakable.
+        attach_path = str(tmp_path).replace("'", "''")
+        cur.execute(f"ATTACH '{attach_path}' AS compact_target")
+        try:
+            # Copy every table — chunk/snapshot/edge data and the FTS
+            # index — into the target. `source` sits inside a
+            # double-quoted identifier, so every double quote in it is
+            # doubled ("->"") for the same reason.
+            safe_source = source.replace('"', '""')
+            cur.execute(f'COPY FROM DATABASE "{safe_source}" TO compact_target')
+        finally:
+            cur.execute("DETACH compact_target")
+
+    def _require_writable(self) -> None:
         if not self._writable:
-            msg = "session() requires a writable Index (pass writable=True)"
+            msg = "Writing to the index requires a writable Index (pass writable=True)"
             raise RuntimeError(msg)
-        return WriteSession(self)
 
     def close(self) -> None:
         """Close the database connection."""
@@ -356,7 +524,7 @@ class Index:
         """Publish a freshly-opened connection as the live one, lock-free.
 
         Compaction opens the rewritten file as its own connection
-        (`WriteSession.compact`) and hands it here. Assigning `self._con`
+        (`compact`) and hands it here. Assigning `self._con`
         is atomic under the GIL, so a reader sees either the old
         connection or the new one, never a torn state; each thread's
         cached cursor was built against the old connection, so `_cursor`
@@ -469,60 +637,6 @@ class Index:
         return ChunkSplit(dropped=int(row[0]), kept=int(row[1]))
 
     # ── Reads ────────────────────────────────────────────────────────
-
-    def blob_is_current(self, blob_sha: str, language: str, serials: dict[str, int]) -> bool:
-        """Check whether *blob_sha* is up to date for host *language*.
-
-        This is the blob-dedup gate: the orchestrator calls it
-        before extracting a file.  If True, the blob's chunks are
-        current and valid — skip.  If False, the file needs
-        (re-)extraction.  The check is **global** (the chunk store
-        is content-addressed and shared), so a blob already parsed
-        by any repo is reused — no re-parse when a second
-        repo/worktree indexes it.
-
-        *language* is the file's currently detected host language;
-        *serials* maps language id → current extraction serial (the
-        full registry, plus `""` for plaintext).  The blob is up to
-        date iff it has ≥1 chunk in *language* **and** every chunk's
-        `(language, extraction_serial)` matches a row in
-        *serials*.  Either condition failing triggers re-extraction:
-
-        - Detected language changed — a blob indexed as plaintext
-          (`language=""`), then a plugin registered for the
-          extension → no chunk in the new language → re-extract.
-          (Every file leaves a host-language chunk, so this check
-          is reliable.)
-        - A language's extraction serial is bumped → chunks stored at
-          the old serial no longer match → re-extracted.
-        - A multi-language file (SFC) lists every embedded language
-          plus the host, so bumping *any* contributor (the svelte
-          host or the delegated typescript) re-extracts the file;
-          when none change, it is skipped like any other blob.
-
-        When `blob_is_current` returns False and old chunks exist for
-        the blob (language change), the caller must delete old
-        chunks before inserting new ones — the new extraction
-        may produce different chunk IDs that the upsert can't
-        reconcile.
-        """
-        with self.reader(_serial_map=serial_map_view(serials)) as cur:
-            row = cur.execute(
-                _BLOB_IS_CURRENT_SQL, {"blob_sha": blob_sha, "language": language}
-            ).fetchone()
-        return bool(row[0]) if row and row[0] is not None else False
-
-    def get_snapshot_language(self, file_path: str, *, repo: Repo) -> str:
-        """Return the detected language from any existing snapshot.
-
-        Returns `''` if the file has never been indexed or was
-        indexed as plaintext.
-        """
-        row = self._cursor.execute(
-            _GET_SNAPSHOT_LANGUAGE_SQL,
-            {"repo_id": repo.repo_id, "file_path": file_path},
-        ).fetchone()
-        return str(row[0]) if row else ""
 
     def chunk_counts_by_snapshot(
         self, *, repo: Repo | None = None

@@ -19,8 +19,8 @@ def test_concurrent_write_then_read(
     index = Index(writable=True)
 
     def writer() -> None:
-        with index.session() as ws:
-            repo = ws.register_repo("/repo")
+        repo = index.register("/repo")
+        with index.session(repo) as ws:
             ws.add_chunk(math_func)
             ws.add_chunk(http_func)
             ws.add_chunk(string_func)
@@ -33,7 +33,6 @@ def test_concurrent_write_then_read(
                     )
                     for c in [math_func, http_func, string_func]
                 ],
-                repo=repo,
             )
             ws.insert_edges(
                 [
@@ -45,7 +44,7 @@ def test_concurrent_write_then_read(
                         target_path=http_func.file_path,
                     )
                 ],
-                at=repo.at("head"),
+                snapshot_sha="head",
             )
 
     t = threading.Thread(target=writer)
@@ -66,12 +65,11 @@ def test_commit_makes_writes_visible_during_concurrent_work(
     """After session exit, a second thread sees rows while the
     writer continues with embedding updates."""
     index = Index(writable=True)
-    with index.session() as ws:
-        repo = ws.register_repo("/repo")
+    repo = index.register("/repo")
     first_done = threading.Event()
 
     def writer() -> None:
-        with index.session() as session:
+        with index.session(repo) as session:
             for c in [math_func, http_func, string_func]:
                 session.add_chunk(c)
             session.insert_snapshots(
@@ -83,10 +81,9 @@ def test_commit_makes_writes_visible_during_concurrent_work(
                     )
                     for c in [math_func, http_func, string_func]
                 ],
-                repo=repo,
             )
         first_done.set()
-        with index.session() as session:
+        with index.session(repo) as session:
             session.update_embeddings([math_func.id], [[0.1, 0.2, 0.3]])
             session.update_embeddings([http_func.id], [[0.3, 0.4, 0.5]])
             session.update_embeddings([string_func.id], [[0.5, 0.6, 0.7]])
@@ -105,8 +102,7 @@ def test_concurrent_batch_and_search(tmp_path: Path) -> None:
     """Reader gets results while writer runs batches on another thread."""
     db_path = tmp_path / "index.duckdb"
     index = Index(db_path, writable=True)
-    with index.session() as ws:
-        repo = ws.register_repo("/repo")
+    repo = index.register("/repo")
 
     chunks = [
         make_chunk(
@@ -114,7 +110,7 @@ def test_concurrent_batch_and_search(tmp_path: Path) -> None:
         )
         for i in range(200)
     ]
-    with index.session() as session:
+    with index.session(repo) as session:
         for c in chunks:
             session.add_chunk(c)
         session.insert_snapshots(
@@ -122,7 +118,6 @@ def test_concurrent_batch_and_search(tmp_path: Path) -> None:
                 FileSnapshot(snapshot_sha="head", file_path=c.file_path, blob_sha=c.blob_sha)
                 for c in chunks
             ],
-            repo=repo,
         )
 
     errors: list[str] = []
@@ -137,7 +132,7 @@ def test_concurrent_batch_and_search(tmp_path: Path) -> None:
                 content=f"def extra_{i}(): common_term",
                 path=f"src/extra_{i}.py",
             )
-            with index.session() as session:
+            with index.session(repo) as session:
                 session.add_chunk(extra)
                 session.insert_snapshots(
                     [
@@ -145,7 +140,6 @@ def test_concurrent_batch_and_search(tmp_path: Path) -> None:
                             snapshot_sha="head", file_path=extra.file_path, blob_sha=extra.blob_sha
                         )
                     ],
-                    repo=repo,
                 )
         stop.set()
 
@@ -183,12 +177,11 @@ def test_index_survives_threads_that_write_and_exit(
     it passes with or without the import.
     """
     index = Index(writable=True)
-    with index.session() as ws:
-        repo = ws.register_repo("/repo")
+    repo = index.register("/repo")
     seen: list[int] = []
 
     def write(chunk: TokenisedChunk) -> None:
-        with index.session() as session:
+        with index.session(repo) as session:
             session.add_chunk(chunk)
             session.insert_snapshots(
                 [
@@ -196,7 +189,6 @@ def test_index_survives_threads_that_write_and_exit(
                         snapshot_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha
                     )
                 ],
-                repo=repo,
             )
 
     def read() -> None:

@@ -53,12 +53,12 @@ def index_with_residue(tmp_path: Path) -> Index:
     fn = chunk(file_path="app.py", kind="function", name="load")
     orphan = chunk(file_path="gone.py", kind="function", name="dead")
 
-    with index.session() as ws:
-        repo = ws.register_repo(str(tmp_path / "repo"))
+    repo = index.register(str(tmp_path / "repo"))
+    with index.session(repo) as ws:
         for sha, chunks in ((INDEXED, [imp, fn]), (RESIDUE, [orphan])):
             for c in chunks:
                 ws.add_chunk(c)
-            ws.insert_snapshots([snap(sha, chunks[0])], repo=repo)
+            ws.insert_snapshots([snap(sha, chunks[0])])
         ws.insert_edges(
             [
                 Edge(
@@ -69,9 +69,9 @@ def index_with_residue(tmp_path: Path) -> Index:
                     target_path=fn.file_path,
                 )
             ],
-            at=repo.at(INDEXED),
+            snapshot_sha=INDEXED,
         )
-        ws.mark_indexed(at=repo.at(INDEXED))
+        ws.mark_indexed(snapshot_sha=INDEXED)
         ws.update_embeddings([fn.id], [[0.5] * 768])
 
     return index
@@ -87,14 +87,13 @@ def index_with_copy(tmp_path: Path) -> Index:
     index = Index(str(tmp_path / "index" / "index.duckdb"), writable=True)
     fn = chunk(file_path="lib.py", kind="function", name="load")
 
-    with index.session() as ws:
-        repo = ws.register_repo(str(tmp_path / "repo"))
+    repo = index.register(str(tmp_path / "repo"))
+    with index.session(repo) as ws:
         ws.add_chunk(fn)
         ws.insert_snapshots(
             [snap(INDEXED, fn), snap(INDEXED, fn, path="vendor/lib.py")],
-            repo=repo,
         )
-        ws.mark_indexed(at=repo.at(INDEXED))
+        ws.mark_indexed(snapshot_sha=INDEXED)
 
     return index
 
@@ -169,7 +168,7 @@ def test_writing_an_embedding_moves_only_the_embed_ready_hash(
     unembedded = index_with_residue.unembedded_chunk_ids(at=repo.at(INDEXED))
     assert unembedded, "fixture must leave a chunk to embed"
 
-    with index_with_residue.session() as ws:
+    with index_with_residue.session(repo) as ws:
         ws.update_embeddings(unembedded, [[0.25] * 768 for _ in unembedded])
 
     assert _sentinel_hash(index_with_residue, embed=True) != before_embed

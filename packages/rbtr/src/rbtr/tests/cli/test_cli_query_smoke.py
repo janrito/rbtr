@@ -80,8 +80,7 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
     c2 = str(repo.create_commit("refs/heads/main", sig, sig, "c2", tb2.write(), [parent.id]))
 
     index = Index.from_config(writable=True)
-    with index.session() as ws:
-        repo_repo = ws.register_repo(str(repo_path))
+    repo_repo = index.register(str(repo_path))
 
     func_content_v1 = "def load_config(path):\n    return open(path).read()\n"
     func_name = "load_config"
@@ -164,7 +163,7 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
         )
     ]
 
-    with index.session() as ws:
+    with index.session(repo_repo) as ws:
         for c in chunks_c1:
             ws.add_chunk(c)
         ws.insert_snapshots(
@@ -172,12 +171,11 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
                 FileSnapshot(snapshot_sha=c1, file_path=c.file_path, blob_sha=c.blob_sha)
                 for c in chunks_c1
             ],
-            repo=repo_repo,
         )
-        ws.insert_edges(edges_c1, at=repo_repo.at(c1))
-        ws.mark_indexed(at=repo_repo.at(c1))
+        ws.insert_edges(edges_c1, snapshot_sha=c1)
+        ws.mark_indexed(snapshot_sha=c1)
 
-    with index.session() as ws:
+    with index.session(repo_repo) as ws:
         for c in chunks_c2:
             ws.add_chunk(c)
         ws.insert_snapshots(
@@ -185,10 +183,9 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
                 FileSnapshot(snapshot_sha=c2, file_path=c.file_path, blob_sha=c.blob_sha)
                 for c in chunks_c2
             ],
-            repo=repo_repo,
         )
-        ws.insert_edges(edges_c2, at=repo_repo.at(c2))
-        ws.mark_indexed(at=repo_repo.at(c2))
+        ws.insert_edges(edges_c2, snapshot_sha=c2)
+        ws.mark_indexed(snapshot_sha=c2)
 
     index.close()
     return SeededRepo(path=repo_path, c1=c1, c2=c2)

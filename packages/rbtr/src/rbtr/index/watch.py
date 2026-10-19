@@ -31,8 +31,8 @@ def unwatch_refs(index: Index, *, repo_path: str, refs: list[str], dry_run: bool
     if repo is None:
         return {}
     if not dry_run:
-        with index.session() as session:
-            session.remove_watched_refs(repo, refs)
+        with index.session(repo) as session:
+            session.remove_watched_refs(refs)
     return {repo_path: refs}
 
 
@@ -53,8 +53,8 @@ def remove_stale_refs(index: Index, repos: list[Repo], *, dry_run: bool) -> Refs
             continue
         removed[repo.repo_path] = stale
         if not dry_run:
-            with index.session() as session:
-                session.remove_watched_refs(repo, stale)
+            with index.session(repo) as session:
+                session.remove_watched_refs(stale)
     return removed
 
 
@@ -69,8 +69,7 @@ def forget_stale_repos(index: Index, *, dry_run: bool) -> list[Repo]:
     gone = [repo for repo in index.repos() if not _resolves(repo)]
     if not dry_run:
         for repo in gone:
-            with index.session() as session:
-                session.forget_repo(repo)
+            index.forget(repo)
     return gone
 
 

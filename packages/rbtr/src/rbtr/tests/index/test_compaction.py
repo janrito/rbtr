@@ -1,4 +1,4 @@
-"""Tests for index compaction — `WriteSession.compact` and the gc path.
+"""Tests for index compaction — `Index.compact` and the gc path.
 
 Compaction is physical (reclaiming disk), distinct from the logical GC
 modes in `test_gc.py` (which rows drop). Those use an in-memory store,
@@ -57,8 +57,8 @@ def churned_index(fake_repo: str, isolated_db: Path) -> Generator[ChurnedIndex]:
     # across daemon restarts), accumulating the bloat a rewrite reclaims.
     for pass_no in range(3):
         index = Index.from_config(writable=True)
-        with index.session() as ws:
-            repo = ws.register_repo(fake_repo)
+        repo = index.register(fake_repo)
+        with index.session(repo) as ws:
             snaps = []
             for i in range(800):
                 content = (
@@ -74,8 +74,8 @@ def churned_index(fake_repo: str, isolated_db: Path) -> Generator[ChurnedIndex]:
                     )
                 )
                 snaps.append(make_snap(head, f"m{i}.py", f"blob-{i}"))
-            ws.insert_snapshots(snaps, repo=repo)
-            ws.mark_indexed(at=repo.at(head))
+            ws.insert_snapshots(snaps)
+            ws.mark_indexed(snapshot_sha=head)
         index.close()
     index = Index.from_config(writable=True)
     yield ChurnedIndex(
@@ -174,7 +174,7 @@ def test_gc_compaction_failure_is_non_fatal(
     ci = churned_index
     before_size = ci.index.data_size_bytes()
     before_count = ci.index.chunk_counts_for_snapshot(at=ci.ref).total
-    mocker.patch("rbtr.index.writer.os.replace", side_effect=OSError("disk full"))
+    mocker.patch("rbtr.index.index.os.replace", side_effect=OSError("disk full"))
 
     request = GcRequest(repo_path=ci.repo_path, mode=GcMode.WATCHED, compact=True)
     response = handle_gc(request, ci.index, allow_compact=True)
@@ -240,18 +240,7 @@ def test_search_survives_concurrent_compaction(churned_index: ChurnedIndex) -> N
 
 
 def test_compact_in_memory_is_noop() -> None:
-    """An in-memory store has nothing on disk; compact is a silent no-op."""
+    """An in-memory index has nothing on disk; compact is a silent no-op."""
     index = Index(writable=True)
-    with index.session() as ws:
-        ws.compact()  # must not raise
-    index.close()
-
-
-def test_compact_requires_a_write_session(tmp_path: Path) -> None:
-    """Compaction is a write, so a read-only store cannot reach it."""
-    db = tmp_path / "index.duckdb"
-    Index(db, writable=True).close()  # create the file
-    index = Index(db, writable=False)
-    with pytest.raises(RuntimeError, match="writable"):
-        index.session()
+    index.compact()  # must not raise
     index.close()

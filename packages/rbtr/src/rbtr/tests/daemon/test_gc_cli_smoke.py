@@ -56,8 +56,7 @@ def tiny_repo(tmp_path: Path) -> TinyRepo:
 def seeded_repo_both_commits(tiny_repo: TinyRepo, isolated_db: Path) -> Repo:
     """Seed both commits and close the store so subprocesses can open it."""
     index = Index.from_config(writable=True)
-    with index.session() as ws:
-        registered = ws.register_repo(str(tiny_repo.path))
+    registered = index.register(str(tiny_repo.path))
     for i, sha in enumerate((tiny_repo.c1, tiny_repo.c2)):
         chunk = TokenisedChunk(
             blob_sha=f"b{i}",
@@ -68,13 +67,12 @@ def seeded_repo_both_commits(tiny_repo: TinyRepo, isolated_db: Path) -> Repo:
             line_start=1,
             line_end=1,
         )
-        with index.session() as ws:
+        with index.session(registered) as ws:
             ws.add_chunk(chunk)
             ws.insert_snapshots(
                 [FileSnapshot(snapshot_sha=sha, file_path="a.py", blob_sha=f"b{i}")],
-                repo=registered,
             )
-            ws.mark_indexed(at=registered.at(sha))
+            ws.mark_indexed(snapshot_sha=sha)
     index.close()
     return registered
 
@@ -83,8 +81,7 @@ def seeded_repo_both_commits(tiny_repo: TinyRepo, isolated_db: Path) -> Repo:
 def seeded_repo_first_commit(tiny_repo: TinyRepo, isolated_db: Path) -> Repo:
     """Seed only the first commit and close the store."""
     index = Index.from_config(writable=True)
-    with index.session() as ws:
-        registered = ws.register_repo(str(tiny_repo.path))
+    registered = index.register(str(tiny_repo.path))
     chunk = TokenisedChunk(
         blob_sha="b0",
         file_path="a.py",
@@ -94,13 +91,12 @@ def seeded_repo_first_commit(tiny_repo: TinyRepo, isolated_db: Path) -> Repo:
         line_start=1,
         line_end=1,
     )
-    with index.session() as ws:
+    with index.session(registered) as ws:
         ws.add_chunk(chunk)
         ws.insert_snapshots(
             [FileSnapshot(snapshot_sha=tiny_repo.c1, file_path="a.py", blob_sha="b0")],
-            repo=registered,
         )
-        ws.mark_indexed(at=registered.at(tiny_repo.c1))
+        ws.mark_indexed(snapshot_sha=tiny_repo.c1)
     index.close()
     return registered
 

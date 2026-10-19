@@ -140,8 +140,7 @@ def embedded_snapshot(fake_repo: str, index: Index) -> SnapshotRef:
     The id comes back from the registration, so the ref names a repo
     that exists, and the SHA is git's own rather than a literal.
     """
-    with index.session() as ws:
-        repo = ws.register_repo(fake_repo)
+    repo = index.register(fake_repo)
     return repo.at(str(pygit2.Repository(fake_repo).head.target))
 
 
@@ -165,7 +164,7 @@ def embeddable_index(index: Index, embedded_snapshot: SnapshotRef) -> Index:
                 line_end=2,
             )
         )
-    with index.session() as session:
+    with index.session(embedded_snapshot.repo) as session:
         for c in chunks:
             session.add_chunk(c)
         session.insert_snapshots(
@@ -177,9 +176,8 @@ def embeddable_index(index: Index, embedded_snapshot: SnapshotRef) -> Index:
                 )
                 for c in chunks
             ],
-            repo=embedded_snapshot.repo,
         )
-        session.mark_indexed(at=embedded_snapshot)
+        session.mark_indexed(snapshot_sha=embedded_snapshot.snapshot_sha)
     return index
 
 

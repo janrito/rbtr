@@ -194,12 +194,11 @@ def keyword_index_and_case(case: KeywordScenario) -> Generator[tuple[Index, Keyw
         path=f"src/{case.chunk_id}.py",
     )
     index = Index(writable=True)
-    with index.session() as ws:
-        repo = ws.register_repo("/repo")
+    repo = index.register("/repo")
+    with index.session(repo) as ws:
         ws.add_chunk(chunk)
         ws.insert_snapshots(
             [FileSnapshot(snapshot_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha)],
-            repo=repo,
         )
     yield index, case
     index.close()

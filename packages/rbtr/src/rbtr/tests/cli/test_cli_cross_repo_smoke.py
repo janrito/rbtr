@@ -54,10 +54,8 @@ def two_repos(tmp_path: Path, isolated_db: Path) -> TwoRepos:
     path_b, head_b = _init_repo(tmp_path / "repo_b")
 
     index = Index.from_config(writable=True)
-    with index.session() as ws:
-        id_a = ws.register_repo(path_a)
-        id_b = ws.register_repo(path_b)
-        for repo_id, uniq, head in ((id_a, "alpha", head_a), (id_b, "beta", head_b)):
+    for path, uniq, head in ((path_a, "alpha", head_a), (path_b, "beta", head_b)):
+        with index.session(index.register(path)) as ws:
             ws.add_chunk(make_chunk(f"{uniq}_id", name=f"{uniq}_fn", path=f"{uniq}.py"))
             ws.add_chunk(make_chunk(f"shared_{uniq}", name="shared_fn", path="shared.py"))
             ws.insert_snapshots(
@@ -69,9 +67,8 @@ def two_repos(tmp_path: Path, isolated_db: Path) -> TwoRepos:
                         snapshot_sha=head, file_path="shared.py", blob_sha=f"blob_shared_{uniq}"
                     ),
                 ],
-                repo=repo_id,
             )
-            ws.mark_indexed(at=repo_id.at(head))
+            ws.mark_indexed(snapshot_sha=head)
     index.close()
     return TwoRepos(path_a=path_a, path_b=path_b)
 

@@ -31,8 +31,8 @@ def two_repos(index: Index) -> tuple[Index, dict[int, str]]:
         2: make_chunk("r2_loader", name="load_beta", path="beta.py", blob="b_r2"),
     }
     for repo_id, chunk in chunks.items():
-        with index.session() as ws:
-            repo = ws.register_repo(paths[repo_id])
+        repo = index.register(paths[repo_id])
+        with index.session(repo) as ws:
             ws.add_chunk(chunk)
             ws.insert_snapshots(
                 [
@@ -40,9 +40,8 @@ def two_repos(index: Index) -> tuple[Index, dict[int, str]]:
                         snapshot_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha
                     )
                 ],
-                repo=repo,
             )
-            ws.mark_indexed(at=repo.at("head"))
+            ws.mark_indexed(snapshot_sha="head")
     return index, paths
 
 

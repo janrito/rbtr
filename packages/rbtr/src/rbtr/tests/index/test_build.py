@@ -424,8 +424,7 @@ def test_build_index_marks_commit_indexed(
     git_repo: pygit2.Repository, repo_path: str, index: Index, snapshot_sha: str
 ) -> None:
     """Successful build_index records a completion row."""
-    with index.session() as ws:
-        repo = ws.register_repo(repo_path)
+    repo = index.register(repo_path)
     assert index.has_indexed(at=repo.at(snapshot_sha)) is False
     build_index(git_repo.workdir, snapshot_sha, index)
     assert index.has_indexed(at=repo.at(snapshot_sha)) is True
@@ -436,15 +435,14 @@ def test_build_index_sweeps_residue_from_crashed_builds(
 ) -> None:
     """A successful build cleans up dangling snapshots/edges from prior crashes."""
     # Simulate residue: a snapshot for a commit that never finished.
-    with index.session() as ws:
-        repo = ws.register_repo(repo_path)
+    repo = index.register(repo_path)
+    with index.session(repo) as ws:
         ws.insert_snapshots(
             [
                 FileSnapshot(
                     snapshot_sha="crashed_sha", file_path="leftover.py", blob_sha="leftover_blob"
                 )
             ],
-            repo=repo,
         )
     assert index.has_indexed(at=repo.at("crashed_sha")) is False
 
@@ -476,6 +474,71 @@ def test_a_stopped_build_leaves_its_snapshot_for_the_next_build(
     build_index(git_repo.workdir, snapshot_sha, uninterrupted)
     assert index.has_indexed(at=at)
     assert len(index.chunks(at=at)) == len(uninterrupted.chunks(at=at))
+
+
+@pytest.mark.parametrize("built_before", [True, False], ids=["later_build", "first_build"])
+def test_a_build_that_failed_after_extracting_is_rebuilt_in_full(
+    git_repo: pygit2.Repository,
+    index: Index,
+    two_commits: tuple[str, str],
+    mocker: MockerFixture,
+    built_before: bool,
+) -> None:
+    """A build that dies after its chunks commit leaves them claimed only by
+    an unfinished snapshot.  The next build reuses them, replaces the
+    snapshot's rows and marks it indexed, whether or not the repo was
+    built before, and ends as a build that never failed."""
+    base_sha, head_sha = two_commits
+    shas = [base_sha, head_sha] if built_before else [head_sha]
+    for sha in shas[:-1]:
+        build_index(git_repo.workdir, sha, index)
+    crash = mocker.patch(
+        "rbtr.index.build._infer_and_store_edges", side_effect=RuntimeError("crash")
+    )
+    with pytest.raises(RuntimeError, match="crash"):
+        build_index(git_repo.workdir, head_sha, index)
+    mocker.stop(crash)
+
+    build_index(git_repo.workdir, head_sha, index)
+
+    uninterrupted = Index(writable=True)
+    for sha in shas:
+        build_index(git_repo.workdir, sha, uninterrupted)
+    [repo] = index.repos()
+    at = repo.at(head_sha)
+    assert {c.name for c in index.chunks(at=at)} == {c.name for c in uninterrupted.chunks(at=at)}
+
+
+def test_a_checkouts_failed_build_leaves_its_sibling_whole(
+    git_repo: pygit2.Repository,
+    linked_worktree: pygit2.Repository,
+    index: Index,
+    snapshot_sha: str,
+    mocker: MockerFixture,
+) -> None:
+    """A build's clean-up clears only its own repo's residue.  A sibling
+    checkout built meanwhile reuses the failed build's chunks and is whole;
+    the failed checkout is whole once it builds again."""
+    crash = mocker.patch(
+        "rbtr.index.build._infer_and_store_edges", side_effect=RuntimeError("crash")
+    )
+    with pytest.raises(RuntimeError, match="crash"):
+        build_index(git_repo.workdir, snapshot_sha, index)
+    mocker.stop(crash)
+
+    build_index(linked_worktree.workdir, snapshot_sha, index)
+    main, worktree = index.repos()
+    assert index.count_file_snapshots(at=main.at(snapshot_sha)) > 0, "the residue stays"
+    build_index(git_repo.workdir, snapshot_sha, index)
+
+    uninterrupted = Index(writable=True)
+    build_index(git_repo.workdir, snapshot_sha, uninterrupted)
+    [alone] = uninterrupted.repos()
+    expected = {c.name for c in uninterrupted.chunks(at=alone.at(snapshot_sha))}
+    for repo in (main, worktree):
+        assert index.has_indexed(at=repo.at(snapshot_sha))
+        assert {c.name for c in index.chunks(at=repo.at(snapshot_sha))} == expected
+    assert index.count_orphan_chunks() == 0
 
 
 def test_build_index_empty_repo(tmp_path: Path, index: Index) -> None:

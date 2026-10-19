@@ -81,8 +81,7 @@ def case_shutdown_during_build(
 ) -> StopScenario:
     """A shutdown during a build ends it after the file in hand, as a stop
     rather than a failure: no error is published or logged."""
-    with index.session() as ws:
-        ws.register_repo(git_repo.workdir)
+    index.register(git_repo.workdir)
     server = DaemonServer(
         runtime_dir, index=index, idle_poll_interval=60.0, busy_poll_interval=60.0
     )

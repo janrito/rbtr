@@ -35,13 +35,14 @@ def stale_index(
 ) -> Index:
     """Two live repos watching a dead branch each, the first also a commit
     git does not have, beside a registration whose checkout is gone."""
-    with index.session() as ws:
-        first = ws.register_repo(fake_repo)
-        second = ws.register_repo(second_repo)
-        vanished = ws.register_repo(vanished_repo)
-        ws.add_watched_refs(first, ["HEAD", "main", "gone-branch", lost_commit])
-        ws.add_watched_refs(second, ["HEAD", "deleted-branch"])
-        ws.add_watched_refs(vanished, ["HEAD", "main"])
+    watched = {
+        fake_repo: ["HEAD", "main", "gone-branch", lost_commit],
+        second_repo: ["HEAD", "deleted-branch"],
+        vanished_repo: ["HEAD", "main"],
+    }
+    for path, refs in watched.items():
+        with index.session(index.register(path)) as ws:
+            ws.add_watched_refs(refs)
     return index
 
 
@@ -82,9 +83,9 @@ def test_a_vanished_repo_is_left_alone(
 
 
 def test_head_is_never_stale(index: Index, fake_repo: str) -> None:
-    with index.session() as ws:
-        repo = ws.register_repo(fake_repo)
-        ws.add_watched_refs(repo, ["HEAD"])
+    repo = index.register(fake_repo)
+    with index.session(repo) as ws:
+        ws.add_watched_refs(["HEAD"])
 
     assert remove_stale_refs(index, index.repos(), dry_run=False) == {}
     assert index.watched_refs(repo) == ["HEAD"]

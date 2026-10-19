@@ -1,4 +1,4 @@
-"""Scenarios for `WriteSession.register_repo` and `list_repos`.
+"""Scenarios for `Index.register` and `repos`.
 
 Repo registration is the entry point for every scenario in every
 family; this file isolates cases that exercise the API's own
@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class RepoSequence:
-    """Ordered register_repo calls and expected ids.
+    """Ordered `register` calls and expected ids.
 
     `calls` is a list of paths to register in order.  `expected_ids`
     must have the same length and gives the id each call is expected
@@ -21,7 +21,7 @@ class RepoSequence:
 
     calls: list[str] = field(default_factory=list)
     expected_ids: list[int] = field(default_factory=list)
-    # Expected state of list_repos() after all calls, as (id, path) tuples.
+    # Expected state of repos() after all calls, as (id, path) tuples.
     expected_listing: list[tuple[int, str]] = field(default_factory=list)
 
 

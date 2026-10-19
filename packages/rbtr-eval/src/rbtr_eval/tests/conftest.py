@@ -112,15 +112,14 @@ def seed_corpus(index: Index, repo_path: Path, head: str, indexed: list[str]) ->
     snapshot gets one file row, because a snapshot with no files is
     a state the indexer never writes.
     """
-    with index.session() as ws:
-        repo = ws.register_repo(str(repo_path))
+    repo = index.register(str(repo_path))
+    with index.session(repo) as ws:
         for name in indexed:
             sha = head if name == HEAD else name
             ws.insert_snapshots(
                 [FileSnapshot(snapshot_sha=sha, file_path="a.py", blob_sha=f"blob_{sha[:8]}")],
-                repo=repo,
             )
-            ws.mark_indexed(at=repo.at(sha))
+            ws.mark_indexed(snapshot_sha=sha)
     return repo
 
 
@@ -211,8 +210,7 @@ target-version = "py313"
 def mixed_kind_ref(mixed_kind_repo: pygit2.Repository, index: Index) -> SnapshotRef:
     """`mixed_kind_repo` built into `index`, addressed at its one commit."""
     head = str(mixed_kind_repo.head.target)
-    with index.session() as ws:
-        repo = ws.register_repo(normalise_repo_path(mixed_kind_repo.workdir))
+    repo = index.register(normalise_repo_path(mixed_kind_repo.workdir))
     build_index(mixed_kind_repo.workdir, head, index)
     return repo.at(head)
 

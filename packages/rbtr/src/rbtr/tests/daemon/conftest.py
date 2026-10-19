@@ -104,8 +104,7 @@ def runtime_dir() -> Path:
 @pytest.fixture
 def registered_index(fake_repo: str, index: Index) -> Index:
     """Real repo registered, HEAD not indexed (a stale watched ref)."""
-    with index.session() as ws:
-        ws.register_repo(fake_repo)
+    index.register(fake_repo)
     return index
 
 
@@ -119,8 +118,8 @@ def seeded_index(
 ) -> Index:
     """The root store pre-loaded with daemon test data for one repo."""
     chunks = daemon_chunks
-    with index.session() as ws:
-        repo = ws.register_repo(fake_repo)
+    repo = index.register(fake_repo)
+    with index.session(repo) as ws:
         for c in chunks:
             ws.add_chunk(c)
         ws.insert_snapshots(
@@ -128,10 +127,9 @@ def seeded_index(
                 FileSnapshot(snapshot_sha=daemon_commit, file_path=c.file_path, blob_sha=c.blob_sha)
                 for c in chunks
             ],
-            repo=repo,
         )
-        ws.insert_edges(daemon_edges, at=repo.at(daemon_commit))
-        ws.mark_indexed(at=repo.at(daemon_commit))
+        ws.insert_edges(daemon_edges, snapshot_sha=daemon_commit)
+        ws.mark_indexed(snapshot_sha=daemon_commit)
     return index
 
 
@@ -145,7 +143,7 @@ def changed_head(seeded_index: Index, fake_repo: str) -> str:
     """
     head = "f" * 40
     repo = seeded_index.repo(fake_repo)
-    with seeded_index.session() as ws:
+    with seeded_index.session(repo) as ws:
         ws.add_chunk(
             make_chunk(
                 "fn_config_v2",
@@ -173,9 +171,8 @@ def changed_head(seeded_index: Index, fake_repo: str) -> str:
                 ),
                 FileSnapshot(snapshot_sha=head, file_path="src/app.py", blob_sha="blob_app"),
             ],
-            repo=repo,
         )
-        ws.mark_indexed(at=repo.at(head))
+        ws.mark_indexed(snapshot_sha=head)
     return head
 
 

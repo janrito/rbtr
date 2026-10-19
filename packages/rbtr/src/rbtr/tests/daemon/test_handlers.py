@@ -212,8 +212,8 @@ def scenario_applied(
     """*scenario*'s build and watch set, applied to `running_daemon`."""
     repo = seeded_index.find_repo(fake_repo)
     assert repo is not None
-    with seeded_index.session() as ws:
-        ws.add_watched_refs(repo, scenario.watched)
+    with seeded_index.session(repo) as ws:
+        ws.add_watched_refs(scenario.watched)
     running_daemon._active_build = scenario.active_build
     yield scenario
     running_daemon._active_build = None
@@ -462,8 +462,8 @@ def test_status_reports_watch_set_states(seeded_index: Index, fake_repo: str) ->
     """Each watched ref is reported as indexed, pending, or unresolvable."""
     repo = seeded_index.repo(fake_repo)
     pending_sha = "0" * 40  # a bare SHA: resolves to itself, never indexed
-    with seeded_index.session() as ws:
-        ws.add_watched_refs(repo, ["main", pending_sha, "nonexistent-branch"])
+    with seeded_index.session(repo) as ws:
+        ws.add_watched_refs(["main", pending_sha, "nonexistent-branch"])
     resp = handle_status(StatusRequest(repo_path=fake_repo), seeded_index)
     watched = {w.ref: w for w in resp.watched}
     assert watched["main"].indexed is True  # resolves to the indexed HEAD

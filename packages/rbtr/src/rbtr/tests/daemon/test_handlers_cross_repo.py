@@ -44,8 +44,8 @@ def shared_symbol_index(fake_repo: str, second_repo: str, index: Index) -> Index
     """
     for path, uniq in ((fake_repo, "alpha"), (second_repo, "beta")):
         head = str(pygit2.Repository(path).head.target)
-        with index.session() as ws:
-            repo = ws.register_repo(path)
+        repo = index.register(path)
+        with index.session(repo) as ws:
             ws.add_chunk(make_chunk(f"{uniq}_id", name=f"{uniq}_fn", path=f"{uniq}.py"))
             ws.add_chunk(make_chunk(f"shared_{uniq}", name="shared_fn", path="shared.py"))
             ws.insert_snapshots(
@@ -57,9 +57,8 @@ def shared_symbol_index(fake_repo: str, second_repo: str, index: Index) -> Index
                         snapshot_sha=head, file_path="shared.py", blob_sha=f"blob_shared_{uniq}"
                     ),
                 ],
-                repo=repo,
             )
-            ws.mark_indexed(at=repo.at(head))
+            ws.mark_indexed(snapshot_sha=head)
     return index
 
 

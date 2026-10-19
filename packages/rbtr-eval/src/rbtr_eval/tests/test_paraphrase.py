@@ -299,8 +299,7 @@ def two_repos(tmp_path: Path, index: Index) -> Index:
                 {"lib.py": f'def greet(name):\n    return f"{greeting} {{name}}"\n'.encode()},
             )
         )
-        with index.session() as ws:
-            ws.register_repo(normalise_repo_path(repo.workdir))
+        index.register(normalise_repo_path(repo.workdir))
         build_index(repo.workdir, head, index)
     return index
 

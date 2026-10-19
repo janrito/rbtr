@@ -382,9 +382,9 @@ class DaemonServer:
         repos = index.repos()
         if not repos:
             return
-        with index.session() as ws:
-            for repo in repos:
-                ws.add_watched_refs(repo, [HEAD_REF])
+        for repo in repos:
+            with index.session(repo) as ws:
+                ws.add_watched_refs([HEAD_REF])
         log.info("head_watch_backfill", repos=len(repos))
 
     def _recover_pending_embeds(self, index: Index) -> None:
@@ -428,8 +428,7 @@ class DaemonServer:
 
     def _build_refs(self, job: BuildJob, index: Index, push: zmq.Socket) -> None:
         """Index each of the job's refs, reporting on *push*."""
-        with index.session() as ws:
-            repo = ws.register_repo(job.repo_path)
+        repo = index.register(job.repo_path)
 
         try:
             resolved = resolve_refs(job.repo_path, list(job.refs))
@@ -482,9 +481,9 @@ class DaemonServer:
         stale = [sha for sha in non_commit_shas(repo.repo_path, indexed) if sha != keep]
         if not stale:
             return
-        with index.session() as ws:
+        with index.session(repo) as ws:
             for sha in stale:
-                ws.drop_snapshot(at=repo.at(sha))
+                ws.drop_snapshot(snapshot_sha=sha)
                 log.info("dropped_stale_worktree_sha", sha=sha[:12])
 
     async def _run_embed_async(self, job: EmbedJob) -> None:
@@ -535,6 +534,7 @@ class DaemonServer:
                         await asyncio.to_thread(
                             self._write_embed_batch,
                             index,
+                            job.at.repo,
                             batch,
                             [r.vector for r in results],
                             [r.truncated for r in results],
@@ -576,12 +576,13 @@ class DaemonServer:
     @staticmethod
     def _write_embed_batch(
         index: Index,
+        repo: Repo,
         batch: tuple[Chunk, ...],
         vectors: list[list[float]],
         truncated: list[bool] | None = None,
     ) -> None:
         """Write one embedding batch in its own session."""
-        with index.session() as session:
+        with index.session(repo) as session:
             session.update_embeddings([c.id for c in batch], vectors, truncated=truncated)
 
     def wait_ready(self, timeout: float = 5.0) -> bool:

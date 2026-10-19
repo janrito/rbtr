@@ -111,14 +111,13 @@ def indexed_copy(tmp_path: Path) -> Path:
     """
     index = Index(str(tmp_path / "index.duckdb"), writable=True)
     fn = chunk(file_path="q.py", kind="function", name="load")
-    with index.session() as ws:
-        repo = ws.register_repo(str(tmp_path / "alpha"))
+    repo = index.register(str(tmp_path / "alpha"))
+    with index.session(repo) as ws:
         ws.add_chunk(fn)
         ws.insert_snapshots(
             [snap("a" * 40, fn), snap("a" * 40, fn, path="vendor/q.py")],
-            repo=repo,
         )
-        ws.mark_indexed(at=repo.at("a" * 40))
+        ws.mark_indexed(snapshot_sha="a" * 40)
         ws.update_embeddings([fn.id], [[0.5] * 768], truncated=[True])
     index.close()
     return tmp_path / "index.duckdb"

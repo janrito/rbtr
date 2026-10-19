@@ -38,8 +38,8 @@ from .conftest import serving
 @parametrize_with_cases("scenario", cases=".cases_work_queue", has_tag="next_job")
 def next_job_index(scenario: NextJobScenario, index: Index) -> tuple[Index, NextJobScenario]:
     for n, snap in enumerate(scenario.snapshots):
-        with index.session() as ws:
-            repo = ws.register_repo(snap.repo_path)
+        repo = index.register(snap.repo_path)
+        with index.session(repo) as ws:
             chunk = make_chunk(f"c{n}", name=f"fn{n}", path=f"f{n}.py", blob=f"blob{n}")
             ws.add_chunk(chunk)
             ws.insert_snapshots(
@@ -50,12 +50,11 @@ def next_job_index(scenario: NextJobScenario, index: Index) -> tuple[Index, Next
                         blob_sha=f"blob{n}",
                     )
                 ],
-                repo=repo,
             )
             if snap.embedded:
                 ws.update_embeddings([chunk.id], [[0.1, 0.2, 0.3]])
             if snap.indexed:
-                ws.mark_indexed(at=repo.at(snap.snapshot_sha))
+                ws.mark_indexed(snapshot_sha=snap.snapshot_sha)
     return index, scenario
 
 
@@ -83,8 +82,7 @@ def test_startup_backfills_a_head_watch_for_every_repo(
     runtime_dir: Path,
 ) -> None:
     """`_backfill_head_watches` gives each registered repo a HEAD watch."""
-    with index.session() as ws:
-        ws.register_repo("/test/repo")
+    index.register("/test/repo")
 
     DaemonServer(runtime_dir, index=index, idle_poll_interval=60.0, busy_poll_interval=60.0)
 
@@ -108,8 +106,7 @@ def dirty_unindexed_repo(tmp_path: Path) -> str:
 @pytest.fixture
 def dirty_index(dirty_unindexed_repo: str, index: Index) -> Index:
     """Store with the dirty repo registered, nothing indexed."""
-    with index.session() as ws:
-        ws.register_repo(dirty_unindexed_repo)
+    index.register(dirty_unindexed_repo)
     return index
 
 

@@ -59,7 +59,7 @@ def embed_index(
             except (RuntimeError, ValueError):
                 log.warning("embedding_batch_failed", exc_info=True)
                 continue
-            with index.session() as session:
+            with index.session(at.repo) as session:
                 session.update_embeddings(
                     [c.id for c in batch],
                     [r.vector for r in results],

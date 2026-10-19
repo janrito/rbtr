@@ -566,8 +566,7 @@ def handle_forget(request: ForgetRequest, index: Index) -> ForgetResponse:
         msg = "refusing to forget a repo watching refs beyond HEAD; remove them first"
         raise RbtrError(msg)
     if not request.dry_run:
-        with index.session() as ws:
-            ws.forget_repo(target)
+        index.forget(target)
     return ForgetResponse(forgotten=[request.repo_path], dry_run=request.dry_run)
 
 
@@ -582,8 +581,8 @@ def handle_watch(
     here watches it as one seen at startup does.  Dropping refs is
     `handle_unwatch`.
     """
-    with index.session() as ws:
-        repo = ws.register_repo(request.repo_path)
-        ws.add_watched_refs(repo, [HEAD_REF, *request.refs])
+    repo = index.register(request.repo_path)
+    with index.session(repo) as ws:
+        ws.add_watched_refs([HEAD_REF, *request.refs])
     log.info("watched_refs_added", repo=request.repo_path, refs=request.refs)
     return WatchSetResponse(watched=_watched_for_repo(index, repo))

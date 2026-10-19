@@ -126,8 +126,6 @@ def _extract_and_store_chunks(
 
     When *base_sha* is provided, only files that changed between
     *base_sha* and *snapshot_sha* are extracted.
-
-    Opens its own session with an explicit sweep.
     """
     mgr = get_manager()
     # Each chunk is stamped with its OWN language's extraction serial, not
@@ -161,8 +159,7 @@ def _extract_and_store_chunks(
     }
     manifests: dict[str, str] = {}
 
-    with index.session() as session:
-        session.sweep()
+    with index.session(repo) as session:
         # Stream files from git.  Content is only held during
         # extraction, then released by the iterator.
         for entry in list_files(
@@ -183,7 +180,7 @@ def _extract_and_store_chunks(
             # file was extracted as, so a row without one has no chunks.
             detected_lang = mgr.detect_language(entry.path) or ""
             if not detected_lang:
-                detected_lang = index.get_snapshot_language(entry.path, repo=repo)
+                detected_lang = session.get_snapshot_language(entry.path)
 
             # A file contributes no chunks when it is unchanged since the
             # base snapshot, or when the gate finds its blob already
@@ -210,7 +207,7 @@ def _extract_and_store_chunks(
                 serial = reg.extraction_serial if reg else 1
 
                 # Blob dedup gate.
-                if index.blob_is_current(entry.blob_sha, detected_lang, dedup_serials):
+                if session.blob_is_current(entry.blob_sha, detected_lang, dedup_serials):
                     result.stats.record(FileOutcome.SKIPPED_CURRENT)
                 else:
                     try:
@@ -237,7 +234,7 @@ def _extract_and_store_chunks(
 
             on_progress("parsing", result.stats.total_files, result.stats.total_files)
 
-        session.replace_snapshots(snapshots, at=repo.at(snapshot_sha))
+        session.replace_snapshots(snapshots, snapshot_sha=snapshot_sha)
 
     # Every outcome that occurred, by name, so a run's file count is
     # accounted for in the log line that reports it.
@@ -267,8 +264,8 @@ def _infer_and_store_edges(
     edges: list[Edge] = []
     edges.extend(infer_import_edges(chunks, repo_files, resolution_map))
 
-    with index.session() as session:
-        session.replace_edges(edges, at=repo.at(snapshot_sha))
+    with index.session(repo) as session:
+        session.replace_edges(edges, snapshot_sha=snapshot_sha)
 
     log.info("inferred_edges", edges=len(edges))
     return len(edges)
@@ -279,9 +276,9 @@ def _mark_indexed_and_cleanup(
 ) -> None:
     """Mark the commit indexed and remove orphaned data."""
     on_progress("finalising", 0, 0)
-    with index.session() as session:
-        session.mark_indexed(at=repo.at(snapshot_sha))
-        cleaned = session.cleanup(repo)
+    with index.session(repo) as session:
+        session.mark_indexed(snapshot_sha=snapshot_sha)
+        cleaned = session.cleanup()
         if cleaned.file_snapshots or cleaned.edges or cleaned.chunks:
             log.info(
                 "cleanup",
@@ -331,8 +328,7 @@ def build_index(
     # crash part-way through leaves an unused repos row rather than
     # indexed rows that nothing can find.
     repo_path = normalise_repo_path(repo_path)
-    with index.session() as session:
-        repo = session.register_repo(repo_path)
+    repo = index.register(repo_path)
 
     # Phase 1: extract chunks from git, write to DB.
     extracted = _extract_and_store_chunks(

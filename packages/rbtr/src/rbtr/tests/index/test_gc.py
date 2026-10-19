@@ -86,8 +86,7 @@ def gc(
     repo, c1, c2, c3 = gc_repo
     index = Index(writable=True)
     repo_path = normalise_repo_path(repo.workdir)
-    with index.session() as ws:
-        registered = ws.register_repo(repo_path)
+    registered = index.register(repo_path)
     for i, sha in enumerate((c1, c2, c3)):
         chunk = TokenisedChunk(
             blob_sha=f"b{i}",
@@ -98,13 +97,12 @@ def gc(
             line_start=1,
             line_end=1,
         )
-        with index.session() as ws:
+        with index.session(registered) as ws:
             ws.add_chunk(chunk)
             ws.insert_snapshots(
                 [FileSnapshot(snapshot_sha=sha, file_path="a.py", blob_sha=f"b{i}")],
-                repo=registered,
             )
-            ws.mark_indexed(at=registered.at(sha))
+            ws.mark_indexed(snapshot_sha=sha)
     yield GcFixture(
         repo=repo, index=index, repo_path=repo_path, registered=registered, c1=c1, c2=c2, c3=c3
     )
@@ -121,8 +119,8 @@ def test_head_only_keeps_head_and_drops_rest(gc: GcFixture) -> None:
 
 def test_watched_keeps_watched_refs_and_head(gc: GcFixture) -> None:
     """Keeps HEAD plus every watched ref — branch/tag and bare SHA alike."""
-    with gc.index.session() as ws:
-        ws.add_watched_refs(gc.registered, ["v1", gc.c2])  # a tag and a bare SHA
+    with gc.index.session(gc.registered) as ws:
+        ws.add_watched_refs(["v1", gc.c2])  # a tag and a bare SHA
     counts = run_gc(gc.index, gc.repo_path, mode=GcMode.WATCHED, refs=[], dry_run=False)
     assert counts.snapshots == 0
     assert gc.index.has_indexed(at=gc.registered.at(gc.c1)) is True  # watched tag v1
@@ -176,10 +174,9 @@ def test_orphans_never_drops_indexed_snapshots(gc: GcFixture) -> None:
 
 def test_orphans_sweeps_crashed_residue(gc: GcFixture) -> None:
     # Simulate a crashed build: snapshot without mark_indexed.
-    with gc.index.session() as ws:
+    with gc.index.session(gc.registered) as ws:
         ws.insert_snapshots(
             [FileSnapshot(snapshot_sha="crashed", file_path="x.py", blob_sha="bx")],
-            repo=gc.registered,
         )
     run_gc(gc.index, gc.repo_path, mode=GcMode.ORPHANS, refs=[], dry_run=False)
     # Orphan snapshot is gone (swept on session entry or by GC).
@@ -207,13 +204,12 @@ def test_gc_frees_only_unshared_chunks(gc: GcFixture) -> None:
     repo 1 frees c2's unshared chunk but leaves c1's — still referenced by
     the other repo — in the pool.
     """
-    with gc.index.session() as ws:
-        other = ws.register_repo("/other")
+    other = gc.index.register("/other")
+    with gc.index.session(other) as ws:
         ws.insert_snapshots(
             [FileSnapshot(snapshot_sha="other_head", file_path="a.py", blob_sha="b0")],
-            repo=other,
         )
-        ws.mark_indexed(at=other.at("other_head"))
+        ws.mark_indexed(snapshot_sha="other_head")
 
     counts = run_gc(gc.index, gc.repo_path, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
     assert counts.chunks == 1  # only c2's unshared chunk freed
@@ -228,13 +224,12 @@ def test_gc_reports_reclaimed_orphan_chunks(gc: GcFixture) -> None:
     """
     # An orphan arises the way production makes one: a chunk stored with
     # its claim, and the claim later removed.
-    forgotten = gc.registered.at("forgotten")
-    with gc.index.session() as ws:
-        ws.add_watched_refs(gc.registered, [gc.c2])  # keep every commit -> no drops
+    with gc.index.session(gc.registered) as ws:
+        ws.add_watched_refs([gc.c2])  # keep every commit -> no drops
         ws.add_chunk(make_chunk("orphan", path="z.py", blob="b_orphan"))
-        ws.insert_snapshots([make_snap("forgotten", "z.py", "b_orphan")], repo=gc.registered)
-    with gc.index.session() as ws:
-        ws.delete_snapshots(at=forgotten)
+        ws.insert_snapshots([make_snap("forgotten", "z.py", "b_orphan")])
+    with gc.index.session(gc.registered) as ws:
+        ws.replace_snapshots([], snapshot_sha="forgotten")
     assert gc.index.count_orphan_chunks() == 1
 
     counts = run_gc(gc.index, gc.repo_path, mode=GcMode.WATCHED, refs=[], dry_run=False)
@@ -276,9 +271,9 @@ def test_gc_preserves_current_worktree_tree_sha(gc: GcFixture) -> None:
     assert tree_sha is not None
 
     # Index HEAD and the tree SHA.
-    with gc.index.session() as ws:
-        ws.mark_indexed(at=gc.registered.at(gc.c3))  # HEAD
-        ws.mark_indexed(at=gc.registered.at(tree_sha))
+    with gc.index.session(gc.registered) as ws:
+        ws.mark_indexed(snapshot_sha=gc.c3)  # HEAD
+        ws.mark_indexed(snapshot_sha=tree_sha)
 
     run_gc(gc.index, gc.repo_path, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
 
@@ -303,10 +298,10 @@ def test_gc_drops_stale_worktree_tree_sha(gc: GcFixture) -> None:
     assert stale_sha != current_sha
 
     # Index all three.
-    with gc.index.session() as ws:
-        ws.mark_indexed(at=gc.registered.at(gc.c3))  # HEAD
-        ws.mark_indexed(at=gc.registered.at(stale_sha))
-        ws.mark_indexed(at=gc.registered.at(current_sha))
+    with gc.index.session(gc.registered) as ws:
+        ws.mark_indexed(snapshot_sha=gc.c3)  # HEAD
+        ws.mark_indexed(snapshot_sha=stale_sha)
+        ws.mark_indexed(snapshot_sha=current_sha)
 
     run_gc(gc.index, gc.repo_path, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
 
@@ -321,8 +316,7 @@ def test_gc_unborn_head_raises(tmp_path: Path) -> None:
     pygit2.init_repository(str(tmp_path / "empty"), bare=False, initial_head="main")
     repo_path = normalise_repo_path(str(tmp_path / "empty"))
     index = Index(writable=True)
-    with index.session() as ws:
-        ws.register_repo(repo_path)
+    index.register(repo_path)
 
     with pytest.raises(RbtrError, match="no commits"):
         run_gc(index, repo_path, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
@@ -366,34 +360,34 @@ def global_gc(tmp_path: Path, gc_signature: pygit2.Signature) -> Generator[Globa
     repo_b, b0, b1 = build("b")
     index = Index(writable=True)
 
-    with index.session() as ws:
-        a = ws.register_repo(repo_a.workdir)
-        b = ws.register_repo(repo_b.workdir)
-        # Content-addressed chunks (the shared one is a single row). A chunk
-        # is referenced by a snapshot only when (blob_sha, file_path) match,
-        # so the shared chunk lives on b.py — as do its snapshots.
+    a = index.register(repo_a.workdir)
+    b = index.register(repo_b.workdir)
+    # Content-addressed chunks (the shared one is a single row). A chunk
+    # is referenced by a snapshot only when (blob_sha, file_path) match,
+    # so the shared chunk lives on b.py — as do its snapshots.
+    with index.session(a) as ws:
         for c in (
             make_chunk("k_a_old", path="a.py", blob="a_old"),
             make_chunk("k_a_head", path="a.py", blob="a_head"),
-            make_chunk("k_b_old", path="a.py", blob="b_old"),
-            make_chunk("k_b_head", path="a.py", blob="b_head"),
             make_chunk("k_shared", path="b.py", blob="shared"),
         ):
             ws.add_chunk(c)
         # Repo A: c0 references a_old + shared; HEAD references a_head.
-        ws.insert_snapshots(
-            [make_snap(a0, "a.py", "a_old"), make_snap(a0, "b.py", "shared")], repo=a
-        )
-        ws.insert_snapshots([make_snap(a1, "a.py", "a_head")], repo=a)
-        ws.mark_indexed(at=a.at(a0))
-        ws.mark_indexed(at=a.at(a1))
+        ws.insert_snapshots([make_snap(a0, "a.py", "a_old"), make_snap(a0, "b.py", "shared")])
+        ws.insert_snapshots([make_snap(a1, "a.py", "a_head")])
+        ws.mark_indexed(snapshot_sha=a0)
+        ws.mark_indexed(snapshot_sha=a1)
+    with index.session(b) as ws:
+        for c in (
+            make_chunk("k_b_old", path="a.py", blob="b_old"),
+            make_chunk("k_b_head", path="a.py", blob="b_head"),
+        ):
+            ws.add_chunk(c)
         # Repo B: c0 references b_old; HEAD references shared + b_head.
-        ws.insert_snapshots([make_snap(b0, "a.py", "b_old")], repo=b)
-        ws.insert_snapshots(
-            [make_snap(b1, "a.py", "b_head"), make_snap(b1, "b.py", "shared")], repo=b
-        )
-        ws.mark_indexed(at=b.at(b0))
-        ws.mark_indexed(at=b.at(b1))
+        ws.insert_snapshots([make_snap(b0, "a.py", "b_old")])
+        ws.insert_snapshots([make_snap(b1, "a.py", "b_head"), make_snap(b1, "b.py", "shared")])
+        ws.mark_indexed(snapshot_sha=b0)
+        ws.mark_indexed(snapshot_sha=b1)
     yield GlobalGcFixture(index=index, a=a, b=b, a0=a0, a1=a1, b0=b0, b1=b1)
     index.close()
 
@@ -427,8 +421,7 @@ def test_run_gc_all_skips_repo_with_vanished_path(
 ) -> None:
     """A registered repo whose path no longer resolves is skipped, not
     crashed; live repos are still collected."""
-    with global_gc.index.session() as ws:
-        ws.register_repo(str(tmp_path / "gone"))  # never created on disk
+    global_gc.index.register(str(tmp_path / "gone"))  # never created on disk
     _counts, repos = run_gc_all(global_gc.index, mode=GcMode.WATCHED, dry_run=False)
     assert repos == 2  # the vanished repo skipped, the two live ones collected
     # Live repos were still GC'd.
@@ -469,10 +462,10 @@ def test_post_build_cleanup_drops_a_stale_worktree_whose_object_is_gone(
     current_sha = worktree_tree_sha(gc.repo.workdir, max_untracked_files=config.max_untracked_files)
     assert current_sha is not None
 
-    with gc.index.session() as ws:
-        ws.mark_indexed(at=gc.registered.at(gc.c3))
-        ws.mark_indexed(at=gc.registered.at(stale_sha))
-        ws.mark_indexed(at=gc.registered.at(current_sha))
+    with gc.index.session(gc.registered) as ws:
+        ws.mark_indexed(snapshot_sha=gc.c3)
+        ws.mark_indexed(snapshot_sha=stale_sha)
+        ws.mark_indexed(snapshot_sha=current_sha)
 
     # What `git gc` does to an unreferenced loose object.
     loose = Path(gc.repo.path) / "objects" / stale_sha[:2] / stale_sha[2:]
@@ -494,8 +487,8 @@ def test_run_gc_all_watched_only_drops_unwatched_refs_everywhere(
     drops what only an unwatched branch or tag held."""
     s = global_gc.index
     # Repo A's `c0` is a branch tip nobody watches; repo B watches its own.
-    with s.session() as ws:
-        ws.add_watched_refs(global_gc.b, [global_gc.b0])
+    with s.session(global_gc.b) as ws:
+        ws.add_watched_refs([global_gc.b0])
 
     _counts, repos = run_gc_all(s, mode=GcMode.WATCHED_ONLY, dry_run=False)
 
@@ -525,8 +518,7 @@ def test_run_gc_all_skips_a_repo_with_no_commits(
     """An unborn HEAD raises from `run_gc`, so a registered empty checkout
     must be skipped rather than ending the whole pass."""
     pygit2.init_repository(str(tmp_path / "empty"), bare=False, initial_head="main")
-    with global_gc.index.session() as ws:
-        ws.register_repo(normalise_repo_path(str(tmp_path / "empty")))
+    global_gc.index.register(normalise_repo_path(str(tmp_path / "empty")))
 
     _counts, repos = run_gc_all(global_gc.index, mode=GcMode.WATCHED_ONLY, dry_run=False)
 

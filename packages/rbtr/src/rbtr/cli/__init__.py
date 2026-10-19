@@ -378,8 +378,7 @@ class Watch(BaseModel):
         get_manager().require_languages_loaded(
             index.distinct_chunk_languages(), allow_missing=self.allow_missing_plugins
         )
-        with index.session() as ws:
-            repo = ws.register_repo(resolved_repo)
+        repo = index.register(resolved_repo)
 
         with progress_reporter("Parsing files", "Embedding") as (on_parse, on_embed):
 

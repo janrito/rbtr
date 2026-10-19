@@ -70,15 +70,15 @@ def ref_index(
     ref_repo: pygit2.Repository,
     index: Index,
 ) -> Index:
-    with index.session() as ws:
-        repo = ws.register_repo(ref_repo.workdir)
-        ws.mark_indexed(at=repo.at(str(ref_repo.head.target)))
+    repo = index.register(ref_repo.workdir)
+    with index.session(repo) as ws:
+        ws.mark_indexed(snapshot_sha=str(ref_repo.head.target))
         if ref_scenario.tree_sha_indexed:
             tree_sha = worktree_tree_sha(
                 ref_repo.workdir, max_untracked_files=config.max_untracked_files
             )
             if tree_sha is not None:
-                ws.mark_indexed(at=repo.at(tree_sha))
+                ws.mark_indexed(snapshot_sha=tree_sha)
     return index
 
 
@@ -129,9 +129,9 @@ def test_implicit_unindexed_head_falls_back_to_latest_indexed(
     unindexed HEAD rather than returning an empty result."""
     repo = _gate_repo(tmp_path, ref_sig)
     older = "a" * 40
-    with index.session() as ws:
-        registered = ws.register_repo(repo.workdir)
-        ws.mark_indexed(at=registered.at(older))
+    registered = index.register(repo.workdir)
+    with index.session(registered) as ws:
+        ws.mark_indexed(snapshot_sha=older)
 
     result = resolve_read_ref(index, registered, None, require_indexed=True)
 
@@ -150,8 +150,7 @@ def test_implicit_unindexed_head_nothing_indexed_errors(
     plain not-indexed guidance here.
     """
     repo = _gate_repo(tmp_path, ref_sig)
-    with index.session() as ws:
-        registered = ws.register_repo(repo.workdir)
+    registered = index.register(repo.workdir)
 
     with pytest.raises(IndexNotBuiltError, match="not indexed"):
         resolve_read_ref(index, registered, None, require_indexed=True)

@@ -66,8 +66,8 @@ def reopened(
         con.close()
     else:
         seed = Index(path, writable=True)
-        with seed.session() as ws:
-            repo = ws.register_repo("/repo")
+        repo = seed.register("/repo")
+        with seed.session(repo) as ws:
             for chunk in before.seeded_chunks:
                 tc = (
                     chunk
@@ -85,7 +85,6 @@ def reopened(
                         )
                         for c in before.seeded_chunks
                     ],
-                    repo=repo,
                 )
             if before.seeded_embeddings:
                 ids = list(before.seeded_embeddings.keys())
@@ -168,12 +167,11 @@ def test_embedding_meta_stored_after_change(
 def _seed_one_chunk(path: Path) -> None:
     """Seed *path* with a single indexed chunk at the current schema."""
     seed = Index(path, writable=True)
-    with seed.session() as ws:
-        repo = ws.register_repo("/repo")
+    repo = seed.register("/repo")
+    with seed.session(repo) as ws:
         ws.add_chunk(make_chunk("c1"))
         ws.insert_snapshots(
             [FileSnapshot(snapshot_sha="head", file_path="f.py", blob_sha="blob_c1")],
-            repo=repo,
         )
     seed.close()
 
@@ -244,12 +242,11 @@ def test_fts_persists_across_reopen(tmp_path: Path) -> None:
     chunk = make_chunk("persist_1", name="persist_check")
 
     index1 = Index(db_path, writable=True)
-    with index1.session() as ws:
-        repo = ws.register_repo("/repo")
+    repo = index1.register("/repo")
+    with index1.session(repo) as ws:
         ws.add_chunk(chunk)
         ws.insert_snapshots(
             [FileSnapshot(snapshot_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha)],
-            repo=repo,
         )
     ref = repo.at("head")
     assert len(index1.fulltext_matches("persist", within=[ref], top_k=5)) == 1
