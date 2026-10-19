@@ -1,7 +1,7 @@
 """Tests for daemon index handlers — end-to-end via ZMQ.
 
 Uses `running_daemon` fixture which starts a real
-server backed by an in-memory IndexStore seeded with test data.
+server backed by an in-memory Index seeded with test data.
 Tests verify typed responses via the actual socket path.
 """
 
@@ -46,7 +46,7 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.server import DaemonServer
 from rbtr.domain.models import EdgeKind, EveryRepoGcMode, GcMode, QueryKind, RefSource
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 from rbtr.tests.daemon.cases_handlers import StatusRootScenario, UnbuiltRefScenario
 
 
@@ -74,11 +74,11 @@ def test_daemon_config_reports_version_config_and_plugins() -> None:
 
 @pytest.mark.parametrize("mode", [GcMode.WATCHED, GcMode.WATCHED_ONLY])
 def test_handle_gc_global_accepts_a_retention_every_repo_can_answer(
-    mode: EveryRepoGcMode, store: IndexStore
+    mode: EveryRepoGcMode, index: Index
 ) -> None:
     """Both retentions are expressed in each repo's own terms — its HEAD,
     its watch set — so either can be applied to every repo at once."""
-    resp = handle_gc_all(GcAllRequest(mode=mode), store)
+    resp = handle_gc_all(GcAllRequest(mode=mode), index)
 
     assert resp.repos_collected == 0  # nothing registered, but not refused
 
@@ -205,14 +205,14 @@ def test_an_unindexed_ref_is_an_error_not_an_empty_result(
 @parametrize_with_cases("scenario", prefix="case_unbuilt_")
 def scenario_applied(
     running_daemon: DaemonServer,
-    seeded_store: IndexStore,
+    seeded_index: Index,
     fake_repo: str,
     scenario: UnbuiltRefScenario,
 ) -> Generator[UnbuiltRefScenario]:
     """*scenario*'s build and watch set, applied to `running_daemon`."""
-    repo_id = seeded_store.get_repo_id(fake_repo)
+    repo_id = seeded_index.get_repo_id(fake_repo)
     assert repo_id is not None
-    with seeded_store.session() as ws:
+    with seeded_index.session() as ws:
         ws.add_watched_refs(repo_id, scenario.watched)
     running_daemon._active_build = scenario.active_build
     yield scenario
@@ -438,33 +438,33 @@ def test_status_unknown_repo(running_daemon: DaemonServer, second_repo: str) -> 
 # drive it against the store directly.
 
 
-def test_index_always_watches_head(seeded_store: IndexStore, tmp_path: Path) -> None:
+def test_index_always_watches_head(seeded_index: Index, tmp_path: Path) -> None:
     """A repo first seen via `index <ref>` (not startup backfill) still
     watches HEAD — the invariant that HEAD is always watched."""
     other = str(tmp_path / "other")
-    handle_watch(WatchRequest(repo_path=other, refs=["main"]), seeded_store)
-    watched = seeded_store.list_watched_refs(seeded_store.resolve_repo(other))
+    handle_watch(WatchRequest(repo_path=other, refs=["main"]), seeded_index)
+    watched = seeded_index.list_watched_refs(seeded_index.resolve_repo(other))
     assert "HEAD" in watched
     assert "main" in watched
 
 
-def test_index_records_a_ref_in_the_watch_set(seeded_store: IndexStore, fake_repo: str) -> None:
+def test_index_records_a_ref_in_the_watch_set(seeded_index: Index, fake_repo: str) -> None:
     """`index` records a ref; dropping one is `handle_unwatch`."""
-    repo_id = seeded_store.resolve_repo(fake_repo)
-    added = handle_watch(WatchRequest(repo_path=fake_repo, refs=["main"]), seeded_store)
-    assert "main" in seeded_store.list_watched_refs(repo_id)
+    repo_id = seeded_index.resolve_repo(fake_repo)
+    added = handle_watch(WatchRequest(repo_path=fake_repo, refs=["main"]), seeded_index)
+    assert "main" in seeded_index.list_watched_refs(repo_id)
     # The reply is the watch set now, each ref with its SHA and state.
     assert isinstance(added, WatchSetResponse)
     assert {w.ref: w.indexed for w in added.watched} == {"HEAD": True, "main": True}
 
 
-def test_status_reports_watch_set_states(seeded_store: IndexStore, fake_repo: str) -> None:
+def test_status_reports_watch_set_states(seeded_index: Index, fake_repo: str) -> None:
     """Each watched ref is reported as indexed, pending, or unresolvable."""
-    repo_id = seeded_store.resolve_repo(fake_repo)
+    repo_id = seeded_index.resolve_repo(fake_repo)
     pending_sha = "0" * 40  # a bare SHA: resolves to itself, never indexed
-    with seeded_store.session() as ws:
+    with seeded_index.session() as ws:
         ws.add_watched_refs(repo_id, ["main", pending_sha, "nonexistent-branch"])
-    resp = handle_status(StatusRequest(repo_path=fake_repo), seeded_store)
+    resp = handle_status(StatusRequest(repo_path=fake_repo), seeded_index)
     watched = {w.ref: w for w in resp.watched}
     assert watched["main"].indexed is True  # resolves to the indexed HEAD
     assert watched[pending_sha].indexed is False
@@ -473,13 +473,13 @@ def test_status_reports_watch_set_states(seeded_store: IndexStore, fake_repo: st
 
 
 def test_watch_refs_logs_intent(
-    seeded_store: IndexStore,
+    seeded_index: Index,
     fake_repo: str,
     log_output: structlog.testing.LogCapture,
 ) -> None:
     """Add and remove each emit a correlated intent event."""
-    handle_watch(WatchRequest(repo_path=fake_repo, refs=["main"]), seeded_store)
-    handle_unwatch(UnwatchRequest(repo_path=fake_repo, refs=["main"]), seeded_store)
+    handle_watch(WatchRequest(repo_path=fake_repo, refs=["main"]), seeded_index)
+    handle_unwatch(UnwatchRequest(repo_path=fake_repo, refs=["main"]), seeded_index)
     events = [e["event"] for e in log_output.entries]
     assert "watched_refs_added" in events
     assert "watched_refs_removed" in events

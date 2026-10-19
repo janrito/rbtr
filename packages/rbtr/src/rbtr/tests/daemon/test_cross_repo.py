@@ -12,14 +12,14 @@ from pytest_cases import parametrize_with_cases
 
 from rbtr.daemon.dto import ResolvedRef
 from rbtr.domain.models import FileSnapshot, RefSource, SnapshotRef
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 
 from ..index.conftest import make_chunk
 from .cases_cross_repo import ScopeScenario
 
 
 @pytest.fixture
-def two_repos(store: IndexStore) -> tuple[IndexStore, dict[int, str]]:
+def two_repos(index: Index) -> tuple[Index, dict[int, str]]:
     """A store with two indexed repos and their `repo_id -> path` map.
 
     Repo 1 holds chunk `r1_loader`, repo 2 holds `r2_loader`; both
@@ -31,7 +31,7 @@ def two_repos(store: IndexStore) -> tuple[IndexStore, dict[int, str]]:
         2: make_chunk("r2_loader", name="load_beta", path="beta.py", blob="b_r2"),
     }
     for repo_id, chunk in chunks.items():
-        with store.session() as ws:
+        with index.session() as ws:
             ws.register_repo(paths[repo_id])
             ws.add_chunk(chunk)
             ws.insert_snapshots(
@@ -43,16 +43,14 @@ def two_repos(store: IndexStore) -> tuple[IndexStore, dict[int, str]]:
                 repo_id=repo_id,
             )
             ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha="head"))
-    return store, paths
+    return index, paths
 
 
 @parametrize_with_cases("scenario", cases=".cases_cross_repo")
-def test_search_scope(
-    scenario: ScopeScenario, two_repos: tuple[IndexStore, dict[int, str]]
-) -> None:
+def test_search_scope(scenario: ScopeScenario, two_repos: tuple[Index, dict[int, str]]) -> None:
     """Search returns hits from exactly the in-scope repos, attributed."""
-    store, paths = two_repos
-    resp = scenario.search(store, paths[1])
+    index, paths = two_repos
+    resp = scenario.search(index, paths[1])
     # The DTO carries no id; repo_path is the attribution signal. In
     # attributed (cross-repo) mode the set of repo_paths returned must be
     # exactly the in-scope repos; in workspace mode all hits are
@@ -70,12 +68,10 @@ def test_search_scope(
 
 
 @parametrize_with_cases("scenario", cases=".cases_cross_repo")
-def test_status_scope(
-    scenario: ScopeScenario, two_repos: tuple[IndexStore, dict[int, str]]
-) -> None:
+def test_status_scope(scenario: ScopeScenario, two_repos: tuple[Index, dict[int, str]]) -> None:
     """Status reports refs for exactly the in-scope repos, attributed."""
-    store, paths = two_repos
-    resp = scenario.status(store, paths[1])
+    index, paths = two_repos
+    resp = scenario.status(index, paths[1])
 
     expected_paths = {paths[r] for r in scenario.expected_repos}
     assert {ref.repo_path for ref in resp.indexed_refs} == expected_paths

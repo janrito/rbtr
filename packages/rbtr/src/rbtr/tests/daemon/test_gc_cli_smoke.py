@@ -1,7 +1,7 @@
 """End-to-end smoke test for `rbtr gc` via subprocess.
 
 Exercises the full CLI → inline-fallback path (no daemon running).
-Seeds an IndexStore directly instead of running `rbtr watch` to
+Seeds an Index directly instead of running `rbtr watch` to
 keep the test fast and to avoid depending on the GGUF embedding
 model during unit runs — the indexing path has its own tests.
 """
@@ -16,8 +16,8 @@ import pygit2
 import pytest
 
 from rbtr.domain.models import ChunkKind, FileSnapshot, SnapshotRef
+from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
-from rbtr.index.store import IndexStore
 from rbtr.tests.conftest import run_cli
 
 
@@ -55,8 +55,8 @@ def tiny_repo(tmp_path: Path) -> TinyRepo:
 @pytest.fixture
 def seeded_repo_id_both_commits(tiny_repo: TinyRepo, isolated_db: Path) -> int:
     """Seed both commits and close the store so subprocesses can open it."""
-    store = IndexStore.from_config(writable=True)
-    with store.session() as ws:
+    index = Index.from_config(writable=True)
+    with index.session() as ws:
         repo_id = ws.register_repo(str(tiny_repo.path))
     for i, sha in enumerate((tiny_repo.c1, tiny_repo.c2)):
         chunk = TokenisedChunk(
@@ -68,22 +68,22 @@ def seeded_repo_id_both_commits(tiny_repo: TinyRepo, isolated_db: Path) -> int:
             line_start=1,
             line_end=1,
         )
-        with store.session() as ws:
+        with index.session() as ws:
             ws.add_chunk(chunk)
             ws.insert_snapshots(
                 [FileSnapshot(snapshot_sha=sha, file_path="a.py", blob_sha=f"b{i}")],
                 repo_id=repo_id,
             )
             ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
-    store.close()
+    index.close()
     return repo_id
 
 
 @pytest.fixture
 def seeded_repo_id_first_commit(tiny_repo: TinyRepo, isolated_db: Path) -> int:
     """Seed only the first commit and close the store."""
-    store = IndexStore.from_config(writable=True)
-    with store.session() as ws:
+    index = Index.from_config(writable=True)
+    with index.session() as ws:
         repo_id = ws.register_repo(str(tiny_repo.path))
     chunk = TokenisedChunk(
         blob_sha="b0",
@@ -94,14 +94,14 @@ def seeded_repo_id_first_commit(tiny_repo: TinyRepo, isolated_db: Path) -> int:
         line_start=1,
         line_end=1,
     )
-    with store.session() as ws:
+    with index.session() as ws:
         ws.add_chunk(chunk)
         ws.insert_snapshots(
             [FileSnapshot(snapshot_sha=tiny_repo.c1, file_path="a.py", blob_sha="b0")],
             repo_id=repo_id,
         )
         ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c1))
-    store.close()
+    index.close()
     return repo_id
 
 
@@ -117,9 +117,9 @@ def test_gc_default_keeps_head_drops_unreferenced(
     assert payload["kind"] == "gc"
     assert payload["snapshots_dropped"] == 1  # c1 is not a ref tip
 
-    store = IndexStore.from_config(writable=True)
-    assert store.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c1)) is False
-    assert store.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c2)) is True
+    index = Index.from_config(writable=True)
+    assert index.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c1)) is False
+    assert index.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c2)) is True
 
 
 def test_gc_dry_run_changes_nothing(
@@ -132,8 +132,8 @@ def test_gc_dry_run_changes_nothing(
     payload = json.loads(r.stdout)
     assert payload["dry_run"] is True
 
-    store = IndexStore.from_config(writable=True)
-    assert store.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c1)) is True
+    index = Index.from_config(writable=True)
+    assert index.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c1)) is True
 
 
 def test_gc_watched_only_smoke(
@@ -145,9 +145,9 @@ def test_gc_watched_only_smoke(
     r = run_cli(["--json", "gc", "--repo-path", str(tiny_repo.path), "--keep", "watched-only"])
     assert r.returncode == 0, r.stderr
     assert json.loads(r.stdout)["kind"] == "gc"
-    store = IndexStore.from_config(writable=True)
+    index = Index.from_config(writable=True)
     assert (
-        store.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c2)) is True
+        index.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c2)) is True
     )  # HEAD kept
 
 
@@ -161,9 +161,9 @@ def test_gc_across_every_repo_reclaims_globally(
     r = run_cli(["--json", "gc", "--scope", "all"])
     assert r.returncode == 0, r.stderr
     assert json.loads(r.stdout)["snapshots_dropped"] == 1  # c1 is not a ref tip
-    store = IndexStore.from_config(writable=True)
-    assert store.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c1)) is False
-    assert store.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c2)) is True
+    index = Index.from_config(writable=True)
+    assert index.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c1)) is False
+    assert index.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c2)) is True
 
 
 def test_gc_no_compact_smoke(
@@ -175,9 +175,9 @@ def test_gc_no_compact_smoke(
     r = run_cli(["--json", "gc", "--repo-path", str(tiny_repo.path), "--no-compact"])
     assert r.returncode == 0, r.stderr
     assert json.loads(r.stdout)["kind"] == "gc"
-    store = IndexStore.from_config(writable=True)
+    index = Index.from_config(writable=True)
     assert (
-        store.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c2)) is True
+        index.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c2)) is True
     )  # HEAD kept
 
 
@@ -193,9 +193,9 @@ def test_gc_across_every_repo_keeps_each_watch_set(
     assert r.returncode == 0, r.stderr
     assert json.loads(r.stdout)["kind"] == "gc"
 
-    store = IndexStore.from_config(writable=True)
-    assert store.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c2)) is True
-    assert store.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c1)) is False
+    index = Index.from_config(writable=True)
+    assert index.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c2)) is True
+    assert index.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tiny_repo.c1)) is False
 
 
 @pytest.mark.parametrize(
@@ -218,10 +218,10 @@ def test_a_contradictory_retention_drops_nothing(
     r = run_cli([*args, "--repo-path", str(tiny_repo.path)])
 
     assert r.returncode == 2, r.stdout
-    store = IndexStore.from_config(writable=False)
+    index = Index.from_config(writable=False)
     try:
         for sha in (tiny_repo.c1, tiny_repo.c2):
             at = SnapshotRef(repo_id=seeded_repo_id_both_commits, snapshot_sha=sha)
-            assert store.has_indexed(at=at) is True
+            assert index.has_indexed(at=at) is True
     finally:
-        store.close()
+        index.close()

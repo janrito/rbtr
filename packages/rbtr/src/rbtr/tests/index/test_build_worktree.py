@@ -11,8 +11,8 @@ from rbtr.config import config
 from rbtr.domain.models import SnapshotRef
 from rbtr.git import changed_files, worktree_tree_sha
 from rbtr.index.build import build_index
+from rbtr.index.index import Index
 from rbtr.index.search import search
-from rbtr.index.store import IndexStore
 
 
 @pytest.fixture
@@ -64,22 +64,22 @@ def wt_sha(worktree_repo: tuple[pygit2.Repository, str]) -> str:
 
 
 def test_build_worktree_creates_chunks(
-    worktree_repo: tuple[pygit2.Repository, str], store: IndexStore, wt_sha: str
+    worktree_repo: tuple[pygit2.Repository, str], index: Index, wt_sha: str
 ) -> None:
     repo, _ = worktree_repo
-    result = build_index(repo.workdir, wt_sha, store)
+    result = build_index(repo.workdir, wt_sha, index)
     assert result.stats.total_chunks > 0
 
 
 def test_build_worktree_blob_dedup(
-    worktree_repo: tuple[pygit2.Repository, str], store: IndexStore, wt_sha: str
+    worktree_repo: tuple[pygit2.Repository, str], index: Index, wt_sha: str
 ) -> None:
     """Unchanged files reuse HEAD blobs — no duplicate extraction."""
     repo, head_sha = worktree_repo
 
     # Build HEAD first, then worktree.
-    r1 = build_index(repo.workdir, head_sha, store)
-    wt = build_index(repo.workdir, wt_sha, store)
+    r1 = build_index(repo.workdir, head_sha, index)
+    wt = build_index(repo.workdir, wt_sha, index)
 
     # Files unchanged between HEAD and worktree (e.g. models.py,
     # main.py, README.md) share blobs, so fewer files are parsed
@@ -88,86 +88,86 @@ def test_build_worktree_blob_dedup(
 
 
 def test_build_worktree_modified_visible(
-    worktree_repo: tuple[pygit2.Repository, str], store: IndexStore, wt_sha: str
+    worktree_repo: tuple[pygit2.Repository, str], index: Index, wt_sha: str
 ) -> None:
     """Modified file content appears in worktree chunks."""
     repo, _ = worktree_repo
-    build_index(repo.workdir, wt_sha, store)
+    build_index(repo.workdir, wt_sha, index)
 
-    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=wt_sha))
+    chunks = index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=wt_sha))
     helper_chunks = [c for c in chunks if c.name == "helper"]
     assert len(helper_chunks) == 1
     assert "99" in helper_chunks[0].content
 
 
 def test_build_worktree_added_file(
-    worktree_repo: tuple[pygit2.Repository, str], store: IndexStore, wt_sha: str
+    worktree_repo: tuple[pygit2.Repository, str], index: Index, wt_sha: str
 ) -> None:
     """New working-tree file appears in worktree index."""
     repo, _ = worktree_repo
-    build_index(repo.workdir, wt_sha, store)
+    build_index(repo.workdir, wt_sha, index)
 
-    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=wt_sha))
+    chunks = index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=wt_sha))
     service_chunks = [c for c in chunks if c.file_path == "src/service.py"]
     assert len(service_chunks) > 0
 
 
 def test_build_worktree_deleted_file(
-    worktree_repo: tuple[pygit2.Repository, str], store: IndexStore, wt_sha: str
+    worktree_repo: tuple[pygit2.Repository, str], index: Index, wt_sha: str
 ) -> None:
     """Deleted working-tree file is absent from worktree index."""
     repo, _ = worktree_repo
-    build_index(repo.workdir, wt_sha, store)
+    build_index(repo.workdir, wt_sha, index)
 
-    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=wt_sha))
+    chunks = index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=wt_sha))
     test_chunks = [c for c in chunks if c.file_path == "tests/test_utils.py"]
     assert test_chunks == []
 
 
 def test_build_worktree_edges(
-    worktree_repo: tuple[pygit2.Repository, str], store: IndexStore, wt_sha: str
+    worktree_repo: tuple[pygit2.Repository, str], index: Index, wt_sha: str
 ) -> None:
     """Worktree build infers edges (import relationships)."""
     repo, _ = worktree_repo
-    result = build_index(repo.workdir, wt_sha, store)
+    result = build_index(repo.workdir, wt_sha, index)
     assert result.stats.total_edges > 0
 
 
 def test_build_worktree_marks_indexed(
-    worktree_repo: tuple[pygit2.Repository, str], store: IndexStore, wt_sha: str
+    worktree_repo: tuple[pygit2.Repository, str], index: Index, wt_sha: str
 ) -> None:
     """Tree SHA appears in `list_indexed_snapshots` after build."""
     repo, _ = worktree_repo
-    build_index(repo.workdir, wt_sha, store)
+    build_index(repo.workdir, wt_sha, index)
 
-    indexed = [sha for sha, _ts in store.list_indexed_snapshots(repo_id=1)]
+    indexed = [sha for sha, _ts in index.list_indexed_snapshots(repo_id=1)]
     assert wt_sha in indexed
 
 
 def test_search_returns_worktree_content(
-    worktree_repo: tuple[pygit2.Repository, str], store: IndexStore, wt_sha: str
+    worktree_repo: tuple[pygit2.Repository, str], index: Index, wt_sha: str
 ) -> None:
     """FTS search against tree SHA finds the modified content."""
     repo, _ = worktree_repo
-    build_index(repo.workdir, wt_sha, store)
+    build_index(repo.workdir, wt_sha, index)
 
-    results = search(store, "helper", within=[SnapshotRef(repo_id=1, snapshot_sha=wt_sha)])
+    results = search(index, "helper", within=[SnapshotRef(repo_id=1, snapshot_sha=wt_sha)])
     helpers = [r for r in results if r.name == "helper"]
     assert len(helpers) == 1
     assert "99" in helpers[0].content
 
 
 def test_head_still_visible_after_worktree_build(
-    worktree_repo: tuple[pygit2.Repository, str], store: IndexStore, wt_sha: str
+    worktree_repo: tuple[pygit2.Repository, str], index: Index, wt_sha: str
 ) -> None:
     """HEAD index is not clobbered by the worktree build."""
     repo, head_sha = worktree_repo
 
-    build_index(repo.workdir, head_sha, store)
-    build_index(repo.workdir, wt_sha, store)
+    build_index(repo.workdir, head_sha, index)
+    build_index(repo.workdir, wt_sha, index)
 
     # HEAD still has the original helper() returning 42.
-    head_chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=head_sha))
+    head_chunks = index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=head_sha))
     helpers = [c for c in head_chunks if c.name == "helper"]
     assert len(helpers) == 1
     assert "42" in helpers[0].content
@@ -177,17 +177,17 @@ def test_head_still_visible_after_worktree_build(
     assert len(test_chunks) > 0
 
 
-def test_build_worktree_clean_matches_head(git_repo: pygit2.Repository, store: IndexStore) -> None:
+def test_build_worktree_clean_matches_head(git_repo: pygit2.Repository, index: Index) -> None:
     """Clean worktree produces the same chunks as HEAD when built with HEAD's tree SHA."""
     head_sha = str(git_repo.head.target)
     # Clean tree: worktree_tree_sha returns None, so we use HEAD's tree directly.
     head_tree_sha = str(git_repo.head.peel(pygit2.Tree).id)
 
-    build_index(git_repo.workdir, head_sha, store)
-    build_index(git_repo.workdir, head_tree_sha, store)
+    build_index(git_repo.workdir, head_sha, index)
+    build_index(git_repo.workdir, head_tree_sha, index)
 
-    head_chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=head_sha))
-    wt_chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=head_tree_sha))
+    head_chunks = index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=head_sha))
+    wt_chunks = index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=head_tree_sha))
 
     head_names = sorted(c.name for c in head_chunks)
     wt_names = sorted(c.name for c in wt_chunks)
@@ -199,14 +199,14 @@ def test_build_worktree_clean_matches_head(git_repo: pygit2.Repository, store: I
 
 
 def test_rebuild_worktree_reflects_new_edits(
-    worktree_repo: tuple[pygit2.Repository, str], store: IndexStore, wt_sha: str, tmp_path: Path
+    worktree_repo: tuple[pygit2.Repository, str], index: Index, wt_sha: str, tmp_path: Path
 ) -> None:
     """Rebuilding the worktree index picks up subsequent edits."""
     repo, _ = worktree_repo
 
     # First build: helper() returns 99.
-    build_index(repo.workdir, wt_sha, store)
-    chunks_v1 = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=wt_sha))
+    build_index(repo.workdir, wt_sha, index)
+    chunks_v1 = index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=wt_sha))
     helpers_v1 = [c for c in chunks_v1 if c.name == "helper"]
     assert "99" in helpers_v1[0].content
 
@@ -227,8 +227,8 @@ def format_name(name):
     assert wt_sha != tree_sha_v2
 
     # Rebuild picks up the new content.
-    build_index(repo.workdir, tree_sha_v2, store)
-    chunks_v2 = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=tree_sha_v2))
+    build_index(repo.workdir, tree_sha_v2, index)
+    chunks_v2 = index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=tree_sha_v2))
     helpers_v2 = [c for c in chunks_v2 if c.name == "helper"]
     assert len(helpers_v2) == 1
     assert "200" in helpers_v2[0].content
@@ -236,7 +236,7 @@ def format_name(name):
 
 
 def test_build_worktree_file_unreadable_mid_walk(
-    worktree_repo: tuple[pygit2.Repository, str], store: IndexStore, wt_sha: str, tmp_path: Path
+    worktree_repo: tuple[pygit2.Repository, str], index: Index, wt_sha: str, tmp_path: Path
 ) -> None:
     """A dirty file that becomes unreadable after tree SHA computation.
 
@@ -254,12 +254,12 @@ def test_build_worktree_file_unreadable_mid_walk(
     utils.symlink_to("/nonexistent/target")
 
     # Build should complete — the tree object has the blob.
-    result = build_index(repo.workdir, wt_sha, store)
+    result = build_index(repo.workdir, wt_sha, index)
     assert result.stats.total_chunks > 0
 
     # utils.py IS present because its blob was written to the object
     # store by add_all() before we broke the symlink.
-    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=wt_sha))
+    chunks = index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=wt_sha))
     utils_chunks = [c for c in chunks if c.file_path == "src/utils.py"]
     assert len(utils_chunks) > 0
 

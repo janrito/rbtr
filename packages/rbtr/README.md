@@ -173,7 +173,7 @@ deleted worktree or clone can no longer be named, only found.
 Search the code index.
 
 ```bash
-rbtr search "IndexStore"          # name match
+rbtr search "Index"          # name match
 rbtr search "retry timeout"       # keyword search
 rbtr search "how does auth work"  # semantic search
 ```
@@ -210,7 +210,7 @@ repo name:
 $ rbtr search "connection pool" --scope all
 ukf/deploy/pgbouncer/settings.env:1-9  config  pgbouncer
   0.84
-rbtr/packages/rbtr/src/rbtr/index/store.py:118-140  method  IndexStore.close
+rbtr/packages/rbtr/src/rbtr/index/index.py:118-140  method  Index.close
   0.23
 ```
 
@@ -245,7 +245,7 @@ Symbols that reference a given symbol via the dependency
 graph (imports, docs).
 
 ```bash
-rbtr find-refs IndexStore
+rbtr find-refs Index
 ```
 
 Disambiguate a colliding name by restricting resolution to
@@ -267,7 +267,7 @@ Scope the diff to specific files with `--file-path`
 (repeatable):
 
 ```bash
-rbtr changed-symbols HEAD~5 HEAD --file-path src/rbtr/index/store.py
+rbtr changed-symbols HEAD~5 HEAD --file-path src/rbtr/index/index.py
 ```
 
 ### `rbtr status`

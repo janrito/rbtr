@@ -122,7 +122,7 @@ returns the whole body.
 
 ```json
 {"kind": "find_refs", "refs": [
-  {"name": "from rbtr.index.store import IndexStore", "kind": "import",
+  {"name": "from rbtr.index.index import Index", "kind": "import",
    "file_path": "src/rbtr/daemon/watcher.py", "line_start": 30, "edge": "imports"}
 ], "resolved": {"sha": "4a6a6ffc…", "source": "head"}, "file_paths": null}
 ```

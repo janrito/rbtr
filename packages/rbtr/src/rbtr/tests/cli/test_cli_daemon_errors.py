@@ -25,7 +25,7 @@ from rbtr.daemon.messages import ErrorCode, ErrorResponse
 from rbtr.domain.models import SnapshotRef
 from rbtr.errors import RbtrError
 from rbtr.git import normalise_repo_path
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 from rbtr.tests.conftest import run_cli
 
 
@@ -36,19 +36,19 @@ def start_fails(mocker: MockerFixture) -> None:
 
 
 @pytest.fixture
-def inline_store(store: IndexStore, mocker: MockerFixture) -> IndexStore:
+def inline_index(index: Index, mocker: MockerFixture) -> Index:
     """Point the inline fallback's `from_config` at the shared
-    in-memory `store`, so the fallback runs a real build and the
+    in-memory `index`, so the fallback runs a real build and the
     test can assert the symbols were written."""
-    mocker.patch("rbtr.cli.IndexStore.from_config", return_value=store)
-    return store
+    mocker.patch("rbtr.cli.Index.from_config", return_value=index)
+    return index
 
 
 def test_index_falls_back_to_inline_when_start_fails(
     git_repo: pygit2.Repository,
     isolated_db: Path,
     start_fails: None,
-    inline_store: IndexStore,
+    inline_index: Index,
 ) -> None:
     """A failed daemon start falls back to a real inline build.
 
@@ -65,12 +65,12 @@ def test_index_falls_back_to_inline_when_start_fails(
         allow_missing_plugins=False,
     ).cli_cmd()
 
-    repo_id = inline_store.get_repo_id(normalise_repo_path(repo_path))
+    repo_id = inline_index.get_repo_id(normalise_repo_path(repo_path))
     assert repo_id is not None, "inline fallback did not register the repo"
-    commits = inline_store.list_indexed_snapshots(repo_id)
+    commits = inline_index.list_indexed_snapshots(repo_id)
     assert len(commits) == 1, "inline fallback did not index HEAD"
     head = SnapshotRef(repo_id=repo_id, snapshot_sha=commits[0][0])
-    assert inline_store.chunk_counts_for_snapshot(at=head).total > 0, "no symbols extracted"
+    assert inline_index.chunk_counts_for_snapshot(at=head).total > 0, "no symbols extracted"
 
 
 def test_index_refuses_inline_build_when_db_is_locked(
@@ -91,7 +91,7 @@ def test_index_refuses_inline_build_when_db_is_locked(
     """
     # The start waits for the lock holder to serve; this one never will.
     monkeypatch.setenv("RBTR_DAEMON_START_TIMEOUT", "3")
-    store = IndexStore.from_config(writable=True)  # take the exclusive lock
+    index = Index.from_config(writable=True)  # take the exclusive lock
     try:
         result = run_cli(["watch", "--repo-path", repo_path])
 
@@ -102,5 +102,5 @@ def test_index_refuses_inline_build_when_db_is_locked(
         assert "locked by another process" in error.message
         assert "Falling back to inline execution" not in result.stderr
     finally:
-        store.close()
+        index.close()
         run_cli(["daemon", "stop"])

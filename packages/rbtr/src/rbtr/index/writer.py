@@ -1,7 +1,7 @@
 """Write session — transactional write surface for the index.
 
 All mutations go through `WriteSession`, obtained via
-`IndexStore.session()`.  The session is a context manager:
+`Index.session()`.  The session is a context manager:
 
 - `__enter__`: begins a transaction.
 - `__exit__`: flushes buffered chunks, commits the
@@ -11,7 +11,7 @@ All mutations go through `WriteSession`, obtained via
 Sweep is explicit: call `ws.sweep()` to remove residue from
 crashed builds.
 
-`IndexStore` (in `store.py`) owns the connection, reads,
+`Index` (in `index.py`) owns the connection, reads,
 and search.  `WriteSession` owns all data mutations.
 """
 
@@ -77,16 +77,16 @@ _SET_EMBEDDING_MODEL_SQL = load_sql("set_embedding_model.sql")
 log = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
-    from rbtr.index.store import IndexStore
+    from rbtr.index.index import Index
 
 
 class WriteSession:
     """Transactional write surface for the index store.
 
-    Use as a context manager via `IndexStore.session()`:
+    Use as a context manager via `Index.session()`:
 
     ```python
-    with store.session() as ws:
+    with index.session() as ws:
         ws.add_chunk(chunk)   # buffered (content-addressed, no repo_id)
         ws.insert_edges(...)  # immediate
     # exit: flush buffer + commit + FTS rebuild
@@ -119,8 +119,8 @@ class WriteSession:
     and embed preemption checks must be read-only.
     """
 
-    def __init__(self, store: IndexStore) -> None:
-        self._store = store
+    def __init__(self, index: Index) -> None:
+        self._index = index
         self._active = False
         self._chunks_modified = False
         # One entry per (blob_sha, file_language) this session inserted
@@ -134,12 +134,12 @@ class WriteSession:
     @property
     def _cursor(self) -> duckdb.DuckDBPyConnection:
         """Thread-local cursor from the underlying store."""
-        return self._store._cursor
+        return self._index._cursor
 
     # ── Context manager ──────────────────────────────────────────
 
     def __enter__(self) -> WriteSession:
-        if not self._store._bootstrapped:
+        if not self._index._bootstrapped:
             self._bootstrap()
         self._cursor.begin()
         self._active = True
@@ -153,7 +153,7 @@ class WriteSession:
             {"schema_version": str(SCHEMA_VERSION)},
         )
         self._check_embedding_version()
-        self._store._bootstrapped = True
+        self._index._bootstrapped = True
 
     def _check_embedding_version(self) -> None:
         """Clear embeddings if the format version or model changed."""
@@ -235,7 +235,7 @@ class WriteSession:
         pairs = pl.DataFrame(
             sorted(self._inserted_blobs), schema=["blob_sha", "file_language"], orient="row"
         )
-        with self._store.reader(_stg=pairs) as cur:
+        with self._index.reader(_stg=pairs) as cur:
             row = cur.execute(_COUNT_UNCLAIMED_BLOBS_SQL).fetchone()
         return int(row[0]) if row else 0
 
@@ -246,7 +246,7 @@ class WriteSession:
 
     def _require_active(self) -> None:
         if not self._active:
-            msg = "No active transaction. Use 'with store.session() as ws:'"
+            msg = "No active transaction. Use 'with index.session() as ws:'"
             raise RuntimeError(msg)
 
     # ── Bulk helpers ─────────────────────────────────────────────
@@ -265,7 +265,7 @@ class WriteSession:
         ]
         if struct_cols:
             frame = frame.with_columns(pl.col(c).struct.json_encode() for c in struct_cols)
-        with self._store.reader(_stg=frame) as cur:
+        with self._index.reader(_stg=frame) as cur:
             cur.execute(sql)
 
     # ── Write methods ────────────────────────────────────────────
@@ -279,7 +279,7 @@ class WriteSession:
         through `normalise_repo_path` first, as `build_index` does.
         """
         self._require_active()
-        existing = self._store.get_repo_id(path)
+        existing = self._index.get_repo_id(path)
         if existing is not None:
             return existing
         rows = self._cursor.execute(_REGISTER_REPO_SQL, {"path": path}).fetchall()
@@ -400,7 +400,7 @@ class WriteSession:
         if truncated is None:
             truncated = [False] * len(ids)
         frame = staged_embeddings(ids, embeddings, truncated)
-        with self._store.reader(_emb_stg=frame) as cur:
+        with self._index.reader(_emb_stg=frame) as cur:
             cur.execute(_UPDATE_EMBEDDINGS_SQL)
 
     def mark_indexed(self, *, at: SnapshotRef) -> None:
@@ -489,10 +489,10 @@ class WriteSession:
         file and connection untouched, so a failed compaction is never
         fatal; the index is simply not shrunk.
         """
-        store = self._store
-        if store.db_path is None:
+        index = self._index
+        if index.db_path is None:
             return  # in-memory: nothing on disk to compact
-        db_path = Path(store.db_path)
+        db_path = Path(index.db_path)
         # Unique per compaction: the previous compaction's live connection
         # still identifies its database by its own temp path, so reusing
         # the name would collide on ATTACH.
@@ -510,7 +510,7 @@ class WriteSession:
         # to its readers and closes by refcount once they have rebound.
         new_con: duckdb.DuckDBPyConnection | None = None
         try:
-            new_con = store._connect(str(tmp_path))
+            new_con = index._connect(str(tmp_path))
             os.replace(tmp_path, db_path)
         except (OSError, duckdb.Error) as exc:
             if new_con is not None:
@@ -518,7 +518,7 @@ class WriteSession:
             tmp_path.unlink(missing_ok=True)
             log.warning("gc_compaction_failed", error=str(exc))
             return
-        store._adopt_connection(new_con)
+        index._adopt_connection(new_con)
 
     def _write_compacted_copy(self, tmp_path: Path) -> None:
         """Copy the live database into a fresh file at *tmp_path*.
@@ -537,7 +537,7 @@ class WriteSession:
         """
         tmp_path.unlink(missing_ok=True)
         # Capture the cursor once: the ATTACH, COPY and DETACH must all
-        # run on the same connection (as `IndexStore._view` does for
+        # run on the same connection (as `Index._view` does for
         # reads).
         cur = self._cursor
 

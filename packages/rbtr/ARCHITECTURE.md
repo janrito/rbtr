@@ -132,7 +132,7 @@ or co-located clones share `.git` object SHAs, so their blobs
 and chunk `id`s coincide, and the existing chunks are reused —
 no re-parsing, no re-embedding.
 
-The build checks `store.blob_is_current(blob_sha, language,
+The build checks `index.blob_is_current(blob_sha, language,
 serials)` before extracting a file, where `language` is the
 file's detected host language and `serials` is the current
 `{language: extraction serial}` registry map (plus `""` for
@@ -187,7 +187,7 @@ and the needless re-extraction — on every subsequent build.
 ### Write path
 
 All mutations go through `WriteSession`, obtained via
-`IndexStore.session()`. The session is a context manager:
+`Index.session()`. The session is a context manager:
 
 - `__enter__`: bootstraps the schema on first use,
   begins a transaction.
@@ -198,7 +198,7 @@ All mutations go through `WriteSession`, obtained via
 Sweep is explicit: `ws.sweep()` removes residue from
 crashed builds.
 
-`IndexStore` owns the connection and the reads; `search`
+`Index` owns the connection and the reads; `search`
 takes a store and ranks what it returns. `WriteSession`
 owns all data mutations. A store created with
 `writable=False` (the default) rejects `session()` calls.
@@ -237,7 +237,7 @@ The tree-sitter path — the most common case. The build loop calls
 sequenceDiagram
     participant O as build loop
     participant M as LanguageManager
-    participant S as IndexStore
+    participant S as Index
     participant T as languages.treesitter
 
     O->>M: detect_language(path)
@@ -706,7 +706,7 @@ worker's, and empties the field while `gc` compacts — which
 publishes a rewritten file, so a batch committing on the old
 connection is lost. gc pays one batch for that.
 
-Two alternatives do not hold. An `RLock` in `IndexStore`
+Two alternatives do not hold. An `RLock` in `Index`
 repeats what DuckDB already does, in the wrong place.
 DuckDB's optimistic concurrency hands the loser an error
 only a retry clears, and the winner holds its transaction
@@ -714,7 +714,7 @@ for seconds: retry now and lose again, retry later and block
 the REP socket behind it.
 
 Reads use thread-local cursors (via `connection.cursor()`)
-and run concurrently with writes. `store.py` imports pyarrow
+and run concurrently with writes. `index.py` imports pyarrow
 eagerly because duckdb's [Multiple Python Threads
 guide][ddb-threads] requires the interop library to be imported
 before threading starts — it names pandas, and the Arrow path
@@ -731,7 +731,7 @@ it.
 
 Compaction is the one
 write that swaps the connection: it publishes the rewritten
-file as a fresh connection (`IndexStore._adopt_connection`)
+file as a fresh connection (`Index._adopt_connection`)
 and each thread rebinds its cursor on the next read, so a
 `gc` rewrite never blocks or cuts off an in-flight search.
 
@@ -832,7 +832,7 @@ subscriber knows whether work on it is still due.
 ### Daemon startup
 
 The daemon is **single and global** per `data_dir`: `serve` takes
-DuckDB's exclusive lock (via `IndexStore.from_config`) before
+DuckDB's exclusive lock (via `Index.from_config`) before
 binding its sockets, so a second `serve` racing it exits on the
 lock with `ExitCode.INDEX_LOCKED`. `start_daemon()` tolerates
 this rather than coordinating it: it treats any live daemon as
@@ -1032,7 +1032,7 @@ Bindings ride `asyncio.to_thread` — it copies the context — so a
 search handler running in a worker thread, or a build/embed running
 in `to_thread`, still tags its lines with the originating request or
 job. This is what lets one request or background job be followed
-across `server`, `handlers`, `search`, `store`, and the index
+across `server`, `handlers`, `search`, `index`, and the index
 pipeline.
 
 ### Timing
@@ -1145,7 +1145,7 @@ importing file: `@import "b.css"` in `css/a.css` means
 `css/b.css`, and the root is tried first so a reference that
 already resolves keeps the file it resolved to. Failing both, a
 dotted path matches as a *suffix* of a candidate file path (so
-`rbtr.index.store` → `…/rbtr/index/store.py`) — which lets a
+`rbtr.index.index` → `…/rbtr/index/index.py`) — which lets a
 single index span a monorepo. `module_style` and
 `source_roots` tune the mapping per language; ambiguous
 matches are dropped rather than guessed, and a file never
@@ -1305,7 +1305,7 @@ regardless of repo count, and no scalar `repo_id`/
 
 `handle_search` builds the refs list: a one-element list
 from `_resolve_read_ref` for `workspace`, or
-`store.list_latest_refs()` for `all`. `list_latest_refs`
+`index.list_latest_refs()` for `all`. `list_latest_refs`
 applies the same dirty-or-HEAD resolution as
 `_resolve_read_ref` to every registered repo — preferring
 an indexed dirty worktree tree SHA, else the newest indexed
@@ -1469,7 +1469,7 @@ The persisted index survives connection close + reopen and
 is queryable immediately. It does **not** auto-update after
 INSERT or DELETE.
 
-**Write path** (build, GC): uses `store.session()`, which
+**Write path** (build, GC): uses `index.session()`, which
 yields a `WriteSession` — the exclusive write surface.
 All mutations go through the session. On clean exit it
 commits the transaction and, if chunks were modified,
@@ -2138,7 +2138,7 @@ it keeps every block it reads and does not give memory back. The
 exact cosine scan and compaction's `COPY FROM DATABASE` read the
 whole index, so on a 10 GiB index a compacting `gc` reached a
 5.2 GiB footprint and still held 4.6 GiB afterwards. Every
-connection therefore opens through `IndexStore._connect` with
+connection therefore opens through `Index._connect` with
 `duckdb_memory_limit` (1 GiB by default) and `duckdb_threads`: the
 store's own, and the one compaction adopts, which is a second
 DuckDB instance with limits of its own. Under 1 GiB the same `gc`

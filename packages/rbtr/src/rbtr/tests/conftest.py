@@ -16,7 +16,7 @@ from pytest_mock import MockerFixture
 
 from rbtr.config import config
 from rbtr.git import normalise_repo_path
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 
 
 class StubModel:
@@ -136,9 +136,9 @@ def second_repo(tmp_path: Path) -> str:
 
 
 @pytest.fixture
-def store() -> Generator[IndexStore]:
-    """In-memory writable IndexStore."""
-    s = IndexStore(writable=True)
+def index() -> Generator[Index]:
+    """In-memory writable Index."""
+    s = Index(writable=True)
     yield s
     s.close()
 
@@ -203,15 +203,15 @@ Run `format_name` to clean strings.
 """,
     }
 
-    index = repo.index
+    git_index = repo.index
     for path, content in files.items():
         full = tmp_path / path
         full.parent.mkdir(parents=True, exist_ok=True)
         full.write_bytes(content)
-        index.add(path)
+        git_index.add(path)
 
-    index.write()
-    tree_oid = index.write_tree()
+    git_index.write()
+    tree_oid = git_index.write_tree()
     sig = pygit2.Signature("Test", "test@test.com")
     repo.create_commit("HEAD", sig, sig, "Initial commit", tree_oid, [])
 

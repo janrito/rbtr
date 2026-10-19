@@ -8,14 +8,14 @@ ranking as expected.
 from __future__ import annotations
 
 from rbtr.domain.models import SnapshotRef
+from rbtr.index.index import Index
 from rbtr.index.search import search
-from rbtr.index.store import IndexStore
 
 from .asserts import assert_in_results
 
 
 def test_importance_boosts_highly_imported_symbol(
-    ranking_store: IndexStore,
+    ranking_index: Index,
     ranking_commit: str,
 ) -> None:
     """config_class (3 inbound edges) has higher importance than start_server (0).
@@ -25,7 +25,7 @@ def test_importance_boosts_highly_imported_symbol(
     importance field is populated from edges.
     """
     results = search(
-        ranking_store,
+        ranking_index,
         "config",
         within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)],
         top_k=10,
@@ -36,14 +36,14 @@ def test_importance_boosts_highly_imported_symbol(
     assert r_config.importance > r_server.importance
 
 
-def test_importance_reflects_edge_count(ranking_store: IndexStore, ranking_commit: str) -> None:
+def test_importance_reflects_edge_count(ranking_index: Index, ranking_commit: str) -> None:
     """load_config (3 inbound edges) has higher importance than config_class (2).
 
     Edges: import→config_class, server→config_class (2 inbound).
            import→load_config, test→load_config, doc→load_config (3 inbound).
     """
     results = search(
-        ranking_store,
+        ranking_index,
         "config",
         within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)],
         top_k=10,
@@ -54,10 +54,10 @@ def test_importance_reflects_edge_count(ranking_store: IndexStore, ranking_commi
     assert r_fn.importance > r_class.importance
 
 
-def test_zero_inbound_importance_is_neutral(ranking_store: IndexStore, ranking_commit: str) -> None:
+def test_zero_inbound_importance_is_neutral(ranking_index: Index, ranking_commit: str) -> None:
     """Chunks with no inbound edges have importance=1.0 (neutral)."""
     results = search(
-        ranking_store,
+        ranking_index,
         "start_server",
         within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)],
         top_k=10,
@@ -68,7 +68,7 @@ def test_zero_inbound_importance_is_neutral(ranking_store: IndexStore, ranking_c
 
 
 def test_proximity_boosts_chunks_in_changed_file(
-    ranking_store: IndexStore,
+    ranking_index: Index,
     ranking_commit: str,
 ) -> None:
     """Chunks in src/server.py rank higher when it's in the diff.
@@ -79,7 +79,7 @@ def test_proximity_boosts_chunks_in_changed_file(
     """
     changed = {"src/server.py"}
     results = search(
-        ranking_store,
+        ranking_index,
         "config",
         within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)],
         top_k=10,
@@ -92,7 +92,7 @@ def test_proximity_boosts_chunks_in_changed_file(
     assert r_server.proximity == 1.5
 
 
-def test_proximity_boosts_via_edge(ranking_store: IndexStore, ranking_commit: str) -> None:
+def test_proximity_boosts_via_edge(ranking_index: Index, ranking_commit: str) -> None:
     """Chunks with edges to changed files get proximity=1.2.
 
     When src/config.py is changed, start_server has an edge to
@@ -100,7 +100,7 @@ def test_proximity_boosts_via_edge(ranking_store: IndexStore, ranking_commit: st
     """
     changed = {"src/config.py"}
     results = search(
-        ranking_store,
+        ranking_index,
         "server",
         within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)],
         top_k=10,
@@ -111,7 +111,7 @@ def test_proximity_boosts_via_edge(ranking_store: IndexStore, ranking_commit: st
     assert r_server.proximity == 1.2
 
 
-def test_same_directory_gets_mild_boost(ranking_store: IndexStore, ranking_commit: str) -> None:
+def test_same_directory_gets_mild_boost(ranking_index: Index, ranking_commit: str) -> None:
     """Chunks in same directory as changed file get proximity=1.1.
 
     When src/server.py is changed, load_config (in src/config.py,
@@ -120,7 +120,7 @@ def test_same_directory_gets_mild_boost(ranking_store: IndexStore, ranking_commi
     """
     changed = {"src/server.py"}
     results = search(
-        ranking_store,
+        ranking_index,
         "load_config",
         within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)],
         top_k=10,
@@ -134,10 +134,10 @@ def test_same_directory_gets_mild_boost(ranking_store: IndexStore, ranking_commi
     assert r_fn.proximity >= 1.1
 
 
-def test_no_diff_means_neutral_proximity(ranking_store: IndexStore, ranking_commit: str) -> None:
+def test_no_diff_means_neutral_proximity(ranking_index: Index, ranking_commit: str) -> None:
     """Without changed_files, all proximity values are 1.0."""
     results = search(
-        ranking_store,
+        ranking_index,
         "config",
         within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)],
         top_k=10,
@@ -148,7 +148,7 @@ def test_no_diff_means_neutral_proximity(ranking_store: IndexStore, ranking_comm
 
 
 def test_distant_file_gets_no_proximity_boost(
-    ranking_store: IndexStore,
+    ranking_index: Index,
     ranking_commit: str,
 ) -> None:
     """Chunks in a different directory with no edges get proximity=1.0.
@@ -158,7 +158,7 @@ def test_distant_file_gets_no_proximity_boost(
     """
     changed = {"src/server.py"}
     results = search(
-        ranking_store,
+        ranking_index,
         "config",
         within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)],
         top_k=10,
@@ -169,7 +169,7 @@ def test_distant_file_gets_no_proximity_boost(
     assert r_doc.proximity == 1.0
 
 
-def test_proximity_changes_ranking(ranking_store: IndexStore, ranking_commit: str) -> None:
+def test_proximity_changes_ranking(ranking_index: Index, ranking_commit: str) -> None:
     """Proximity boost actually changes the relative ranking.
 
     Query 'AppConfig' without diff → config_class is rank 1.
@@ -177,13 +177,13 @@ def test_proximity_changes_ranking(ranking_store: IndexStore, ranking_commit: st
     should rank higher relative to its no-diff position.
     """
     results_no_diff = search(
-        ranking_store,
+        ranking_index,
         "AppConfig",
         within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)],
         top_k=10,
     )
     results_with_diff = search(
-        ranking_store,
+        ranking_index,
         "AppConfig",
         within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)],
         top_k=10,

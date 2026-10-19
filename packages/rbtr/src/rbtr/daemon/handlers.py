@@ -9,7 +9,7 @@ The daemon's `_dispatch` wraps every handler call in
 `ErrorResponse` for the protocol. CLI callers let exceptions
 propagate to `main()`, which prints them.
 
-Every handler takes the index as `store` (an `IndexStore`); the
+Every handler takes the index as `index` (an `Index`); the
 writing ones (`gc`, `forget`, `index`) open a session on it, which
 the daemon runs in a thread under its write lock.
 """
@@ -95,8 +95,8 @@ from rbtr.languages.manager import get_manager
 
 if TYPE_CHECKING:
     from rbtr.index.embeddings import Embedder
+    from rbtr.index.index import Index
     from rbtr.index.reranker import Reranker
-    from rbtr.index.store import IndexStore
 
 log = structlog.get_logger(__name__)
 
@@ -120,7 +120,7 @@ class ResolvedRead:
 
 
 def _resolve_read_ref(
-    store: IndexStore,
+    index: Index,
     repo_path: str,
     repo_id: int,
     requested_ref: str | None,
@@ -151,21 +151,21 @@ def _resolve_read_ref(
 
     explicit = requested_ref is not None
     if requested_ref is None:
-        if (dirty := store.indexed_worktree_ref(repo_path, repo_id)) is not None:
+        if (dirty := index.indexed_worktree_ref(repo_path, repo_id)) is not None:
             return ResolvedRead(at=dirty, source=RefSource.WORKTREE)
         requested_ref = HEAD_REF
     try:
         sha = resolve_ref(repo_path, requested_ref, max_untracked_files=config.max_untracked_files)
     except RbtrError:
-        if requested_ref == HEAD_REF and (latest := store.latest_indexed_ref(repo_id)) is not None:
+        if requested_ref == HEAD_REF and (latest := index.latest_indexed_ref(repo_id)) is not None:
             return ResolvedRead(at=latest, source=RefSource.LATEST_INDEXED)
         msg = f"Cannot resolve ref '{requested_ref}' in {repo_path}"
         raise RbtrError(msg) from None
     at = SnapshotRef(repo_id=repo_id, snapshot_sha=sha)
-    if require_indexed and not store.has_indexed(at=at):
-        if not explicit and (latest := store.latest_indexed_ref(repo_id)) is not None:
+    if require_indexed and not index.has_indexed(at=at):
+        if not explicit and (latest := index.latest_indexed_ref(repo_id)) is not None:
             return ResolvedRead(at=latest, source=RefSource.LATEST_INDEXED)
-        _require_indexed(store, at, requested_ref)
+        _require_indexed(index, at, requested_ref)
     return ResolvedRead(at=at, source=RefSource.REQUESTED if explicit else RefSource.HEAD)
 
 
@@ -174,7 +174,7 @@ def _resolve_read_ref(
 
 def handle_search(
     request: SearchRequest,
-    store: IndexStore,
+    index: Index,
     *,
     embedder: Embedder | None = None,
     reranker: Reranker | None = None,
@@ -185,11 +185,11 @@ def handle_search(
     `_dispatch` turns it into an "index is building" message when a
     build is active.
     """
-    repo_id = store.resolve_repo(request.repo_path)
-    read = _resolve_read_ref(store, request.repo_path, repo_id, request.ref, require_indexed=True)
+    repo_id = index.resolve_repo(request.repo_path)
+    read = _resolve_read_ref(index, request.repo_path, repo_id, request.ref, require_indexed=True)
     return _search(
         request,
-        store,
+        index,
         [read.at],
         resolved=ResolvedRef(sha=read.at.snapshot_sha, source=read.source),
         repo_paths=None,
@@ -200,7 +200,7 @@ def handle_search(
 
 def handle_search_all(
     request: SearchAllRequest,
-    store: IndexStore,
+    index: Index,
     *,
     embedder: Embedder | None = None,
     reranker: Reranker | None = None,
@@ -208,10 +208,10 @@ def handle_search_all(
     """Search every indexed repo, attributing each result with its `repo_path`."""
     return _search(
         request,
-        store,
-        store.list_latest_refs(),
+        index,
+        index.list_latest_refs(),
         resolved=None,
-        repo_paths={r.repo_id: r.repo_path for r in store.list_repos()},
+        repo_paths={r.repo_id: r.repo_path for r in index.list_repos()},
         embedder=embedder,
         reranker=reranker,
     )
@@ -219,7 +219,7 @@ def handle_search_all(
 
 def _search(
     request: SearchQuery,
-    store: IndexStore,
+    index: Index,
     within: list[SnapshotRef],
     *,
     resolved: ResolvedRef | None,
@@ -230,7 +230,7 @@ def _search(
     """Run *request* over the snapshots *within*."""
     override = QueryKind(request.query_kind) if request.query_kind else None
     results = search(
-        store,
+        index,
         request.query,
         within=within,
         top_k=request.limit,
@@ -260,10 +260,10 @@ def _scope_chunks(chunks: list[Chunk], file_paths: list[str] | None) -> list[Chu
     return [c for c in chunks if c.file_path in allowed]
 
 
-def handle_read_symbol(request: ReadSymbolRequest, store: IndexStore) -> ReadSymbolResponse:
-    repo_id = store.resolve_repo(request.repo_path)
-    read = _resolve_read_ref(store, request.repo_path, repo_id, request.ref, require_indexed=True)
-    scoped = _scope_chunks(store.match_by_name(request.symbol, at=read.at), request.file_paths)
+def handle_read_symbol(request: ReadSymbolRequest, index: Index) -> ReadSymbolResponse:
+    repo_id = index.resolve_repo(request.repo_path)
+    read = _resolve_read_ref(index, request.repo_path, repo_id, request.ref, require_indexed=True)
+    scoped = _scope_chunks(index.match_by_name(request.symbol, at=read.at), request.file_paths)
     return ReadSymbolResponse(
         chunks=[SymbolOut.from_chunk(c) for c in scoped],
         resolved=ResolvedRef(sha=read.at.snapshot_sha, source=read.source),
@@ -271,10 +271,10 @@ def handle_read_symbol(request: ReadSymbolRequest, store: IndexStore) -> ReadSym
     )
 
 
-def handle_list_symbols(request: ListSymbolsRequest, store: IndexStore) -> ListSymbolsResponse:
-    repo_id = store.resolve_repo(request.repo_path)
-    read = _resolve_read_ref(store, request.repo_path, repo_id, request.ref, require_indexed=True)
-    chunks = store.get_chunks(at=read.at, file_path=request.file_path)
+def handle_list_symbols(request: ListSymbolsRequest, index: Index) -> ListSymbolsResponse:
+    repo_id = index.resolve_repo(request.repo_path)
+    read = _resolve_read_ref(index, request.repo_path, repo_id, request.ref, require_indexed=True)
+    chunks = index.get_chunks(at=read.at, file_path=request.file_path)
     return ListSymbolsResponse(
         chunks=[SymbolRefOut.from_chunk(c) for c in chunks],
         resolved=ResolvedRef(sha=read.at.snapshot_sha, source=read.source),
@@ -282,11 +282,11 @@ def handle_list_symbols(request: ListSymbolsRequest, store: IndexStore) -> ListS
     )
 
 
-def handle_find_refs(request: FindRefsRequest, store: IndexStore) -> FindRefsResponse:
-    repo_id = store.resolve_repo(request.repo_path)
-    read = _resolve_read_ref(store, request.repo_path, repo_id, request.ref, require_indexed=True)
-    chunks = _scope_chunks(store.match_by_name(request.symbol, at=read.at), request.file_paths)
-    frame = store.inbound_refs([chunk.id for chunk in chunks], at=read.at)
+def handle_find_refs(request: FindRefsRequest, index: Index) -> FindRefsResponse:
+    repo_id = index.resolve_repo(request.repo_path)
+    read = _resolve_read_ref(index, request.repo_path, repo_id, request.ref, require_indexed=True)
+    chunks = _scope_chunks(index.match_by_name(request.symbol, at=read.at), request.file_paths)
+    frame = index.inbound_refs([chunk.id for chunk in chunks], at=read.at)
     refs = RefOuts.validate_python(frame.to_dicts())
     return FindRefsResponse(
         refs=refs,
@@ -295,7 +295,7 @@ def handle_find_refs(request: FindRefsRequest, store: IndexStore) -> FindRefsRes
     )
 
 
-def _require_indexed(store: IndexStore, at: SnapshotRef, requested_ref: str) -> None:
+def _require_indexed(index: Index, at: SnapshotRef, requested_ref: str) -> None:
     """Raise `IndexNotBuiltError` if the snapshot at *at* is not indexed.
 
     *requested_ref* is what the client asked for, which the message
@@ -305,7 +305,7 @@ def _require_indexed(store: IndexStore, at: SnapshotRef, requested_ref: str) -> 
     message when it will index that snapshot; inline callers see the
     plain "not indexed" guidance.
     """
-    if store.has_indexed(at=at):
+    if index.has_indexed(at=at):
         return
     if requested_ref == WORKTREE_REF:
         msg = "Working tree is not indexed yet — run rbtr watch first"
@@ -315,25 +315,23 @@ def _require_indexed(store: IndexStore, at: SnapshotRef, requested_ref: str) -> 
     raise IndexNotBuiltError(msg, missing=missing)
 
 
-def handle_changed_symbols(
-    request: ChangedSymbolsRequest, store: IndexStore
-) -> ChangedSymbolsResponse:
+def handle_changed_symbols(request: ChangedSymbolsRequest, index: Index) -> ChangedSymbolsResponse:
     """Diff two indexed refs at the symbol level.
 
     Both refs must already be indexed; an unindexed side is an
     error rather than an empty diff (the symbol-level comparison
     reads chunks from both commits).
     """
-    repo_id = store.resolve_repo(request.repo_path)
+    repo_id = index.resolve_repo(request.repo_path)
     base = resolve_ref(
         request.repo_path, request.base, max_untracked_files=config.max_untracked_files
     )
     head = resolve_ref(
         request.repo_path, request.head, max_untracked_files=config.max_untracked_files
     )
-    _require_indexed(store, SnapshotRef(repo_id=repo_id, snapshot_sha=base), request.base)
-    _require_indexed(store, SnapshotRef(repo_id=repo_id, snapshot_sha=head), request.head)
-    frame = store.changed_symbols(
+    _require_indexed(index, SnapshotRef(repo_id=repo_id, snapshot_sha=base), request.base)
+    _require_indexed(index, SnapshotRef(repo_id=repo_id, snapshot_sha=head), request.head)
+    frame = index.changed_symbols(
         between=SnapshotRange(repo_id=repo_id, base_sha=base, head_sha=head),
         file_paths=request.file_paths,
     )
@@ -380,7 +378,7 @@ def _indexed_refs(
 
 
 def _watched_for_repo(
-    store: IndexStore,
+    index: Index,
     repo_id: int,
     repo_path: str,
 ) -> list[WatchedRef]:
@@ -391,7 +389,7 @@ def _watched_for_repo(
     `indexed_snapshots`; otherwise it is pending.
     """
     out: list[WatchedRef] = []
-    for ref in store.list_watched_refs(repo_id):
+    for ref in index.list_watched_refs(repo_id):
         try:
             sha: str | None = resolve_ref(
                 repo_path, ref, max_untracked_files=config.max_untracked_files
@@ -403,7 +401,7 @@ def _watched_for_repo(
                 ref=ref,
                 sha=sha,
                 indexed=sha is not None
-                and store.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha)),
+                and index.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha)),
                 repo_path=repo_path,
             )
         )
@@ -412,50 +410,50 @@ def _watched_for_repo(
 
 def handle_status(
     request: StatusRequest,
-    store: IndexStore,
+    index: Index,
     snapshot_status: SnapshotStatusFn | None = None,
 ) -> StatusResponse:
     """Report index status for the repo at `request.repo_path`."""
-    repo_id = store.get_repo_id(request.repo_path)
+    repo_id = index.get_repo_id(request.repo_path)
     if repo_id is None:
         return StatusResponse(
             repo_path=request.repo_path,
-            db_path=store.db_path,
-            db_size_bytes=store.disk_size_bytes(),
+            db_path=index.db_path,
+            db_size_bytes=index.disk_size_bytes(),
             indexed_refs=[],
             watched=[],
             active_build=None,
             active_embed=None,
         )
     return _status(
-        store,
+        index,
         request.repo_path,
         [Repo(repo_id=repo_id, repo_path=request.repo_path)],
-        store.chunk_counts_by_snapshot(repo_id=repo_id),
+        index.chunk_counts_by_snapshot(repo_id=repo_id),
         snapshot_status(request.repo_path) if snapshot_status is not None else (None, None),
     )
 
 
 def handle_status_all(
     _request: StatusAllRequest,
-    store: IndexStore,
+    index: Index,
     snapshot_status: SnapshotStatusFn | None = None,
 ) -> StatusResponse:
     """Report index status for every indexed repo."""
     # Counts before repos, so every repo the counts name has a path
     # here to render it, even one registered between the two calls.
-    counted = store.chunk_counts_by_snapshot()
+    counted = index.chunk_counts_by_snapshot()
     return _status(
-        store,
+        index,
         None,
-        store.list_repos(),
+        index.list_repos(),
         counted,
         snapshot_status(None) if snapshot_status is not None else (None, None),
     )
 
 
 def _status(
-    store: IndexStore,
+    index: Index,
     repo_path: str | None,
     repos: list[Repo],
     counted: Sequence[tuple[SnapshotRef, SnapshotCounts]],
@@ -464,13 +462,13 @@ def _status(
     """The status of *repos*, given their *counted* snapshots and the *active* jobs."""
     return StatusResponse(
         repo_path=repo_path,
-        db_path=store.db_path,
-        db_size_bytes=store.disk_size_bytes(),
+        db_path=index.db_path,
+        db_size_bytes=index.disk_size_bytes(),
         indexed_refs=_indexed_refs(repos, counted),
         watched=[
             watched
             for repo in repos
-            for watched in _watched_for_repo(store, repo.repo_id, repo.repo_path)
+            for watched in _watched_for_repo(index, repo.repo_id, repo.repo_path)
         ],
         untracked_not_indexed={
             repo.repo_path: count
@@ -517,53 +515,53 @@ def handle_daemon_config(_request: DaemonConfigRequest) -> DaemonConfigResponse:
 
 def handle_gc(
     request: GcRequest,
-    store: IndexStore,
+    index: Index,
     *,
     allow_compact: bool = False,
 ) -> GcResponse:
     """Reclaim index storage in the repo at `request.repo_path`."""
     t0 = time.monotonic()
-    size_before = store.disk_size_bytes()
+    size_before = index.disk_size_bytes()
     # Compaction rewrites and swaps the database file, so it is only safe
     # when the caller owns the connection exclusively -- the inline
     # no-daemon path (`allow_compact=True`). The daemon shares the
     # connection with live searches and leaves it off.
     counts = run_gc(
-        store,
+        index,
         request.repo_path,
         mode=request.mode,
         refs=request.refs,
         dry_run=request.dry_run,
         compact=request.compact and allow_compact and not request.dry_run,
     )
-    return _gc_response(request, store, counts, repos_collected=1, t0=t0, size_before=size_before)
+    return _gc_response(request, index, counts, repos_collected=1, t0=t0, size_before=size_before)
 
 
 def handle_gc_all(
     request: GcAllRequest,
-    store: IndexStore,
+    index: Index,
     *,
     allow_compact: bool = False,
     on_progress: RepoProgressCallback = _noop_repo_progress,
 ) -> GcResponse:
     """Reclaim index storage across every indexed repo, reporting each repo collected."""
     t0 = time.monotonic()
-    size_before = store.disk_size_bytes()
+    size_before = index.disk_size_bytes()
     counts, repos_collected = run_gc_all(
-        store,
+        index,
         mode=request.mode,
         dry_run=request.dry_run,
         compact=request.compact and allow_compact and not request.dry_run,  # as in `handle_gc`
         on_progress=on_progress,
     )
     return _gc_response(
-        request, store, counts, repos_collected=repos_collected, t0=t0, size_before=size_before
+        request, index, counts, repos_collected=repos_collected, t0=t0, size_before=size_before
     )
 
 
 def _gc_response(
     request: GcRequest | GcAllRequest,
-    store: IndexStore,
+    index: Index,
     counts: GcCounts,
     *,
     repos_collected: int,
@@ -576,8 +574,8 @@ def _gc_response(
     # the global prune would also remove (counted once across all repos).
     chunks_freed = counts.chunks
     if request.dry_run:
-        chunks_freed += store.count_orphan_chunks()
-    size_after = store.disk_size_bytes()
+        chunks_freed += index.count_orphan_chunks()
+    size_after = index.disk_size_bytes()
     elapsed = time.monotonic() - t0
     log.info(
         "gc_complete",
@@ -603,10 +601,10 @@ def _gc_response(
     )
 
 
-def handle_unwatch(request: UnwatchRequest, store: IndexStore) -> UnwatchResponse:
+def handle_unwatch(request: UnwatchRequest, index: Index) -> UnwatchResponse:
     """Drop the refs the request names."""
     removed = unwatch_refs(
-        store, repo_path=request.repo_path, refs=request.refs, dry_run=request.dry_run
+        index, repo_path=request.repo_path, refs=request.refs, dry_run=request.dry_run
     )
     log.info(
         "watched_refs_removed",
@@ -617,23 +615,23 @@ def handle_unwatch(request: UnwatchRequest, store: IndexStore) -> UnwatchRespons
     return UnwatchResponse(removed=removed, dry_run=request.dry_run)
 
 
-def handle_unwatch_stale(request: UnwatchStaleRequest, store: IndexStore) -> UnwatchResponse:
+def handle_unwatch_stale(request: UnwatchStaleRequest, index: Index) -> UnwatchResponse:
     """Drop the refs git can no longer resolve in the repo at `request.repo_path`.
 
     Raises `RbtrError` if that repo was never indexed.
     """
-    repo = Repo(repo_id=store.resolve_repo(request.repo_path), repo_path=request.repo_path)
-    return _unwatch_stale([repo], store, dry_run=request.dry_run)
+    repo = Repo(repo_id=index.resolve_repo(request.repo_path), repo_path=request.repo_path)
+    return _unwatch_stale([repo], index, dry_run=request.dry_run)
 
 
-def handle_unwatch_stale_all(request: UnwatchStaleAllRequest, store: IndexStore) -> UnwatchResponse:
+def handle_unwatch_stale_all(request: UnwatchStaleAllRequest, index: Index) -> UnwatchResponse:
     """Drop the refs git can no longer resolve in every indexed repo."""
-    return _unwatch_stale(store.list_repos(), store, dry_run=request.dry_run)
+    return _unwatch_stale(index.list_repos(), index, dry_run=request.dry_run)
 
 
-def _unwatch_stale(repos: list[Repo], store: IndexStore, *, dry_run: bool) -> UnwatchResponse:
+def _unwatch_stale(repos: list[Repo], index: Index, *, dry_run: bool) -> UnwatchResponse:
     """Drop the refs git can no longer resolve in *repos*."""
-    removed = remove_stale_refs(store, repos, dry_run=dry_run)
+    removed = remove_stale_refs(index, repos, dry_run=dry_run)
     log.info(
         "stale_refs_removed",
         dry_run=dry_run,
@@ -643,35 +641,35 @@ def _unwatch_stale(repos: list[Repo], store: IndexStore, *, dry_run: bool) -> Un
     return UnwatchResponse(removed=removed, dry_run=dry_run)
 
 
-def handle_forget_stale(request: ForgetStaleRequest, store: IndexStore) -> ForgetResponse:
+def handle_forget_stale(request: ForgetStaleRequest, index: Index) -> ForgetResponse:
     """Forget the repos whose checkout is gone."""
-    gone = forget_stale_repos(store, dry_run=request.dry_run)
+    gone = forget_stale_repos(index, dry_run=request.dry_run)
     return ForgetResponse(forgotten=[repo.repo_path for repo in gone], dry_run=request.dry_run)
 
 
-def handle_forget(request: ForgetRequest, store: IndexStore) -> ForgetResponse:
+def handle_forget(request: ForgetRequest, index: Index) -> ForgetResponse:
     """Forget one repo (metadata-only; GC reclaims the chunks).
 
     Only when its watch set is exactly `{HEAD}` — trim other refs
     first. `dry_run` reports without deleting.
     """
-    target_id = store.get_repo_id(request.repo_path)
+    target_id = index.get_repo_id(request.repo_path)
     if target_id is None:
         return ForgetResponse(forgotten=[], dry_run=request.dry_run)
     # Forget only when nothing beyond HEAD is watched (an empty watch set —
     # e.g. an inline `--no-daemon` index — also qualifies).
-    if set(store.list_watched_refs(target_id)) - {HEAD_REF}:
+    if set(index.list_watched_refs(target_id)) - {HEAD_REF}:
         msg = "refusing to forget a repo watching refs beyond HEAD; remove them first"
         raise RbtrError(msg)
     if not request.dry_run:
-        with store.session() as ws:
+        with index.session() as ws:
             ws.forget_repo(target_id)
     return ForgetResponse(forgotten=[request.repo_path], dry_run=request.dry_run)
 
 
 def handle_watch(
     request: WatchRequest,
-    store: IndexStore,
+    index: Index,
 ) -> WatchSetResponse:
     """Record the request's refs in the repo's watch set, and return the set.
 
@@ -680,8 +678,8 @@ def handle_watch(
     here watches it as one seen at startup does.  Dropping refs is
     `handle_unwatch`.
     """
-    with store.session() as ws:
+    with index.session() as ws:
         repo_id = ws.register_repo(request.repo_path)
         ws.add_watched_refs(repo_id, [HEAD_REF, *request.refs])
     log.info("watched_refs_added", repo=request.repo_path, refs=request.refs)
-    return WatchSetResponse(watched=_watched_for_repo(store, repo_id, request.repo_path))
+    return WatchSetResponse(watched=_watched_for_repo(index, repo_id, request.repo_path))

@@ -2,7 +2,7 @@
 
 Two fixture families:
 
-1. **Ranking dataset** — a seeded IndexStore for the search
+1. **Ranking dataset** — a seeded Index for the search
    ranking and structural-boost tests.
 
 2. **Small named chunks / edges** — building blocks consumed
@@ -30,8 +30,8 @@ from rbtr.domain.models import (
 )
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.index.build import build_index
+from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
-from rbtr.index.store import IndexStore
 
 # ═════════════════════════════════════════════════════════════════════
 # Builders (no side effects, no hidden state)
@@ -58,7 +58,7 @@ def make_chunk(
 
     Chunks are content-addressed and carry no `repo_id`; which repo a
     chunk belongs to is decided by the snapshot that references its
-    blob (see `seed_store`'s `ref`).
+    blob (see `seed_index`'s `ref`).
 
     `file_language` defaults to *language*, which is what a file in one
     language yields. Pass it separately for an embedded chunk, whose own
@@ -92,7 +92,7 @@ def make_snap(sha: str, path: str, blob: str, language: str = "") -> FileSnapsho
     return FileSnapshot(snapshot_sha=sha, file_path=path, blob_sha=blob, detected_language=language)
 
 
-def seed_store(store: IndexStore, chunks: list[TokenisedChunk], ref: SnapshotRef) -> None:
+def seed_index(index: Index, chunks: list[TokenisedChunk], ref: SnapshotRef) -> None:
     """Insert chunks, and snapshots referencing their blobs, under *ref*.
 
     *ref* is marked indexed, so the seeded snapshot is one a read can
@@ -106,7 +106,7 @@ def seed_store(store: IndexStore, chunks: list[TokenisedChunk], ref: SnapshotRef
     per ref.  Passing the same chunk under two refs models content shared
     across worktrees or clones.
     """
-    with store.session() as ws:
+    with index.session() as ws:
         for c in chunks:
             ws.add_chunk(c)
         ws.insert_snapshots(
@@ -122,14 +122,14 @@ def seed_store(store: IndexStore, chunks: list[TokenisedChunk], ref: SnapshotRef
 
 
 @pytest.fixture
-def head_ref(store: IndexStore) -> SnapshotRef:
-    """Repo `/repo` registered in `store`, at snapshot `head`.
+def head_ref(index: Index) -> SnapshotRef:
+    """Repo `/repo` registered in `index`, at snapshot `head`.
 
     The id comes back from the registration, so the ref names a repo
     that exists.  The path is synthetic: these are store-level tests
     that never read git, and registration establishes identity.
     """
-    with store.session() as ws:
+    with index.session() as ws:
         repo_id = ws.register_repo("/repo")
     return SnapshotRef(repo_id=repo_id, snapshot_sha="head")
 
@@ -141,12 +141,12 @@ def head_ref(store: IndexStore) -> SnapshotRef:
 
 @pytest.fixture
 def shared_chunk() -> TokenisedChunk:
-    """The single chunk that `shared_chunk_store`'s two repos share."""
+    """The single chunk that `shared_chunk_index`'s two repos share."""
     return make_chunk("shared_fn", path="x.py", blob="b_shared")
 
 
 @pytest.fixture
-def shared_chunk_store(store: IndexStore, shared_chunk: TokenisedChunk) -> IndexStore:
+def shared_chunk_index(index: Index, shared_chunk: TokenisedChunk) -> Index:
     """A store where one chunk is shared by repo 1 and repo 2.
 
     Models byte-identical content in two worktrees/clones of one
@@ -155,7 +155,7 @@ def shared_chunk_store(store: IndexStore, shared_chunk: TokenisedChunk) -> Index
     same blob — mirroring the `blob_is_current` skip that happens when a
     second repo indexes already-chunked content.
     """
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/repo1")
         ws.register_repo("/repo2")
         ws.add_chunk(shared_chunk)
@@ -163,12 +163,12 @@ def shared_chunk_store(store: IndexStore, shared_chunk: TokenisedChunk) -> Index
         ws.insert_snapshots([make_snap("head", "x.py", "b_shared")], repo_id=2)
         ws.mark_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
         ws.mark_indexed(at=SnapshotRef(repo_id=2, snapshot_sha="head"))
-    return store
+    return index
 
 
 # ═════════════════════════════════════════════════════════════════════
 # Commits over the shared `git_repo` fixture (defined in the root
-# conftest, alongside `store` — both are reused beyond `tests/index/`).
+# conftest, alongside `index` — both are reused beyond `tests/index/`).
 # ═════════════════════════════════════════════════════════════════════
 
 
@@ -206,11 +206,11 @@ def serve():
     return True
 """)
 
-    index = git_repo.index
-    index.add("src/utils.py")
-    index.add("src/service.py")
-    index.write()
-    tree_oid = index.write_tree()
+    git_index = git_repo.index
+    git_index.add("src/utils.py")
+    git_index.add("src/service.py")
+    git_index.write()
+    tree_oid = git_index.write_tree()
     sig = pygit2.Signature("Test", "test@test.com")
     parent = git_repo.get(git_repo.head.target)
     assert parent is not None
@@ -245,7 +245,7 @@ def diff_repo(tmp_path: Path) -> pygit2.Repository:
 
 
 @pytest.fixture
-def dup_store(tmp_path: Path, store: IndexStore) -> IndexStore:
+def dup_index(tmp_path: Path, index: Index) -> Index:
     """Originals, then verbatim copies at new paths, both built."""
     shared = b'''\
 """Shared helpers."""
@@ -299,15 +299,15 @@ def render_widget(widget):
         tree = repo.index.write_tree()
         commits.append(str(repo.create_commit("HEAD", sig, sig, message, tree, parents)))
 
-    build_index(repo.workdir, commits[0], store)
-    build_index(repo.workdir, commits[1], store, base_sha=commits[0])
-    return store
+    build_index(repo.workdir, commits[0], index)
+    build_index(repo.workdir, commits[1], index, base_sha=commits[0])
+    return index
 
 
 @pytest.fixture
-def dup_ref(dup_store: IndexStore) -> SnapshotRef:
+def dup_ref(dup_index: Index) -> SnapshotRef:
     """The duplicated repo at its head commit."""
-    ref = dup_store.latest_ref(dup_store.list_repos()[0])
+    ref = dup_index.latest_ref(dup_index.list_repos()[0])
     assert ref is not None
     return ref
 
@@ -532,14 +532,14 @@ def ranking_edges(
 
 
 @pytest.fixture
-def ranking_store(
+def ranking_index(
     ranking_commit: str,
     ranking_chunks: list[Chunk],
     ranking_edges: list[Edge],
-) -> Generator[IndexStore]:
-    """An in-memory IndexStore pre-loaded with the ranking dataset."""
-    store = IndexStore(writable=True)
-    with store.session() as ws:
+) -> Generator[Index]:
+    """An in-memory Index pre-loaded with the ranking dataset."""
+    index = Index(writable=True)
+    with index.session() as ws:
         ws.register_repo("/repo")
         for c in ranking_chunks:
             tc = c if isinstance(c, TokenisedChunk) else TokenisedChunk(**c.model_dump())
@@ -554,8 +554,8 @@ def ranking_store(
             repo_id=1,
         )
         ws.insert_edges(ranking_edges, at=SnapshotRef(repo_id=1, snapshot_sha=ranking_commit))
-    yield store
-    store.close()
+    yield index
+    index.close()
 
 
 # ═════════════════════════════════════════════════════════════════════

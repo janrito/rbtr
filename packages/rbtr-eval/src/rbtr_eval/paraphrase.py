@@ -35,8 +35,8 @@ from rbtr.config import config
 from rbtr.domain.identity import SCOPE_SEPARATOR
 from rbtr.domain.models import CODE_KINDS, ChunkKind, SnapshotRef
 from rbtr.git import read_head
+from rbtr.index.index import Index
 from rbtr.index.results import ChunkContentRow
-from rbtr.index.store import IndexStore
 from rbtr_eval.formatting import heading_label, md_table
 from rbtr_eval.shared_schemas import IDENTITY_COLUMNS, QueryRow
 
@@ -164,7 +164,7 @@ def _check_excluded(ctx: RunContext[SymbolContext], data: ConceptQuery) -> Conce
 
 
 def _load_symbol_content(
-    store: IndexStore,
+    index: Index,
     repo_path: str,
     repo_id: int,
 ) -> dy.DataFrame[ChunkContentRow]:
@@ -179,7 +179,7 @@ def _load_symbol_content(
     if sha is None:
         msg = f"no HEAD in {repo_path}"
         raise SystemExit(msg)
-    return store.chunk_contents(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
+    return index.chunk_contents(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
 
 
 def _excluded_identifiers(name: str, scope: str) -> list[str]:
@@ -277,7 +277,7 @@ async def _paraphrase_one(
 
 def paraphrase_symbols(
     queries: dy.DataFrame[QueryRow],
-    store: IndexStore,
+    index: Index,
     repo_path: str,
     repo_id: int,
     model: str | Model,
@@ -291,7 +291,7 @@ def paraphrase_symbols(
     concurrently for each symbol, and returns validated
     concept QueryRows.
     """
-    symbols = _load_symbol_content(store, repo_path, repo_id).with_columns(
+    symbols = _load_symbol_content(index, repo_path, repo_id).with_columns(
         pl.col("kind").alias("symbol_kind"),
     )
     join_keys = list(IDENTITY_COLUMNS)
@@ -375,9 +375,7 @@ class ParaphraseExample(dy.Schema):
     content = dy.String(nullable=True)
 
 
-def _sampled_content(
-    store: IndexStore, sampled: dy.DataFrame[QueryRow]
-) -> dy.DataFrame[SymbolContent]:
+def _sampled_content(index: Index, sampled: dy.DataFrame[QueryRow]) -> dy.DataFrame[SymbolContent]:
     """Source text for *sampled*, keyed by the symbol's full identity.
 
     A corpus holds one snapshot per repo and repeats paths across
@@ -386,13 +384,13 @@ def _sampled_content(
     than from one frame spanning the corpus.
     """
     slugs = set(sampled["slug"].unique())
-    by_id = {r.repo_id: r.repo_path.rsplit("/", 1)[-1] for r in store.list_repos()}
+    by_id = {r.repo_id: r.repo_path.rsplit("/", 1)[-1] for r in index.list_repos()}
     frames = [
-        store.chunk_contents(at=ref)
+        index.chunk_contents(at=ref)
         .with_columns(pl.col("kind").alias("symbol_kind"))
         .select(*IDENTITY_COLUMNS, "content")
         .with_columns(pl.lit(by_id[ref.repo_id]).alias("slug"))
-        for ref in store.list_latest_refs()
+        for ref in index.list_latest_refs()
         if by_id.get(ref.repo_id) in slugs
     ]
     if not frames:
@@ -473,9 +471,9 @@ class ParaphraseCmd(BaseModel):
 
     def cli_cmd(self) -> None:
         query_df = pl.read_parquet(self.symbols).pipe(QueryRow.validate, cast=True)
-        store = IndexStore(str(config.db_path))
+        index = Index(str(config.db_path))
         repo_path = str(Path(self.repo_path).resolve())
-        repo_id = store.get_repo_id(repo_path)
+        repo_id = index.get_repo_id(repo_path)
         if repo_id is None:
             msg = f"Repo not indexed: {repo_path}"
             raise SystemExit(msg)
@@ -483,7 +481,7 @@ class ParaphraseCmd(BaseModel):
         with progress_reporter("paraphrase") as (on_progress,):
             result = paraphrase_symbols(
                 query_df,
-                store,
+                index,
                 repo_path,
                 repo_id,
                 self.model,
@@ -519,7 +517,7 @@ class ParaphraseReportCmd(BaseModel):
             [pl.read_parquet(f) for f in sorted(self.concept_dir.glob("*.parquet"))]
         ).pipe(QueryRow.validate, cast=True)
         sampled = concepts.sample(self.examples, seed=self.seed).pipe(QueryRow.validate, cast=True)
-        content = _sampled_content(IndexStore(str(config.db_path)), sampled)
+        content = _sampled_content(Index(str(config.db_path)), sampled)
 
         self.report.parent.mkdir(parents=True, exist_ok=True)
         self.report.write_text(

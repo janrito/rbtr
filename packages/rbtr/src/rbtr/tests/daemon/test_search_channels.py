@@ -26,8 +26,8 @@ from rbtr.daemon.messages import SearchRequest, SearchResponse
 from rbtr.daemon.server import DaemonServer
 from rbtr.domain.models import FileSnapshot, SnapshotRef
 from rbtr.index.embeddings import Embedder
+from rbtr.index.index import Index
 from rbtr.index.search import search
-from rbtr.index.store import IndexStore
 
 from ..index.conftest import make_chunk
 from .conftest import serving
@@ -81,11 +81,11 @@ def channel_vecs() -> tuple[list[float], dict[str, list[float]]]:
 
 
 @pytest.fixture
-def channel_store(
+def channel_index(
     fake_repo: str,
     channel_vecs: tuple[list[float], dict[str, list[float]]],
-    store: IndexStore,
-) -> IndexStore:
+    index: Index,
+) -> Index:
     """Store seeded with chunks designed so the channels disagree.
 
     - "find_items": content about searching/finding (semantic
@@ -112,7 +112,7 @@ def channel_store(
         ("ch_greet", "src/greet.py", "greet", "def greet(name): return f'hello {name}'"),
         ("ch_parse", "src/parse.py", "parse_config", "def parse_config(path): return load(path)"),
     ]
-    with store.session() as ws:
+    with index.session() as ws:
         repo_id = ws.register_repo(fake_repo)
         chunks = [
             make_chunk(cid, name=name, content=content, path=path, blob=f"b_{cid}")
@@ -132,29 +132,29 @@ def channel_store(
             repo_id=repo_id,
         )
         ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
-    return store
+    return index
 
 
 @pytest.fixture
 def running_daemon(
-    channel_store: IndexStore,
+    channel_index: Index,
     channel_vecs: tuple[list[float], dict[str, list[float]]],
 ) -> Generator[DaemonServer]:
     """A served daemon whose embedder returns the fixture's query vector."""
     query_vec, _chunk_vecs = channel_vecs
     rd = Path(tempfile.mkdtemp(prefix="rbtr-ch-"))
-    server = DaemonServer(rd, store=channel_store, idle_poll_interval=60.0, busy_poll_interval=60.0)
+    server = DaemonServer(rd, index=channel_index, idle_poll_interval=60.0, busy_poll_interval=60.0)
     # Replace the real embedder with a fake to avoid loading GGUF.
     server._embedder = _FakeEmbedder(query_vec)  # type: ignore[assignment]  # fake for testing
     # Re-register handlers so the search lambda captures the fake embedder.
-    server._register_index_handlers(channel_store)
+    server._register_index_handlers(channel_index)
     with serving(server):
         yield server
 
 
 def test_daemon_and_direct_search_produce_identical_results(
     running_daemon: DaemonServer,
-    channel_store: IndexStore,
+    channel_index: Index,
     channel_vecs: tuple[list[float], dict[str, list[float]]],
     fake_repo: str,
 ) -> None:
@@ -180,7 +180,7 @@ def test_daemon_and_direct_search_produce_identical_results(
     # the daemon applied no expansion; mirror that with the reranker it used.
     sha = str(pygit2.Repository(fake_repo).head.target)
     direct_results = search(
-        channel_store,
+        channel_index,
         query,
         within=[SnapshotRef(repo_id=1, snapshot_sha=sha)],
         top_k=5,

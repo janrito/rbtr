@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 from rbtr.domain.models import ChunkKind, SnapshotRef
 from rbtr.git import normalise_repo_path
 from rbtr.index.build import build_index
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 from rbtr.tests.conftest import make_commit
 from rbtr_eval.paraphrase import (
     SymbolContext,
@@ -195,14 +195,14 @@ def test_output_validator_accepts_clean_response(
 def paraphrase_result(
     queries: dy.DataFrame[QueryRow],
     mixed_kind_repo: pygit2.Repository,
-    store: IndexStore,
+    index: Index,
     mixed_kind_ref: SnapshotRef,
     clean_model: FunctionModel,
 ) -> tuple[dy.DataFrame[QueryRow], dy.DataFrame[QueryRow]]:
     """Paraphrase the targeted chunk of the corpus."""
     result = paraphrase_symbols(
         queries,
-        store,
+        index,
         mixed_kind_repo.workdir,
         mixed_kind_ref.repo_id,
         model=clean_model,
@@ -233,14 +233,14 @@ def test_paraphrase_symbols_produces_concept_rows(
 def test_paraphrase_symbols_skips_when_excluded_in_response(
     queries: dy.DataFrame[QueryRow],
     mixed_kind_repo: pygit2.Repository,
-    store: IndexStore,
+    index: Index,
     mixed_kind_ref: SnapshotRef,
     excluded_model: FunctionModel,
 ) -> None:
     """Responses containing excluded identifiers exhaust retries and are dropped."""
     result = paraphrase_symbols(
         queries,
-        store,
+        index,
         mixed_kind_repo.workdir,
         mixed_kind_ref.repo_id,
         model=excluded_model,
@@ -253,7 +253,7 @@ def test_paraphrase_symbols_skips_when_excluded_in_response(
 def test_paraphrase_symbols_deduplicates_across_provenances(
     queries: dy.DataFrame[QueryRow],
     mixed_kind_repo: pygit2.Repository,
-    store: IndexStore,
+    index: Index,
     mixed_kind_ref: SnapshotRef,
 ) -> None:
     """Multiple provenances for the same symbol produce one LLM call."""
@@ -276,7 +276,7 @@ def test_paraphrase_symbols_deduplicates_across_provenances(
 
     result = paraphrase_symbols(
         both,
-        store,
+        index,
         mixed_kind_repo.workdir,
         mixed_kind_ref.repo_id,
         model=FunctionModel(counting_fn),
@@ -288,7 +288,7 @@ def test_paraphrase_symbols_deduplicates_across_provenances(
 
 
 @pytest.fixture
-def two_repos(tmp_path: Path, store: IndexStore) -> IndexStore:
+def two_repos(tmp_path: Path, index: Index) -> Index:
     """Two indexed repos whose `lib.py` differ only in the return value.
 
     A corpus repeats paths across repos, so `greet` at `lib.py:1`
@@ -302,13 +302,13 @@ def two_repos(tmp_path: Path, store: IndexStore) -> IndexStore:
                 {"lib.py": f'def greet(name):\n    return f"{greeting} {{name}}"\n'.encode()},
             )
         )
-        with store.session() as ws:
+        with index.session() as ws:
             ws.register_repo(normalise_repo_path(repo.workdir))
-        build_index(repo.workdir, head, store)
-    return store
+        build_index(repo.workdir, head, index)
+    return index
 
 
-def test_example_content_comes_from_the_sampled_repo(two_repos: IndexStore) -> None:
+def test_example_content_comes_from_the_sampled_repo(two_repos: Index) -> None:
     """Repos sharing a path each contribute their own source text."""
     sampled = pl.DataFrame(
         [

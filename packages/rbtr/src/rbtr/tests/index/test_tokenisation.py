@@ -9,7 +9,7 @@ from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.domain.models import FileSnapshot, SnapshotRef
 from rbtr.domain.tokenise import tokenise_code
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 
 from .cases_tokenise_keywords import KeywordScenario
 from .conftest import make_chunk
@@ -185,7 +185,7 @@ def test_keywords_survive_tokenisation(code: str, expected_keywords: set[str]) -
     cases=".cases_tokenise_keywords",
     prefix="case_",
 )
-def keyword_store_and_case(case: KeywordScenario) -> Generator[tuple[IndexStore, KeywordScenario]]:
+def keyword_index_and_case(case: KeywordScenario) -> Generator[tuple[Index, KeywordScenario]]:
     """Seed a fresh store with the single chunk the case describes."""
     chunk = make_chunk(
         case.chunk_id,
@@ -193,24 +193,24 @@ def keyword_store_and_case(case: KeywordScenario) -> Generator[tuple[IndexStore,
         content=case.content,
         path=f"src/{case.chunk_id}.py",
     )
-    store = IndexStore(writable=True)
-    with store.session() as ws:
+    index = Index(writable=True)
+    with index.session() as ws:
         ws.register_repo("/repo")
         ws.add_chunk(chunk)
         ws.insert_snapshots(
             [FileSnapshot(snapshot_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha)],
             repo_id=1,
         )
-    yield store, case
-    store.close()
+    yield index, case
+    index.close()
 
 
 def test_keyword_searchable_via_fts(
-    keyword_store_and_case: tuple[IndexStore, KeywordScenario],
+    keyword_index_and_case: tuple[Index, KeywordScenario],
 ) -> None:
     """Every keyword the case declares is findable via FTS."""
-    store, case = keyword_store_and_case
-    results = store.fulltext_matches(
+    index, case = keyword_index_and_case
+    results = index.fulltext_matches(
         case.keyword, within=[SnapshotRef(repo_id=1, snapshot_sha="head")], top_k=5
     )
     assert len(results) > 0, f"FTS miss for keyword {case.keyword!r} in chunk {case.chunk_id!r}"

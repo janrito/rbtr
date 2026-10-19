@@ -30,7 +30,7 @@ from rbtr.daemon.messages import (
     WatchSetResponse,
 )
 from rbtr.daemon.server import DaemonServer
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 
 from .conftest import serving
 
@@ -62,7 +62,7 @@ def large_repo(tmp_path: Path) -> tuple[Path, str]:
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
     repo = pygit2.init_repository(str(repo_path), bare=False, initial_head="main")
-    index = repo.index
+    git_index = repo.index
     for i in range(100):
         content = (
             f'"""module {i}."""\n\n'
@@ -78,26 +78,26 @@ def large_repo(tmp_path: Path) -> tuple[Path, str]:
         full = repo_path / rel
         full.parent.mkdir(parents=True, exist_ok=True)
         full.write_text(content)
-        index.add(rel)
-    index.write()
-    tree_oid = index.write_tree()
+        git_index.add(rel)
+    git_index.write()
+    tree_oid = git_index.write_tree()
     sig = pygit2.Signature("Test", "test@test.com")
     sha = str(repo.create_commit("HEAD", sig, sig, "init", tree_oid, []))
     return repo_path, sha
 
 
 @pytest.fixture
-def daemon_store(tmp_path: Path) -> Generator[IndexStore]:
+def daemon_index(tmp_path: Path) -> Generator[Index]:
     """Disk-backed, empty store for the daemon."""
-    store = IndexStore(tmp_path / "index.duckdb", writable=True)
-    yield store
-    store.close()
+    index = Index(tmp_path / "index.duckdb", writable=True)
+    yield index
+    index.close()
 
 
 @pytest.fixture
 def running_daemon(
     runtime_dir: Path,
-    daemon_store: IndexStore,
+    daemon_index: Index,
     stub_embedding_model: None,
 ) -> Generator[DaemonServer]:
     """A served daemon over the disk-backed *daemon_store*.
@@ -109,7 +109,7 @@ def running_daemon(
     with serving(
         DaemonServer(
             runtime_dir,
-            store=daemon_store,
+            index=daemon_index,
             idle_poll_interval=60.0,
             busy_poll_interval=60.0,
         )

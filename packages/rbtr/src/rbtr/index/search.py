@@ -7,7 +7,7 @@ Post-fusion multipliers for chunk kind and file category adjust
 the final score.
 
 All scoring helpers are pure functions — easy to test in isolation.
-Orchestration lives in `search()` which takes an `IndexStore` and
+Orchestration lives in `search()` which takes an `Index` and
 coordinates channel retrieval, candidate merging, and fusion.
 """
 
@@ -37,8 +37,8 @@ from rbtr.index.results import (
 if TYPE_CHECKING:
     from rbtr.domain.models import SnapshotRef
     from rbtr.index.embeddings import Embedder
+    from rbtr.index.index import Index
     from rbtr.index.reranker import Reranker
-    from rbtr.index.store import IndexStore
 
 log = structlog.get_logger(__name__)
 
@@ -565,7 +565,7 @@ def _embed_query(
 
 
 def _retrieve(
-    store: IndexStore,
+    index: Index,
     refs: list[SnapshotRef],
     query: str,
     lex_query: str,
@@ -588,14 +588,14 @@ def _retrieve(
     """
     # ── Channel 1: BM25 lexical ─────────────────────────────
     pool_size = top_k * config.retrieval_multiplier_lexical
-    lex_frame = store.fulltext_matches(lex_query, within=refs, top_k=pool_size)
+    lex_frame = index.fulltext_matches(lex_query, within=refs, top_k=pool_size)
 
     # ── Channel 2: semantic (embedding cosine) ───────────────
     sem_frame = ScoredChunkResultRow.create_empty()
     if query_vecs:
         try:
             sem_fetch = top_k * config.retrieval_multiplier_semantic
-            raw_sem = store.similar_matches(query_vecs, within=refs, top_k=sem_fetch)
+            raw_sem = index.similar_matches(query_vecs, within=refs, top_k=sem_fetch)
             sem_frame = _filter_semantic(raw_sem, pool_size)
         except duckdb.OutOfMemoryException:
             raise
@@ -603,7 +603,7 @@ def _retrieve(
             pass
 
     # ── Channel 3: name match ───────────────────────────────
-    name_frame = store.name_matches(query, within=refs)
+    name_frame = index.name_matches(query, within=refs)
 
     # ── Merge candidates with scores via outer joins ─────────
     chunk_cols = list(ChunkResultRow.columns())
@@ -624,7 +624,7 @@ def _retrieve(
 
     # ── Importance (inbound-degree) ──────────────────────
     candidate_ids = scored["id"].to_list()
-    degree_frame = store.inbound_degrees(candidate_ids, within=refs)
+    degree_frame = index.inbound_degrees(candidate_ids, within=refs)
     if not degree_frame.is_empty():
         imp = degree_frame.with_columns(
             _importance_expr().alias("importance"),
@@ -637,7 +637,7 @@ def _retrieve(
 
     # ── Proximity (diff distance) ────────────────────────
     if changed_files:
-        edges = store.edges(within=refs)
+        edges = index.edges(within=refs)
         # Build paths frame: candidates + unknown neighbours.
         edge_ids = pl.concat(
             [
@@ -649,7 +649,7 @@ def _retrieve(
         chunk_paths = ChunkPathResultRow.cast(scored.select("id", "file_path"))
         unknown_ids = unknown["id"].to_list()
         if unknown_ids:
-            extra = store.chunk_paths(unknown_ids, within=refs)
+            extra = index.chunk_paths(unknown_ids, within=refs)
             chunk_paths = ChunkPathResultRow.cast(pl.concat([chunk_paths, extra]))
 
         scored = compute_proximity(
@@ -670,7 +670,7 @@ def _has_semantic(candidates: dy.DataFrame[FusionInputRow]) -> bool:
 
 
 def search(
-    store: IndexStore,
+    index: Index,
     query: str,
     *,
     within: list[SnapshotRef],
@@ -712,7 +712,7 @@ def search(
     query_vecs = _embed_query(query, embedder, variants) if embedder is not None else []
 
     candidates = _retrieve(
-        store,
+        index,
         within,
         query,
         lex_query,

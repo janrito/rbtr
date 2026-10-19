@@ -115,8 +115,8 @@ from rbtr.git import HEAD_REF, normalise_repo_path, resolve_ref
 from rbtr.index.build import build_index
 from rbtr.index.embed import embed_index
 from rbtr.index.embeddings import Embedder
+from rbtr.index.index import Index
 from rbtr.index.reranker import Reranker
-from rbtr.index.store import IndexStore
 from rbtr.languages.manager import get_manager
 from rbtr.logging import configure_logging
 
@@ -171,7 +171,7 @@ class DaemonServe(BaseModel):
         config.runtime_dir.mkdir(parents=True, exist_ok=True)
         print_banner()
         try:
-            store = IndexStore.from_config(writable=True)
+            index = Index.from_config(writable=True)
         except IndexLockedError:
             # Another process holds the index; the store logged it.  The
             # code tells `start_daemon` to wait for that process's daemon.
@@ -183,7 +183,7 @@ class DaemonServe(BaseModel):
             log.exception("daemon_store_open_failed")
             raise
         server = DaemonServer(
-            config.runtime_dir, store, allow_missing_plugins=self.allow_missing_plugins
+            config.runtime_dir, index, allow_missing_plugins=self.allow_missing_plugins
         )
         asyncio.run(server.serve())
 
@@ -371,14 +371,14 @@ class Watch(BaseModel):
         resolved_refs: list[str],
     ) -> None:
         """Run indexing inline (blocking)."""
-        store = IndexStore.from_config(writable=True)
+        index = Index.from_config(writable=True)
         # Refuse to rebuild languages whose plugin isn't loaded -- that
         # would re-extract raw chunks and churn embeddings -- unless the
         # caller overrides with --allow-missing-plugins.
         get_manager().require_languages_loaded(
-            store.distinct_chunk_languages(), allow_missing=self.allow_missing_plugins
+            index.distinct_chunk_languages(), allow_missing=self.allow_missing_plugins
         )
-        with store.session() as ws:
+        with index.session() as ws:
             repo_id = ws.register_repo(resolved_repo)
 
         with progress_reporter("Parsing files", "Embedding") as (on_parse, on_embed):
@@ -393,14 +393,14 @@ class Watch(BaseModel):
             result = build_index(
                 resolved_repo,
                 resolved_refs[0],
-                store,
+                index,
                 on_progress=on_progress,
             )
             for ref in resolved_refs[1:]:
                 result = build_index(
                     resolved_repo,
                     ref,
-                    store,
+                    index,
                     on_progress=on_progress,
                 )
 
@@ -409,7 +409,7 @@ class Watch(BaseModel):
                 embedder = Embedder(idle_timeout=config.embed_idle_timeout)
                 for ref in resolved_refs:
                     embedded = embed_index(
-                        store,
+                        index,
                         ref,
                         repo_id=repo_id,
                         embedder=embedder,
@@ -478,17 +478,17 @@ class Unwatch(BaseModel):
             )
         resp = try_daemon(request) if self.daemon else None
         if resp is None:
-            store = IndexStore.from_config(writable=True)
+            index = Index.from_config(writable=True)
             try:
                 match request:
                     case UnwatchStaleAllRequest():
-                        resp = handle_unwatch_stale_all(request, store)
+                        resp = handle_unwatch_stale_all(request, index)
                     case UnwatchStaleRequest():
-                        resp = handle_unwatch_stale(request, store)
+                        resp = handle_unwatch_stale(request, index)
                     case UnwatchRequest():
-                        resp = handle_unwatch(request, store)
+                        resp = handle_unwatch(request, index)
             finally:
-                store.close()
+                index.close()
         match resp:
             case UnwatchResponse():
                 emit(resp)
@@ -535,15 +535,15 @@ class Forget(BaseModel):
         )
         resp = try_daemon(request) if self.daemon else None
         if resp is None:
-            store = IndexStore.from_config(writable=True)
+            index = Index.from_config(writable=True)
             try:
                 resp = (
-                    handle_forget_stale(request, store)
+                    handle_forget_stale(request, index)
                     if isinstance(request, ForgetStaleRequest)
-                    else handle_forget(request, store)
+                    else handle_forget(request, index)
                 )
             finally:
-                store.close()
+                index.close()
         match resp:
             case ForgetResponse():
                 emit(resp)
@@ -633,7 +633,7 @@ class Search(BaseModel):
             case ErrorResponse() as err:
                 fail(err)
             case None:
-                store = IndexStore.from_config()
+                index = Index.from_config()
 
                 gpu_load_lock = threading.Lock()
                 embedder = Embedder(load_lock=gpu_load_lock) if config.embed else None
@@ -642,11 +642,11 @@ class Search(BaseModel):
                     match request:
                         case SearchAllRequest():
                             resp = handle_search_all(
-                                request, store, embedder=embedder, reranker=reranker
+                                request, index, embedder=embedder, reranker=reranker
                             )
                         case SearchRequest():
                             resp = handle_search(
-                                request, store, embedder=embedder, reranker=reranker
+                                request, index, embedder=embedder, reranker=reranker
                             )
                     emit(resp)
                 except RbtrError as exc:
@@ -687,10 +687,10 @@ class ReadSymbol(BaseModel):
             case ErrorResponse() as err:
                 fail(err)
             case None:
-                store = IndexStore.from_config()
+                index = Index.from_config()
 
                 try:
-                    emit(handle_read_symbol(request, store))
+                    emit(handle_read_symbol(request, index))
                 except RbtrError as exc:
                     fail(exc)
             case resp:
@@ -720,10 +720,10 @@ class ListSymbols(BaseModel):
             case ErrorResponse() as err:
                 fail(err)
             case None:
-                store = IndexStore.from_config()
+                index = Index.from_config()
 
                 try:
-                    emit(handle_list_symbols(request, store))
+                    emit(handle_list_symbols(request, index))
                 except RbtrError as exc:
                     fail(exc)
             case resp:
@@ -757,10 +757,10 @@ class FindRefs(BaseModel):
             case ErrorResponse() as err:
                 fail(err)
             case None:
-                store = IndexStore.from_config()
+                index = Index.from_config()
 
                 try:
-                    emit(handle_find_refs(request, store))
+                    emit(handle_find_refs(request, index))
                 except RbtrError as exc:
                     fail(exc)
             case resp:
@@ -792,10 +792,10 @@ class ChangedSymbols(BaseModel):
             case ErrorResponse() as err:
                 fail(err)
             case None:
-                store = IndexStore.from_config()
+                index = Index.from_config()
 
                 try:
-                    emit(handle_changed_symbols(request, store))
+                    emit(handle_changed_symbols(request, index))
                 except RbtrError as exc:
                     fail(exc)
             case resp:
@@ -833,7 +833,7 @@ class Status(BaseModel):
                     emit(empty)
                     return
                 try:
-                    store = IndexStore(db)
+                    index = Index(db)
                 except IndexNotBuiltError:
                     emit(empty)  # the file exists, the index does not
                     return
@@ -841,9 +841,9 @@ class Status(BaseModel):
                 try:
                     match request:
                         case StatusAllRequest():
-                            emit(handle_status_all(request, store))
+                            emit(handle_status_all(request, index))
                         case StatusRequest():
-                            emit(handle_status(request, store))
+                            emit(handle_status(request, index))
                 except RbtrError as exc:
                     fail(exc)
             case resp:
@@ -943,17 +943,17 @@ class Gc(BaseModel):
             case None:
                 # No daemon: this process holds DuckDB's exclusive lock, so
                 # compaction's connection swap is safe here (allow_compact).
-                store = IndexStore.from_config(writable=True)
+                index = Index.from_config(writable=True)
 
                 try:
-                    self._run_inline(request, store)
+                    self._run_inline(request, index)
                 except RbtrError as exc:
                     fail(exc)
             case resp:
                 fail(ErrorResponse(code=ErrorCode.INTERNAL, message=f"unexpected response: {resp}"))
 
     @staticmethod
-    def _run_inline(request: GcRequest | GcAllRequest, store: IndexStore) -> None:
+    def _run_inline(request: GcRequest | GcAllRequest, index: Index) -> None:
         """Collect in this process, reporting progress on stderr.
 
         A pass over many repos says nothing until it finishes; the bar
@@ -961,12 +961,12 @@ class Gc(BaseModel):
         """
         match request:
             case GcRequest():
-                emit(handle_gc(request, store, allow_compact=True))
+                emit(handle_gc(request, index, allow_compact=True))
             case GcAllRequest():
                 with progress_reporter("Collecting repos") as (on_repo,):
                     response = handle_gc_all(
                         request,
-                        store,
+                        index,
                         allow_compact=True,
                         on_progress=lambda _repo_path, done, total: on_repo(done, total),
                     )

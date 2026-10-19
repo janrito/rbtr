@@ -23,7 +23,7 @@ from rbtr.daemon.handlers import handle_gc
 from rbtr.daemon.messages import GcRequest, GcResponse
 from rbtr.domain.models import GcMode, SnapshotRef
 from rbtr.git import head_sha
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 
 from .cases_gc_compaction import CompactionScenario
 from .conftest import make_chunk, make_snap
@@ -34,7 +34,7 @@ class ChurnedIndex:
     """A file-backed store bloated with reclaimable free space, plus the
     handles a gc or search needs against it."""
 
-    store: IndexStore
+    index: Index
     repo_path: str
     ref: SnapshotRef
     query: str
@@ -57,8 +57,8 @@ def churned_index(fake_repo: str, isolated_db: Path) -> Generator[ChurnedIndex]:
     # so each pass's stale row-versions are consolidated onto disk (as
     # across daemon restarts), accumulating the bloat a rewrite reclaims.
     for pass_no in range(3):
-        store = IndexStore.from_config(writable=True)
-        with store.session() as ws:
+        index = Index.from_config(writable=True)
+        with index.session() as ws:
             if pass_no == 0:
                 repo_id = ws.register_repo(fake_repo)
             snaps = []
@@ -78,15 +78,15 @@ def churned_index(fake_repo: str, isolated_db: Path) -> Generator[ChurnedIndex]:
                 snaps.append(make_snap(head, f"m{i}.py", f"blob-{i}"))
             ws.insert_snapshots(snaps, repo_id=repo_id)
             ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=head))
-        store.close()
-    store = IndexStore.from_config(writable=True)
+        index.close()
+    index = Index.from_config(writable=True)
     yield ChurnedIndex(
-        store=store,
+        index=index,
         repo_path=fake_repo,
         ref=SnapshotRef(repo_id=repo_id, snapshot_sha=head),
         query="retry backoff",
     )
-    store.close()
+    index.close()
 
 
 @parametrize_with_cases("scenario", cases=".cases_gc_compaction")
@@ -100,17 +100,17 @@ def test_gc_compaction_respects_flag(
     data, it does not drop any.
     """
     ci = churned_index
-    before_size = ci.store.data_size_bytes()
-    before_count = ci.store.chunk_counts_for_snapshot(at=ci.ref).total
+    before_size = ci.index.data_size_bytes()
+    before_count = ci.index.chunk_counts_for_snapshot(at=ci.ref).total
 
     request = GcRequest(repo_path=ci.repo_path, mode=GcMode.WATCHED, compact=scenario.compact)
-    handle_gc(request, ci.store, allow_compact=True)
+    handle_gc(request, ci.index, allow_compact=True)
 
-    assert ci.store.chunk_counts_for_snapshot(at=ci.ref).total == before_count
+    assert ci.index.chunk_counts_for_snapshot(at=ci.ref).total == before_count
     if scenario.expect_shrink:
-        assert ci.store.data_size_bytes() < before_size
+        assert ci.index.data_size_bytes() < before_size
     else:
-        assert ci.store.data_size_bytes() == before_size
+        assert ci.index.data_size_bytes() == before_size
 
 
 def test_gc_reports_size_change_when_compacting(churned_index: ChurnedIndex) -> None:
@@ -118,7 +118,7 @@ def test_gc_reports_size_change_when_compacting(churned_index: ChurnedIndex) -> 
     ci = churned_index
     response = handle_gc(
         GcRequest(repo_path=ci.repo_path, mode=GcMode.WATCHED, compact=True),
-        ci.store,
+        ci.index,
         allow_compact=True,
     )
     assert response.size_before_bytes > 0
@@ -133,7 +133,7 @@ def test_disk_size_bytes_reports_the_footprint(churned_index: ChurnedIndex) -> N
     Unlike `data_size_bytes` (in-file pages, zero until the WAL is
     consolidated), this reads the database file's actual size.
     """
-    assert churned_index.store.disk_size_bytes() > 0
+    assert churned_index.index.disk_size_bytes() > 0
 
 
 def test_fts_index_survives_compaction(churned_index: ChurnedIndex) -> None:
@@ -145,9 +145,9 @@ def test_fts_index_survives_compaction(churned_index: ChurnedIndex) -> None:
     """
     ci = churned_index
     request = GcRequest(repo_path=ci.repo_path, mode=GcMode.WATCHED, compact=True)
-    handle_gc(request, ci.store, allow_compact=True)
+    handle_gc(request, ci.index, allow_compact=True)
 
-    hits = ci.store.fulltext_matches(ci.query, within=[ci.ref], top_k=5)
+    hits = ci.index.fulltext_matches(ci.query, within=[ci.ref], top_k=5)
     assert len(hits) > 0, "search returned nothing after compaction"
 
 
@@ -157,10 +157,10 @@ def test_handle_gc_does_not_compact_without_opt_in(churned_index: ChurnedIndex) 
     The flag guards callers that do not own the connection exclusively.
     """
     ci = churned_index
-    before_size = ci.store.data_size_bytes()
+    before_size = ci.index.data_size_bytes()
     request = GcRequest(repo_path=ci.repo_path, mode=GcMode.WATCHED, compact=True)
-    handle_gc(request, ci.store)  # allow_compact defaults False
-    assert ci.store.data_size_bytes() == before_size
+    handle_gc(request, ci.index)  # allow_compact defaults False
+    assert ci.index.data_size_bytes() == before_size
 
 
 def test_gc_compaction_failure_is_non_fatal(
@@ -174,17 +174,17 @@ def test_gc_compaction_failure_is_non_fatal(
     temp copy is cleaned up, and gc returns its counts.
     """
     ci = churned_index
-    before_size = ci.store.data_size_bytes()
-    before_count = ci.store.chunk_counts_for_snapshot(at=ci.ref).total
+    before_size = ci.index.data_size_bytes()
+    before_count = ci.index.chunk_counts_for_snapshot(at=ci.ref).total
     mocker.patch("rbtr.index.writer.os.replace", side_effect=OSError("disk full"))
 
     request = GcRequest(repo_path=ci.repo_path, mode=GcMode.WATCHED, compact=True)
-    response = handle_gc(request, ci.store, allow_compact=True)
+    response = handle_gc(request, ci.index, allow_compact=True)
 
     assert isinstance(response, GcResponse)  # swallowed, not raised
-    assert ci.store.data_size_bytes() == before_size  # rewrite did not take effect
-    assert ci.store.chunk_counts_for_snapshot(at=ci.ref).total == before_count
-    db_path = Path(ci.store.db_path or "")
+    assert ci.index.data_size_bytes() == before_size  # rewrite did not take effect
+    assert ci.index.chunk_counts_for_snapshot(at=ci.ref).total == before_count
+    db_path = Path(ci.index.db_path or "")
     # RCU names each temp `.compact-<uuid>`; none may linger after a fail.
     assert not list(db_path.parent.glob(f"{db_path.name}.compact-*"))
 
@@ -210,7 +210,7 @@ def test_search_survives_concurrent_compaction(churned_index: ChurnedIndex) -> N
             while not stop.is_set():
                 assert (
                     len(
-                        ci.store.fulltext_matches(
+                        ci.index.fulltext_matches(
                             ci.query,
                             within=[ci.ref],
                             top_k=5,
@@ -218,7 +218,7 @@ def test_search_survives_concurrent_compaction(churned_index: ChurnedIndex) -> N
                     )
                     > 0
                 )
-                assert ci.store.match_by_name(
+                assert ci.index.match_by_name(
                     "calculate_retry_backoff_1",
                     at=ci.ref,
                 )
@@ -231,7 +231,7 @@ def test_search_survives_concurrent_compaction(churned_index: ChurnedIndex) -> N
     try:
         for _ in range(3):
             request = GcRequest(repo_path=ci.repo_path, mode=GcMode.WATCHED, compact=True)
-            handle_gc(request, ci.store, allow_compact=True)
+            handle_gc(request, ci.index, allow_compact=True)
     finally:
         stop.set()
         for t in threads:
@@ -243,17 +243,17 @@ def test_search_survives_concurrent_compaction(churned_index: ChurnedIndex) -> N
 
 def test_compact_in_memory_is_noop() -> None:
     """An in-memory store has nothing on disk; compact is a silent no-op."""
-    store = IndexStore(writable=True)
-    with store.session() as ws:
+    index = Index(writable=True)
+    with index.session() as ws:
         ws.compact()  # must not raise
-    store.close()
+    index.close()
 
 
 def test_compact_requires_a_write_session(tmp_path: Path) -> None:
     """Compaction is a write, so a read-only store cannot reach it."""
     db = tmp_path / "index.duckdb"
-    IndexStore(db, writable=True).close()  # create the file
-    store = IndexStore(db, writable=False)
+    Index(db, writable=True).close()  # create the file
+    index = Index(db, writable=False)
     with pytest.raises(RuntimeError, match="writable"):
-        store.session()
-    store.close()
+        index.session()
+    index.close()

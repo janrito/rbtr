@@ -11,7 +11,7 @@ import polars as pl
 from pytest_cases import parametrize_with_cases
 
 from rbtr.domain.models import SnapshotRef
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 from rbtr_eval.extract import extract_queries, queries_for_symbol
 from rbtr_eval.shared_schemas import IDENTITY_COLUMNS
 
@@ -41,7 +41,7 @@ def test_generates_expected_provenances(
 
 
 def test_extract_covers_measurable_kinds_and_excludes_import(
-    store: IndexStore, mixed_kind_ref: SnapshotRef
+    index: Index, mixed_kind_ref: SnapshotRef
 ) -> None:
     """Every measurable target kind yields queries; excluded kinds yield none.
 
@@ -51,7 +51,7 @@ def test_extract_covers_measurable_kinds_and_excludes_import(
     again pass unnoticed.
     """
     queries, _, _ = extract_queries(
-        store,
+        index,
         "test",
         mixed_kind_ref.repo_id,
         mixed_kind_ref.snapshot_sha,
@@ -63,16 +63,14 @@ def test_extract_covers_measurable_kinds_and_excludes_import(
     assert "import" not in kinds
 
 
-def test_generated_queries_target_real_chunks(
-    store: IndexStore, mixed_kind_ref: SnapshotRef
-) -> None:
+def test_generated_queries_target_real_chunks(index: Index, mixed_kind_ref: SnapshotRef) -> None:
     """Every query's target identity resolves to an indexed chunk.
 
     Guarantees the generated queries are scoreable — including the
     anonymous chunks (comment) matched by location, not name.
     """
     queries, _, _ = extract_queries(
-        store,
+        index,
         "test",
         mixed_kind_ref.repo_id,
         mixed_kind_ref.snapshot_sha,
@@ -80,15 +78,13 @@ def test_generated_queries_target_real_chunks(
     )
     chunk_ids = {
         (c.file_path, c.scope, c.name, c.line_start, c.line_end, c.kind.value)
-        for c in store.get_chunks(at=mixed_kind_ref)
+        for c in index.get_chunks(at=mixed_kind_ref)
     }
     for row in queries.iter_rows(named=True):
         assert tuple(row[c] for c in IDENTITY_COLUMNS) in chunk_ids
 
 
-def test_two_chunks_on_one_line_are_two_targets(
-    store: IndexStore, mixed_kind_ref: SnapshotRef
-) -> None:
+def test_two_chunks_on_one_line_are_two_targets(index: Index, mixed_kind_ref: SnapshotRef) -> None:
     """A shared location yields a query each, not one colliding key.
 
     A fenced bash line is both an anonymous `doc_section` (the command)
@@ -97,7 +93,7 @@ def test_two_chunks_on_one_line_are_two_targets(
     target and the span and kind are what tell them apart.
     """
     queries, _, _ = extract_queries(
-        store,
+        index,
         "test",
         mixed_kind_ref.repo_id,
         mixed_kind_ref.snapshot_sha,

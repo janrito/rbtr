@@ -1,6 +1,6 @@
 """Scenarios for the `watched_refs` store API.
 
-Mirrors `cases_store_repos.py`: declarative operation sequences
+Mirrors `cases_index_repos.py`: declarative operation sequences
 applied in one session, then the expected per-repo listing.
 Exercises idempotent add, multi add + remove, empty no-ops, and
 per-repo isolation.

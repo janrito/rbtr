@@ -14,16 +14,16 @@ from rbtr.daemon.handlers import handle_changed_symbols
 from rbtr.daemon.messages import ChangedSymbolsRequest
 from rbtr.domain.models import ChangeKind
 from rbtr.errors import RbtrError
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 
 
 def test_changed_symbols_labels(
-    seeded_store: IndexStore, fake_repo: str, daemon_commit: str, changed_head: str
+    seeded_index: Index, fake_repo: str, daemon_commit: str, changed_head: str
 ) -> None:
     """A modified function and a new function surface with the right labels."""
     resp = handle_changed_symbols(
         ChangedSymbolsRequest(repo_path=fake_repo, base=daemon_commit, head=changed_head),
-        seeded_store,
+        seeded_index,
     )
 
     labelled = {(item.chunk.name, item.change) for item in resp.changes}
@@ -32,7 +32,7 @@ def test_changed_symbols_labels(
 
 
 def test_changed_symbols_not_indexed(
-    seeded_store: IndexStore, fake_repo: str, daemon_commit: str
+    seeded_index: Index, fake_repo: str, daemon_commit: str
 ) -> None:
     """An unindexed ref is a clear error, not an empty diff."""
     unindexed = "0" * 40
@@ -40,5 +40,5 @@ def test_changed_symbols_not_indexed(
     with pytest.raises(RbtrError, match="not indexed"):
         handle_changed_symbols(
             ChangedSymbolsRequest(repo_path=fake_repo, base=daemon_commit, head=unindexed),
-            seeded_store,
+            seeded_index,
         )

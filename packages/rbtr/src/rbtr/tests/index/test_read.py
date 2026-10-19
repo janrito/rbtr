@@ -1,4 +1,4 @@
-"""Read-side behavioural tests for IndexStore.
+"""Read-side behavioural tests for Index.
 
 Covers: get_chunks filters, edges filters, blob_is_current
 language matching, chunk upsert, delete_chunks_for_blobs,
@@ -12,8 +12,8 @@ from __future__ import annotations
 from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.domain.models import ChunkKind, Edge, EdgeKind, SnapshotRef
+from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
-from rbtr.index.store import IndexStore
 
 from .cases_read import (
     BlobCurrentScenario,
@@ -26,22 +26,20 @@ from .conftest import make_chunk, make_snap
 
 @fixture
 @parametrize_with_cases("scenario", has_tag="get_chunks")
-def chunk_query(
-    scenario: ChunkQueryScenario, store: IndexStore
-) -> tuple[IndexStore, ChunkQueryScenario]:
-    with store.session() as ws:
+def chunk_query(scenario: ChunkQueryScenario, index: Index) -> tuple[Index, ChunkQueryScenario]:
+    with index.session() as ws:
         ws.register_repo("/repo")
         for c in scenario.chunks:
             ws.add_chunk(c)
         ws.insert_snapshots(list(scenario.snapshots), repo_id=1)
-    return store, scenario
+    return index, scenario
 
 
 def test_get_chunks_returns_expected(
-    chunk_query: tuple[IndexStore, ChunkQueryScenario],
+    chunk_query: tuple[Index, ChunkQueryScenario],
 ) -> None:
-    store, s = chunk_query
-    chunks = store.get_chunks(
+    index, s = chunk_query
+    chunks = index.get_chunks(
         at=SnapshotRef(repo_id=1, snapshot_sha=s.snapshot_sha),
         file_path=s.file_path,
         kind=s.kind,
@@ -52,48 +50,46 @@ def test_get_chunks_returns_expected(
 
 @fixture
 @parametrize_with_cases("scenario", has_tag="blob_is_current")
-def blob_query(
-    scenario: BlobCurrentScenario, store: IndexStore
-) -> tuple[IndexStore, BlobCurrentScenario]:
-    with store.session() as ws:
+def blob_query(scenario: BlobCurrentScenario, index: Index) -> tuple[Index, BlobCurrentScenario]:
+    with index.session() as ws:
         ws.register_repo("/repo")
         for c in scenario.chunks:
             ws.add_chunk(c)
         ws.insert_snapshots(list(scenario.snapshots), repo_id=1)
-    return store, scenario
+    return index, scenario
 
 
 def test_blob_is_current_matches(
-    blob_query: tuple[IndexStore, BlobCurrentScenario],
+    blob_query: tuple[Index, BlobCurrentScenario],
 ) -> None:
-    store, s = blob_query
-    assert store.blob_is_current(s.query_blob, s.query_language, s.serial_map) == s.expected
+    index, s = blob_query
+    assert index.blob_is_current(s.query_blob, s.query_language, s.serial_map) == s.expected
 
 
-def test_upsert_replaces_content(store: IndexStore) -> None:
+def test_upsert_replaces_content(index: Index) -> None:
     """Adding a chunk with the same ID replaces the content."""
     c1 = make_chunk("fn1", content="def fn1(): return 1")
     c2 = make_chunk("fn1", content="def fn1(): return 2")
 
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/repo")
         ws.add_chunk(c1)
         ws.insert_snapshots([make_snap("head", "f.py", c1.blob_sha)], repo_id=1)
 
-    with store.session() as ws:
+    with index.session() as ws:
         ws.add_chunk(c2)
 
-    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
+    chunks = index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
     assert len(chunks) == 1
     assert "return 2" in chunks[0].content
 
 
-def test_delete_chunks_for_blobs_removes_target(store: IndexStore) -> None:
+def test_delete_chunks_for_blobs_removes_target(index: Index) -> None:
     """Deleting a blob's chunks removes them, leaves others."""
     c1 = make_chunk("fn1", blob="b1", path="a.py")
     c2 = make_chunk("fn2", blob="b2", path="b.py")
 
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/repo")
         ws.add_chunk(c1)
         ws.add_chunk(c2)
@@ -102,14 +98,14 @@ def test_delete_chunks_for_blobs_removes_target(store: IndexStore) -> None:
             repo_id=1,
         )
 
-    with store.session() as ws:
+    with index.session() as ws:
         ws.delete_chunks_for_blobs({"b1"}, file_language="")
 
-    assert store.blob_is_current("b1", "", {"": 1}) is False
-    assert store.blob_is_current("b2", "", {"": 1}) is True
+    assert index.blob_is_current("b1", "", {"": 1}) is False
+    assert index.blob_is_current("b2", "", {"": 1}) is True
 
 
-def test_get_edges_returns_all(store: IndexStore) -> None:
+def test_get_edges_returns_all(index: Index) -> None:
     """Edges inserted for a commit are all returned."""
     e1 = Edge(
         source_id="a",
@@ -126,15 +122,15 @@ def test_get_edges_returns_all(store: IndexStore) -> None:
         target_path="src/d.py",
     )
 
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/repo")
         ws.insert_edges([e1, e2], at=SnapshotRef(repo_id=1, snapshot_sha="head"))
 
-    edges = store.edges(within=[SnapshotRef(repo_id=1, snapshot_sha="head")])
+    edges = index.edges(within=[SnapshotRef(repo_id=1, snapshot_sha="head")])
     assert len(edges) == 2
 
 
-def test_get_edges_filter_by_kind(store: IndexStore) -> None:
+def test_get_edges_filter_by_kind(index: Index) -> None:
     """Filtering edges by kind returns only matching."""
     e1 = Edge(
         source_id="a",
@@ -151,21 +147,21 @@ def test_get_edges_filter_by_kind(store: IndexStore) -> None:
         target_path="src/d.py",
     )
 
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/repo")
         ws.insert_edges([e1, e2], at=SnapshotRef(repo_id=1, snapshot_sha="head"))
 
-    edges = store.edges(within=[SnapshotRef(repo_id=1, snapshot_sha="head")], kind=EdgeKind.IMPORTS)
+    edges = index.edges(within=[SnapshotRef(repo_id=1, snapshot_sha="head")], kind=EdgeKind.IMPORTS)
     assert edges["kind"].to_list() == [EdgeKind.IMPORTS.value]
 
 
-def test_inbound_refs_resolves_source(store: IndexStore) -> None:
+def test_inbound_refs_resolves_source(index: Index) -> None:
     """Each inbound edge resolves to its source chunk plus the edge kind."""
     src = make_chunk(
         "imp", name="from m import fn", path="app.py", blob="b_app", kind=ChunkKind.IMPORT
     )
     target = make_chunk("fn", path="m.py", blob="b_m")
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/repo")
         ws.add_chunk(src)
         ws.add_chunk(target)
@@ -185,7 +181,7 @@ def test_inbound_refs_resolves_source(store: IndexStore) -> None:
             at=SnapshotRef(repo_id=1, snapshot_sha="head"),
         )
 
-    frame = store.inbound_refs([target.id], at=SnapshotRef(repo_id=1, snapshot_sha="head"))
+    frame = index.inbound_refs([target.id], at=SnapshotRef(repo_id=1, snapshot_sha="head"))
     assert frame.height == 1
     row = frame.to_dicts()[0]
     assert row["name"] == "from m import fn"
@@ -194,38 +190,38 @@ def test_inbound_refs_resolves_source(store: IndexStore) -> None:
     assert row["edge"] == "imports"
 
 
-def test_inbound_refs_empty_targets(store: IndexStore) -> None:
+def test_inbound_refs_empty_targets(index: Index) -> None:
     """No target IDs returns an empty frame without touching the store."""
-    assert store.inbound_refs([], at=SnapshotRef(repo_id=1, snapshot_sha="head")).is_empty()
+    assert index.inbound_refs([], at=SnapshotRef(repo_id=1, snapshot_sha="head")).is_empty()
 
 
-def test_get_chunks_isolated_per_repo(store: IndexStore) -> None:
+def test_get_chunks_isolated_per_repo(index: Index) -> None:
     """Chunks in repo 1 are invisible to repo 2."""
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/repo1")
         ws.register_repo("/repo2")
 
     c1 = make_chunk("r1_fn", path="a.py", blob="b_r1")
     c2 = make_chunk("r2_fn", path="a.py", blob="b_r2")
 
-    with store.session() as ws:
+    with index.session() as ws:
         ws.add_chunk(c1)
         ws.insert_snapshots([make_snap("head", "a.py", "b_r1")], repo_id=1)
 
-    with store.session() as ws:
+    with index.session() as ws:
         ws.add_chunk(c2)
         ws.insert_snapshots([make_snap("head", "a.py", "b_r2")], repo_id=2)
 
-    r1_chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
-    r2_chunks = store.get_chunks(at=SnapshotRef(repo_id=2, snapshot_sha="head"))
+    r1_chunks = index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
+    r2_chunks = index.get_chunks(at=SnapshotRef(repo_id=2, snapshot_sha="head"))
 
     assert [c.id for c in r1_chunks] == [c1.id]
     assert [c.id for c in r2_chunks] == [c2.id]
 
 
-def test_get_edges_isolated_per_repo(store: IndexStore) -> None:
+def test_get_edges_isolated_per_repo(index: Index) -> None:
     """Edges in repo 1 are invisible to repo 2."""
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/repo1")
         ws.register_repo("/repo2")
 
@@ -244,58 +240,58 @@ def test_get_edges_isolated_per_repo(store: IndexStore) -> None:
         target_path="src/y.py",
     )
 
-    with store.session() as ws:
+    with index.session() as ws:
         ws.insert_edges([e1], at=SnapshotRef(repo_id=1, snapshot_sha="head"))
 
-    with store.session() as ws:
+    with index.session() as ws:
         ws.insert_edges([e2], at=SnapshotRef(repo_id=2, snapshot_sha="head"))
 
-    assert store.edges(within=[SnapshotRef(repo_id=1, snapshot_sha="head")])[
+    assert index.edges(within=[SnapshotRef(repo_id=1, snapshot_sha="head")])[
         "source_id"
     ].to_list() == ["a"]
-    assert store.edges(within=[SnapshotRef(repo_id=2, snapshot_sha="head")])[
+    assert index.edges(within=[SnapshotRef(repo_id=2, snapshot_sha="head")])[
         "source_id"
     ].to_list() == ["x"]
 
 
 def test_shared_content_is_one_row_visible_to_both_repos(
-    shared_chunk_store: IndexStore,
+    shared_chunk_index: Index,
     shared_chunk: TokenisedChunk,
 ) -> None:
     """Shared content is a single physical row, visible to every repo."""
-    store = shared_chunk_store
-    assert [c.id for c in store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))] == [
+    index = shared_chunk_index
+    assert [c.id for c in index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))] == [
         shared_chunk.id
     ]
-    assert [c.id for c in store.get_chunks(at=SnapshotRef(repo_id=2, snapshot_sha="head"))] == [
+    assert [c.id for c in index.get_chunks(at=SnapshotRef(repo_id=2, snapshot_sha="head"))] == [
         shared_chunk.id
     ]
-    row = store._cursor.execute("SELECT count(*) FROM chunks").fetchone()
+    row = index._cursor.execute("SELECT count(*) FROM chunks").fetchone()
     assert row is not None
     assert row[0] == 1
 
 
 def test_shared_chunk_embedded_once_across_repos(
-    shared_chunk_store: IndexStore,
+    shared_chunk_index: Index,
     shared_chunk: TokenisedChunk,
 ) -> None:
     """Embedding the shared chunk once leaves no repo with work to do."""
-    store = shared_chunk_store
+    index = shared_chunk_index
     in_repo1 = SnapshotRef(repo_id=1, snapshot_sha="head")
     in_repo2 = SnapshotRef(repo_id=2, snapshot_sha="head")
-    assert store.chunk_counts_for_snapshot(at=in_repo1).unembedded == 1
-    assert store.chunk_counts_for_snapshot(at=in_repo2).unembedded == 1
+    assert index.chunk_counts_for_snapshot(at=in_repo1).unembedded == 1
+    assert index.chunk_counts_for_snapshot(at=in_repo2).unembedded == 1
 
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/repo")
         ws.update_embeddings([shared_chunk.id], [[0.1, 0.2, 0.3]])
 
-    assert store.chunk_counts_for_snapshot(at=in_repo1).is_fully_embedded
-    assert store.chunk_counts_for_snapshot(at=in_repo2).is_fully_embedded
+    assert index.chunk_counts_for_snapshot(at=in_repo1).is_fully_embedded
+    assert index.chunk_counts_for_snapshot(at=in_repo2).is_fully_embedded
 
 
 def test_cleanup_keeps_chunk_referenced_by_another_repo(
-    shared_chunk_store: IndexStore,
+    shared_chunk_index: Index,
     shared_chunk: TokenisedChunk,
 ) -> None:
     """A repo's build-finalise `cleanup()` must not prune a co-tenant's chunk.
@@ -305,44 +301,44 @@ def test_cleanup_keeps_chunk_referenced_by_another_repo(
     leave the chunk visible to both — the realistic co-tenant case, since
     `cleanup` runs at the end of every build.
     """
-    store = shared_chunk_store
-    with store.session() as ws:
+    index = shared_chunk_index
+    with index.session() as ws:
         ws.register_repo("/repo")
         cleaned = ws.cleanup(1)
     assert cleaned.chunks == 0
-    assert store.count_orphan_chunks() == 0
-    assert [c.id for c in store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))] == [
+    assert index.count_orphan_chunks() == 0
+    assert [c.id for c in index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))] == [
         shared_chunk.id
     ]
-    assert [c.id for c in store.get_chunks(at=SnapshotRef(repo_id=2, snapshot_sha="head"))] == [
+    assert [c.id for c in index.get_chunks(at=SnapshotRef(repo_id=2, snapshot_sha="head"))] == [
         shared_chunk.id
     ]
 
 
 def test_shared_chunk_swept_only_after_last_repo_drops_it(
-    shared_chunk_store: IndexStore,
+    shared_chunk_index: Index,
     shared_chunk: TokenisedChunk,
 ) -> None:
     """Cross-repo refcount: the chunk survives until the last reference goes."""
-    store = shared_chunk_store
+    index = shared_chunk_index
     # Repo 1 drops its commit: shared chunk survives (repo 2 references it).
-    with store.session() as ws:
+    with index.session() as ws:
         first_drop = ws.drop_snapshot(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
     assert first_drop.chunks == 0
-    assert [c.id for c in store.get_chunks(at=SnapshotRef(repo_id=2, snapshot_sha="head"))] == [
+    assert [c.id for c in index.get_chunks(at=SnapshotRef(repo_id=2, snapshot_sha="head"))] == [
         shared_chunk.id
     ]
 
     # Repo 2 drops its commit: last reference gone, chunk is swept.
-    with store.session() as ws:
+    with index.session() as ws:
         second_drop = ws.drop_snapshot(at=SnapshotRef(repo_id=2, snapshot_sha="head"))
     assert second_drop.chunks == 1
-    assert store.count_orphan_chunks() == 0
-    assert store.get_chunks(at=SnapshotRef(repo_id=2, snapshot_sha="head")) == []
+    assert index.count_orphan_chunks() == 0
+    assert index.get_chunks(at=SnapshotRef(repo_id=2, snapshot_sha="head")) == []
 
 
 def test_rechunk_of_shared_blob_propagates_to_all_repos(
-    shared_chunk_store: IndexStore,
+    shared_chunk_index: Index,
 ) -> None:
     """Re-chunking a shared blob updates the content for every repo.
 
@@ -351,26 +347,26 @@ def test_rechunk_of_shared_blob_propagates_to_all_repos(
     and shared, every repo referencing the blob — not just the one that
     triggered the re-chunk — sees the new chunks, without re-indexing.
     """
-    store = shared_chunk_store  # repos 1 and 2 reference blob "b_shared"
+    index = shared_chunk_index  # repos 1 and 2 reference blob "b_shared"
     rechunked = make_chunk("shared_fn_v2", path="x.py", blob="b_shared").model_copy(
         update={"extraction_serial": 2}
     )
     # A different name, so a different id: the upgrade replaces the row.
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/repo")
         ws.delete_chunks_for_blobs({"b_shared"}, file_language="")
         ws.add_chunk(rechunked)
 
-    assert [c.id for c in store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))] == [
+    assert [c.id for c in index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))] == [
         rechunked.id
     ]
-    assert [c.id for c in store.get_chunks(at=SnapshotRef(repo_id=2, snapshot_sha="head"))] == [
+    assert [c.id for c in index.get_chunks(at=SnapshotRef(repo_id=2, snapshot_sha="head"))] == [
         rechunked.id
     ]
 
 
 def test_drop_snapshot_keeps_a_chunk_still_reachable_at_another_path(
-    store: IndexStore,
+    index: Index,
 ) -> None:
     """`drop_snapshot` keeps a chunk whose blob is referenced elsewhere.
 
@@ -379,7 +375,7 @@ def test_drop_snapshot_keeps_a_chunk_still_reachable_at_another_path(
     nothing: the chunk is still reachable at `a.py`, and deleting it
     would empty a file that has not changed.
     """
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/repo")
         shared = make_chunk("shared", path="a.py", blob="b")
         ws.add_chunk(shared)
@@ -389,18 +385,18 @@ def test_drop_snapshot_keeps_a_chunk_still_reachable_at_another_path(
         ws.mark_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
         ws.mark_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="c2"))
 
-    with store.session() as ws:
+    with index.session() as ws:
         dropped = ws.drop_snapshot(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
 
     assert dropped.chunks == 0
-    assert store.count_orphan_chunks() == 0
-    assert [c.id for c in store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="c2"))] == [
+    assert index.count_orphan_chunks() == 0
+    assert [c.id for c in index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="c2"))] == [
         shared.id
     ]
 
 
 def test_inbound_refs_to_shared_chunk_resolve_per_repo(
-    shared_chunk_store: IndexStore,
+    shared_chunk_index: Index,
     shared_chunk: TokenisedChunk,
 ) -> None:
     """inbound_refs to a shared chunk returns only the querying repo's referrers.
@@ -409,8 +405,8 @@ def test_inbound_refs_to_shared_chunk_resolve_per_repo(
     shared chunk from its own importer. Querying the shared target must
     resolve the querying repo's referrer, never the other repo's.
     """
-    store = shared_chunk_store
-    with store.session() as ws:
+    index = shared_chunk_index
+    with index.session() as ws:
         ws.register_repo("/repo")
         imp1 = make_chunk(
             "imp1",
@@ -455,10 +451,10 @@ def test_inbound_refs_to_shared_chunk_resolve_per_repo(
             at=SnapshotRef(repo_id=2, snapshot_sha="head"),
         )
 
-    r1 = store.inbound_refs(
+    r1 = index.inbound_refs(
         [shared_chunk.id], at=SnapshotRef(repo_id=1, snapshot_sha="head")
     ).to_dicts()
-    r2 = store.inbound_refs(
+    r2 = index.inbound_refs(
         [shared_chunk.id], at=SnapshotRef(repo_id=2, snapshot_sha="head")
     ).to_dicts()
     assert [row["file_path"] for row in r1] == ["a.py"]
@@ -467,20 +463,18 @@ def test_inbound_refs_to_shared_chunk_resolve_per_repo(
 
 @fixture
 @parametrize_with_cases("scenario", cases=".cases_read", has_tag="gc_counts")
-def gc_count_query(
-    scenario: GcCountScenario, store: IndexStore
-) -> tuple[IndexStore, GcCountScenario]:
-    with store.session() as ws:
+def gc_count_query(scenario: GcCountScenario, index: Index) -> tuple[Index, GcCountScenario]:
+    with index.session() as ws:
         for c in scenario.chunks:
             ws.add_chunk(c)
         for g in scenario.groups:
             ws.insert_snapshots(g.snapshots, repo_id=g.ref.repo_id)
             ws.mark_indexed(at=g.ref)
-    return store, scenario
+    return index, scenario
 
 
 def test_gc_chunk_split_counts(
-    gc_count_query: tuple[IndexStore, GcCountScenario],
+    gc_count_query: tuple[Index, GcCountScenario],
 ) -> None:
     """`count_gc_chunk_split` splits candidate chunks into dropped vs kept.
 
@@ -488,15 +482,15 @@ def test_gc_chunk_split_counts(
     outside the drop set still references its `(blob_sha, file_path)`,
     else it is dropped.
     """
-    store, s = gc_count_query
-    assert store.count_gc_chunk_split(s.drop_repo_id, s.drop_shas) == (
+    index, s = gc_count_query
+    assert index.count_gc_chunk_split(s.drop_repo_id, s.drop_shas) == (
         s.expected_dropped,
         s.expected_kept,
     )
 
 
 def test_gc_chunk_split_agrees_with_real_deletion(
-    gc_count_query: tuple[IndexStore, GcCountScenario],
+    gc_count_query: tuple[Index, GcCountScenario],
 ) -> None:
     """The predicted drop count matches a real deletion, leaving no orphans.
 
@@ -507,70 +501,70 @@ def test_gc_chunk_split_agrees_with_real_deletion(
     orphan-free. Both sides are read off the same reference graph, so
     they must never diverge.
     """
-    store, s = gc_count_query
-    predicted_dropped, _kept = store.count_gc_chunk_split(s.drop_repo_id, s.drop_shas)
+    index, s = gc_count_query
+    predicted_dropped, _kept = index.count_gc_chunk_split(s.drop_repo_id, s.drop_shas)
 
-    before = store._cursor.execute("SELECT count(*) FROM chunks").fetchone()
-    with store.session() as ws:
+    before = index._cursor.execute("SELECT count(*) FROM chunks").fetchone()
+    with index.session() as ws:
         for sha in s.drop_shas:
             ws.drop_snapshot(at=SnapshotRef(repo_id=s.drop_repo_id, snapshot_sha=sha))
-    after = store._cursor.execute("SELECT count(*) FROM chunks").fetchone()
+    after = index._cursor.execute("SELECT count(*) FROM chunks").fetchone()
 
     assert before is not None
     assert after is not None
     assert before[0] - after[0] == predicted_dropped
-    assert store.count_orphan_chunks() == 0
+    assert index.count_orphan_chunks() == 0
 
 
 def test_forget_repo_removes_references_keeps_shared_chunk(
-    shared_chunk_store: IndexStore,
+    shared_chunk_index: Index,
 ) -> None:
     """forget_repo purges a repo's references and `repos` row but leaves a
     chunk another repo still references; reclamation is gc's job."""
-    store = shared_chunk_store
-    with store.session() as ws:
+    index = shared_chunk_index
+    with index.session() as ws:
         ws.register_repo("/repo")
         ws.add_watched_refs(1, ["main"])
 
-    with store.session() as ws:
+    with index.session() as ws:
         ws.forget_repo(1)
 
     # Repo 1 is gone entirely.
-    assert store.get_repo_id("/repo1") is None
-    assert store.list_watched_refs(1) == []
-    assert store.has_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="head")) is False
+    assert index.get_repo_id("/repo1") is None
+    assert index.list_watched_refs(1) == []
+    assert index.has_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="head")) is False
     # Repo 2 is untouched and the shared chunk is still visible to it.
-    assert store.get_repo_id("/repo2") == 2
-    assert store.has_indexed(at=SnapshotRef(repo_id=2, snapshot_sha="head")) is True
-    assert len(store.get_chunks(at=SnapshotRef(repo_id=2, snapshot_sha="head"))) > 0
+    assert index.get_repo_id("/repo2") == 2
+    assert index.has_indexed(at=SnapshotRef(repo_id=2, snapshot_sha="head")) is True
+    assert len(index.get_chunks(at=SnapshotRef(repo_id=2, snapshot_sha="head"))) > 0
 
 
 def test_forget_repo_leaves_orphan_chunks_for_gc(
-    shared_chunk_store: IndexStore,
+    shared_chunk_index: Index,
 ) -> None:
     """forget_repo does not sweep: a chunk only the forgotten repo
     referenced becomes an orphan that a later GC reclaims."""
-    store = shared_chunk_store
-    with store.session() as ws:
+    index = shared_chunk_index
+    with index.session() as ws:
         ws.register_repo("/repo")
         ws.add_chunk(make_chunk("only1", path="y.py", blob="b_only1"))
         ws.insert_snapshots([make_snap("head", "y.py", "b_only1")], repo_id=1)
-    assert store.count_orphan_chunks() == 0
+    assert index.count_orphan_chunks() == 0
 
-    with store.session() as ws:
+    with index.session() as ws:
         ws.forget_repo(1)
 
     # only1 is now unreferenced (repo 1 gone) but still present — no sweep.
     # (A sweep would have removed it, leaving zero orphans.)
-    assert store.count_orphan_chunks() == 1
+    assert index.count_orphan_chunks() == 1
 
 
 def test_forget_repo_purges_indexed_snapshots_incl_worktree_sha(
-    store: IndexStore,
+    index: Index,
 ) -> None:
     """Every indexed commit for the repo — HEAD and any worktree tree SHA —
     is purged along with the `repos` row."""
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/r")
         ws.add_chunk(make_chunk("c", path="a.py", blob="b"))
         ws.insert_snapshots([make_snap("headsha", "a.py", "b")], repo_id=1)
@@ -578,46 +572,46 @@ def test_forget_repo_purges_indexed_snapshots_incl_worktree_sha(
         ws.mark_indexed(
             at=SnapshotRef(repo_id=1, snapshot_sha="treesha")
         )  # a working-tree tree SHA
-    assert store.has_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="headsha")) is True
-    assert store.has_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="treesha")) is True
+    assert index.has_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="headsha")) is True
+    assert index.has_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="treesha")) is True
 
-    with store.session() as ws:
+    with index.session() as ws:
         ws.forget_repo(1)
 
-    assert store.get_repo_id("/r") is None
-    assert store.has_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="headsha")) is False
-    assert store.has_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="treesha")) is False
+    assert index.get_repo_id("/r") is None
+    assert index.has_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="headsha")) is False
+    assert index.has_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="treesha")) is False
 
 
-def test_an_indexed_snapshot_with_no_chunks_counts_zero(store: IndexStore) -> None:
+def test_an_indexed_snapshot_with_no_chunks_counts_zero(index: Index) -> None:
     """A commit that yielded nothing to index is still reported, at zero.
 
     `mark_indexed` records completion for any tree, including one that
     held nothing extractable, so the query answers for it with a row of
     zeroes and the caller reads a figure rather than supplying one.
     """
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/r")
         ws.mark_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
 
-    counts = store.chunk_counts_for_snapshot(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
+    counts = index.chunk_counts_for_snapshot(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
     assert counts.total == 0
     assert counts.is_fully_embedded, "nothing outstanding means no embed work"
-    assert [ref.snapshot_sha for ref, _ in store.chunk_counts_by_snapshot(repo_id=1)] == ["c1"]
+    assert [ref.snapshot_sha for ref, _ in index.chunk_counts_by_snapshot(repo_id=1)] == ["c1"]
 
 
 @parametrize_with_cases("scenario", cases=".cases_read", has_tag="embed_order")
-def test_counts_come_back_in_embed_order(scenario: EmbedOrderScenario, store: IndexStore) -> None:
+def test_counts_come_back_in_embed_order(scenario: EmbedOrderScenario, index: Index) -> None:
     """Order decides which snapshot is embedded next, so the query fixes it.
 
     Asserted through `chunk_counts_by_snapshot`, because that is what
     both the status handler and the job picker actually read.
     """
     for shas in scenario.transactions:
-        with store.session() as ws:
+        with index.session() as ws:
             ws.register_repo("/r")
             for sha in shas:
                 ws.mark_indexed(at=SnapshotRef(repo_id=1, snapshot_sha=sha))
 
-    counted = store.chunk_counts_by_snapshot(repo_id=1)
+    counted = index.chunk_counts_by_snapshot(repo_id=1)
     assert [ref.snapshot_sha for ref, _ in counted] == scenario.expected

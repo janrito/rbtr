@@ -14,10 +14,10 @@ which chunks belong to a given snapshot.
 
 ## Type architecture
 
-`IndexStore` owns the DuckDB connection, thread-local cursor
+`Index` owns the DuckDB connection, thread-local cursor
 cache, FTS index, and all read methods.  Write operations
 live on `WriteSession` (in `writer.py`), obtained via
-`IndexStore.session()`.  The session is a context manager
+`Index.session()`.  The session is a context manager
 that wraps all writes in a transaction: commit + FTS rebuild
 on clean exit, rollback on exception.
 
@@ -150,10 +150,10 @@ def _parse_calver(version: str) -> tuple[int, ...]:
         return ()
 
 
-# ── IndexStore ─────────────────────────────────────────────────────────
+# ── Index ─────────────────────────────────────────────────────────
 
 
-class IndexStore:
+class Index:
     """DuckDB-backed storage for the code index.
 
     Owns the DuckDB connection, thread-local cursor cache, FTS
@@ -236,7 +236,7 @@ class IndexStore:
         self._con.execute(_WIPE_SCHEMA_SQL)
 
     @classmethod
-    def from_config(cls, *, writable: bool = False) -> IndexStore:
+    def from_config(cls, *, writable: bool = False) -> Index:
         """Open the database at the central DB path."""
         return cls(config.db_path, writable=writable)
 
@@ -293,7 +293,7 @@ class IndexStore:
         Raises `RuntimeError` if the store was opened read-only.
         """
         if not self._writable:
-            msg = "session() requires a writable IndexStore (pass writable=True)"
+            msg = "session() requires a writable Index (pass writable=True)"
             raise RuntimeError(msg)
         return WriteSession(self)
 

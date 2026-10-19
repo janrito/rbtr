@@ -6,25 +6,23 @@ design doc (TODO-search.md) and verify that the correct signal
 resolves each ranking conflict.
 
 No mocking — these exercise the full pipeline through
-`IndexStore.search()`: BM25, name matching, kind boost,
+`Index.search()`: BM25, name matching, kind boost,
 file-category penalty, and importance.
 """
 
 from __future__ import annotations
 
 from rbtr.domain.models import ScoredChunk, SnapshotRef
+from rbtr.index.index import Index
 from rbtr.index.search import search
-from rbtr.index.store import IndexStore
 
 from .asserts import assert_outranks, assert_ranked_within
 
 
-def test_class_definition_outranks_its_import(
-    ranking_store: IndexStore, ranking_commit: str
-) -> None:
+def test_class_definition_outranks_its_import(ranking_index: Index, ranking_commit: str) -> None:
     """CLASS (1.5) outranks IMPORT (0.3) for 'AppConfig'."""
     results = search(
-        ranking_store,
+        ranking_index,
         "AppConfig",
         within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)],
         top_k=10,
@@ -33,7 +31,7 @@ def test_class_definition_outranks_its_import(
 
 
 def test_source_function_outranks_test_with_higher_tf(
-    ranking_store: IndexStore,
+    ranking_index: Index,
     ranking_commit: str,
 ) -> None:
     """Source function outranks test despite test having 3x more mentions.
@@ -42,7 +40,7 @@ def test_source_function_outranks_test_with_higher_tf(
     it once.  File-category penalty (0.5 on test) resolves this.
     """
     results = search(
-        ranking_store,
+        ranking_index,
         "load_config",
         within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)],
         top_k=10,
@@ -50,10 +48,10 @@ def test_source_function_outranks_test_with_higher_tf(
     assert_outranks(results, "load_config", "test_load_config")
 
 
-def test_doc_section_ranks_below_code(ranking_store: IndexStore, ranking_commit: str) -> None:
+def test_doc_section_ranks_below_code(ranking_index: Index, ranking_commit: str) -> None:
     """Doc section (0.8) ranks below source function (1.0) for 'load_config'."""
     results = search(
-        ranking_store,
+        ranking_index,
         "load_config",
         within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)],
         top_k=10,
@@ -61,7 +59,7 @@ def test_doc_section_ranks_below_code(ranking_store: IndexStore, ranking_commit:
     assert_outranks(results, "load_config", "Configuration")
 
 
-def test_exact_name_match_ranks_first(ranking_store: IndexStore, ranking_commit: str) -> None:
+def test_exact_name_match_ranks_first(ranking_index: Index, ranking_commit: str) -> None:
     """Exact name match on 'start_server' ranks it first.
 
     Other chunks mention 'server' in content (import_config,
@@ -69,7 +67,7 @@ def test_exact_name_match_ranks_first(ranking_store: IndexStore, ranking_commit:
     name match (score 1.0).
     """
     results = search(
-        ranking_store,
+        ranking_index,
         "start_server",
         within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)],
         top_k=10,
@@ -79,10 +77,10 @@ def test_exact_name_match_ranks_first(ranking_store: IndexStore, ranking_commit:
     assert results[0].name == "start_server"
 
 
-def test_class_name_query_finds_definition(ranking_store: IndexStore, ranking_commit: str) -> None:
+def test_class_name_query_finds_definition(ranking_index: Index, ranking_commit: str) -> None:
     """Query 'AppConfig' finds the class definition at rank 1."""
     results = search(
-        ranking_store,
+        ranking_index,
         "AppConfig",
         within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)],
         top_k=10,
@@ -92,16 +90,14 @@ def test_class_name_query_finds_definition(ranking_store: IndexStore, ranking_co
     assert results[0].name == "AppConfig"
 
 
-def test_high_df_term_still_finds_definition(
-    ranking_store: IndexStore, ranking_commit: str
-) -> None:
+def test_high_df_term_still_finds_definition(ranking_index: Index, ranking_commit: str) -> None:
     """'config' appears in 5/6 chunks; class definition is in top 2.
 
     IDF neutralisation prevents rare-term bias, and kind boost
     (CLASS=1.5) lifts the definition above high-TF test content.
     """
     results = search(
-        ranking_store,
+        ranking_index,
         "config",
         within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)],
         top_k=10,
@@ -109,13 +105,13 @@ def test_high_df_term_still_finds_definition(
     assert_ranked_within(results, "AppConfig", top=2)
 
 
-def test_database_query_finds_class(ranking_store: IndexStore, ranking_commit: str) -> None:
+def test_database_query_finds_class(ranking_index: Index, ranking_commit: str) -> None:
     """'database' appears only in class + doc; class ranks first.
 
     Kind boost (CLASS=1.5 vs DOC_SECTION=0.8) resolves it.
     """
     results = search(
-        ranking_store,
+        ranking_index,
         "database",
         within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)],
         top_k=10,
@@ -123,10 +119,10 @@ def test_database_query_finds_class(ranking_store: IndexStore, ranking_commit: s
     assert_ranked_within(results, "AppConfig", top=2)
 
 
-def test_score_breakdown_is_populated(ranking_store: IndexStore, ranking_commit: str) -> None:
+def test_score_breakdown_is_populated(ranking_index: Index, ranking_commit: str) -> None:
     """Every ScoredChunk has non-negative signal values."""
     results = search(
-        ranking_store,
+        ranking_index,
         "AppConfig",
         within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)],
         top_k=10,
@@ -145,10 +141,10 @@ def test_score_breakdown_is_populated(ranking_store: IndexStore, ranking_commit:
         assert r.name_match >= 0.0
 
 
-def test_results_sorted_by_score(ranking_store: IndexStore, ranking_commit: str) -> None:
+def test_results_sorted_by_score(ranking_index: Index, ranking_commit: str) -> None:
     """Results are returned in descending score order."""
     results = search(
-        ranking_store,
+        ranking_index,
         "config",
         within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)],
         top_k=10,
@@ -158,10 +154,10 @@ def test_results_sorted_by_score(ranking_store: IndexStore, ranking_commit: str)
     assert scores == sorted(scores, reverse=True)
 
 
-def test_no_results_for_gibberish(ranking_store: IndexStore, ranking_commit: str) -> None:
+def test_no_results_for_gibberish(ranking_index: Index, ranking_commit: str) -> None:
     """Gibberish query returns empty list."""
     results = search(
-        ranking_store,
+        ranking_index,
         "zzz_xyzzy_999",
         within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)],
         top_k=10,
@@ -169,14 +165,14 @@ def test_no_results_for_gibberish(ranking_store: IndexStore, ranking_commit: str
     assert results == []
 
 
-def test_expansion_keywords_widen_bm25(ranking_store: IndexStore, ranking_commit: str) -> None:
+def test_expansion_keywords_widen_bm25(ranking_index: Index, ranking_commit: str) -> None:
     """Keywords in expansion are appended to the BM25 query.
 
     A gibberish query finds nothing on its own, but expansion
     keywords containing real terms surface matching chunks.
     """
     no_results = search(
-        ranking_store,
+        ranking_index,
         "zzz_xyzzy_999",
         within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)],
         top_k=10,
@@ -184,7 +180,7 @@ def test_expansion_keywords_widen_bm25(ranking_store: IndexStore, ranking_commit
     assert no_results == []
 
     with_keywords = search(
-        ranking_store,
+        ranking_index,
         "zzz_xyzzy_999",
         within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)],
         top_k=10,
@@ -196,9 +192,7 @@ def test_expansion_keywords_widen_bm25(ranking_store: IndexStore, ranking_commit
     assert any("config" in n.lower() or "load" in n.lower() for n in names)
 
 
-def test_match_preview_populated_for_lexical_hit(
-    ranking_store: IndexStore, ranking_commit: str
-) -> None:
+def test_match_preview_populated_for_lexical_hit(ranking_index: Index, ranking_commit: str) -> None:
     """A literal hit carries a preview anchor through to `ScoredChunk`.
 
     Guards the `search` → `materialise_scored` (lex_query) wiring:
@@ -206,7 +200,7 @@ def test_match_preview_populated_for_lexical_hit(
     tokens, so it anchors there with the terms populated.
     """
     results = search(
-        ranking_store,
+        ranking_index,
         "load_config",
         within=[SnapshotRef(repo_id=1, snapshot_sha=ranking_commit)],
         top_k=10,

@@ -26,15 +26,15 @@ from rbtr.daemon.messages import (
     StatusRequest,
     StatusResponse,
 )
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 
 
 @dataclass(frozen=True)
 class ScopeScenario:
     """How to search and ask for status from a repo, and which repos the results hold."""
 
-    search: Callable[[IndexStore, str], SearchResponse]
-    status: Callable[[IndexStore, str], StatusResponse]
+    search: Callable[[Index, str], SearchResponse]
+    status: Callable[[Index, str], StatusResponse]
     # Repo indices (1, 2) expected in the result.
     expected_repos: frozenset[int]
     # Whether results should carry repo_path attribution.
@@ -45,10 +45,10 @@ class ScopeScenario:
 def case_workspace() -> ScopeScenario:
     """Only the request's own repo, no search attribution."""
     return ScopeScenario(
-        search=lambda store, path: handle_search(
-            SearchRequest(repo_path=path, query="load"), store
+        search=lambda index, path: handle_search(
+            SearchRequest(repo_path=path, query="load"), index
         ),
-        status=lambda store, path: handle_status(StatusRequest(repo_path=path), store),
+        status=lambda index, path: handle_status(StatusRequest(repo_path=path), index),
         expected_repos=frozenset({1}),
         attributed=False,
     )
@@ -58,8 +58,8 @@ def case_workspace() -> ScopeScenario:
 def case_all() -> ScopeScenario:
     """Every indexed repo, attributed by path."""
     return ScopeScenario(
-        search=lambda store, _path: handle_search_all(SearchAllRequest(query="load"), store),
-        status=lambda store, _path: handle_status_all(StatusAllRequest(), store),
+        search=lambda index, _path: handle_search_all(SearchAllRequest(query="load"), index),
+        status=lambda index, _path: handle_status_all(StatusAllRequest(), index),
         expected_repos=frozenset({1, 2}),
         attributed=True,
     )

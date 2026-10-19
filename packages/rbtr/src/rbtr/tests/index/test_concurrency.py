@@ -1,4 +1,4 @@
-"""Thread-safety tests for IndexStore and WriteSession."""
+"""Thread-safety tests for Index and WriteSession."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ import threading
 from pathlib import Path
 
 from rbtr.domain.models import Edge, EdgeKind, FileSnapshot, SnapshotRef
+from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
-from rbtr.index.store import IndexStore
 
 from .conftest import make_chunk
 
@@ -16,10 +16,10 @@ def test_concurrent_write_then_read(
     math_func: TokenisedChunk, http_func: TokenisedChunk, string_func: TokenisedChunk
 ) -> None:
     """Writes from a background thread are visible after join."""
-    store = IndexStore(writable=True)
+    index = Index(writable=True)
 
     def writer() -> None:
-        with store.session() as ws:
+        with index.session() as ws:
             ws.register_repo("/repo")
             ws.add_chunk(math_func)
             ws.add_chunk(http_func)
@@ -52,9 +52,9 @@ def test_concurrent_write_then_read(
     t.start()
     t.join()
 
-    assert len(store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))) == 3
-    assert len(store.edges(within=[SnapshotRef(repo_id=1, snapshot_sha="head")])) == 1
-    store.close()
+    assert len(index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))) == 3
+    assert len(index.edges(within=[SnapshotRef(repo_id=1, snapshot_sha="head")])) == 1
+    index.close()
 
 
 def test_commit_makes_writes_visible_during_concurrent_work(
@@ -64,11 +64,11 @@ def test_commit_makes_writes_visible_during_concurrent_work(
 ) -> None:
     """After session exit, a second thread sees rows while the
     writer continues with embedding updates."""
-    store = IndexStore(writable=True)
+    index = Index(writable=True)
     first_done = threading.Event()
 
     def writer() -> None:
-        with store.session() as session:
+        with index.session() as session:
             for c in [math_func, http_func, string_func]:
                 session.add_chunk(c)
             session.insert_snapshots(
@@ -83,7 +83,7 @@ def test_commit_makes_writes_visible_during_concurrent_work(
                 repo_id=1,
             )
         first_done.set()
-        with store.session() as session:
+        with index.session() as session:
             session.update_embeddings([math_func.id], [[0.1, 0.2, 0.3]])
             session.update_embeddings([http_func.id], [[0.3, 0.4, 0.5]])
             session.update_embeddings([string_func.id], [[0.5, 0.6, 0.7]])
@@ -92,16 +92,16 @@ def test_commit_makes_writes_visible_during_concurrent_work(
     t.start()
 
     first_done.wait(timeout=5)
-    assert len(store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))) == 3
+    assert len(index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))) == 3
 
     t.join()
-    store.close()
+    index.close()
 
 
 def test_concurrent_batch_and_search(tmp_path: Path) -> None:
     """Reader gets results while writer runs batches on another thread."""
     db_path = tmp_path / "index.duckdb"
-    store = IndexStore(db_path, writable=True)
+    index = Index(db_path, writable=True)
 
     chunks = [
         make_chunk(
@@ -109,7 +109,7 @@ def test_concurrent_batch_and_search(tmp_path: Path) -> None:
         )
         for i in range(200)
     ]
-    with store.session() as session:
+    with index.session() as session:
         for c in chunks:
             session.add_chunk(c)
         session.insert_snapshots(
@@ -132,7 +132,7 @@ def test_concurrent_batch_and_search(tmp_path: Path) -> None:
                 content=f"def extra_{i}(): common_term",
                 path=f"src/extra_{i}.py",
             )
-            with store.session() as session:
+            with index.session() as session:
                 session.add_chunk(extra)
                 session.insert_snapshots(
                     [
@@ -148,7 +148,7 @@ def test_concurrent_batch_and_search(tmp_path: Path) -> None:
         nonlocal good_reads
         while not stop.is_set():
             try:
-                results = store.fulltext_matches(
+                results = index.fulltext_matches(
                     "common_term", within=[SnapshotRef(repo_id=1, snapshot_sha="head")], top_k=5
                 )
                 if len(results) > 0:
@@ -166,10 +166,10 @@ def test_concurrent_batch_and_search(tmp_path: Path) -> None:
     assert not errors, f"reader errors: {errors}"
     assert good_reads > 0, "reader never got results"
 
-    store.close()
+    index.close()
 
 
-def test_store_survives_threads_that_write_and_exit(
+def test_index_survives_threads_that_write_and_exit(
     math_func: TokenisedChunk, http_func: TokenisedChunk
 ) -> None:
     """A thread may write and exit; another thread still reads the store.
@@ -179,11 +179,11 @@ def test_store_survives_threads_that_write_and_exit(
     connection corrupt and this segfaults instead of failing; on 1.5.6
     it passes with or without the import.
     """
-    store = IndexStore(writable=True)
+    index = Index(writable=True)
     seen: list[int] = []
 
     def write(chunk: TokenisedChunk) -> None:
-        with store.session() as session:
+        with index.session() as session:
             session.add_chunk(chunk)
             session.insert_snapshots(
                 [
@@ -195,7 +195,7 @@ def test_store_survives_threads_that_write_and_exit(
             )
 
     def read() -> None:
-        seen.append(len(store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))))
+        seen.append(len(index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))))
 
     for chunk in (math_func, http_func):
         for work in (lambda c=chunk: write(c), read):
@@ -204,4 +204,4 @@ def test_store_survives_threads_that_write_and_exit(
             thread.join()
 
     assert seen == [1, 2]
-    store.close()
+    index.close()

@@ -12,12 +12,10 @@ from __future__ import annotations
 from rbtr.domain.models import RefsByRepo, Repo
 from rbtr.errors import RbtrError
 from rbtr.git import HEAD_REF, normalise_repo_path, resolve_refs_to_shas
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 
 
-def unwatch_refs(
-    store: IndexStore, *, repo_path: str, refs: list[str], dry_run: bool
-) -> RefsByRepo:
+def unwatch_refs(index: Index, *, repo_path: str, refs: list[str], dry_run: bool) -> RefsByRepo:
     """Stop watching the named refs in one repo.
 
     `HEAD` is refused **before any delete**, so a call naming it
@@ -29,16 +27,16 @@ def unwatch_refs(
     if HEAD_REF in refs:
         msg = "HEAD cannot be removed from the watch set"
         raise RbtrError(msg)
-    repo_id = store.get_repo_id(repo_path)
+    repo_id = index.get_repo_id(repo_path)
     if repo_id is None:
         return {}
     if not dry_run:
-        with store.session() as session:
+        with index.session() as session:
             session.remove_watched_refs(repo_id, refs)
     return {repo_path: refs}
 
 
-def remove_stale_refs(store: IndexStore, repos: list[Repo], *, dry_run: bool) -> RefsByRepo:
+def remove_stale_refs(index: Index, repos: list[Repo], *, dry_run: bool) -> RefsByRepo:
     """Stop watching the refs git can no longer resolve in *repos*, keyed by repo path.
 
     `HEAD` resolves for as long as the repo does and is never removed,
@@ -50,17 +48,17 @@ def remove_stale_refs(store: IndexStore, repos: list[Repo], *, dry_run: bool) ->
     for repo in repos:
         if not _resolves(repo):
             continue
-        stale = _unresolvable(store, repo)
+        stale = _unresolvable(index, repo)
         if not stale:
             continue
         removed[repo.repo_path] = stale
         if not dry_run:
-            with store.session() as session:
+            with index.session() as session:
                 session.remove_watched_refs(repo.repo_id, stale)
     return removed
 
 
-def forget_stale_repos(store: IndexStore, *, dry_run: bool) -> list[Repo]:
+def forget_stale_repos(index: Index, *, dry_run: bool) -> list[Repo]:
     """Forget every registered repo whose path no longer resolves.
 
     Found by enumeration, since a removed checkout's path cannot be
@@ -68,10 +66,10 @@ def forget_stale_repos(store: IndexStore, *, dry_run: bool) -> list[Repo]:
     metadata-only: the chunks it orphans are reclaimed by the next GC.
     Under *dry_run* nothing is written.
     """
-    gone = [repo for repo in store.list_repos() if not _resolves(repo)]
+    gone = [repo for repo in index.list_repos() if not _resolves(repo)]
     if not dry_run:
         for repo in gone:
-            with store.session() as session:
+            with index.session() as session:
                 session.forget_repo(repo.repo_id)
     return gone
 
@@ -85,14 +83,14 @@ def _resolves(repo: Repo) -> bool:
     return True
 
 
-def _unresolvable(store: IndexStore, repo: Repo) -> list[str]:
+def _unresolvable(index: Index, repo: Repo) -> list[str]:
     """The repo's watched refs git can no longer resolve, `HEAD` aside.
 
     A full SHA is asked of git too, so one whose commit git has lost is
     stale.
     """
     out: list[str] = []
-    for ref in store.list_watched_refs(repo.repo_id):
+    for ref in index.list_watched_refs(repo.repo_id):
         if ref == HEAD_REF:
             continue
         try:

@@ -1,8 +1,8 @@
 """Shared fixtures for daemon tests.
 
-All test data is exposed as fixtures.  The `seeded_store`
+All test data is exposed as fixtures.  The `seeded_index`
 fixture composes individual chunk/edge fixtures into the root
-`store`.  `running_server` and `running_server_with_index`
+`index`.  `running_server` and `running_server_with_index`
 start a real `DaemonServer` on an IPC socket through
 `serve_daemon`, which owns startup and shutdown for every test
 that needs a live daemon.
@@ -22,8 +22,8 @@ import pytest
 
 from rbtr.daemon.server import DaemonServer
 from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot, SnapshotRef
+from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
-from rbtr.index.store import IndexStore
 
 from ..index.conftest import make_chunk
 
@@ -102,24 +102,24 @@ def runtime_dir() -> Path:
 
 
 @pytest.fixture
-def unindexed_store(fake_repo: str, store: IndexStore) -> IndexStore:
+def registered_index(fake_repo: str, index: Index) -> Index:
     """Real repo registered, HEAD not indexed (a stale watched ref)."""
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo(fake_repo)
-    return store
+    return index
 
 
 @pytest.fixture
-def seeded_store(
+def seeded_index(
     fake_repo: str,
     daemon_commit: str,
     daemon_chunks: list[TokenisedChunk],
     daemon_edges: list[Edge],
-    store: IndexStore,
-) -> IndexStore:
+    index: Index,
+) -> Index:
     """The root store pre-loaded with daemon test data for one repo."""
     chunks = daemon_chunks
-    with store.session() as ws:
+    with index.session() as ws:
         repo_id = ws.register_repo(fake_repo)
         for c in chunks:
             ws.add_chunk(c)
@@ -132,20 +132,20 @@ def seeded_store(
         )
         ws.insert_edges(daemon_edges, at=SnapshotRef(repo_id=repo_id, snapshot_sha=daemon_commit))
         ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=daemon_commit))
-    return store
+    return index
 
 
 @pytest.fixture
-def changed_head(seeded_store: IndexStore, fake_repo: str) -> str:
-    """Add a second indexed commit to `seeded_store`; return its SHA.
+def changed_head(seeded_index: Index, fake_repo: str) -> str:
+    """Add a second indexed commit to `seeded_index`; return its SHA.
 
     Diffs against the base commit (`daemon_commit`): `load_config` is
     modified and a new `helper` is added. The head SHA is synthetic —
     the diff is keyed on the stored snapshots, not on git tree content.
     """
     head = "f" * 40
-    repo_id = seeded_store.resolve_repo(fake_repo)
-    with seeded_store.session() as ws:
+    repo_id = seeded_index.resolve_repo(fake_repo)
+    with seeded_index.session() as ws:
         ws.add_chunk(
             make_chunk(
                 "fn_config_v2",
@@ -210,7 +210,7 @@ def serving(server: DaemonServer) -> Iterator[DaemonServer]:
 @pytest.fixture
 def running_daemon(
     runtime_dir: Path,
-    seeded_store: IndexStore,
+    seeded_index: Index,
     stub_embedding_model: None,
 ) -> Generator[DaemonServer]:
     """A served daemon over a seeded index.
@@ -225,7 +225,7 @@ def running_daemon(
     """
     with serving(
         DaemonServer(
-            runtime_dir, store=seeded_store, idle_poll_interval=60.0, busy_poll_interval=60.0
+            runtime_dir, index=seeded_index, idle_poll_interval=60.0, busy_poll_interval=60.0
         )
     ) as server:
         yield server

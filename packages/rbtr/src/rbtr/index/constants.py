@@ -1,7 +1,7 @@
 """Shared constants for the index: schema and embedding format versions.
 
 These live in their own module to avoid circular imports:
-`store.py` and `writer.py` need them, and `store` already imports
+`index.py` and `writer.py` need them, and `index` already imports
 from `results`.
 """
 

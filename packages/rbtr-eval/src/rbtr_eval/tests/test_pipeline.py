@@ -16,7 +16,7 @@ import pytest
 from pytest_cases import parametrize_with_cases
 
 from rbtr.domain.models import SnapshotRef
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 from rbtr_eval.measure import (
     SearchBatch,
     TruncatedTarget,
@@ -110,9 +110,9 @@ def indexed_copy(tmp_path: Path) -> Path:
     `q.py` is vendored verbatim to `vendor/q.py`, so both snapshot
     rows carry the blob the chunk was extracted from.
     """
-    store = IndexStore(str(tmp_path / "index.duckdb"), writable=True)
+    index = Index(str(tmp_path / "index.duckdb"), writable=True)
     fn = chunk(file_path="q.py", kind="function", name="load")
-    with store.session() as ws:
+    with index.session() as ws:
         repo_id = ws.register_repo(str(tmp_path / "alpha"))
         ws.add_chunk(fn)
         ws.insert_snapshots(
@@ -121,7 +121,7 @@ def indexed_copy(tmp_path: Path) -> Path:
         )
         ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha="a" * 40))
         ws.update_embeddings([fn.id], [[0.5] * 768], truncated=[True])
-    store.close()
+    index.close()
     return tmp_path / "index.duckdb"
 
 

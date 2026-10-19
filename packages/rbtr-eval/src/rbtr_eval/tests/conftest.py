@@ -4,12 +4,12 @@
 pipeline tests. They are called only from fixtures and case
 functions, never from test bodies.
 
-`seed_corpus` seeds an `IndexStore` from a `CorpusScenario`;
+`seed_corpus` seeds an `Index` from a `CorpusScenario`;
 `chunk` builds one tokenised chunk for the tests that write index
 rows directly.
 
 `mixed_kind_repo` is the suite's one real repo and `mixed_kind_ref` the
-same repo built into the reused `store` fixture. Both `extract` and
+same repo built into the reused `index` fixture. Both `extract` and
 `paraphrase` measure against it, so a kind it stops producing fails in
 both places.
 """
@@ -28,8 +28,8 @@ from rbtr.domain.models import ChunkKind, FileSnapshot, SnapshotRef
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.git import normalise_repo_path
 from rbtr.index.build import build_index
+from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
-from rbtr.index.store import IndexStore
 from rbtr.tests.conftest import make_commit
 from rbtr_eval.shared_schemas import RepoHeader
 from rbtr_eval.tests.cases_corpus import HEAD
@@ -97,14 +97,14 @@ def outcome_row(
 
 
 @pytest.fixture
-def store() -> Generator[IndexStore]:
-    """In-memory writable IndexStore."""
-    s = IndexStore(writable=True)
+def index() -> Generator[Index]:
+    """In-memory writable Index."""
+    s = Index(writable=True)
     yield s
     s.close()
 
 
-def seed_corpus(store: IndexStore, repo_path: Path, head: str, indexed: list[str]) -> int:
+def seed_corpus(index: Index, repo_path: Path, head: str, indexed: list[str]) -> int:
     """Register *repo_path* and mark each snapshot in *indexed* as indexed.
 
     The `HEAD` placeholder is substituted with *head*, so a scenario
@@ -112,7 +112,7 @@ def seed_corpus(store: IndexStore, repo_path: Path, head: str, indexed: list[str
     snapshot gets one file row, because a snapshot with no files is
     a state the indexer never writes.
     """
-    with store.session() as ws:
+    with index.session() as ws:
         repo_id = ws.register_repo(str(repo_path))
         for name in indexed:
             sha = head if name == HEAD else name
@@ -208,12 +208,12 @@ target-version = "py313"
 
 
 @pytest.fixture
-def mixed_kind_ref(mixed_kind_repo: pygit2.Repository, store: IndexStore) -> SnapshotRef:
-    """`mixed_kind_repo` built into `store`, addressed at its one commit."""
+def mixed_kind_ref(mixed_kind_repo: pygit2.Repository, index: Index) -> SnapshotRef:
+    """`mixed_kind_repo` built into `index`, addressed at its one commit."""
     head = str(mixed_kind_repo.head.target)
-    with store.session() as ws:
+    with index.session() as ws:
         repo_id = ws.register_repo(normalise_repo_path(mixed_kind_repo.workdir))
-    build_index(mixed_kind_repo.workdir, head, store)
+    build_index(mixed_kind_repo.workdir, head, index)
     return SnapshotRef(repo_id=repo_id, snapshot_sha=head)
 
 

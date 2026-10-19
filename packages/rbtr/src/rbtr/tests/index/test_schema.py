@@ -23,16 +23,16 @@ from rbtr.config import config
 from rbtr.domain.models import FileSnapshot, SnapshotRef
 from rbtr.errors import IndexNotBuiltError, IndexSchemaTooNewError
 from rbtr.index.constants import EMBEDDING_FORMAT_VERSION
+from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
-from rbtr.index.store import IndexStore
 
-from .cases_store_versioning import VersioningScenario
+from .cases_index_versioning import VersioningScenario
 from .conftest import make_chunk
 
 
 def test_all_schema_tables_exist_after_open(tmp_path: Path) -> None:
     """Every table the full schema declares is present on open."""
-    store = IndexStore(tmp_path / "index.duckdb", writable=True)
+    index = Index(tmp_path / "index.duckdb", writable=True)
     expected = {
         "meta",
         "repos",
@@ -43,7 +43,7 @@ def test_all_schema_tables_exist_after_open(tmp_path: Path) -> None:
     }
     tables = {
         row[0]
-        for row in store._cursor.execute(
+        for row in index._cursor.execute(
             "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
         ).fetchall()
     }
@@ -51,12 +51,12 @@ def test_all_schema_tables_exist_after_open(tmp_path: Path) -> None:
 
 
 @fixture
-@parametrize_with_cases("scenario", cases=".cases_store_versioning")
+@parametrize_with_cases("scenario", cases=".cases_index_versioning")
 def reopened(
     scenario: VersioningScenario,
     tmp_path: Path,
     mocker: MockerFixture,
-) -> Iterator[tuple[IndexStore, VersioningScenario]]:
+) -> Iterator[tuple[Index, VersioningScenario]]:
     path = tmp_path / "index.duckdb"
     before = scenario.before
 
@@ -65,7 +65,7 @@ def reopened(
         con.execute("CREATE TABLE dummy (x INT)")
         con.close()
     else:
-        seed = IndexStore(path, writable=True)
+        seed = Index(path, writable=True)
         with seed.session() as ws:
             for chunk in before.seeded_chunks:
                 tc = (
@@ -111,20 +111,20 @@ def reopened(
             scenario.config_embedding_model,
         )
 
-    store = IndexStore(path, writable=True)
+    index = Index(path, writable=True)
     try:
-        yield store, scenario
+        yield index, scenario
     finally:
-        store.close()
+        index.close()
 
 
 def test_chunks_survive_matches_scenario(
-    reopened: tuple[IndexStore, VersioningScenario],
+    reopened: tuple[Index, VersioningScenario],
 ) -> None:
-    store, scenario = reopened
+    index, scenario = reopened
     if not scenario.before.seeded_chunks:
         return
-    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
+    chunks = index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
     if scenario.expected_chunks_survive:
         assert chunks, "expected chunks to survive"
     else:
@@ -132,12 +132,12 @@ def test_chunks_survive_matches_scenario(
 
 
 def test_embeddings_survive_matches_scenario(
-    reopened: tuple[IndexStore, VersioningScenario],
+    reopened: tuple[Index, VersioningScenario],
 ) -> None:
-    store, scenario = reopened
+    index, scenario = reopened
     if not scenario.before.seeded_embeddings:
         return
-    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
+    chunks = index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
     if not chunks:
         assert not scenario.expected_chunks_survive
         return
@@ -149,12 +149,12 @@ def test_embeddings_survive_matches_scenario(
 
 
 def test_embedding_meta_stored_after_change(
-    reopened: tuple[IndexStore, VersioningScenario],
+    reopened: tuple[Index, VersioningScenario],
 ) -> None:
-    store, scenario = reopened
+    index, scenario = reopened
     if not scenario.expected_meta_stored:
         return
-    rows = store._cursor.execute(
+    rows = index._cursor.execute(
         "SELECT key, value FROM meta WHERE key IN ('embedding_model', 'embedding_version')"
     ).fetchall()
     stored = {str(r[0]): str(r[1]) for r in rows}
@@ -164,7 +164,7 @@ def test_embedding_meta_stored_after_change(
 
 def _seed_one_chunk(path: Path) -> None:
     """Seed *path* with a single indexed chunk at the current schema."""
-    seed = IndexStore(path, writable=True)
+    seed = Index(path, writable=True)
     with seed.session() as ws:
         ws.add_chunk(make_chunk("c1"))
         ws.insert_snapshots(
@@ -181,7 +181,7 @@ def test_reading_a_db_rbtr_never_built_says_it_is_not_built(tmp_path: Path) -> N
     fail on the first missing table.
     """
     with pytest.raises(IndexNotBuiltError, match="rbtr watch"):
-        IndexStore(tmp_path / "index.duckdb")
+        Index(tmp_path / "index.duckdb")
 
 
 def test_older_binary_refuses_and_preserves_index(tmp_path: Path, mocker: MockerFixture) -> None:
@@ -194,9 +194,9 @@ def test_older_binary_refuses_and_preserves_index(tmp_path: Path, mocker: Mocker
     _seed_one_chunk(path)
     inode_before = path.stat().st_ino
 
-    mocker.patch("rbtr.index.store.SCHEMA_VERSION", "2000.1.1")
+    mocker.patch("rbtr.index.index.SCHEMA_VERSION", "2000.1.1")
     with pytest.raises(IndexSchemaTooNewError):
-        IndexStore(path, writable=True)
+        Index(path, writable=True)
 
     assert path.exists()
     assert path.stat().st_ino == inode_before  # never unlinked/recreated
@@ -216,23 +216,23 @@ def test_schema_wipe_is_in_place_not_unlink(tmp_path: Path) -> None:
     con.close()
     inode_before = path.stat().st_ino
 
-    store = IndexStore(path, writable=True)  # newer code -> wipe in place
+    index = Index(path, writable=True)  # newer code -> wipe in place
     try:
         assert path.stat().st_ino == inode_before, "wipe must not unlink/recreate the DB file"
-        assert not store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head")), (
+        assert not index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head")), (
             "stale data must be wiped"
         )
     finally:
-        store.close()
+        index.close()
 
 
 def test_second_open_against_same_db_succeeds(tmp_path: Path) -> None:
     """Opening the same DB twice in-process does not destroy it."""
     db_path = tmp_path / "index.duckdb"
-    store = IndexStore(db_path, writable=True)  # a read-only open needs a built index
-    store2 = IndexStore(db_path)
-    store2.close()
-    store.close()
+    index = Index(db_path, writable=True)  # a read-only open needs a built index
+    index2 = Index(db_path)
+    index2.close()
+    index.close()
 
 
 def test_fts_persists_across_reopen(tmp_path: Path) -> None:
@@ -240,17 +240,17 @@ def test_fts_persists_across_reopen(tmp_path: Path) -> None:
     db_path = tmp_path / "index.duckdb"
     chunk = make_chunk("persist_1", name="persist_check")
 
-    store1 = IndexStore(db_path, writable=True)
-    with store1.session() as ws:
+    index1 = Index(db_path, writable=True)
+    with index1.session() as ws:
         ws.add_chunk(chunk)
         ws.insert_snapshots(
             [FileSnapshot(snapshot_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha)],
             repo_id=1,
         )
     ref = SnapshotRef(repo_id=1, snapshot_sha="head")
-    assert len(store1.fulltext_matches("persist", within=[ref], top_k=5)) == 1
-    store1.close()
+    assert len(index1.fulltext_matches("persist", within=[ref], top_k=5)) == 1
+    index1.close()
 
-    store2 = IndexStore(db_path, writable=True)
-    assert len(store2.fulltext_matches("persist", within=[ref], top_k=5)) == 1
-    store2.close()
+    index2 = Index(db_path, writable=True)
+    assert len(index2.fulltext_matches("persist", within=[ref], top_k=5)) == 1
+    index2.close()

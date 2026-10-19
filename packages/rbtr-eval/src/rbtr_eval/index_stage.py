@@ -29,8 +29,8 @@ from pydantic import BaseModel, Field
 from rbtr.cli.output import human_bytes
 from rbtr.config import config
 from rbtr.domain.models import ChunkKind, SnapshotRef
+from rbtr.index.index import Index
 from rbtr.index.results import snapshot_refs_view
-from rbtr.index.store import IndexStore
 from rbtr_eval.corpus import Corpus, corpus_refs
 from rbtr_eval.formatting import md_table
 from rbtr_eval.rbtr_cli import run_rbtr
@@ -105,9 +105,9 @@ _EMB_TOTALS_SQL = _load_sql("embedding_totals.sql")
 _EMB_REPOS_SQL = _load_sql("embedding_repos.sql")
 
 
-def _repo_counts(store: IndexStore, corpus: Corpus) -> dy.DataFrame[RepoCountRow]:
+def _repo_counts(index: Index, corpus: Corpus) -> dy.DataFrame[RepoCountRow]:
     """Chunks and edges per repo, over *corpus*."""
-    with store.reader(_snapshot_refs=snapshot_refs_view(list(corpus.refs))) as cur:
+    with index.reader(_snapshot_refs=snapshot_refs_view(list(corpus.refs))) as cur:
         frame = cur.execute(_REPOS_SQL).pl()
     return (
         frame.with_columns(pl.col("path").str.split("/").list.last().alias("repo"))
@@ -116,33 +116,33 @@ def _repo_counts(store: IndexStore, corpus: Corpus) -> dy.DataFrame[RepoCountRow
     )
 
 
-def _kind_counts(store: IndexStore, corpus: Corpus) -> dy.DataFrame[KindCountRow]:
+def _kind_counts(index: Index, corpus: Corpus) -> dy.DataFrame[KindCountRow]:
     """Chunks and incident edges per chunk kind, over *corpus*."""
-    with store.reader(_snapshot_refs=snapshot_refs_view(list(corpus.refs))) as cur:
+    with index.reader(_snapshot_refs=snapshot_refs_view(list(corpus.refs))) as cur:
         return cur.execute(_KINDS_SQL).pl().pipe(KindCountRow.validate, cast=True)
 
 
-def _language_counts(store: IndexStore, corpus: Corpus) -> dy.DataFrame[LanguageCountRow]:
+def _language_counts(index: Index, corpus: Corpus) -> dy.DataFrame[LanguageCountRow]:
     """Chunks and incident edges per language, over *corpus*."""
-    with store.reader(_snapshot_refs=snapshot_refs_view(list(corpus.refs))) as cur:
+    with index.reader(_snapshot_refs=snapshot_refs_view(list(corpus.refs))) as cur:
         return cur.execute(_LANGS_SQL).pl().pipe(LanguageCountRow.validate, cast=True)
 
 
-def _totals(store: IndexStore, corpus: Corpus) -> tuple[int, int, int]:
+def _totals(index: Index, corpus: Corpus) -> tuple[int, int, int]:
     """`(chunks, locations, edges)` over *corpus*.
 
     A chunk shared by several files counts once in `chunks` and once
     per file in `locations`, so the pair says how much of the corpus
     is repeated content.
     """
-    with store.reader(_snapshot_refs=snapshot_refs_view(list(corpus.refs))) as cur:
+    with index.reader(_snapshot_refs=snapshot_refs_view(list(corpus.refs))) as cur:
         row = cur.execute(_TOTALS_SQL).fetchone()
     return (int(row[0]), int(row[1]), int(row[2])) if row else (0, 0, 0)
 
 
-def _embedding_counts(store: IndexStore, corpus: Corpus) -> dy.DataFrame[EmbeddingRepoRow]:
+def _embedding_counts(index: Index, corpus: Corpus) -> dy.DataFrame[EmbeddingRepoRow]:
     """Embedding coverage per repo, over *corpus*."""
-    with store.reader(_snapshot_refs=snapshot_refs_view(list(corpus.refs))) as cur:
+    with index.reader(_snapshot_refs=snapshot_refs_view(list(corpus.refs))) as cur:
         frame = cur.execute(_EMB_REPOS_SQL).pl()
     return (
         frame.with_columns(pl.col("path").str.split("/").list.last().alias("repo"))
@@ -151,9 +151,9 @@ def _embedding_counts(store: IndexStore, corpus: Corpus) -> dy.DataFrame[Embeddi
     )
 
 
-def _embedding_totals(store: IndexStore, corpus: Corpus) -> tuple[int, int, int]:
+def _embedding_totals(index: Index, corpus: Corpus) -> tuple[int, int, int]:
     """`(chunks, embedded, truncated)` over *corpus*."""
-    with store.reader(_snapshot_refs=snapshot_refs_view(list(corpus.refs))) as cur:
+    with index.reader(_snapshot_refs=snapshot_refs_view(list(corpus.refs))) as cur:
         row = cur.execute(_EMB_TOTALS_SQL).fetchone()
     return (int(row[0]), int(row[1]), int(row[2])) if row else (0, 0, 0)
 
@@ -200,7 +200,7 @@ def _embedding_report(
     )
 
 
-def _sentinel_hash(store: IndexStore, *, embed: bool) -> str:
+def _sentinel_hash(index: Index, *, embed: bool) -> str:
     """Compute a content-hash for DVC sentinel files.
 
     ``embed=False`` (chunks-ready): hash of ``(repo_id, snapshot_sha)``
@@ -214,13 +214,13 @@ def _sentinel_hash(store: IndexStore, *, embed: bool) -> str:
     reordering would invalidate every downstream stage.
     """
     outstanding = (
-        {ref: counts.unembedded for ref, counts in store.chunk_counts_by_snapshot()}
+        {ref: counts.unembedded for ref, counts in index.chunk_counts_by_snapshot()}
         if embed
         else {}
     )
     h = hashlib.sha256()
-    for repo in store.list_repos():
-        for sha, _ts in store.list_indexed_snapshots(repo.repo_id):
+    for repo in index.list_repos():
+        for sha, _ts in index.list_indexed_snapshots(repo.repo_id):
             h.update(f"{repo.repo_id}:{sha}".encode())
             if embed:
                 ref = SnapshotRef(repo_id=repo.repo_id, snapshot_sha=sha)
@@ -252,27 +252,27 @@ class IndexCmd(BaseModel):
                 ]
             )
 
-        store = IndexStore(str(config.db_path))
+        index = Index(str(config.db_path))
 
-        corpus = corpus_refs(store)
+        corpus = corpus_refs(index)
 
         if self.report is not None:
             self.report.parent.mkdir(parents=True, exist_ok=True)
             report = (
                 _embedding_report(
-                    _embedding_totals(store, corpus),
-                    _embedding_counts(store, corpus),
-                    store.disk_size_bytes(),
+                    _embedding_totals(index, corpus),
+                    _embedding_counts(index, corpus),
+                    index.disk_size_bytes(),
                 )
                 if config.embed
                 else _index_report(
-                    _totals(store, corpus),
-                    _repo_counts(store, corpus),
-                    _kind_counts(store, corpus),
-                    _language_counts(store, corpus),
+                    _totals(index, corpus),
+                    _repo_counts(index, corpus),
+                    _kind_counts(index, corpus),
+                    _language_counts(index, corpus),
                 )
             )
             self.report.write_text(report, encoding="utf-8")
 
         self.sentinel.parent.mkdir(parents=True, exist_ok=True)
-        self.sentinel.write_text(_sentinel_hash(store, embed=config.embed), encoding="utf-8")
+        self.sentinel.write_text(_sentinel_hash(index, embed=config.embed), encoding="utf-8")

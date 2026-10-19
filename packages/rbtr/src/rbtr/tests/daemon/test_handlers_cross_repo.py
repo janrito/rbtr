@@ -26,14 +26,14 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.server import DaemonServer
 from rbtr.domain.models import FileSnapshot, SnapshotRef
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 
 from ..index.conftest import make_chunk
 from .conftest import serving
 
 
 @pytest.fixture
-def shared_symbol_store(fake_repo: str, second_repo: str, store: IndexStore) -> IndexStore:
+def shared_symbol_index(fake_repo: str, second_repo: str, index: Index) -> Index:
     """Index both repos, each holding a unique symbol plus `shared_fn`.
 
     The shared name is what makes cross-repo merge, workspace isolation
@@ -44,7 +44,7 @@ def shared_symbol_store(fake_repo: str, second_repo: str, store: IndexStore) -> 
     """
     for path, uniq in ((fake_repo, "alpha"), (second_repo, "beta")):
         head = str(pygit2.Repository(path).head.target)
-        with store.session() as ws:
+        with index.session() as ws:
             repo_id = ws.register_repo(path)
             ws.add_chunk(make_chunk(f"{uniq}_id", name=f"{uniq}_fn", path=f"{uniq}.py"))
             ws.add_chunk(make_chunk(f"shared_{uniq}", name="shared_fn", path="shared.py"))
@@ -60,19 +60,19 @@ def shared_symbol_store(fake_repo: str, second_repo: str, store: IndexStore) -> 
                 repo_id=repo_id,
             )
             ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=head))
-    return store
+    return index
 
 
 @pytest.fixture
 def running_daemon(
     runtime_dir: Path,
-    shared_symbol_store: IndexStore,
+    shared_symbol_index: Index,
     stub_embedding_model: None,
 ) -> Generator[DaemonServer]:
     """A served daemon over both repos (stub embedder: routing, not vectors)."""
     with serving(
         DaemonServer(
-            runtime_dir, store=shared_symbol_store, idle_poll_interval=60.0, busy_poll_interval=60.0
+            runtime_dir, index=shared_symbol_index, idle_poll_interval=60.0, busy_poll_interval=60.0
         )
     ) as server:
         yield server

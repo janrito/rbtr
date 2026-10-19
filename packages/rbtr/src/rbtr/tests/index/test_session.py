@@ -15,30 +15,30 @@ from pytest_cases import parametrize_with_cases
 from rbtr.config import config
 from rbtr.domain.models import Edge, EdgeKind, FileSnapshot, SnapshotRef
 from rbtr.errors import RepoNotFoundError
+from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
-from rbtr.index.store import IndexStore
 
-from .cases_store_repos import RepoSequence
-from .cases_store_watched_refs import WatchedRefScenario
-from .conftest import make_chunk, make_snap, seed_store
+from .cases_index_repos import RepoSequence
+from .cases_index_watched_refs import WatchedRefScenario
+from .conftest import make_chunk, make_snap, seed_index
 
 
-def test_clean_exit_commits(store: IndexStore) -> None:
+def test_clean_exit_commits(index: Index) -> None:
     """Data written in a session is visible after clean exit."""
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/repo")
         ws.add_chunk(make_chunk("a"))
         ws.insert_snapshots([make_snap("c1", "f.py", "blob_a")], repo_id=1)
 
-    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
+    chunks = index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
     assert any(c.name == "a" for c in chunks)
 
 
-def test_exception_rolls_back(store: IndexStore) -> None:
+def test_exception_rolls_back(index: Index) -> None:
     """Data written in a session is invisible after an exception."""
 
     def _failing_session() -> None:
-        with store.session() as ws:
+        with index.session() as ws:
             ws.register_repo("/repo")
             ws.add_chunk(make_chunk("a"))
             ws.insert_snapshots([make_snap("c1", "f.py", "blob_a")], repo_id=1)
@@ -48,44 +48,44 @@ def test_exception_rolls_back(store: IndexStore) -> None:
     with pytest.raises(RuntimeError):
         _failing_session()
 
-    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
+    chunks = index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
     assert chunks == []
 
 
-def test_write_outside_session_raises(store: IndexStore) -> None:
+def test_write_outside_session_raises(index: Index) -> None:
     """Calling a write method without an active session raises."""
-    ws = store.session()
+    ws = index.session()
     # ws.__enter__ not called — no active transaction.
     with pytest.raises(RuntimeError, match="No active transaction"):
         ws.add_chunk(make_chunk("a"))
 
 
-def test_chunks_cannot_be_committed_without_a_claim(store: IndexStore) -> None:
+def test_chunks_cannot_be_committed_without_a_claim(index: Index) -> None:
     """A session inserting chunks and no `file_snapshots` rows is refused.
 
     The sweeps delete every chunk no repo claims, so a commit holding
     an unclaimed chunk leaves it for the next sweep to take.
     """
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/repo")
 
-    with pytest.raises(RuntimeError, match="file_snapshots"), store.session() as ws:
+    with pytest.raises(RuntimeError, match="file_snapshots"), index.session() as ws:
         ws.add_chunk(make_chunk("unclaimed"))
 
-    assert store.count_orphan_chunks() == 0
+    assert index.count_orphan_chunks() == 0
 
 
-def test_read_only_store_rejects_session() -> None:
+def test_read_only_index_rejects_session() -> None:
     """A store created without writable=True rejects session()."""
-    store = IndexStore(writable=False)
+    index = Index(writable=False)
     try:
         with pytest.raises(RuntimeError, match="writable"):
-            store.session()
+            index.session()
     finally:
-        store.close()
+        index.close()
 
 
-def test_add_chunk_attributes_per_repo_in_one_session(store: IndexStore) -> None:
+def test_add_chunk_attributes_per_repo_in_one_session(index: Index) -> None:
     """Chunks for different repos in one session keep their repo_id.
 
     Regression guard for the buffer-attribution bug: the buffer
@@ -93,7 +93,7 @@ def test_add_chunk_attributes_per_repo_in_one_session(store: IndexStore) -> None
     with the last one seen.  Here a single session interleaves
     chunks for two repos; each must surface under its own repo.
     """
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/repo")
         ws.add_chunk(make_chunk("r1_a", path="a.py", blob="b1a"))
         ws.add_chunk(make_chunk("r2_a", path="a.py", blob="b2a"))
@@ -104,72 +104,72 @@ def test_add_chunk_attributes_per_repo_in_one_session(store: IndexStore) -> None
         )
         ws.insert_snapshots([make_snap("head", "a.py", "b2a")], repo_id=2)
 
-    r1_names = {c.name for c in store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))}
-    r2_names = {c.name for c in store.get_chunks(at=SnapshotRef(repo_id=2, snapshot_sha="head"))}
+    r1_names = {c.name for c in index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))}
+    r2_names = {c.name for c in index.get_chunks(at=SnapshotRef(repo_id=2, snapshot_sha="head"))}
     assert r1_names == {"r1_a", "r1_b"}
     assert r2_names == {"r2_a"}
 
 
-def test_sweep_cleans_orphans(store: IndexStore) -> None:
+def test_sweep_cleans_orphans(index: Index) -> None:
     """Explicit sweep() removes crash residue."""
     # Simulate a crashed build: snapshot without mark_indexed,
     # but with a completed build already present so the repo
     # doesn't look like a first-build-in-progress.
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/repo")
         ws.add_chunk(make_chunk("good"))
         ws.insert_snapshots([make_snap("good_sha", "f.py", "blob_good")], repo_id=1)
         ws.mark_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="good_sha"))
 
-    with store.session() as ws:
+    with index.session() as ws:
         ws.add_chunk(make_chunk("orphan"))
         ws.insert_snapshots([make_snap("crashed_sha", "f.py", "blob_orphan")], repo_id=1)
         # No mark_indexed — simulates crash.
 
-    with store.session() as ws:
+    with index.session() as ws:
         ws.sweep()
 
-    assert store.count_file_snapshots(at=SnapshotRef(repo_id=1, snapshot_sha="crashed_sha")) == 0
-    assert store.count_file_snapshots(at=SnapshotRef(repo_id=1, snapshot_sha="good_sha")) > 0
+    assert index.count_file_snapshots(at=SnapshotRef(repo_id=1, snapshot_sha="crashed_sha")) == 0
+    assert index.count_file_snapshots(at=SnapshotRef(repo_id=1, snapshot_sha="good_sha")) > 0
 
 
-def test_sweep_skips_first_build(store: IndexStore) -> None:
+def test_sweep_skips_first_build(index: Index) -> None:
     """sweep() does NOT delete data for a repo with no completed builds.
 
     A repo mid-first-build has snapshots but no mark_indexed.
     That's not crash residue — it's an in-progress build.
     """
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/repo")
         ws.add_chunk(make_chunk("wip"))
         ws.insert_snapshots([make_snap("wip_sha", "f.py", "blob_wip")], repo_id=1)
         # No mark_indexed — first build in progress.
 
-    with store.session() as ws:
+    with index.session() as ws:
         ws.sweep()
 
-    assert store.count_file_snapshots(at=SnapshotRef(repo_id=1, snapshot_sha="wip_sha")) > 0
+    assert index.count_file_snapshots(at=SnapshotRef(repo_id=1, snapshot_sha="wip_sha")) > 0
 
 
-def test_fts_rebuilt_after_chunk_insert(store: IndexStore) -> None:
+def test_fts_rebuilt_after_chunk_insert(index: Index) -> None:
     """Session that inserts chunks rebuilds FTS on exit."""
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/repo")
         ws.add_chunk(make_chunk("searchable"))
         ws.insert_snapshots([make_snap("c1", "f.py", "blob_searchable")], repo_id=1)
         ws.mark_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
 
-    results = store.fulltext_matches(
+    results = index.fulltext_matches(
         "searchable", within=[SnapshotRef(repo_id=1, snapshot_sha="c1")]
     )
     assert len(results) > 0
 
 
-def test_buffer_flushes_at_batch_size(store: IndexStore, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_buffer_flushes_at_batch_size(index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
     """Chunks are flushed when the buffer reaches batch size."""
     monkeypatch.setattr(config, "insert_batch_size", 5)
 
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/repo")
         for i in range(12):
             ws.add_chunk(make_chunk(f"c{i}", path=f"f{i}.py"))
@@ -178,13 +178,13 @@ def test_buffer_flushes_at_batch_size(store: IndexStore, monkeypatch: pytest.Mon
             repo_id=1,
         )
 
-    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
+    chunks = index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
     assert len(chunks) == 12
 
 
-def test_buffer_flushes_before_dependent_ops(store: IndexStore) -> None:
+def test_buffer_flushes_before_dependent_ops(index: Index) -> None:
     """Buffer is flushed before replace_snapshots (which depends on chunks)."""
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/repo")
         ws.add_chunk(make_chunk("a", blob="b1", path="a.py"))
         # replace_snapshots triggers _flush_chunks internally.
@@ -192,32 +192,32 @@ def test_buffer_flushes_before_dependent_ops(store: IndexStore) -> None:
             [make_snap("c1", "a.py", "b1")], at=SnapshotRef(repo_id=1, snapshot_sha="c1")
         )
 
-    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
+    chunks = index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
     assert len(chunks) == 1
 
 
-def test_empty_operations_are_noops(store: IndexStore) -> None:
+def test_empty_operations_are_noops(index: Index) -> None:
     """Empty lists don't cause errors."""
-    with store.session() as ws:
+    with index.session() as ws:
         ws.insert_snapshots([], repo_id=1)
         ws.insert_edges([], at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
         ws.update_embeddings([], [])
         ws.delete_chunks_for_blobs(set(), file_language="")
 
 
-@parametrize_with_cases("scenario", cases=".cases_store_repos")
-def test_register_repo(scenario: RepoSequence, store: IndexStore) -> None:
-    with store.session() as ws:
+@parametrize_with_cases("scenario", cases=".cases_index_repos")
+def test_register_repo(scenario: RepoSequence, index: Index) -> None:
+    with index.session() as ws:
         for path, expected_id in zip(scenario.calls, scenario.expected_ids, strict=True):
             assert ws.register_repo(path) == expected_id
-    listing = [(r.repo_id, r.repo_path) for r in store.list_repos()]
+    listing = [(r.repo_id, r.repo_path) for r in index.list_repos()]
     assert listing == scenario.expected_listing
 
 
-@parametrize_with_cases("scenario", cases=".cases_store_watched_refs")
-def test_watched_refs(scenario: WatchedRefScenario, store: IndexStore) -> None:
+@parametrize_with_cases("scenario", cases=".cases_index_watched_refs")
+def test_watched_refs(scenario: WatchedRefScenario, index: Index) -> None:
     repo_ids: dict[str, int] = {}
-    with store.session() as ws:
+    with index.session() as ws:
         for key, path in scenario.repos.items():
             repo_ids[key] = ws.register_repo(path)
         for key, op, refs in scenario.ops:
@@ -226,41 +226,41 @@ def test_watched_refs(scenario: WatchedRefScenario, store: IndexStore) -> None:
             else:
                 ws.remove_watched_refs(repo_ids[key], refs)
     for key, expected in scenario.expected.items():
-        assert store.list_watched_refs(repo_ids[key]) == expected
+        assert index.list_watched_refs(repo_ids[key]) == expected
 
 
-def test_resolve_repo_returns_id(store: IndexStore) -> None:
+def test_resolve_repo_returns_id(index: Index) -> None:
     """resolve_repo returns the id for a registered repo."""
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/r")
-    assert store.resolve_repo("/r") == 1
+    assert index.resolve_repo("/r") == 1
 
 
-def test_resolve_repo_raises_for_unknown(store: IndexStore) -> None:
+def test_resolve_repo_raises_for_unknown(index: Index) -> None:
     """resolve_repo raises `RepoNotFoundError`, coded `repo_not_found`."""
     with pytest.raises(RepoNotFoundError, match="not registered") as raised:
-        store.resolve_repo("nonexistent")
+        index.resolve_repo("nonexistent")
     assert raised.value.error_code == "repo_not_found"
 
 
-def test_replace_snapshots_scoped_to_commit(store: IndexStore) -> None:
+def test_replace_snapshots_scoped_to_commit(index: Index) -> None:
     """Replacing snapshots for one commit doesn't touch another."""
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/repo")
         ws.add_chunk(make_chunk("a", blob="b1", path="a.py"))
         ws.add_chunk(make_chunk("b", blob="b2", path="b.py"))
         ws.insert_snapshots([make_snap("c1", "a.py", "b1")], repo_id=1)
         ws.insert_snapshots([make_snap("c2", "b.py", "b2")], repo_id=1)
 
-    with store.session() as ws:
+    with index.session() as ws:
         ws.replace_snapshots(
             [make_snap("c1", "a.py", "b1")], at=SnapshotRef(repo_id=1, snapshot_sha="c1")
         )
 
-    assert store.count_file_snapshots(at=SnapshotRef(repo_id=1, snapshot_sha="c2")) == 1
+    assert index.count_file_snapshots(at=SnapshotRef(repo_id=1, snapshot_sha="c2")) == 1
 
 
-def test_replace_edges_scoped_to_commit(store: IndexStore) -> None:
+def test_replace_edges_scoped_to_commit(index: Index) -> None:
     """Replacing edges for one commit doesn't touch another."""
     e1 = Edge(
         source_id="a",
@@ -277,26 +277,26 @@ def test_replace_edges_scoped_to_commit(store: IndexStore) -> None:
         target_path="src/d.py",
     )
 
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/repo")
         ws.insert_edges([e1], at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
         ws.insert_edges([e2], at=SnapshotRef(repo_id=1, snapshot_sha="c2"))
 
-    with store.session() as ws:
+    with index.session() as ws:
         ws.replace_edges([], at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
 
-    assert store.count_edges(at=SnapshotRef(repo_id=1, snapshot_sha="c1")) == 0
-    assert store.count_edges(at=SnapshotRef(repo_id=1, snapshot_sha="c2")) == 1
+    assert index.count_edges(at=SnapshotRef(repo_id=1, snapshot_sha="c1")) == 0
+    assert index.count_edges(at=SnapshotRef(repo_id=1, snapshot_sha="c2")) == 1
 
 
-def test_update_embeddings_round_trip(store: IndexStore) -> None:
+def test_update_embeddings_round_trip(index: Index) -> None:
     """Embeddings and truncation flags are persisted correctly.
 
     Seeds two chunks, embeds one as truncated and one as not,
     then verifies both the embedding flag and the
     `embedding_truncated` column in the DB.
     """
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/repo")
         chunk_a = make_chunk("a")
         chunk_b = make_chunk("b", blob="blob_b", path="g.py")
@@ -311,20 +311,20 @@ def test_update_embeddings_round_trip(store: IndexStore) -> None:
         )
 
     # Before embedding — chunks have no embedding.
-    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
+    chunks = index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
     assert all(not c.has_embedding for c in chunks)
 
     vec = [0.1, 0.2, 0.3]
-    with store.session() as ws:
+    with index.session() as ws:
         ws.update_embeddings([chunk_a.id, chunk_b.id], [vec, vec], truncated=[True, False])
 
     # After embedding — both flagged as embedded.
-    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
+    chunks = index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
     assert len(chunks) == 2
     assert all(c.has_embedding for c in chunks)
 
     # Verify truncation flags in the DB.
-    rows = store._cursor.execute(
+    rows = index._cursor.execute(
         "SELECT id, embedding_truncated FROM chunks ORDER BY id"
     ).fetchall()
     by_id = {row[0]: row[1] for row in rows}
@@ -332,13 +332,13 @@ def test_update_embeddings_round_trip(store: IndexStore) -> None:
     assert by_id[chunk_b.id] is False
 
 
-def test_update_embeddings_rejects_mixed_dims(store: IndexStore) -> None:
+def test_update_embeddings_rejects_mixed_dims(index: Index) -> None:
     """A batch with vectors of differing lengths is rejected.
 
     All embeddings come from one model, so they must share a
     length; the staging frame enforces this.
     """
-    with store.session() as ws:
+    with index.session() as ws:
         chunk_a = make_chunk("a")
         chunk_b = make_chunk("b", blob="blob_b", path="g.py")
         ws.register_repo("/repo")
@@ -352,10 +352,10 @@ def test_update_embeddings_rejects_mixed_dims(store: IndexStore) -> None:
 
 
 def test_delete_snapshots_hides_chunks(
-    store: IndexStore, math_func: TokenisedChunk, http_func: TokenisedChunk
+    index: Index, math_func: TokenisedChunk, http_func: TokenisedChunk
 ) -> None:
     """Deleting snapshots hides chunks at a ref without touching chunks."""
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/repo")
         ws.add_chunk(math_func)
         ws.add_chunk(http_func)
@@ -374,18 +374,18 @@ def test_delete_snapshots_hides_chunks(
             ],
             repo_id=1,
         )
-    assert len(store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))) == 2
+    assert len(index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))) == 2
 
-    with store.session() as ws:
+    with index.session() as ws:
         ws.delete_snapshots(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
 
-    assert store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head")) == []
-    assert store.blob_is_current(math_func.blob_sha, "", {"": 1}) is True
-    assert store.blob_is_current(http_func.blob_sha, "", {"": 1}) is True
+    assert index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head")) == []
+    assert index.blob_is_current(math_func.blob_sha, "", {"": 1}) is True
+    assert index.blob_is_current(http_func.blob_sha, "", {"": 1}) is True
 
 
-def test_chunk_with_inverted_span_is_rejected(store: IndexStore, head_ref: SnapshotRef) -> None:
+def test_chunk_with_inverted_span_is_rejected(index: Index, head_ref: SnapshotRef) -> None:
     """A span that ends before it starts does not reach the table."""
     inverted = make_chunk("a").model_copy(update={"line_start": 7, "line_end": 6})
     with pytest.raises(duckdb.ConstraintException):
-        seed_store(store, [inverted], head_ref)
+        seed_index(index, [inverted], head_ref)

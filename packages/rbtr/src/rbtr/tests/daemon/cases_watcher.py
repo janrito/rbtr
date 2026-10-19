@@ -4,7 +4,7 @@ Cases return a `WatcherScenario` — pure declarative data
 describing which repos exist, what each watches, their indexed
 state, and the expected watcher output.  Shared fixtures in
 `test_watcher.py` convert scenarios into real git repos and a
-real `IndexStore`.
+real `Index`.
 
 Worktree scenarios live in `cases_watcher_worktree.py`.
 
@@ -62,7 +62,7 @@ class WatcherScenario:
     expected: list[ExpectedTarget] = field(default_factory=list)
 
 
-def case_empty_store() -> WatcherScenario:
+def case_empty_index() -> WatcherScenario:
     """No repos registered."""
     return WatcherScenario()
 

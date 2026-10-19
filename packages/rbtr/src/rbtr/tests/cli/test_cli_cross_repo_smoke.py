@@ -18,7 +18,7 @@ import pygit2
 import pytest
 
 from rbtr.domain.models import FileSnapshot, SnapshotRef
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 
 from ..conftest import run_cli
 from ..index.conftest import make_chunk
@@ -53,8 +53,8 @@ def two_repos(tmp_path: Path, isolated_db: Path) -> TwoRepos:
     path_a, head_a = _init_repo(tmp_path / "repo_a")
     path_b, head_b = _init_repo(tmp_path / "repo_b")
 
-    store = IndexStore.from_config(writable=True)
-    with store.session() as ws:
+    index = Index.from_config(writable=True)
+    with index.session() as ws:
         id_a = ws.register_repo(path_a)
         id_b = ws.register_repo(path_b)
         for repo_id, uniq, head in ((id_a, "alpha", head_a), (id_b, "beta", head_b)):
@@ -72,7 +72,7 @@ def two_repos(tmp_path: Path, isolated_db: Path) -> TwoRepos:
                 repo_id=repo_id,
             )
             ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=head))
-    store.close()
+    index.close()
     return TwoRepos(path_a=path_a, path_b=path_b)
 
 

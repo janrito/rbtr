@@ -21,7 +21,7 @@ from rbtr.daemon.server import DaemonServer
 from rbtr.domain.models import Chunk
 from rbtr.git import FileEntry
 from rbtr.index import build
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 
 
 @dataclass(frozen=True)
@@ -40,7 +40,7 @@ class StopScenario:
 
 def case_shutdown_request(runtime_dir: Path) -> StopScenario:
     """A shutdown request is answered, and the daemon stops cleanly."""
-    server = DaemonServer(runtime_dir, store=None, idle_poll_interval=60.0, busy_poll_interval=60.0)
+    server = DaemonServer(runtime_dir, index=None, idle_poll_interval=60.0, busy_poll_interval=60.0)
 
     def stop() -> None:
         with DaemonClient(runtime_dir) as client:
@@ -49,11 +49,11 @@ def case_shutdown_request(runtime_dir: Path) -> StopScenario:
     return StopScenario(server=server, stop=stop, raised=[], logged=[])
 
 
-def case_shutdown_during_warmup(runtime_dir: Path, unindexed_store: IndexStore) -> StopScenario:
+def case_shutdown_during_warmup(runtime_dir: Path, registered_index: Index) -> StopScenario:
     """A shutdown while the embedder warms up cancels the warmup; the
     cancellation does not escape `serve()`."""
     server = DaemonServer(
-        runtime_dir, store=unindexed_store, idle_poll_interval=60.0, busy_poll_interval=60.0
+        runtime_dir, index=registered_index, idle_poll_interval=60.0, busy_poll_interval=60.0
     )
     server._warmup = True
     server._reranker = None
@@ -77,14 +77,14 @@ def case_shutdown_during_warmup(runtime_dir: Path, unindexed_store: IndexStore) 
 
 
 def case_shutdown_during_build(
-    runtime_dir: Path, git_repo: pygit2.Repository, store: IndexStore, mocker: MockerFixture
+    runtime_dir: Path, git_repo: pygit2.Repository, index: Index, mocker: MockerFixture
 ) -> StopScenario:
     """A shutdown during a build ends it after the file in hand, as a stop
     rather than a failure: no error is published or logged."""
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo(git_repo.workdir)
     server = DaemonServer(
-        runtime_dir, store=store, idle_poll_interval=60.0, busy_poll_interval=60.0
+        runtime_dir, index=index, idle_poll_interval=60.0, busy_poll_interval=60.0
     )
     extract = build.extract_file
 
@@ -105,12 +105,12 @@ def case_shutdown_during_build(
 
 
 def case_job_worker_fails(
-    runtime_dir: Path, seeded_store: IndexStore, fake_repo: str, mocker: MockerFixture
+    runtime_dir: Path, seeded_index: Index, fake_repo: str, mocker: MockerFixture
 ) -> StopScenario:
     """An error the job worker does not expect stops the daemon, logged,
     rather than leaving it answering reads with nothing being built."""
     server = DaemonServer(
-        runtime_dir, store=seeded_store, idle_poll_interval=60.0, busy_poll_interval=60.0
+        runtime_dir, index=seeded_index, idle_poll_interval=60.0, busy_poll_interval=60.0
     )
     mocker.patch.object(server, "_find_next_job", side_effect=RuntimeError("unexpected"))
 
@@ -125,7 +125,7 @@ def case_job_worker_fails(
 def case_watcher_fails(runtime_dir: Path, mocker: MockerFixture) -> StopScenario:
     """An error the watcher does not expect stops the daemon, logged,
     rather than leaving it answering reads with nothing being watched."""
-    server = DaemonServer(runtime_dir, store=None, idle_poll_interval=60.0, busy_poll_interval=60.0)
+    server = DaemonServer(runtime_dir, index=None, idle_poll_interval=60.0, busy_poll_interval=60.0)
     mocker.patch.object(server, "_next_poll_interval", side_effect=RuntimeError("unexpected"))
     return StopScenario(
         server=server, stop=lambda: None, raised=["unexpected"], logged=["task_failed"]

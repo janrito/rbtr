@@ -21,7 +21,7 @@ from rbtr.daemon.server import DaemonServer
 def server(runtime_dir: Path) -> DaemonServer:
     return DaemonServer(
         runtime_dir,
-        store=None,
+        index=None,
         idle_poll_interval=5.0,
         busy_poll_interval=30.0,
     )
@@ -41,6 +41,6 @@ def test_busy_interval_while_a_job_runs(server: DaemonServer) -> None:
 
 def test_intervals_default_to_config_values(runtime_dir: Path) -> None:
     """With no kwargs, the server pulls both intervals from `config`."""
-    server = DaemonServer(runtime_dir, store=None)
+    server = DaemonServer(runtime_dir, index=None)
     assert server._idle_poll_interval == config.idle_poll_interval
     assert server._busy_poll_interval == config.busy_poll_interval

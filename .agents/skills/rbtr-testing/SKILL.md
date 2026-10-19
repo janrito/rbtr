@@ -145,8 +145,8 @@ tuple list, promote to cases.
 ## Fixtures
 
 **Search before you write.** Grep the conftests up the tree and
-`rbtr.testing` before adding a fixture — `store` (in-memory writable
-`IndexStore`), `git_repo`, `isolated_db`, `two_commits` and
+`rbtr.testing` before adding a fixture — `index` (in-memory writable
+`Index`), `git_repo`, `isolated_db`, `two_commits` and
 friends already exist, and a new fixture that constructs what
 one of them provides also duplicates its teardown. Check
 `rbtr.domain.models` before inventing a test-only type to carry

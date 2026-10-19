@@ -30,7 +30,7 @@ from rbtr.config import config
 from rbtr.domain.models import SnapshotRef
 from rbtr.errors import RbtrError
 from rbtr.git import resolve_ref, worktree_tree_sha
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 
 log = structlog.get_logger(__name__)
 
@@ -69,10 +69,10 @@ class FailedBuild:
     snapshot_sha: str
 
 
-def poll_watched(store: IndexStore) -> list[WatchedTarget]:
+def poll_watched(index: Index) -> list[WatchedTarget]:
     """Return every watched ref whose resolved SHA is not yet indexed.
 
-    Iterates registered repos (`store.list_repos`) and their
+    Iterates registered repos (`index.list_repos`) and their
     `watched_refs`, resolving each symbolic name to a SHA with
     `git.resolve_ref`.  Unresolvable refs (deleted branch, missing
     repo path) are silently skipped.  A SHA already present in
@@ -82,15 +82,15 @@ def poll_watched(store: IndexStore) -> list[WatchedTarget]:
     """
     out: list[WatchedTarget] = []
     seen: set[tuple[str, str]] = set()
-    for repo in store.list_repos():
-        for ref in store.list_watched_refs(repo.repo_id):
+    for repo in index.list_repos():
+        for ref in index.list_watched_refs(repo.repo_id):
             try:
                 sha = resolve_ref(
                     repo.repo_path, ref, max_untracked_files=config.max_untracked_files
                 )
             except RbtrError:
                 continue
-            if store.has_indexed(at=SnapshotRef(repo_id=repo.repo_id, snapshot_sha=sha)):
+            if index.has_indexed(at=SnapshotRef(repo_id=repo.repo_id, snapshot_sha=sha)):
                 continue
             if (repo.repo_path, sha) in seen:
                 continue
@@ -99,9 +99,7 @@ def poll_watched(store: IndexStore) -> list[WatchedTarget]:
     return out
 
 
-def pending_builds(
-    store: IndexStore, failed: Set[FailedBuild]
-) -> list[WatchedTarget | DirtyWorktree]:
+def pending_builds(index: Index, failed: Set[FailedBuild]) -> list[WatchedTarget | DirtyWorktree]:
     """Return the builds that are due, watched refs first, skipping *failed*.
 
     The one place that answers "is there a build to run, and which".
@@ -111,16 +109,16 @@ def pending_builds(
     objects for a dirty one.
     """
     stale: list[WatchedTarget | DirtyWorktree] = [
-        t for t in poll_watched(store) if FailedBuild(t.repo_path, t.snapshot_sha) not in failed
+        t for t in poll_watched(index) if FailedBuild(t.repo_path, t.snapshot_sha) not in failed
     ]
     if stale:
         return stale
     return [
-        t for t in poll_worktree(store) if FailedBuild(t.repo_path, t.snapshot_sha) not in failed
+        t for t in poll_worktree(index) if FailedBuild(t.repo_path, t.snapshot_sha) not in failed
     ]
 
 
-def poll_worktree(store: IndexStore) -> list[DirtyWorktree]:
+def poll_worktree(index: Index) -> list[DirtyWorktree]:
     """Return every repo whose working tree is dirty and not yet indexed.
 
     For each registered repo, computes the current tree SHA via
@@ -132,11 +130,11 @@ def poll_worktree(store: IndexStore) -> list[DirtyWorktree]:
     by the job worker thread via `WriteSession`.
     """
     out: list[DirtyWorktree] = []
-    for repo in store.list_repos():
+    for repo in index.list_repos():
         sha = worktree_tree_sha(repo.repo_path, max_untracked_files=config.max_untracked_files)
         if sha is None:
             continue
-        if store.has_indexed(at=SnapshotRef(repo_id=repo.repo_id, snapshot_sha=sha)):
+        if index.has_indexed(at=SnapshotRef(repo_id=repo.repo_id, snapshot_sha=sha)):
             continue
         out.append(DirtyWorktree(repo_path=repo.repo_path, repo_id=repo.repo_id, snapshot_sha=sha))
     return out

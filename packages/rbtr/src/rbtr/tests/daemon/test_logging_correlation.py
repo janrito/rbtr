@@ -17,15 +17,15 @@ import structlog
 
 from rbtr.daemon.messages import OkResponse, StatusRequest
 from rbtr.daemon.server import DaemonServer
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 
 from .conftest import serving
 
 
 @pytest.fixture
-def server(runtime_dir: Path, seeded_store: IndexStore) -> DaemonServer:
+def server(runtime_dir: Path, seeded_index: Index) -> DaemonServer:
     """A daemon server over the seeded store (no event loop running)."""
-    return DaemonServer(runtime_dir, seeded_store)
+    return DaemonServer(runtime_dir, seeded_index)
 
 
 def _dispatch_status(server: DaemonServer, repo_path: str) -> None:
@@ -105,7 +105,7 @@ def test_embed_job_logs_are_correlated(
 ) -> None:
     """End-to-end: a background embed job tags its logs with job context.
 
-    No bespoke daemon needed: `seeded_store` holds indexed-but-unembedded
+    No bespoke daemon needed: `seeded_index` holds indexed-but-unembedded
     chunks, so `_recover_pending_embeds` wakes the worker at
     construction, and the default daemon's embedder is the stub.  The
     server runs in a thread in this process, so the autouse
@@ -130,7 +130,7 @@ def test_embed_job_logs_are_correlated(
 
 def test_watched_ref_build_is_observable(
     runtime_dir: Path,
-    unindexed_store: IndexStore,
+    registered_index: Index,
     log_output: structlog.testing.LogCapture,
 ) -> None:
     """A watched ref flows from detection to indexed, fully correlated.
@@ -145,7 +145,7 @@ def test_watched_ref_build_is_observable(
     # `running_daemon` is the embed-job one.
     server = DaemonServer(
         runtime_dir,
-        store=unindexed_store,
+        index=registered_index,
         idle_poll_interval=0.05,
         busy_poll_interval=0.05,
     )

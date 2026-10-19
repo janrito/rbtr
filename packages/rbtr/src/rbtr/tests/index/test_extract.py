@@ -10,12 +10,12 @@ from pytest_mock import MockerFixture
 from rbtr.domain.models import SnapshotRef
 from rbtr.git import FileEntry
 from rbtr.index.build import build_index
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 from rbtr.languages.extract import extract_file
 
 
 def test_build_index_extraction_error_is_nonfatal(
-    tmp_path: Path, store: IndexStore, mocker: MockerFixture
+    tmp_path: Path, index: Index, mocker: MockerFixture
 ) -> None:
     """A file that triggers an extraction error doesn't crash the build.
 
@@ -26,11 +26,11 @@ def test_build_index_extraction_error_is_nonfatal(
 
     (tmp_path / "err" / "good.py").write_text("def ok(): pass\n")
     (tmp_path / "err" / "bad.py").write_text("def boom(): pass\n")
-    index = repo.index
-    index.add("good.py")
-    index.add("bad.py")
-    index.write()
-    tree_oid = index.write_tree()
+    git_index = repo.index
+    git_index.add("good.py")
+    git_index.add("bad.py")
+    git_index.write()
+    tree_oid = git_index.write_tree()
     sig = pygit2.Signature("Test", "test@test.com")
     repo.create_commit("HEAD", sig, sig, "init", tree_oid, [])
     sha = str(repo.head.target)
@@ -46,9 +46,9 @@ def test_build_index_extraction_error_is_nonfatal(
 
     mocker.patch("rbtr.index.build.extract_file", side_effect=_patched_extract)
 
-    result = build_index(repo.workdir, sha, store)
+    result = build_index(repo.workdir, sha, index)
 
     assert len(result.errors) == 1
     assert "bad.py" in result.errors[0]
-    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=sha))
+    chunks = index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=sha))
     assert any(c.file_path == "good.py" for c in chunks)

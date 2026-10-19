@@ -19,7 +19,7 @@ from rbtr.daemon.handlers import _resolve_read_ref
 from rbtr.domain.models import RefSource, SnapshotRef
 from rbtr.errors import IndexNotBuiltError
 from rbtr.git import worktree_tree_sha
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 
 from .cases_resolve_ref import RefScenario
 
@@ -65,12 +65,12 @@ def ref_repo(
 
 
 @fixture
-def ref_store(
+def ref_index(
     ref_scenario: RefScenario,
     ref_repo: pygit2.Repository,
-    store: IndexStore,
-) -> IndexStore:
-    with store.session() as ws:
+    index: Index,
+) -> Index:
+    with index.session() as ws:
         repo_id = ws.register_repo(ref_repo.workdir)
         ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=str(ref_repo.head.target)))
         if ref_scenario.tree_sha_indexed:
@@ -79,16 +79,16 @@ def ref_store(
             )
             if tree_sha is not None:
                 ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tree_sha))
-    return store
+    return index
 
 
 def test_resolve_read_ref(
     ref_scenario: RefScenario,
     ref_repo: pygit2.Repository,
-    ref_store: IndexStore,
+    ref_index: Index,
 ) -> None:
-    repo_id = ref_store.resolve_repo(ref_repo.workdir)
-    result = _resolve_read_ref(ref_store, ref_repo.workdir, repo_id, ref_scenario.requested_ref)
+    repo_id = ref_index.resolve_repo(ref_repo.workdir)
+    result = _resolve_read_ref(ref_index, ref_repo.workdir, repo_id, ref_scenario.requested_ref)
 
     # Map symbolic names to actual SHAs.
     head_sha = str(ref_repo.head.target)
@@ -123,24 +123,24 @@ def _gate_repo(tmp_path: Path, sig: pygit2.Signature) -> pygit2.Repository:
 
 
 def test_implicit_unindexed_head_falls_back_to_latest_indexed(
-    tmp_path: Path, ref_sig: pygit2.Signature, store: IndexStore
+    tmp_path: Path, ref_sig: pygit2.Signature, index: Index
 ) -> None:
     """Implicit resolution prefers an older indexed commit over an
     unindexed HEAD rather than returning an empty result."""
     repo = _gate_repo(tmp_path, ref_sig)
     older = "a" * 40
-    with store.session() as ws:
+    with index.session() as ws:
         repo_id = ws.register_repo(repo.workdir)
         ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=older))
 
-    result = _resolve_read_ref(store, repo.workdir, repo_id, None, require_indexed=True)
+    result = _resolve_read_ref(index, repo.workdir, repo_id, None, require_indexed=True)
 
     assert result.at == SnapshotRef(repo_id=repo_id, snapshot_sha=older)
     assert result.source == RefSource.LATEST_INDEXED
 
 
 def test_implicit_unindexed_head_nothing_indexed_errors(
-    tmp_path: Path, ref_sig: pygit2.Signature, store: IndexStore
+    tmp_path: Path, ref_sig: pygit2.Signature, index: Index
 ) -> None:
     """With nothing indexed, the implicit path errors clearly instead of
     silently resolving to an unqueryable ref.
@@ -150,8 +150,8 @@ def test_implicit_unindexed_head_nothing_indexed_errors(
     plain not-indexed guidance here.
     """
     repo = _gate_repo(tmp_path, ref_sig)
-    with store.session() as ws:
+    with index.session() as ws:
         repo_id = ws.register_repo(repo.workdir)
 
     with pytest.raises(IndexNotBuiltError, match="not indexed"):
-        _resolve_read_ref(store, repo.workdir, repo_id, None, require_indexed=True)
+        _resolve_read_ref(index, repo.workdir, repo_id, None, require_indexed=True)

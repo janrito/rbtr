@@ -2,7 +2,7 @@
 
 One entry point, `run_gc`, executes every supported mode
 (`GcMode`) over a single repo.  The caller supplies a git
-`pygit2.Repository` for ref resolution and an `IndexStore` for
+`pygit2.Repository` for ref resolution and an `Index` for
 the actual writes.  Both daemon handlers and the inline CLI
 fallback call this function; the schema of its inputs is the
 single source of truth for what `rbtr gc` can do.
@@ -45,14 +45,14 @@ from rbtr.git import (
     resolve_refs_to_shas,
     worktree_tree_sha,
 )
+from rbtr.index.index import Index
 from rbtr.index.progress import RepoProgressCallback, _noop_repo_progress
-from rbtr.index.store import IndexStore
 
 log = structlog.get_logger(__name__)
 
 
 def run_gc_all(
-    store: IndexStore,
+    index: Index,
     *,
     mode: EveryRepoGcMode,
     dry_run: bool,
@@ -77,18 +77,18 @@ def run_gc_all(
     is skipped too: `run_gc` raises on one, and an empty checkout must
     not end a pass over every other repo.
     """
-    live = [repo for repo in store.list_repos() if read_head(repo.repo_path) is not None]
-    for repo in store.list_repos():
+    live = [repo for repo in index.list_repos() if read_head(repo.repo_path) is not None]
+    for repo in index.list_repos():
         if read_head(repo.repo_path) is None:
             log.info("gc_skipped_unresolvable_repo", repo=repo.repo_path)
     total = GcCounts()
     for collected, repo in enumerate(live, start=1):
         # Never compact per repo: a rewrite is expensive, so compact once
         # after every repo's logical deletes have landed.
-        total = total + run_gc(store, repo.repo_path, mode=mode, refs=[], dry_run=dry_run)
+        total = total + run_gc(index, repo.repo_path, mode=mode, refs=[], dry_run=dry_run)
         on_progress(repo.repo_path, collected, len(live))
     if compact and not dry_run:
-        with store.session() as session:
+        with index.session() as session:
             session.compact()
     return total, len(live)
 
@@ -102,7 +102,7 @@ _KEPT_REF_PREFIXES: tuple[str, ...] = (
 
 
 def run_gc(
-    store: IndexStore,
+    index: Index,
     repo_path: str,
     *,
     mode: GcMode,
@@ -121,13 +121,13 @@ def run_gc(
     never indexed is meaningless, so this raises rather than creating
     one.  The `repo_id` is derived from it, so the two cannot disagree.
     """
-    repo_id = store.resolve_repo(repo_path)
+    repo_id = index.resolve_repo(repo_path)
     if mode is GcMode.ORPHANS:
-        return _run_orphans_only(store, repo_id, dry_run=dry_run, compact=compact)
+        return _run_orphans_only(index, repo_id, dry_run=dry_run, compact=compact)
 
-    keep_set = _resolve_keep_set(repo_path, store, repo_id, mode=mode, refs=refs)
+    keep_set = _resolve_keep_set(repo_path, index, repo_id, mode=mode, refs=refs)
     drop_set = _resolve_drop_set(
-        store,
+        index,
         repo_path=repo_path,
         repo_id=repo_id,
         keep_set=keep_set,
@@ -137,8 +137,8 @@ def run_gc(
         # Predict only the chunks the drop set would free (read-only split,
         # graph intact). Pre-existing orphans the global prune would also
         # reclaim are added once by the caller (`handle_gc`).
-        counts = _dry_run_counts(store, repo_id, drop_set=drop_set)
-        chunks_freed, _kept = store.count_gc_chunk_split(repo_id, list(drop_set))
+        counts = _dry_run_counts(index, repo_id, drop_set=drop_set)
+        chunks_freed, _kept = index.count_gc_chunk_split(repo_id, list(drop_set))
         return GcCounts(
             snapshots=counts.snapshots,
             file_snapshots=counts.file_snapshots,
@@ -149,7 +149,7 @@ def run_gc(
     # Real run: accumulate the *actual* deletions (commit drops + the
     # global orphan prune in `cleanup`), so the chunk figure is the true
     # reclamation — including orphans left by a forgotten repo.
-    with store.session() as session:
+    with index.session() as session:
         session.sweep()
         total = GcCounts()
         for sha in drop_set:
@@ -161,13 +161,13 @@ def run_gc(
 
 
 def _run_orphans_only(
-    store: IndexStore, repo_id: int, *, dry_run: bool, compact: bool = False
+    index: Index, repo_id: int, *, dry_run: bool, compact: bool = False
 ) -> GcCounts:
     if dry_run:
         # ORPHANS dry-run is conservative: report zero rather than
         # adding a read-only counterpart to sweep_orphan_commits.
         return GcCounts()
-    with store.session() as session:
+    with index.session() as session:
         session.sweep()
         total = session.cleanup(repo_id)
         if compact:
@@ -177,7 +177,7 @@ def _run_orphans_only(
 
 def _resolve_keep_set(
     repo_path: str,
-    store: IndexStore,
+    index: Index,
     repo_id: int,
     *,
     mode: GcMode,
@@ -190,19 +190,19 @@ def _resolve_keep_set(
     if mode is GcMode.KEEP:
         return {head, *resolve_refs_to_shas(repo_path, refs)}
     if mode is GcMode.WATCHED_ONLY:
-        return {head, *_watched_shas(store, repo_id, repo_path)}
+        return {head, *_watched_shas(index, repo_id, repo_path)}
     # WATCHED (default): all local refs plus the resolved watch set.
     return {
         head,
         *local_ref_shas(repo_path, _KEPT_REF_PREFIXES),
-        *_watched_shas(store, repo_id, repo_path),
+        *_watched_shas(index, repo_id, repo_path),
     }
 
 
-def _watched_shas(store: IndexStore, repo_id: int, repo_path: str) -> set[str]:
+def _watched_shas(index: Index, repo_id: int, repo_path: str) -> set[str]:
     """Resolve the repo's watched refs to SHAs, skipping unresolvable ones."""
     out: set[str] = set()
-    for ref in store.list_watched_refs(repo_id):
+    for ref in index.list_watched_refs(repo_id):
         try:
             out.add(resolve_ref(repo_path, ref, max_untracked_files=config.max_untracked_files))
         except RbtrError:
@@ -213,14 +213,14 @@ def _watched_shas(store: IndexStore, repo_id: int, repo_path: str) -> set[str]:
 
 
 def _resolve_drop_set(
-    store: IndexStore,
+    index: Index,
     *,
     repo_path: str,
     repo_id: int,
     keep_set: set[str],
 ) -> set[str]:
     """Return indexed SHAs to drop: everything outside *keep_set*."""
-    indexed = {sha for sha, _at in store.list_indexed_snapshots(repo_id)}
+    indexed = {sha for sha, _at in index.list_indexed_snapshots(repo_id)}
     # Protect the current worktree tree SHA from GC.  Tree SHAs
     # are never reachable from a git ref (they're tree objects,
     # not commits) so indexed - keep_set would include them.
@@ -232,7 +232,7 @@ def _resolve_drop_set(
     return indexed - keep_set
 
 
-def _dry_run_counts(store: IndexStore, repo_id: int, *, drop_set: set[str]) -> GcCounts:
+def _dry_run_counts(index: Index, repo_id: int, *, drop_set: set[str]) -> GcCounts:
     """Compute commit / snapshot / edge counts without writing.
 
     The chunk figures are computed separately by `run_gc` via
@@ -244,10 +244,10 @@ def _dry_run_counts(store: IndexStore, repo_id: int, *, drop_set: set[str]) -> G
     file_snapshots = 0
     edges = 0
     for sha in drop_set:
-        file_snapshots += store.count_file_snapshots(
+        file_snapshots += index.count_file_snapshots(
             at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha)
         )
-        edges += store.count_edges(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
+        edges += index.count_edges(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
     return GcCounts(
         snapshots=total.snapshots,
         file_snapshots=file_snapshots,

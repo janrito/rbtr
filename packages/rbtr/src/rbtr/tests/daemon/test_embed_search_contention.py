@@ -40,9 +40,9 @@ from rbtr.daemon.server import DaemonServer
 from rbtr.domain.models import ChunkKind, FileSnapshot, SnapshotRef
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.index.embeddings import Embedder
+from rbtr.index.index import Index
 from rbtr.index.search import search
 from rbtr.index.staging import TokenisedChunk
-from rbtr.index.store import IndexStore
 
 from ..conftest import StubModel, make_commit
 from .conftest import serving
@@ -134,13 +134,13 @@ def write_lock_held(running_daemon: DaemonServer) -> Generator[None]:
 
 
 @pytest.fixture
-def embedded_snapshot(fake_repo: str, store: IndexStore) -> SnapshotRef:
-    """`fake_repo` registered in `store`, at its HEAD commit.
+def embedded_snapshot(fake_repo: str, index: Index) -> SnapshotRef:
+    """`fake_repo` registered in `index`, at its HEAD commit.
 
     The id comes back from the registration, so the ref names a repo
     that exists, and the SHA is git's own rather than a literal.
     """
-    with store.session() as ws:
+    with index.session() as ws:
         repo_id = ws.register_repo(fake_repo)
     return SnapshotRef(
         repo_id=repo_id,
@@ -149,7 +149,7 @@ def embedded_snapshot(fake_repo: str, store: IndexStore) -> SnapshotRef:
 
 
 @pytest.fixture
-def embeddable_store(store: IndexStore, embedded_snapshot: SnapshotRef) -> IndexStore:
+def embeddable_index(index: Index, embedded_snapshot: SnapshotRef) -> Index:
     """Store with 50 chunks at `embedded_snapshot` that have no embeddings."""
     chunks: list[TokenisedChunk] = []
     for i in range(50):
@@ -168,7 +168,7 @@ def embeddable_store(store: IndexStore, embedded_snapshot: SnapshotRef) -> Index
                 line_end=2,
             )
         )
-    with store.session() as session:
+    with index.session() as session:
         for c in chunks:
             session.add_chunk(c)
         session.insert_snapshots(
@@ -183,13 +183,13 @@ def embeddable_store(store: IndexStore, embedded_snapshot: SnapshotRef) -> Index
             repo_id=embedded_snapshot.repo_id,
         )
         session.mark_indexed(at=embedded_snapshot)
-    return store
+    return index
 
 
 @pytest.fixture
 def running_daemon(
     runtime_dir: Path,
-    embeddable_store: IndexStore,
+    embeddable_index: Index,
     embedder: Embedder,
 ) -> Generator[DaemonServer]:
     """A served daemon with a stub embedder and unembedded chunks.
@@ -198,14 +198,14 @@ def running_daemon(
     """
     server = DaemonServer(
         runtime_dir,
-        store=embeddable_store,
+        index=embeddable_index,
         idle_poll_interval=60.0,
         busy_poll_interval=60.0,
     )
     # Replace the real embedder with our stub-backed one.
     server._embedder = embedder
     # Re-register handlers so search uses the stub embedder.
-    server._register_index_handlers(embeddable_store)
+    server._register_index_handlers(embeddable_index)
     # Wake the worker so embedding starts immediately.
     server._wake.set()
 
@@ -295,7 +295,7 @@ def test_search_works_during_embed(
 def test_search_results_correct_during_embed(
     running_daemon: DaemonServer,
     fake_repo: str,
-    embeddable_store: IndexStore,
+    embeddable_index: Index,
     embedded_snapshot: SnapshotRef,
     embedder: Embedder,
 ) -> None:
@@ -313,7 +313,7 @@ def test_search_results_correct_during_embed(
 
     # Direct search for comparison.
     direct_results = search(
-        embeddable_store,
+        embeddable_index,
         "func_0",
         within=[embedded_snapshot],
         top_k=5,
@@ -331,7 +331,7 @@ def test_search_results_correct_during_embed(
 
 def test_the_embed_worker_finishes_the_snapshot(
     running_daemon: DaemonServer,
-    embeddable_store: IndexStore,
+    embeddable_index: Index,
     embedded_snapshot: SnapshotRef,
 ) -> None:
     """The worker embeds every chunk in the snapshot.
@@ -342,11 +342,11 @@ def test_the_embed_worker_finishes_the_snapshot(
     """
     deadline = time.monotonic() + 30.0
     while time.monotonic() < deadline:
-        if embeddable_store.chunk_counts_for_snapshot(at=embedded_snapshot).is_fully_embedded:
+        if embeddable_index.chunk_counts_for_snapshot(at=embedded_snapshot).is_fully_embedded:
             break
         time.sleep(0.05)
 
-    counts = embeddable_store.chunk_counts_for_snapshot(at=embedded_snapshot)
+    counts = embeddable_index.chunk_counts_for_snapshot(at=embedded_snapshot)
     assert counts.total == 50, "fixture did not seed the chunks it claims to"
     assert counts.is_fully_embedded, f"{counts.unembedded} of {counts.total} left unembedded"
 
@@ -354,7 +354,7 @@ def test_the_embed_worker_finishes_the_snapshot(
 def test_the_embed_worker_stands_aside_for_a_pending_build(
     running_daemon: DaemonServer,
     commit_during_first_batch: str,
-    embeddable_store: IndexStore,
+    embeddable_index: Index,
     embedded_snapshot: SnapshotRef,
     notifications: list[Notification],
     log_output: structlog.testing.LogCapture,
@@ -371,8 +371,8 @@ def test_the_embed_worker_stands_aside_for_a_pending_build(
     sends the same notification, and a subscriber can only tell a
     finished run from a yielded one by the outcome it carries.
     """
-    counts = embeddable_store.chunk_counts_for_snapshot(at=embedded_snapshot)
-    assert watcher.poll_worktree(embeddable_store) == [], (
+    counts = embeddable_index.chunk_counts_for_snapshot(at=embedded_snapshot)
+    assert watcher.poll_worktree(embeddable_index) == [], (
         "a dirty worktree would stand the loop aside for the wrong reason"
     )
     deadline = time.monotonic() + 10.0
@@ -395,7 +395,7 @@ def test_the_embed_worker_stands_aside_for_a_pending_build(
 def test_the_embed_worker_resumes_where_it_stood_aside(
     running_daemon: DaemonServer,
     commit_during_first_batch: str,
-    embeddable_store: IndexStore,
+    embeddable_index: Index,
     embedded_snapshot: SnapshotRef,
     log_output: structlog.testing.LogCapture,
 ) -> None:
@@ -408,7 +408,7 @@ def test_the_embed_worker_resumes_where_it_stood_aside(
     Waits on what the runs report rather than on the counts: a run
     writes its chunks before it logs, so the store reads complete first.
     """
-    counts = embeddable_store.chunk_counts_for_snapshot(at=embedded_snapshot)
+    counts = embeddable_index.chunk_counts_for_snapshot(at=embedded_snapshot)
     # A run reports through `embedding_preempted` when it stands aside
     # and `embedded_chunks` when it reaches the end; both carry the ref.
     runs: list[int] = []
@@ -424,7 +424,7 @@ def test_the_embed_worker_resumes_where_it_stood_aside(
             break
         time.sleep(0.05)
 
-    final = embeddable_store.chunk_counts_for_snapshot(at=embedded_snapshot)
+    final = embeddable_index.chunk_counts_for_snapshot(at=embedded_snapshot)
     assert final.is_fully_embedded, f"{final.unembedded} of {final.total} left unembedded"
     # The runs for this snapshot must add up to its chunks and no more:
     # more would mean a resumed run re-embedded what was already there.
@@ -436,7 +436,7 @@ def test_no_writer_commits_while_the_write_lock_is_held(
     embed_held_at_first_batch: ConcurrencyDetectingStubModel,
     running_daemon: DaemonServer,
     write_lock_held: None,
-    embeddable_store: IndexStore,
+    embeddable_index: Index,
     embedded_snapshot: SnapshotRef,
     fake_repo: str,
 ) -> None:
@@ -447,7 +447,7 @@ def test_no_writer_commits_while_the_write_lock_is_held(
     old connection is lost.  Two writers must wait — the worker
     embedding a batch, and a handler writing the watch set.
     """
-    repo_id = embeddable_store.resolve_repo(fake_repo)
+    repo_id = embeddable_index.resolve_repo(fake_repo)
     replies: list[Response] = []
 
     def ask_to_watch() -> None:
@@ -459,11 +459,11 @@ def test_no_writer_commits_while_the_write_lock_is_held(
     embed_held_at_first_batch.first_batch_released.set()
     time.sleep(0.5)
 
-    counts = embeddable_store.chunk_counts_for_snapshot(at=embedded_snapshot)
+    counts = embeddable_index.chunk_counts_for_snapshot(at=embedded_snapshot)
     assert counts.unembedded == counts.total, (
         f"{counts.total - counts.unembedded} embeddings committed while the lock was held"
     )
-    assert "main" not in embeddable_store.list_watched_refs(repo_id), (
+    assert "main" not in embeddable_index.list_watched_refs(repo_id), (
         "the watch set was written while the lock was held"
     )
 
@@ -471,11 +471,11 @@ def test_no_writer_commits_while_the_write_lock_is_held(
     caller.join(timeout=20)
     deadline = time.monotonic() + 20.0
     while time.monotonic() < deadline:
-        if embeddable_store.chunk_counts_for_snapshot(at=embedded_snapshot).is_fully_embedded:
+        if embeddable_index.chunk_counts_for_snapshot(at=embedded_snapshot).is_fully_embedded:
             break
         time.sleep(0.05)
 
     assert replies, "the index request never answered"
-    assert "main" in embeddable_store.list_watched_refs(repo_id), f"never written: {replies[0]}"
-    final = embeddable_store.chunk_counts_for_snapshot(at=embedded_snapshot)
+    assert "main" in embeddable_index.list_watched_refs(repo_id), f"never written: {replies[0]}"
+    final = embeddable_index.chunk_counts_for_snapshot(at=embedded_snapshot)
     assert final.is_fully_embedded, f"{final.unembedded} of {final.total} left unembedded"

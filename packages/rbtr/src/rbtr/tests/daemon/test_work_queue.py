@@ -26,7 +26,7 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.server import DaemonServer
 from rbtr.domain.models import FileSnapshot, SnapshotRef
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 
 from ..conftest import make_commit
 from ..index.conftest import make_chunk
@@ -36,11 +36,9 @@ from .conftest import serving
 
 @fixture
 @parametrize_with_cases("scenario", cases=".cases_work_queue", has_tag="next_job")
-def next_job_store(
-    scenario: NextJobScenario, store: IndexStore
-) -> tuple[IndexStore, NextJobScenario]:
+def next_job_index(scenario: NextJobScenario, index: Index) -> tuple[Index, NextJobScenario]:
     for n, snap in enumerate(scenario.snapshots):
-        with store.session() as ws:
+        with index.session() as ws:
             repo_id = ws.register_repo(snap.repo_path)
             chunk = make_chunk(f"c{n}", name=f"fn{n}", path=f"f{n}.py", blob=f"blob{n}")
             ws.add_chunk(chunk)
@@ -58,11 +56,11 @@ def next_job_store(
                 ws.update_embeddings([chunk.id], [[0.1, 0.2, 0.3]])
             if snap.indexed:
                 ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=snap.snapshot_sha))
-    return store, scenario
+    return index, scenario
 
 
 def test_startup_recovery_wakes_the_worker_for_outstanding_embeds(
-    next_job_store: tuple[IndexStore, NextJobScenario],
+    next_job_index: tuple[Index, NextJobScenario],
     runtime_dir: Path,
 ) -> None:
     """A daemon starting on an index with embed work left wakes its worker.
@@ -71,26 +69,26 @@ def test_startup_recovery_wakes_the_worker_for_outstanding_embeds(
     they read the same scenarios: the wake event follows whether any
     snapshot has chunks left to embed.
     """
-    store, scenario = next_job_store
+    index, scenario = next_job_index
 
     server = DaemonServer(
-        runtime_dir, store=store, idle_poll_interval=60.0, busy_poll_interval=60.0
+        runtime_dir, index=index, idle_poll_interval=60.0, busy_poll_interval=60.0
     )
 
     assert server._wake.is_set() == (scenario.expected_ref is not None)
 
 
 def test_startup_backfills_a_head_watch_for_every_repo(
-    store: IndexStore,
+    index: Index,
     runtime_dir: Path,
 ) -> None:
     """`_backfill_head_watches` gives each registered repo a HEAD watch."""
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo("/test/repo")
 
-    DaemonServer(runtime_dir, store=store, idle_poll_interval=60.0, busy_poll_interval=60.0)
+    DaemonServer(runtime_dir, index=index, idle_poll_interval=60.0, busy_poll_interval=60.0)
 
-    assert store.list_watched_refs(store.resolve_repo("/test/repo")) == ["HEAD"]
+    assert index.list_watched_refs(index.resolve_repo("/test/repo")) == ["HEAD"]
 
 
 @pytest.fixture
@@ -108,15 +106,15 @@ def dirty_unindexed_repo(tmp_path: Path) -> str:
 
 
 @pytest.fixture
-def dirty_store(dirty_unindexed_repo: str, store: IndexStore) -> IndexStore:
+def dirty_index(dirty_unindexed_repo: str, index: Index) -> Index:
     """Store with the dirty repo registered, nothing indexed."""
-    with store.session() as ws:
+    with index.session() as ws:
         ws.register_repo(dirty_unindexed_repo)
-    return store
+    return index
 
 
 def test_find_next_job_prefers_stale_watched_ref(
-    dirty_store: IndexStore,
+    dirty_index: Index,
     dirty_unindexed_repo: str,
     runtime_dir: Path,
 ) -> None:
@@ -128,7 +126,7 @@ def test_find_next_job_prefers_stale_watched_ref(
     dirty worktree (the core regression — impossible before).
     """
     server = DaemonServer(
-        runtime_dir, store=dirty_store, idle_poll_interval=60.0, busy_poll_interval=60.0
+        runtime_dir, index=dirty_index, idle_poll_interval=60.0, busy_poll_interval=60.0
     )
     head = str(pygit2.Repository(dirty_unindexed_repo).head.target)
     job = server._find_next_job()
@@ -137,7 +135,7 @@ def test_find_next_job_prefers_stale_watched_ref(
 
 
 def test_find_next_job_picks_the_embed_work(
-    next_job_store: tuple[IndexStore, NextJobScenario],
+    next_job_index: tuple[Index, NextJobScenario],
     runtime_dir: Path,
 ) -> None:
     """`_find_next_job` returns the embed job that is due.
@@ -145,9 +143,9 @@ def test_find_next_job_picks_the_embed_work(
     These repo paths are absent from disk, so ref resolution skips the
     watched-ref and worktree branches and the embed branch decides.
     """
-    store, scenario = next_job_store
+    index, scenario = next_job_index
     server = DaemonServer(
-        runtime_dir, store=store, idle_poll_interval=60.0, busy_poll_interval=60.0
+        runtime_dir, index=index, idle_poll_interval=60.0, busy_poll_interval=60.0
     )
 
     job = server._find_next_job()
@@ -156,7 +154,7 @@ def test_find_next_job_picks_the_embed_work(
 
 
 def test_a_build_that_fails_is_reported_once_and_not_retried(
-    runtime_dir: Path, seeded_store: IndexStore, fake_repo: str
+    runtime_dir: Path, seeded_index: Index, fake_repo: str
 ) -> None:
     """A watched ref whose build raises (here, a commit whose tree is gone)
     gets one `index_error`, and is not built again on each poll."""
@@ -171,7 +169,7 @@ def test_a_build_that_fails_is_reported_once_and_not_retried(
     (Path(repo.path) / "objects" / tree[:2] / tree[2:]).unlink()
 
     server = DaemonServer(
-        runtime_dir, store=seeded_store, idle_poll_interval=0.05, busy_poll_interval=0.05
+        runtime_dir, index=seeded_index, idle_poll_interval=0.05, busy_poll_interval=0.05
     )
     sub: zmq.Socket[bytes] = zmq.Context.instance().socket(zmq.SUB)
     errors: list[IndexErrorNotification] = []

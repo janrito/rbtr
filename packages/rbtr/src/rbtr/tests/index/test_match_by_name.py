@@ -11,15 +11,15 @@ from __future__ import annotations
 import pytest
 
 from rbtr.domain.models import ChunkKind, SnapshotRef
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 
-from .conftest import make_chunk, seed_store
+from .conftest import make_chunk, seed_index
 
 COMMIT = "head"
 
 
 @pytest.fixture
-def name_store(store: IndexStore, head_ref: SnapshotRef) -> IndexStore:
+def name_index(index: Index, head_ref: SnapshotRef) -> Index:
     """Store with chunks that create name ambiguity.
 
     - `Chunk` (class) in models.py
@@ -28,8 +28,8 @@ def name_store(store: IndexStore, head_ref: SnapshotRef) -> IndexStore:
     - `fuse_scores` (function) in search.py
     - `fuse` (function) in fuse.py — prefix collision
     """
-    seed_store(
-        store,
+    seed_index(
+        index,
         [
             make_chunk(
                 "c_chunk_class",
@@ -64,7 +64,7 @@ def name_store(store: IndexStore, head_ref: SnapshotRef) -> IndexStore:
         ],
         head_ref,
     )
-    return store
+    return index
 
 
 @pytest.mark.parametrize(
@@ -93,9 +93,9 @@ def name_store(store: IndexStore, head_ref: SnapshotRef) -> IndexStore:
     ],
 )
 def test_match_by_name_tiering(
-    name_store: IndexStore,
+    name_index: Index,
     pattern: str,
     expected_names: set[str],
 ) -> None:
-    results = name_store.match_by_name(pattern, at=SnapshotRef(repo_id=1, snapshot_sha=COMMIT))
+    results = name_index.match_by_name(pattern, at=SnapshotRef(repo_id=1, snapshot_sha=COMMIT))
     assert {c.name for c in results} == expected_names

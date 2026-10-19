@@ -1,7 +1,7 @@
 """End-to-end smoke tests for query subcommands via subprocess.
 
 Exercises the full CLI → inline-fallback path (no daemon running).
-Seeds an IndexStore directly instead of running `rbtr watch` to
+Seeds an Index directly instead of running `rbtr watch` to
 keep the test fast and avoid depending on the GGUF embedding
 model — search is tested through the ZMQ handler path instead.
 """
@@ -17,14 +17,14 @@ import pytest
 
 from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot, SnapshotRef
 from rbtr.domain.tokenise import tokenise_code
+from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
-from rbtr.index.store import IndexStore
 from rbtr.tests.conftest import run_cli
 
 
 @dataclass(frozen=True)
 class SeededRepo:
-    """A real git repo on disk, seeded into an IndexStore."""
+    """A real git repo on disk, seeded into an Index."""
 
     path: Path
     c1: str
@@ -33,7 +33,7 @@ class SeededRepo:
 
 @pytest.fixture
 def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
-    """A real git repo with two commits, seeded into the IndexStore.
+    """A real git repo with two commits, seeded into the Index.
 
     Commit 1: src/config.py with `load_config`, src/app.py with
     `Application` class and an import of `load_config`.
@@ -79,8 +79,8 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
     assert parent is not None
     c2 = str(repo.create_commit("refs/heads/main", sig, sig, "c2", tb2.write(), [parent.id]))
 
-    store = IndexStore.from_config(writable=True)
-    with store.session() as ws:
+    index = Index.from_config(writable=True)
+    with index.session() as ws:
         repo_id = ws.register_repo(str(repo_path))
 
     func_content_v1 = "def load_config(path):\n    return open(path).read()\n"
@@ -164,7 +164,7 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
         )
     ]
 
-    with store.session() as ws:
+    with index.session() as ws:
         for c in chunks_c1:
             ws.add_chunk(c)
         ws.insert_snapshots(
@@ -177,7 +177,7 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
         ws.insert_edges(edges_c1, at=SnapshotRef(repo_id=repo_id, snapshot_sha=c1))
         ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=c1))
 
-    with store.session() as ws:
+    with index.session() as ws:
         for c in chunks_c2:
             ws.add_chunk(c)
         ws.insert_snapshots(
@@ -190,7 +190,7 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
         ws.insert_edges(edges_c2, at=SnapshotRef(repo_id=repo_id, snapshot_sha=c2))
         ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=c2))
 
-    store.close()
+    index.close()
     return SeededRepo(path=repo_path, c1=c1, c2=c2)
 
 
