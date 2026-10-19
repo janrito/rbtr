@@ -1,20 +1,27 @@
-"""Behaviour of `unwatch_refs`, `remove_stale_refs` and `forget_stale_repos`.
+"""Behaviour of `unwatch_refs`, `remove_stale_refs`, `forget_stale_repos`
+and `forget_missing_repos`.
 
-Three operations over the same registered repos: one drops refs a caller
+Four operations over the same registered repos: one drops refs a caller
 names, one asks a live repo which of its watched refs git still resolves,
-the last asks whether a repo is there at all. Driven against a real
-in-memory store and real git repos.
+the last two ask whether a repo is there at all, at once or over a grace
+period. Driven against a real in-memory index and real git repos.
 """
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from rbtr.errors import RbtrError
 from rbtr.index.index import Index
-from rbtr.index.watch import forget_stale_repos, remove_stale_refs, unwatch_refs
+from rbtr.index.watch import (
+    forget_missing_repos,
+    forget_stale_repos,
+    remove_stale_refs,
+    unwatch_refs,
+)
 
 
 @pytest.fixture
@@ -165,3 +172,32 @@ def test_forgetting_repos_dry_run_reports_without_writing(
 
     assert [repo.repo_path for repo in gone] == [vanished_repo]
     assert stale_index.find_repo(vanished_repo) is not None
+
+
+def test_a_missing_checkout_is_forgotten_once_its_grace_period_passes(
+    index: Index, fake_repo: str, vanished_repo: str
+) -> None:
+    """A path found gone is recorded, and forgotten once it has stayed gone that long."""
+    index.register(fake_repo)
+    gone = index.register(vanished_repo)
+    first = datetime(2026, 10, 17, 9, tzinfo=UTC)
+    grace = timedelta(hours=3)
+
+    assert forget_missing_repos(index, now=first, after=grace) == []
+    assert index.missing_since() == {gone: first}
+    early = first + grace - timedelta(seconds=1)
+    assert forget_missing_repos(index, now=early, after=grace) == []
+    forgotten = forget_missing_repos(index, now=first + grace, after=grace)
+
+    assert [r.repo_path for r in forgotten] == [vanished_repo]
+    assert [r.repo_path for r in index.repos()] == [fake_repo]
+
+
+def test_a_checkout_found_again_is_no_longer_missing(index: Index, fake_repo: str) -> None:
+    """A path that resolves again loses its record, so its grace period starts afresh."""
+    registered = index.register(fake_repo)
+    index.set_missing_since(registered, datetime(2026, 10, 17, tzinfo=UTC))
+
+    now = datetime(2026, 10, 18, tzinfo=UTC)
+    assert forget_missing_repos(index, now=now, after=timedelta(hours=3)) == []
+    assert index.missing_since() == {}

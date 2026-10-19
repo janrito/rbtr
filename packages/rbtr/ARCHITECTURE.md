@@ -309,8 +309,9 @@ A **project** is a git common directory. A main checkout and its linked
 worktrees share one, so they share one data file, and a new worktree
 finds its content already indexed. A path git does not know is a
 project of its own. The registry (`registry.sql`) has two tables:
-`projects` names each project's file, and `repos` maps each checkout to
-its project. A project file holds the tables of
+`projects` names each project's file and the size the file had when it
+was last written whole (`compacted_bytes`), and `repos` maps each
+checkout to its project. A project file holds the tables of
 `schema.sql` and a `meta` of its own, and no `repos` table. File names
 carry no data: every file gets a fresh uuid, and a file is live only if
 the registry names it.
@@ -436,11 +437,13 @@ erDiagram
         int id PK
         text common_dir UK
         text file UK
+        bigint compacted_bytes
     }
     repos {
         int id PK
         text path UK
         int project_id
+        timestamp missing_since
     }
     file_snapshots {
         int repo_id PK
@@ -704,7 +707,7 @@ DaemonServer.serve()          — zmq REP poll + dispatch, on the event loop
  ├─ _notification_relay       — zmq inproc PULL → PUB
  ├─ _job_worker               — await Event, to_thread(run_job)
  ├─ _watcher_loop             — sleep, to_thread(pending_builds), wake
- ├─ _retire_loop              — sleep, to_thread(retire_due)
+ ├─ _maintenance_loop         — sleep, retire files, maintain when idle
  └─ _idle_loop (per GPU model) — sleep, check idle, unload
 ```
 
@@ -737,9 +740,10 @@ protocol code.
   due are derived. Sets `_wake` when any is. The embed worker
   calls the same function between batches to decide whether to
   stand aside.
-- **`_retire_loop`** — async task that deletes the files
-  compactions replaced, once `retire_delay_s` has passed. Like
-  the worker and the watcher, if it fails the daemon logs it and
+- **`_maintenance_loop`** — async task that deletes the files
+  compactions replaced and, when the worker has been idle long
+  enough, runs a [maintenance](#maintenance) pass. Like the
+  worker and the watcher, if it fails the daemon logs it and
   stops.
 - **`_notification_relay`** — async task that receives
   progress from worker threads via zmq inproc PULL and
@@ -1899,12 +1903,34 @@ question — which of a *live* repo's watched refs git still resolves, in
 one repo or in all of them — and leaves a vanished repo alone, since git
 cannot answer for it. The two are separate commands over separate state,
 so each runs in its own request and its own sessions.
-Forgetting is always **explicit** — `poll_watched` skips a vanished path
-rather than purging it, since the absence may be transient (an unmounted
-volume). The wire surface is a dedicated
+Outside [maintenance](#maintenance), forgetting is **explicit** —
+`poll_watched` skips a vanished path rather than purging it, since the
+absence may be transient (an unmounted volume). The wire surface is a dedicated
 `ForgetRequest`/`ForgetResponse` (the response carries only the
 forgotten paths), kept separate from the reclamation-shaped
 `GcResponse`.
+
+### Maintenance
+
+When the daemon's worker has had no job for `maintenance_idle_s`
+(10 min), and at most every `maintenance_interval_s` (6 h), the
+daemon runs `run_maintenance` under `_write_sem`. In order, it:
+
+1. stops watching refs git no longer resolves (`remove_stale_refs`);
+2. forgets checkouts whose path has been gone for `forget_after_s`
+   (3 h): `repos.missing_since` records the first pass that found a
+   path gone, and is cleared when the path is back;
+3. collects every repo in `WATCHED` mode (`run_gc_all`);
+4. compacts each project file grown past `compact_growth_ratio` (2)
+   times its `compacted_bytes`.
+
+Each step removes only what `rbtr unwatch --stale`, `rbtr forget
+--stale`, `rbtr gc --scope all` and `rbtr gc --compact` would. A pass
+is published as a gc (`gc_started`, `gc_progress` per repo,
+`gc_ended`), which clients already show, and logged as
+`maintenance_started` and `maintenance_finished` with what it
+removed. The same task deletes the files compactions replaced, every
+idle poll, once `retire_delay_s` has passed.
 
 ## Working-tree indexing
 

@@ -1,5 +1,6 @@
 SELECT
   id,
-  file
+  file,
+  compacted_bytes
 FROM projects
 ORDER BY id

@@ -12,6 +12,7 @@ import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -61,6 +62,8 @@ _FORGET_ROWS_SQL = [
     load_sql("delete_indexed_snapshots_for_repo.sql"),
     load_sql("delete_watched_refs_for_repo.sql"),
 ]
+_LIST_MISSING_REPOS_SQL = load_sql("list_missing_repos.sql")
+_SET_MISSING_SINCE_SQL = load_sql("set_missing_since.sql")
 
 
 def _parse_calver(version: str) -> tuple[int, ...]:
@@ -300,6 +303,14 @@ class Store:
         build_fts(cur)
         return file
 
+    def _file_bytes(self, file: str) -> int:
+        """Bytes *file* and its WAL take on disk; zero in memory."""
+        if self.db_path is None:
+            return 0
+        path = self._projects_dir / file
+        wal = path.with_name(f"{file}.wal")
+        return sum(p.stat().st_size for p in (path, wal) if p.exists())
+
     # ── Registry ─────────────────────────────────────────────────────
 
     def register(self, path: str) -> Repo:
@@ -323,7 +334,12 @@ class Store:
         cur = self._registry()
         row = cur.execute(_GET_PROJECT_SQL, {"common_dir": shared}).fetchone()
         if row is None:
-            project = {"common_dir": shared, "file": self._new_file()}
+            file = self._new_file()
+            project = {
+                "common_dir": shared,
+                "file": file,
+                "compacted_bytes": self._file_bytes(file),
+            }
             cur.begin()
             project_id = int(cur.execute(_INSERT_PROJECT_SQL, project).fetchall()[0][0])
         else:
@@ -392,9 +408,43 @@ class Store:
         new = self._copy(project_id)
         if new is None:
             return
-        params = {"project_id": project_id, "file": new}
+        params = {
+            "project_id": project_id,
+            "file": new,
+            "compacted_bytes": self._file_bytes(new),
+        }
         self._registry().execute(_SET_PROJECT_FILE_SQL, params)
         self._sync()
+
+    def compact_grown(self, ratio: float) -> int:
+        """Compact every project file grown past *ratio* times its baseline.
+
+        The baseline is the file's size when it was last written whole
+        (`projects.compacted_bytes`).  Returns how many files were
+        compacted.
+        """
+        self.require_writable()
+        rows = self._registry().execute(_LIST_PROJECTS_SQL).fetchall()
+        grown = [int(r[0]) for r in rows if self._file_bytes(str(r[1])) > ratio * int(r[2])]
+        for project_id in grown:
+            self._compact_project(project_id)
+        return len(grown)
+
+    def missing_since(self) -> dict[Repo, datetime]:
+        """When each repo whose path was found gone was first found so."""
+        rows = self._registry().execute(_LIST_MISSING_REPOS_SQL).fetchall()
+        # Stored as UTC without a zone: DuckDB needs `pytz` to return one.
+        return {
+            Repo(repo_id=int(r[0]), repo_path=str(r[1])): r[2].replace(tzinfo=UTC) for r in rows
+        }
+
+    def set_missing_since(self, repo: Repo, when: datetime | None) -> None:
+        """Record when *repo*'s path was first found gone; `None` clears it."""
+        self.require_writable()
+        stored = when.astimezone(UTC).replace(tzinfo=None) if when is not None else None
+        self._registry().execute(
+            _SET_MISSING_SINCE_SQL, {"repo_id": repo.repo_id, "missing_since": stored}
+        )
 
     def _retire(self, file: str) -> None:
         """Detach and delete *file* once reads that may be using it are done."""

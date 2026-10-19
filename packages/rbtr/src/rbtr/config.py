@@ -283,6 +283,29 @@ Slowed down to avoid flooding the queue with duplicates.  Only used by the daemo
         description="Seconds a project's old data file stays open after a compaction \
 replaces it, so reads already running on it can finish.  It is deleted after that.",
     )
+    maintenance_idle_s: float = Field(
+        default=600.0,
+        gt=0,
+        description="Seconds the build and embed queues must have been empty before \
+maintenance runs.  Only used by the daemon.",
+    )
+    maintenance_interval_s: float = Field(
+        default=6 * 3600.0,
+        gt=0,
+        description="Fewest seconds between two maintenance runs.  Only used by the daemon.",
+    )
+    forget_after_s: float = Field(
+        default=3 * 3600.0,
+        gt=0,
+        description="Seconds a registered checkout's path may be missing before \
+maintenance forgets it.  Only used by the daemon.",
+    )
+    compact_growth_ratio: float = Field(
+        default=2.0,
+        gt=1.0,
+        description="Maintenance compacts a project's file once it is this many times \
+its size after it was last written whole.  Only used by the daemon.",
+    )
     daemon_wait_budget_s: float = Field(
         default=120.0,
         description="Seconds the daemon client waits for one reply before "

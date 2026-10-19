@@ -254,6 +254,14 @@ def test_compaction_deletes_the_old_file_once_its_delay_passes(
     assert len(ci.index.fulltext_matches(ci.query, within=[ci.ref], top_k=5)) > 0
 
 
+def test_compact_grown_compacts_a_file_once_past_its_baseline(
+    churned_index: ChurnedIndex,
+) -> None:
+    """A file grown past the ratio is compacted; the copy is its new baseline."""
+    assert churned_index.index.compact_grown(2.0) == 1
+    assert churned_index.index.compact_grown(2.0) == 0
+
+
 def _write_compact_and_crash(db_path: Path, repo_path: str) -> None:
     """Child-process body: commit a write, compact, commit another, then die.
 

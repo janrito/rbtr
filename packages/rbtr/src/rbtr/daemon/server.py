@@ -35,6 +35,7 @@ import signal
 import threading
 import time
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -99,6 +100,7 @@ from rbtr.git import HEAD_REF, non_commit_shas, normalise_repo_path
 from rbtr.index.build import build_index
 from rbtr.index.embeddings import Embedder, embedding_text
 from rbtr.index.index import Index
+from rbtr.index.maintenance import run_maintenance
 from rbtr.index.progress import ProgressCallback
 from rbtr.index.reranker import Reranker
 from rbtr.languages.manager import get_manager
@@ -192,6 +194,9 @@ class DaemonServer:
         self._active_build: ActiveJob | None = None
         self._active_embed: ActiveJob | None = None
         self._started_at: float | None = None
+        # When the worker last finished a job (or the daemon started),
+        # which maintenance measures idleness from.
+        self._idle_since = time.monotonic()
         # Snapshots whose build raised: not built again until their ref
         # moves to another snapshot or the daemon restarts.
         self._failed_builds: set[watcher.FailedBuild] = set()
@@ -723,6 +728,7 @@ class DaemonServer:
         self._active_build = None
         self._active_embed = None
         self._started_at = None
+        self._idle_since = time.monotonic()
 
     async def _job_worker(self) -> None:
         """Async task that polls the DB for work and runs jobs.
@@ -855,7 +861,7 @@ class DaemonServer:
             relay_task = asyncio.create_task(self._notification_relay(progress_pull, pub))
             worker_task = asyncio.create_task(self._job_worker(), name="job_worker")
             watcher_task = asyncio.create_task(self._watcher_loop(), name="watcher")
-            retire_task = asyncio.create_task(self._retire_loop(), name="retire")
+            maintenance_task = asyncio.create_task(self._maintenance_loop(), name="maintenance")
 
             def stop_when_it_fails(task: asyncio.Task[None]) -> None:
                 # A daemon that answers reads but builds or watches nothing
@@ -867,7 +873,7 @@ class DaemonServer:
 
             worker_task.add_done_callback(stop_when_it_fails)
             watcher_task.add_done_callback(stop_when_it_fails)
-            retire_task.add_done_callback(stop_when_it_fails)
+            maintenance_task.add_done_callback(stop_when_it_fails)
             try:
                 while not self._shutdown:
                     if await rep.poll(timeout=100):
@@ -883,9 +889,9 @@ class DaemonServer:
                 watcher_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await watcher_task
-                retire_task.cancel()
+                maintenance_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
-                    await retire_task
+                    await maintenance_task
                 relay_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await relay_task
@@ -989,12 +995,16 @@ class DaemonServer:
                     )
                     self._wake.set()
 
-    async def _retire_loop(self) -> None:
-        """Async task that deletes the project files compactions replaced.
+    async def _maintenance_loop(self) -> None:
+        """Async task that deletes retired files and runs maintenance when idle.
 
-        Every idle poll, once `retire_delay_s` has passed for them.  It
-        detaches files, so it holds `_write_sem` as compaction does.
+        Every idle poll it deletes the project files compactions replaced
+        once their delay has passed.  When the worker has had no job for
+        `maintenance_idle_s`, and the last pass is `maintenance_interval_s`
+        old, it runs a maintenance pass.  Both write, so both hold
+        `_write_sem`; a build or embed arriving meanwhile waits for them.
         """
+        last_pass: float | None = None
         while not self._shutdown:
             await asyncio.sleep(self._idle_poll_interval)
             index = self._index
@@ -1002,6 +1012,36 @@ class DaemonServer:
                 continue
             async with self._write_sem:
                 await asyncio.to_thread(index.retire_due)
+            now = time.monotonic()
+            idle = self._active_build is None and self._active_embed is None
+            due = last_pass is None or now - last_pass >= config.maintenance_interval_s
+            if idle and due and now - self._idle_since >= config.maintenance_idle_s:
+                async with self._write_sem:
+                    await asyncio.to_thread(self._maintain, index)
+                last_pass = time.monotonic()
+
+    def _maintain(self, index: Index) -> None:
+        """Run a maintenance pass on this worker thread, published as a gc.
+
+        Maintenance is a collection, so it publishes gc's start, progress
+        and end, which clients already show; its own PUSH for the reason
+        `_collect` gives.
+        """
+        push = self._zmq_shadow.socket(zmq.PUSH)
+        push.connect("inproc://progress")
+        log.info("maintenance_started")
+        _notify(push, GcStartedNotification())
+        try:
+            run_maintenance(
+                index,
+                now=datetime.now(UTC),
+                on_progress=lambda _repo_path, done, total: _notify(
+                    push, GcProgressNotification(current=done, total=total)
+                ),
+            )
+        finally:
+            _notify(push, GcEndedNotification())
+            push.close()
 
     async def _dispatch(self, raw: bytes) -> Response:
         try:

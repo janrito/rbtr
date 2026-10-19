@@ -166,9 +166,10 @@ rbtr forget --stale --dry-run # report, change nothing
 ```
 
 Run `--stale` from anywhere, including outside a git repo: a
-deleted worktree or clone can no longer be named, only found.
-Forgetting a repo's last checkout deletes its file and hands the space
-back at once.
+deleted worktree or clone can no longer be named, only found. The
+daemon also forgets a checkout on its own once it has been gone for
+three hours (see [When it runs](#rbtr-gc)). Forgetting a repo's last
+checkout deletes its file and hands the space back at once.
 
 ### `rbtr search <query>`
 
@@ -336,8 +337,8 @@ Starts automatically on first `rbtr watch` or `rbtr search`.
 
 Garbage-collect old index data. **Destructive and not undoable** —
 it permanently deletes indexed commits/chunks. Always preview with
-`--dry-run` first. It is only ever manual; the daemon never GCs on
-its own.
+`--dry-run` first. The daemon also runs a gc of its own when idle
+(see **When it runs** below).
 
 ```bash
 rbtr gc                           # this repo (keeps branches/tags + watch set)
@@ -380,12 +381,16 @@ running throughout. The rewrite reports the size change
 (`index 2.0 GiB → 1.2 GiB (-819.2 MiB)`). Pass `--no-compact` to skip
 it.
 
-**When to run it.** Never on a schedule — the daemon does not
-collect on its own, and a healthy index does not need it. Two
-situations call for it: the files have grown past what you want
-to give them, or you have stopped indexing refs and want the
-space back (`--keep watched-only`, after `rbtr unwatch --stale
---scope all` has dropped the branches that no longer exist).
+**When it runs.** The daemon keeps the index tidy on its own. Once it
+has had nothing to build or embed for ten minutes, and at most every
+six hours, it stops watching refs that no longer exist, forgets
+checkouts gone for three hours, collects every repo as
+`rbtr gc --scope all` does, and rewrites each repo's file that has
+grown to twice its size since it was last rewritten. pi's footer shows
+it as `collecting`. Run gc by hand for more than that: when you have
+stopped indexing refs and want the space back (`--keep watched-only`,
+after `rbtr unwatch --stale --scope all` has dropped the branches that
+no longer exist), or to rewrite the files now.
 
 Growth is driven by embeddings, one vector per chunk, so the
 size tracks how many distinct chunks every indexed repo holds
@@ -477,6 +482,13 @@ Notable settings:
   `duckdb_memory_limit`.
 - `max_untracked_files` — the most untracked files a dirty working
   tree may hold and still have them indexed (1,000 by default).
+- `maintenance_idle_s` / `maintenance_interval_s` — how long the
+  daemon must have been idle before it maintains the index (600 s),
+  and the least time between two passes (6 h).
+- `forget_after_s` — how long a checkout may be gone before the
+  daemon forgets it (3 h).
+- `compact_growth_ratio` — how many times its size after the last
+  rewrite a repo's file may grow before the daemon rewrites it (2).
 - `retire_delay_s` — how long a rewritten file's old copy stays, so
   searches already running finish on it (60 s).
 - `log_level` — root log level (`DEBUG`, `INFO`, …).

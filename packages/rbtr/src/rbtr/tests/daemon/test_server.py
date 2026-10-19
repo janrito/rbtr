@@ -17,6 +17,7 @@ import structlog
 import zmq
 from pytest_cases import parametrize_with_cases
 
+from rbtr.config import config
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import (
     ErrorCode,
@@ -36,7 +37,10 @@ from rbtr.daemon.messages import (
 from rbtr.daemon.server import DaemonServer
 from rbtr.domain.models import GcMode
 from rbtr.errors import DaemonBusyError, RbtrError
+from rbtr.index.index import Index
 from rbtr.tests.daemon.cases_server import StopScenario
+
+from .conftest import serving
 
 
 @parametrize_with_cases("scenario", cases=".cases_server")
@@ -93,6 +97,43 @@ def test_gc_publishes_its_start_progress_and_end(running_daemon: DaemonServer) -
         GcProgressNotification(current=1, total=1),
         GcEndedNotification(),
     ]
+
+
+def test_an_idle_daemon_runs_maintenance(
+    runtime_dir: Path,
+    seeded_index: Index,
+    stub_embedding_model: None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A daemon idle for `maintenance_idle_s` runs a pass, published as a gc.
+
+    The pass records the registered checkout whose path is gone as missing,
+    which starts its grace period, and collects the live repo.
+    """
+    monkeypatch.setattr(config, "maintenance_idle_s", 0.0)
+    gone = seeded_index.register(str(tmp_path / "gone"))
+    server = DaemonServer(
+        runtime_dir, index=seeded_index, idle_poll_interval=1.0, busy_poll_interval=60.0
+    )
+    sub: zmq.Socket[bytes] = zmq.Context.instance().socket(zmq.SUB)
+    with serving(server):
+        sub.connect(server.pub_addr)
+        sub.subscribe(b"")
+        published = []
+        while sub.poll(3000):
+            published.append(notification_adapter.validate_json(sub.recv()))
+            if isinstance(published[-1], GcEndedNotification):
+                break
+    sub.close()
+
+    gc_kinds = (GcStartedNotification, GcProgressNotification, GcEndedNotification)
+    assert [n for n in published if isinstance(n, gc_kinds)] == [
+        GcStartedNotification(),
+        GcProgressNotification(current=1, total=1),
+        GcEndedNotification(),
+    ]
+    assert gone in seeded_index.missing_since()
 
 
 def test_garbage_returns_error(running_daemon: DaemonServer) -> None:

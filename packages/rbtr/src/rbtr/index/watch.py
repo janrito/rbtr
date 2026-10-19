@@ -9,6 +9,8 @@ reclamation and why a cross-repo pass writes one session per repo.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from rbtr.domain.models import RefsByRepo, Repo
 from rbtr.errors import RbtrError
 from rbtr.git import HEAD_REF, normalise_repo_path, resolve_refs_to_shas
@@ -72,6 +74,29 @@ def forget_stale_repos(index: Index, *, dry_run: bool) -> list[Repo]:
         for repo in gone:
             index.forget(repo)
     return gone
+
+
+def forget_missing_repos(index: Index, *, now: datetime, after: timedelta) -> list[Repo]:
+    """Forget every repo whose path has been missing for longer than *after*.
+
+    The first time a path is found gone, *now* is recorded against it; a
+    path found back clears the record.  Only a path still gone *after* its
+    first sighting is forgotten, so a checkout on a drive that is briefly
+    unmounted survives.
+    """
+    missing = index.missing_since()
+    forgotten: list[Repo] = []
+    for repo in index.repos():
+        since = missing.get(repo)
+        if _resolves(repo):
+            if since is not None:
+                index.set_missing_since(repo, None)
+        elif since is None:
+            index.set_missing_since(repo, now)
+        elif now - since >= after:
+            index.forget(repo)
+            forgotten.append(repo)
+    return forgotten
 
 
 def _resolves(repo: Repo) -> bool:

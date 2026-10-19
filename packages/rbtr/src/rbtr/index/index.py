@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 
 import dataframely as dy
@@ -163,6 +164,18 @@ class Index:
     def compact_all(self) -> None:
         """Rewrite every project file into a fresh one; see `Store.compact`."""
         self._store.compact_all()
+
+    def compact_grown(self, ratio: float) -> int:
+        """Compact every project file grown past *ratio*; see `Store.compact_grown`."""
+        return self._store.compact_grown(ratio)
+
+    def missing_since(self) -> dict[Repo, datetime]:
+        """When each repo whose path was found gone was first found so."""
+        return self._store.missing_since()
+
+    def set_missing_since(self, repo: Repo, when: datetime | None) -> None:
+        """Record when *repo*'s path was first found gone; `None` clears it."""
+        self._store.set_missing_since(repo, when)
 
     def find_repo(self, path: str) -> Repo | None:
         """Return the repo registered at *path*, or None if there is none.
