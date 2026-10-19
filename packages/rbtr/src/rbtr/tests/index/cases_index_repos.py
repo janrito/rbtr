@@ -2,7 +2,7 @@
 
 Repo registration is the entry point for every scenario in every
 family; this file isolates cases that exercise the API's own
-guarantees (id issuance, idempotence, list roundtrip).
+guarantees (one repo per path, idempotence, listing order).
 """
 
 from __future__ import annotations
@@ -12,42 +12,26 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class RepoSequence:
-    """Ordered `register` calls and expected ids.
+    """Ordered `register` calls and the paths `repos()` lists after them.
 
-    `calls` is a list of paths to register in order.  `expected_ids`
-    must have the same length and gives the id each call is expected
-    to return.  Duplicates in `calls` exercise idempotence.
+    Duplicates in `calls` exercise idempotence.
     """
 
     calls: list[str] = field(default_factory=list)
-    expected_ids: list[int] = field(default_factory=list)
-    # Expected state of repos() after all calls, as (id, path) tuples.
-    expected_listing: list[tuple[int, str]] = field(default_factory=list)
+    expected_paths: list[str] = field(default_factory=list)
 
 
 def case_empty_has_no_repos() -> RepoSequence:
     return RepoSequence()
 
 
-def case_single_register_returns_id_one() -> RepoSequence:
-    return RepoSequence(
-        calls=["/r"],
-        expected_ids=[1],
-        expected_listing=[(1, "/r")],
-    )
+def case_single_register() -> RepoSequence:
+    return RepoSequence(calls=["/r"], expected_paths=["/r"])
 
 
 def case_same_path_twice_is_idempotent() -> RepoSequence:
-    return RepoSequence(
-        calls=["/r", "/r"],
-        expected_ids=[1, 1],
-        expected_listing=[(1, "/r")],
-    )
+    return RepoSequence(calls=["/r", "/r"], expected_paths=["/r"])
 
 
-def case_distinct_paths_get_distinct_ids() -> RepoSequence:
-    return RepoSequence(
-        calls=["/a", "/b", "/c"],
-        expected_ids=[1, 2, 3],
-        expected_listing=[(1, "/a"), (2, "/b"), (3, "/c")],
-    )
+def case_distinct_paths_listed_in_registration_order() -> RepoSequence:
+    return RepoSequence(calls=["/c", "/a", "/b"], expected_paths=["/c", "/a", "/b"])

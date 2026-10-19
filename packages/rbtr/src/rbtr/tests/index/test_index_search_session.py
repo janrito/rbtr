@@ -93,16 +93,6 @@ def repo_two_ref(index: Index) -> SnapshotRef:
     return ref
 
 
-def test_fts_scoped_to_repo(
-    index: Index, repo_one_ref: SnapshotRef, repo_two_ref: SnapshotRef
-) -> None:
-    """FTS results are scoped to the queried repo."""
-    assert index.fulltext_matches("alpha", within=[repo_one_ref])["name"].to_list() == [
-        "alpha_func"
-    ]
-    assert len(index.fulltext_matches("alpha", within=[repo_two_ref])) == 0
-
-
 def test_shared_chunk_found_via_fts_from_both_repos(shared_chunk_index: Index) -> None:
     """A chunk shared by two repos is found by FTS from either repo.
 
@@ -157,16 +147,6 @@ def test_cross_repo_search_merges_both_repos(
     assert "beta_func" in names
 
 
-def test_single_ref_search_scopes_to_one_repo(
-    index: Index, repo_one_ref: SnapshotRef, repo_two_ref: SnapshotRef
-) -> None:
-    """One ref excludes the other repo's chunks."""
-    results = search(index, "func", within=[repo_one_ref], top_k=10)
-    names = {r.name for r in results}
-    assert "alpha_func" in names
-    assert "beta_func" not in names
-
-
 @pytest.fixture
 def semantic_ref(index: Index, head_ref: SnapshotRef) -> SnapshotRef:
     """`head_ref`, seeded with two embedded chunks at different distances."""
@@ -180,7 +160,7 @@ def semantic_ref(index: Index, head_ref: SnapshotRef) -> SnapshotRef:
     return head_ref
 
 
-def test_match_similar_single_vector(index: Index, semantic_ref: SnapshotRef) -> None:
+def test_similar_matches_single_vector(index: Index, semantic_ref: SnapshotRef) -> None:
     """Single vector returns closest chunk first."""
     query_vec = [1.0, 0.0, 0.0, 0.0]
     result = index.similar_matches([query_vec], within=[semantic_ref], top_k=2)
@@ -188,7 +168,7 @@ def test_match_similar_single_vector(index: Index, semantic_ref: SnapshotRef) ->
     assert result["name"].to_list()[0] == "close_match"
 
 
-def test_match_similar_picks_best_score(index: Index, semantic_ref: SnapshotRef) -> None:
+def test_similar_matches_picks_best_score(index: Index, semantic_ref: SnapshotRef) -> None:
     """Two query vectors — each chunk keeps its best similarity."""
     # vec_a is close to "close" chunk ([0.9, 0.1, ...]).
     vec_a = [1.0, 0.0, 0.0, 0.0]
@@ -204,7 +184,7 @@ def test_match_similar_picks_best_score(index: Index, semantic_ref: SnapshotRef)
     assert scores["close_match"] > scores["far_match"]  # vec_a boosts "close" more
 
 
-def test_match_similar_empty(index: Index, head_ref: SnapshotRef) -> None:
+def test_similar_matches_empty(index: Index, head_ref: SnapshotRef) -> None:
     """No embeddings in store — returns empty frame."""
     s = SearchScenario(chunks=[make_chunk("x")], query="")
     seed_index(index, s.chunks, head_ref)

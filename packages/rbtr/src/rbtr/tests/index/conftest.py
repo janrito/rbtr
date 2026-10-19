@@ -103,8 +103,8 @@ def seed_index(index: Index, chunks: list[TokenisedChunk], ref: SnapshotRef) -> 
     its project's file, which registration makes.  `head_ref` does that
     registration for the common single-repo case; a test seeding several
     repos registers each one and takes a ref from the repo it gets back,
-    then calls this once per ref.  Passing the same chunk under two refs models content shared
-    across worktrees or clones.
+    then calls this once per ref.  Passing the same chunk under two refs
+    models content shared across worktrees or clones.
     """
     with index.session(ref.repo) as ws:
         for c in chunks:
@@ -613,106 +613,4 @@ def normalize_whitespace(text: str) -> str:
 """,
         line_start=1,
         line_end=4,
-    )
-
-
-@pytest.fixture
-def math_class() -> Chunk:
-    """Shares `blob_sha='blob_math'` with `math_func` on purpose."""
-    return TokenisedChunk(
-        blob_sha="blob_math",
-        file_path="src/math_utils.py",
-        kind=ChunkKind.CLASS,
-        name="StatisticsCalculator",
-        content="""\
-class StatisticsCalculator:
-    def __init__(self, data: list[float]):
-        self.data = data
-    def mean(self) -> float:
-        return sum(self.data) / len(self.data)
-""",
-        line_start=10,
-        line_end=15,
-    )
-
-
-@pytest.fixture
-def all_store_chunks(
-    math_func: Chunk,
-    http_func: Chunk,
-    string_func: Chunk,
-    math_class: Chunk,
-) -> list[Chunk]:
-    return [math_func, http_func, string_func, math_class]
-
-
-@pytest.fixture
-def gc_chunk_x() -> Chunk:
-    return TokenisedChunk(
-        blob_sha="blob_x",
-        file_path="x.py",
-        kind=ChunkKind.FUNCTION,
-        name="f_x",
-        content="def f_x(): pass",
-        line_start=1,
-        line_end=1,
-    )
-
-
-@pytest.fixture
-def gc_chunk_y() -> Chunk:
-    return TokenisedChunk(
-        blob_sha="blob_y",
-        file_path="y.py",
-        kind=ChunkKind.FUNCTION,
-        name="f_y",
-        content="def f_y(): pass",
-        line_start=1,
-        line_end=1,
-    )
-
-
-@pytest.fixture
-def gc_chunk_z() -> Chunk:
-    return TokenisedChunk(
-        blob_sha="blob_z",
-        file_path="z.py",
-        kind=ChunkKind.FUNCTION,
-        name="f_z",
-        content="def f_z(): pass",
-        line_start=1,
-        line_end=1,
-    )
-
-
-@pytest.fixture
-def edge_math_calls_class() -> Edge:
-    return Edge(
-        source_id="math_1",
-        target_id="math_class_1",
-        kind=EdgeKind.CALLS,
-        source_path="src/math_1.py",
-        target_path="src/math_class_1.py",
-    )
-
-
-@pytest.fixture
-def edge_a_calls_b() -> Edge:
-    return Edge(
-        source_id="a",
-        target_id="b",
-        kind=EdgeKind.CALLS,
-        source_path="src/a.py",
-        target_path="src/b.py",
-    )
-
-
-@pytest.fixture
-def edge_c_imports_d() -> Edge:
-    return Edge(
-        source_id="c",
-        target_id="d",
-        kind=EdgeKind.IMPORTS,
-        source_path="src/c.py",
-        target_path="src/d.py",
     )

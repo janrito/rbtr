@@ -150,8 +150,10 @@ tuple list, promote to cases.
 friends already exist, and a new fixture that constructs what
 one of them provides also duplicates its teardown. Check
 `rbtr.domain.models` before inventing a test-only type to carry
-two values: `SnapshotRef` already pairs a repo with a snapshot,
-and using it removes a hardcoded `repo_id=1` at every call site.
+two values: `SnapshotRef` already pairs a repo with a snapshot.
+Take the `Repo` from `register` (or unpack `index.repos()` when a
+fixture or a build registered it) and name a snapshot with
+`repo.at(sha)`, never a literal id: ids are the registry's to issue.
 
 **Setup is proportional to assertions.** If fixture lines
 outnumber assertion lines several times over, either the setup

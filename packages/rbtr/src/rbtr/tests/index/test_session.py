@@ -200,10 +200,13 @@ def test_empty_operations_are_noops(index: Index) -> None:
 
 @parametrize_with_cases("scenario", cases=".cases_index_repos")
 def test_register(scenario: RepoSequence, index: Index) -> None:
-    for path, expected_id in zip(scenario.calls, scenario.expected_ids, strict=True):
-        assert index.register(path).repo_id == expected_id
-    listing = [(r.repo_id, r.repo_path) for r in index.repos()]
-    assert listing == scenario.expected_listing
+    """A path is one repo, found again by `repo`; `repos` lists them as registered."""
+    registered = [index.register(path) for path in scenario.calls]
+    for path, repo in zip(scenario.calls, registered, strict=True):
+        assert repo.repo_path == path
+        assert index.repo(path) == repo
+    assert len(set(registered)) == len(set(scenario.calls))
+    assert [r.repo_path for r in index.repos()] == scenario.expected_paths
 
 
 @parametrize_with_cases("scenario", cases=".cases_index_watched_refs")

@@ -1,6 +1,6 @@
-"""Tiered name resolution for match_by_name.
+"""Tiered name resolution for name_matches.
 
-match_by_name resolves a user-supplied symbol name to chunks.
+name_matches resolves a user-supplied symbol name to chunks.
 It should prefer exact matches, falling back through tiers:
 exact → case-insensitive exact → prefix → substring.
 Only the best tier that has matches should be returned.
@@ -92,7 +92,7 @@ def name_index(index: Index, head_ref: SnapshotRef) -> Index:
         "substring-unk",
     ],
 )
-def test_match_by_name_tiering(
+def test_name_matches_tiering(
     name_index: Index,
     pattern: str,
     expected_names: set[str],

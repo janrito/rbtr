@@ -21,14 +21,19 @@ from pytest_mock import MockerFixture
 
 from rbtr.config import config, index_dir_of
 from rbtr.domain.models import FileSnapshot
-from rbtr.errors import IndexLockedError, IndexNotBuiltError, IndexSchemaTooNewError
+from rbtr.errors import (
+    IndexLockedError,
+    IndexNotBuiltError,
+    IndexSchemaTooNewError,
+    RepoNotFoundError,
+)
 from rbtr.git import normalise_repo_path
 from rbtr.index.constants import EMBEDDING_FORMAT_VERSION
 from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
 
 from .cases_index_versioning import VersioningScenario
-from .conftest import make_chunk
+from .conftest import make_chunk, make_snap
 
 
 def test_registry_and_project_file_hold_their_tables(tmp_path: Path) -> None:
@@ -323,10 +328,17 @@ def test_opening_deletes_files_the_registry_does_not_name(tmp_path: Path) -> Non
 
 
 def test_forgetting_a_projects_last_checkout_deletes_its_file(tmp_path: Path) -> None:
-    """The project's file is deleted with its last checkout; others stay."""
+    """The project's file is deleted with its last checkout, and the repo is unknown after.
+
+    Other projects stay as they were.
+    """
     index = Index(tmp_path / "index.duckdb", writable=True)
     kept = index.register("/kept")
     forgotten = index.register("/forgotten")
+    with index.session(forgotten) as ws:
+        ws.add_chunk(make_chunk("c", path="a.py", blob="b"))
+        ws.insert_snapshots([make_snap("head", "a.py", "b")])
+        ws.mark_indexed(snapshot_sha="head")
     query = "SELECT path FROM duckdb_databases() WHERE database_name = current_database()"
     with index.reader(kept) as cur:
         kept_file = Path(cur.execute(query).fetchall()[0][0]).name
@@ -334,8 +346,13 @@ def test_forgetting_a_projects_last_checkout_deletes_its_file(tmp_path: Path) ->
         forgotten_file = Path(cur.execute(query).fetchall()[0][0]).name
 
     index.forget(forgotten)
-    index.close()
 
+    assert index.repos() == [kept]
+    with pytest.raises(RepoNotFoundError):
+        index.repo("/forgotten")
+    with pytest.raises(RepoNotFoundError):
+        index.has_indexed(at=forgotten.at("head"))
+    index.close()
     files = {p.name for p in (tmp_path / "index").iterdir()}
     assert kept_file in files
     assert forgotten_file not in files

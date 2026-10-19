@@ -12,63 +12,19 @@ from rbtr.index.staging import TokenisedChunk
 from .conftest import make_chunk
 
 
-def test_concurrent_write_then_read(
-    math_func: TokenisedChunk, http_func: TokenisedChunk, string_func: TokenisedChunk
-) -> None:
-    """Writes from a background thread are visible after join."""
-    index = Index(writable=True)
-
-    def writer() -> None:
-        repo = index.register("/repo")
-        with index.session(repo) as ws:
-            ws.add_chunk(math_func)
-            ws.add_chunk(http_func)
-            ws.add_chunk(string_func)
-            ws.insert_snapshots(
-                [
-                    FileSnapshot(
-                        snapshot_sha="head",
-                        file_path=c.file_path,
-                        blob_sha=c.blob_sha,
-                    )
-                    for c in [math_func, http_func, string_func]
-                ],
-            )
-            ws.insert_edges(
-                [
-                    Edge(
-                        source_id=math_func.id,
-                        target_id=http_func.id,
-                        kind=EdgeKind.IMPORTS,
-                        source_path=math_func.file_path,
-                        target_path=http_func.file_path,
-                    )
-                ],
-                snapshot_sha="head",
-            )
-
-    t = threading.Thread(target=writer)
-    t.start()
-    t.join()
-
-    written = index.repo("/repo").at("head")
-    assert len(index.chunks(at=written)) == 3
-    assert len(index.edges(within=[written])) == 1
-    index.close()
-
-
 def test_commit_makes_writes_visible_during_concurrent_work(
     math_func: TokenisedChunk,
     http_func: TokenisedChunk,
     string_func: TokenisedChunk,
 ) -> None:
-    """After session exit, a second thread sees rows while the
-    writer continues with embedding updates."""
+    """A repo registered and written on a worker thread is visible to
+    another thread once the session commits, while the worker goes on
+    to update embeddings."""
     index = Index(writable=True)
-    repo = index.register("/repo")
     first_done = threading.Event()
 
     def writer() -> None:
+        repo = index.register("/repo")
         with index.session(repo) as session:
             for c in [math_func, http_func, string_func]:
                 session.add_chunk(c)
@@ -82,6 +38,18 @@ def test_commit_makes_writes_visible_during_concurrent_work(
                     for c in [math_func, http_func, string_func]
                 ],
             )
+            session.insert_edges(
+                [
+                    Edge(
+                        source_id=math_func.id,
+                        target_id=http_func.id,
+                        kind=EdgeKind.IMPORTS,
+                        source_path=math_func.file_path,
+                        target_path=http_func.file_path,
+                    )
+                ],
+                snapshot_sha="head",
+            )
         first_done.set()
         with index.session(repo) as session:
             session.update_embeddings([math_func.id], [[0.1, 0.2, 0.3]])
@@ -92,7 +60,9 @@ def test_commit_makes_writes_visible_during_concurrent_work(
     t.start()
 
     first_done.wait(timeout=5)
-    assert len(index.chunks(at=repo.at("head"))) == 3
+    written = index.repo("/repo").at("head")
+    assert len(index.chunks(at=written)) == 3
+    assert len(index.edges(within=[written])) == 1
 
     t.join()
     index.close()

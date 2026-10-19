@@ -1,6 +1,6 @@
 """Read-side behavioural tests for Index.
 
-Covers: get_chunks filters, edges filters, blob_is_current
+Covers: chunks filters, edges filters, blob_is_current
 language matching, chunk upsert, delete_chunks_for_blobs,
 multi-repo data isolation, and cross-repo content sharing
 (content-addressed dedup, shared embeddings, reference-counted
@@ -13,7 +13,6 @@ import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.domain.models import ChunkKind, Edge, EdgeKind, SnapshotRef
-from rbtr.errors import RepoNotFoundError
 from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
 
@@ -22,12 +21,13 @@ from .cases_read import (
     ChunkQueryScenario,
     EmbedOrderScenario,
     GcCountScenario,
+    PathsRead,
 )
-from .conftest import make_chunk, make_snap
+from .conftest import make_chunk, make_snap, seed_index
 
 
 @fixture
-@parametrize_with_cases("scenario", has_tag="get_chunks")
+@parametrize_with_cases("scenario", has_tag="chunks")
 def chunk_query(scenario: ChunkQueryScenario, index: Index) -> tuple[Index, ChunkQueryScenario]:
     repo = index.register("/repo")
     with index.session(repo) as ws:
@@ -37,7 +37,7 @@ def chunk_query(scenario: ChunkQueryScenario, index: Index) -> tuple[Index, Chun
     return index, scenario
 
 
-def test_get_chunks_returns_expected(
+def test_chunks_returns_expected(
     chunk_query: tuple[Index, ChunkQueryScenario],
 ) -> None:
     index, s = chunk_query
@@ -110,7 +110,7 @@ def test_delete_chunks_for_blobs_removes_target(index: Index) -> None:
         assert ws.blob_is_current("b2", "", {"": 1}) is True
 
 
-def test_get_edges_returns_all(index: Index) -> None:
+def test_edges_returns_all(index: Index) -> None:
     """Edges inserted for a commit are all returned."""
     e1 = Edge(
         source_id="a",
@@ -135,7 +135,7 @@ def test_get_edges_returns_all(index: Index) -> None:
     assert len(edges) == 2
 
 
-def test_get_edges_filter_by_kind(index: Index) -> None:
+def test_edges_filter_by_kind(index: Index) -> None:
     """Filtering edges by kind returns only matching."""
     e1 = Edge(
         source_id="a",
@@ -200,57 +200,42 @@ def test_inbound_refs_empty_targets(index: Index, head_ref: SnapshotRef) -> None
     assert index.inbound_refs([], at=head_ref).is_empty()
 
 
-def test_get_chunks_isolated_per_repo(index: Index) -> None:
-    """Chunks in repo 1 are invisible to repo 2."""
-    repo1 = index.register("/repo1")
-    repo2 = index.register("/repo2")
+@pytest.fixture
+def checkouts(project_index: Index) -> Index:
+    """`project_index` with different content in each checkout at `head`.
 
-    c1 = make_chunk("r1_fn", path="a.py", blob="b_r1")
-    c2 = make_chunk("r2_fn", path="a.py", blob="b_r2")
+    The main checkout holds `alpha.py` and the linked worktree `beta.py`,
+    each with an embedded chunk and an edge from it.  Both checkouts
+    write one project file, so only a read's repo filter keeps them
+    apart.
+    """
+    for repo, handle in zip(project_index.repos(), ("alpha", "beta"), strict=True):
+        chunk = make_chunk(
+            handle,
+            name=f"{handle}_fn",
+            content=f"def {handle}_fn(): shared_term",
+            path=f"{handle}.py",
+        )
+        seed_index(project_index, [chunk], repo.at("head"))
+        edge = Edge(
+            source_id=chunk.id,
+            target_id=chunk.id,
+            kind=EdgeKind.IMPORTS,
+            source_path=chunk.file_path,
+            target_path=chunk.file_path,
+        )
+        with project_index.session(repo) as ws:
+            ws.insert_edges([edge], snapshot_sha="head")
+            ws.update_embeddings([chunk.id], [[1.0, 0.0, 0.0, 0.0]])
+    return project_index
 
-    with index.session(repo1) as ws:
-        ws.add_chunk(c1)
-        ws.insert_snapshots([make_snap("head", "a.py", "b_r1")])
 
-    with index.session(repo2) as ws:
-        ws.add_chunk(c2)
-        ws.insert_snapshots([make_snap("head", "a.py", "b_r2")])
-
-    r1_chunks = index.chunks(at=repo1.at("head"))
-    r2_chunks = index.chunks(at=repo2.at("head"))
-
-    assert [c.id for c in r1_chunks] == [c1.id]
-    assert [c.id for c in r2_chunks] == [c2.id]
-
-
-def test_get_edges_isolated_per_repo(index: Index) -> None:
-    """Edges in repo 1 are invisible to repo 2."""
-    repo1 = index.register("/repo1")
-    repo2 = index.register("/repo2")
-
-    e1 = Edge(
-        source_id="a",
-        target_id="b",
-        kind=EdgeKind.IMPORTS,
-        source_path="src/a.py",
-        target_path="src/b.py",
-    )
-    e2 = Edge(
-        source_id="x",
-        target_id="y",
-        kind=EdgeKind.IMPORTS,
-        source_path="src/x.py",
-        target_path="src/y.py",
-    )
-
-    with index.session(repo1) as ws:
-        ws.insert_edges([e1], snapshot_sha="head")
-
-    with index.session(repo2) as ws:
-        ws.insert_edges([e2], snapshot_sha="head")
-
-    assert index.edges(within=[repo1.at("head")])["source_id"].to_list() == ["a"]
-    assert index.edges(within=[repo2.at("head")])["source_id"].to_list() == ["x"]
+@parametrize_with_cases("read", cases=".cases_read", has_tag="isolation")
+def test_a_read_sees_only_its_own_checkout(read: PathsRead, checkouts: Index) -> None:
+    """Two checkouts share a project file; a read at one sees none of the other's rows."""
+    main, worktree = checkouts.repos()
+    assert read(checkouts, main.at("head")) == {"alpha.py"}
+    assert read(checkouts, worktree.at("head")) == {"beta.py"}
 
 
 def test_shared_content_is_one_row_visible_to_both_repos(
@@ -552,27 +537,6 @@ def test_forget_leaves_orphan_chunks_for_gc(
     # only1 is now unreferenced (repo 1 gone) but still present — no sweep.
     # (A sweep would have removed it, leaving zero orphans.)
     assert index.count_orphan_chunks() == 1
-
-
-def test_forget_last_checkout_forgets_its_project(index: Index) -> None:
-    """Forgetting a project's last checkout takes every indexed commit with it.
-
-    HEAD and a working-tree tree SHA alike: the project's file is retired,
-    so the repo has nothing left to read.
-    """
-    repo = index.register("/r")
-    with index.session(repo) as ws:
-        ws.add_chunk(make_chunk("c", path="a.py", blob="b"))
-        ws.insert_snapshots([make_snap("headsha", "a.py", "b")])
-        ws.mark_indexed(snapshot_sha="headsha")
-        ws.mark_indexed(snapshot_sha="treesha")  # a working-tree tree SHA
-
-    index.forget(repo)
-
-    assert index.find_repo("/r") is None
-    assert index.distinct_chunk_languages() == set()
-    with pytest.raises(RepoNotFoundError):
-        index.has_indexed(at=repo.at("headsha"))
 
 
 def test_an_indexed_snapshot_with_no_chunks_counts_zero(index: Index) -> None:

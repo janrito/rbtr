@@ -1,16 +1,19 @@
 """Cases for read-side store behaviours.
 
-Scenarios for `get_chunks`, `edges`, `blob_is_current`,
+Scenarios for `chunks`, `edges`, `blob_is_current`,
 upsert, and multi-repo isolation.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from pytest_cases import case
 
-from rbtr.domain.models import ChunkKind, FileSnapshot
+from rbtr.domain.models import ChunkKind, FileSnapshot, SnapshotRef
+from rbtr.index.index import Index
+from rbtr.index.search import search
 from rbtr.index.staging import TokenisedChunk
 
 from .conftest import make_chunk, make_snap
@@ -50,7 +53,7 @@ class BlobCurrentScenario:
     expected: bool
 
 
-@case(tags=["get_chunks"])
+@case(tags=["chunks"])
 def case_get_chunks_unfiltered() -> ChunkQueryScenario:
     """All chunks visible at the commit."""
     c1 = make_chunk("fn1", path="a.py")
@@ -62,7 +65,7 @@ def case_get_chunks_unfiltered() -> ChunkQueryScenario:
     )
 
 
-@case(tags=["get_chunks"])
+@case(tags=["chunks"])
 def case_get_chunks_by_file_path() -> ChunkQueryScenario:
     """Filter by file_path returns only chunks in that file."""
     c1 = make_chunk("fn1", path="a.py")
@@ -75,7 +78,7 @@ def case_get_chunks_by_file_path() -> ChunkQueryScenario:
     )
 
 
-@case(tags=["get_chunks"])
+@case(tags=["chunks"])
 def case_get_chunks_by_kind() -> ChunkQueryScenario:
     """Filter by kind returns only chunks of that kind."""
     c1 = make_chunk("fn1", kind=ChunkKind.FUNCTION)
@@ -88,7 +91,7 @@ def case_get_chunks_by_kind() -> ChunkQueryScenario:
     )
 
 
-@case(tags=["get_chunks"])
+@case(tags=["chunks"])
 def case_get_chunks_by_name() -> ChunkQueryScenario:
     """Filter by name returns only matching chunk."""
     c1 = make_chunk("fn1", name="helper")
@@ -101,7 +104,7 @@ def case_get_chunks_by_name() -> ChunkQueryScenario:
     )
 
 
-@case(tags=["get_chunks"])
+@case(tags=["chunks"])
 def case_get_chunks_nonexistent_file() -> ChunkQueryScenario:
     """Filter by nonexistent file returns empty."""
     c1 = make_chunk("fn1")
@@ -113,7 +116,7 @@ def case_get_chunks_nonexistent_file() -> ChunkQueryScenario:
     )
 
 
-@case(tags=["get_chunks"])
+@case(tags=["chunks"])
 def case_get_chunks_same_blob_two_paths() -> ChunkQueryScenario:
     """Identical content at two paths is one chunk, returned once.
 
@@ -364,3 +367,43 @@ def case_one_transaction_falls_to_the_sha() -> EmbedOrderScenario:
     Without it the pick would be arbitrary and this test flaky.
     """
     return EmbedOrderScenario(transactions=[["c3", "c1", "c2"]], expected=["c1", "c2", "c3"])
+
+
+# ── Isolation between checkouts of one project ──────────────────────
+
+type PathsRead = Callable[[Index, SnapshotRef], set[str]]
+"""A read at one snapshot, reduced to the file paths it returned."""
+
+
+@case(tags=["isolation"])
+def case_isolated_chunks() -> PathsRead:
+    return lambda index, at: {c.file_path for c in index.chunks(at=at)}
+
+
+@case(tags=["isolation"])
+def case_isolated_edges() -> PathsRead:
+    return lambda index, at: set(index.edges(within=[at])["source_path"])
+
+
+@case(tags=["isolation"])
+def case_isolated_fulltext() -> PathsRead:
+    return lambda index, at: set(index.fulltext_matches("shared_term", within=[at])["file_path"])
+
+
+@case(tags=["isolation"])
+def case_isolated_names() -> PathsRead:
+    return lambda index, at: set(index.name_matches("fn", within=[at])["file_path"])
+
+
+@case(tags=["isolation"])
+def case_isolated_similar() -> PathsRead:
+    return lambda index, at: set(
+        index.similar_matches([[1.0, 0.0, 0.0, 0.0]], within=[at])["file_path"]
+    )
+
+
+@case(tags=["isolation"])
+def case_isolated_search() -> PathsRead:
+    return lambda index, at: {
+        path for hit in search(index, "shared_term", within=[at]) for path in hit.file_paths
+    }
