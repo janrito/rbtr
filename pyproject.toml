@@ -340,12 +340,8 @@ modules = ["rbtr.index.staging", "rbtr.index.results"]
 [[tool.importlinter.contracts]]
 name = "Writer does not touch read schemas"
 type = "forbidden"
-# Direct-only: the write executor must not import read-result schemas
-# itself. The transitive chain writer -> store -> results is legitimate
-# (store is the shared read/write facade), so indirect imports are allowed.
 source_modules = ["rbtr.index.writer"]
 forbidden_modules = ["rbtr.index.results"]
-allow_indirect_imports = "true"
 
 [[tool.importlinter.contracts]]
 name = "Utilities import nothing upward"
@@ -359,3 +355,16 @@ forbidden_modules = [
     "rbtr.daemon",
     "rbtr.cli",
 ]
+
+[[tool.importlinter.contracts]]
+name = "The index's code points one way"
+type = "layers"
+containers = ["rbtr.index"]
+layers = ["refs", "index", "store | writer", "db"]
+
+[[tool.importlinter.contracts]]
+name = "Only the index opens its store and sessions"
+type = "protected"
+protected_modules = ["rbtr.index.store", "rbtr.index.writer"]
+allowed_importers = ["rbtr.index.index"]
+as_packages = "false"

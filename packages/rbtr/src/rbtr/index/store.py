@@ -1,7 +1,7 @@
 """The index's database file: its connection, schema, registry, cursors, and compaction.
 
-Only `Index` uses `Store`.  ARCHITECTURE's "Concurrency model"
-describes how readers share it.
+Only `Index` uses `Store` (an import-linter contract keeps it so).
+ARCHITECTURE's "Concurrency model" describes how readers share it.
 """
 
 from __future__ import annotations

@@ -41,6 +41,12 @@ layering is a DAG enforced by import-linter (run in
 `just lint`), so boundary drift fails the build instead
 of relying on convention.
 
+Inside `index` the imports point one way too, and import-linter
+checks that as well: `refs.py` imports `index.py`, which imports
+`store.py` and `writer.py`, which import `db.py`. Only `Index`
+imports `Store` and `WriteSession`, so every read and write goes
+through it.
+
 ### Chunk and symbol
 
 The two words name the same thing from either side of the
