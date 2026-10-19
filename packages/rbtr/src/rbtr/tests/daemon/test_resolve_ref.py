@@ -15,7 +15,7 @@ import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.config import config
-from rbtr.domain.models import RefSource, SnapshotRef
+from rbtr.domain.models import RefSource
 from rbtr.errors import IndexNotBuiltError
 from rbtr.git import worktree_tree_sha
 from rbtr.index.index import Index
@@ -71,14 +71,14 @@ def ref_index(
     index: Index,
 ) -> Index:
     with index.session() as ws:
-        repo_id = ws.register_repo(ref_repo.workdir)
-        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=str(ref_repo.head.target)))
+        repo = ws.register_repo(ref_repo.workdir)
+        ws.mark_indexed(at=repo.at(str(ref_repo.head.target)))
         if ref_scenario.tree_sha_indexed:
             tree_sha = worktree_tree_sha(
                 ref_repo.workdir, max_untracked_files=config.max_untracked_files
             )
             if tree_sha is not None:
-                ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tree_sha))
+                ws.mark_indexed(at=repo.at(tree_sha))
     return index
 
 
@@ -87,8 +87,8 @@ def test_resolve_read_ref(
     ref_repo: pygit2.Repository,
     ref_index: Index,
 ) -> None:
-    repo_id = ref_index.resolve_repo(ref_repo.workdir)
-    result = resolve_read_ref(ref_index, ref_repo.workdir, repo_id, ref_scenario.requested_ref)
+    repo = ref_index.repo(ref_repo.workdir)
+    result = resolve_read_ref(ref_index, repo, ref_scenario.requested_ref)
 
     # Map symbolic names to actual SHAs.
     head_sha = str(ref_repo.head.target)
@@ -130,12 +130,12 @@ def test_implicit_unindexed_head_falls_back_to_latest_indexed(
     repo = _gate_repo(tmp_path, ref_sig)
     older = "a" * 40
     with index.session() as ws:
-        repo_id = ws.register_repo(repo.workdir)
-        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=older))
+        registered = ws.register_repo(repo.workdir)
+        ws.mark_indexed(at=registered.at(older))
 
-    result = resolve_read_ref(index, repo.workdir, repo_id, None, require_indexed=True)
+    result = resolve_read_ref(index, registered, None, require_indexed=True)
 
-    assert result.at == SnapshotRef(repo_id=repo_id, snapshot_sha=older)
+    assert result.at == registered.at(older)
     assert result.source == RefSource.LATEST_INDEXED
 
 
@@ -151,7 +151,7 @@ def test_implicit_unindexed_head_nothing_indexed_errors(
     """
     repo = _gate_repo(tmp_path, ref_sig)
     with index.session() as ws:
-        repo_id = ws.register_repo(repo.workdir)
+        registered = ws.register_repo(repo.workdir)
 
     with pytest.raises(IndexNotBuiltError, match="not indexed"):
-        resolve_read_ref(index, repo.workdir, repo_id, None, require_indexed=True)
+        resolve_read_ref(index, registered, None, require_indexed=True)

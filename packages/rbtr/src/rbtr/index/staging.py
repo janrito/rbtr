@@ -161,7 +161,7 @@ def staged_edges(edges: list[Edge], *, at: SnapshotRef) -> dy.DataFrame[EdgeStag
     return (
         pl.DataFrame(Edges.dump_python(edges, mode="json"))
         .with_columns(
-            repo_id=pl.lit(at.repo_id, dtype=pl.Int32),
+            repo_id=pl.lit(at.repo.repo_id, dtype=pl.Int32),
             snapshot_sha=pl.lit(at.snapshot_sha),
         )
         .pipe(EdgeStagingRow.validate, cast=True)

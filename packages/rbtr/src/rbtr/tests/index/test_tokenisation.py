@@ -7,7 +7,7 @@ from collections.abc import Generator
 import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.domain.models import FileSnapshot, SnapshotRef
+from rbtr.domain.models import FileSnapshot
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.index.index import Index
 
@@ -195,11 +195,11 @@ def keyword_index_and_case(case: KeywordScenario) -> Generator[tuple[Index, Keyw
     )
     index = Index(writable=True)
     with index.session() as ws:
-        ws.register_repo("/repo")
+        repo = ws.register_repo("/repo")
         ws.add_chunk(chunk)
         ws.insert_snapshots(
             [FileSnapshot(snapshot_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha)],
-            repo_id=1,
+            repo=repo,
         )
     yield index, case
     index.close()
@@ -210,8 +210,7 @@ def test_keyword_searchable_via_fts(
 ) -> None:
     """Every keyword the case declares is findable via FTS."""
     index, case = keyword_index_and_case
-    results = index.fulltext_matches(
-        case.keyword, within=[SnapshotRef(repo_id=1, snapshot_sha="head")], top_k=5
-    )
+    [repo] = index.repos()
+    results = index.fulltext_matches(case.keyword, within=[repo.at("head")], top_k=5)
     assert len(results) > 0, f"FTS miss for keyword {case.keyword!r} in chunk {case.chunk_id!r}"
     assert results["name"].to_list()[0] == case.name

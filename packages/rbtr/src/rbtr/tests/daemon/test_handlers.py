@@ -210,10 +210,10 @@ def scenario_applied(
     scenario: UnbuiltRefScenario,
 ) -> Generator[UnbuiltRefScenario]:
     """*scenario*'s build and watch set, applied to `running_daemon`."""
-    repo_id = seeded_index.get_repo_id(fake_repo)
-    assert repo_id is not None
+    repo = seeded_index.find_repo(fake_repo)
+    assert repo is not None
     with seeded_index.session() as ws:
-        ws.add_watched_refs(repo_id, scenario.watched)
+        ws.add_watched_refs(repo, scenario.watched)
     running_daemon._active_build = scenario.active_build
     yield scenario
     running_daemon._active_build = None
@@ -443,16 +443,16 @@ def test_index_always_watches_head(seeded_index: Index, tmp_path: Path) -> None:
     watches HEAD — the invariant that HEAD is always watched."""
     other = str(tmp_path / "other")
     handle_watch(WatchRequest(repo_path=other, refs=["main"]), seeded_index)
-    watched = seeded_index.list_watched_refs(seeded_index.resolve_repo(other))
+    watched = seeded_index.watched_refs(seeded_index.repo(other))
     assert "HEAD" in watched
     assert "main" in watched
 
 
 def test_index_records_a_ref_in_the_watch_set(seeded_index: Index, fake_repo: str) -> None:
     """`index` records a ref; dropping one is `handle_unwatch`."""
-    repo_id = seeded_index.resolve_repo(fake_repo)
+    repo = seeded_index.repo(fake_repo)
     added = handle_watch(WatchRequest(repo_path=fake_repo, refs=["main"]), seeded_index)
-    assert "main" in seeded_index.list_watched_refs(repo_id)
+    assert "main" in seeded_index.watched_refs(repo)
     # The reply is the watch set now, each ref with its SHA and state.
     assert isinstance(added, WatchSetResponse)
     assert {w.ref: w.indexed for w in added.watched} == {"HEAD": True, "main": True}
@@ -460,10 +460,10 @@ def test_index_records_a_ref_in_the_watch_set(seeded_index: Index, fake_repo: st
 
 def test_status_reports_watch_set_states(seeded_index: Index, fake_repo: str) -> None:
     """Each watched ref is reported as indexed, pending, or unresolvable."""
-    repo_id = seeded_index.resolve_repo(fake_repo)
+    repo = seeded_index.repo(fake_repo)
     pending_sha = "0" * 40  # a bare SHA: resolves to itself, never indexed
     with seeded_index.session() as ws:
-        ws.add_watched_refs(repo_id, ["main", pending_sha, "nonexistent-branch"])
+        ws.add_watched_refs(repo, ["main", pending_sha, "nonexistent-branch"])
     resp = handle_status(StatusRequest(repo_path=fake_repo), seeded_index)
     watched = {w.ref: w for w in resp.watched}
     assert watched["main"].indexed is True  # resolves to the indexed HEAD

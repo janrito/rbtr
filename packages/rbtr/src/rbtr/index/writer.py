@@ -28,7 +28,7 @@ import polars as pl
 import structlog
 
 from rbtr.config import config
-from rbtr.domain.models import Edge, FileSnapshot, GcCounts, SnapshotRef
+from rbtr.domain.models import Edge, FileSnapshot, GcCounts, Repo, SnapshotRef
 from rbtr.index import load_sql
 from rbtr.index.constants import EMBEDDING_FORMAT_VERSION, SCHEMA_VERSION
 from rbtr.index.staging import (
@@ -270,20 +270,20 @@ class WriteSession:
 
     # ── Write methods ────────────────────────────────────────────
 
-    def register_repo(self, path: str) -> int:
-        """Register a repo path and return its integer ID.
+    def register_repo(self, path: str) -> Repo:
+        """Register a repo path and return the repo.
 
-        Idempotent — returns the existing ID if already registered.
+        Idempotent — returns the existing repo if already registered.
         *path* must be canonical, since it is what identifies the repo:
         two spellings of one checkout would become two repos.  Pass it
         through `normalise_repo_path` first, as `build_index` does.
         """
         self._require_active()
-        existing = self._index.get_repo_id(path)
+        existing = self._index.find_repo(path)
         if existing is not None:
             return existing
         rows = self._cursor.execute(_REGISTER_REPO_SQL, {"path": path}).fetchall()
-        return int(rows[0][0])
+        return Repo(repo_id=int(rows[0][0]), repo_path=path)
 
     def add_chunk(self, chunk: TokenisedChunk) -> None:
         """Buffer a content-addressed chunk for insertion.
@@ -331,31 +331,31 @@ class WriteSession:
         )
         self._chunks_modified = True
 
-    def add_watched_refs(self, repo_id: int, refs: list[str]) -> None:
+    def add_watched_refs(self, repo: Repo, refs: list[str]) -> None:
         """Add *refs* to the repo's watch set (idempotent on the PK)."""
         if not refs:
             return
         self._require_active()
-        self._cursor.execute(_ADD_WATCHED_REFS_SQL, {"repo_id": repo_id, "refs": refs})
+        self._cursor.execute(_ADD_WATCHED_REFS_SQL, {"repo_id": repo.repo_id, "refs": refs})
 
-    def remove_watched_refs(self, repo_id: int, refs: list[str]) -> None:
+    def remove_watched_refs(self, repo: Repo, refs: list[str]) -> None:
         """Remove *refs* from the repo's watch set."""
         if not refs:
             return
         self._require_active()
-        self._cursor.execute(_REMOVE_WATCHED_REFS_SQL, {"repo_id": repo_id, "refs": refs})
+        self._cursor.execute(_REMOVE_WATCHED_REFS_SQL, {"repo_id": repo.repo_id, "refs": refs})
 
-    def insert_snapshots(self, snapshots: list[FileSnapshot], *, repo_id: int) -> None:
+    def insert_snapshots(self, snapshots: list[FileSnapshot], *, repo: Repo) -> None:
         """Batch insert snapshots."""
         if not snapshots:
             return
-        self._bulk_insert(_UPSERT_SNAPSHOTS_SQL, staged_file_snapshots(snapshots, repo_id))
+        self._bulk_insert(_UPSERT_SNAPSHOTS_SQL, staged_file_snapshots(snapshots, repo.repo_id))
 
     def replace_snapshots(self, snapshots: list[FileSnapshot], *, at: SnapshotRef) -> None:
         """Atomically replace all snapshots at *at*."""
         self._flush_chunks()
         self.delete_snapshots(at=at)
-        self.insert_snapshots(snapshots, repo_id=at.repo_id)
+        self.insert_snapshots(snapshots, repo=at.repo)
 
     def insert_edges(self, edges: list[Edge], *, at: SnapshotRef) -> None:
         """Batch insert edges scoped to *at*."""
@@ -372,14 +372,14 @@ class WriteSession:
         """Remove all file snapshots scoped to *at*."""
         self._require_active()
         self._cursor.execute(
-            _DELETE_SNAPSHOTS_SQL, {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha}
+            _DELETE_SNAPSHOTS_SQL, {"repo_id": at.repo.repo_id, "snapshot_sha": at.snapshot_sha}
         )
 
     def delete_edges(self, *, at: SnapshotRef) -> None:
         """Remove edges scoped to *at*."""
         self._require_active()
         self._cursor.execute(
-            _DELETE_EDGES_SQL, {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha}
+            _DELETE_EDGES_SQL, {"repo_id": at.repo.repo_id, "snapshot_sha": at.snapshot_sha}
         )
 
     def update_embeddings(
@@ -407,7 +407,7 @@ class WriteSession:
         """Record a commit as fully indexed."""
         self._require_active()
         self._cursor.execute(
-            _MARK_INDEXED_SQL, {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha}
+            _MARK_INDEXED_SQL, {"repo_id": at.repo.repo_id, "snapshot_sha": at.snapshot_sha}
         )
 
     # ── GC ───────────────────────────────────────────────────────
@@ -415,7 +415,7 @@ class WriteSession:
     def drop_snapshot(self, *, at: SnapshotRef) -> GcCounts:
         """Remove all trace of the snapshot at *at* from its repo."""
         self._require_active()
-        params = {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha}
+        params = {"repo_id": at.repo.repo_id, "snapshot_sha": at.snapshot_sha}
         commit_row = self._cursor.execute(_DROP_SNAPSHOT_SQL, params).fetchone()
         snap_row = self._cursor.execute(_DELETE_SNAPSHOTS_SQL, params).fetchone()
         edge_row = self._cursor.execute(_DELETE_EDGES_SQL, params).fetchone()
@@ -430,8 +430,12 @@ class WriteSession:
             chunks=chunks_deleted,
         )
 
-    def cleanup(self, repo_id: int) -> GcCounts:
-        """Remove all orphaned data for a repo.
+    def cleanup(self, repo: Repo) -> GcCounts:
+        """Remove all orphaned data for *repo*; see `_cleanup`."""
+        return self._cleanup(repo.repo_id)
+
+    def _cleanup(self, repo_id: int) -> GcCounts:
+        """Remove all orphaned data for *repo_id*.
 
         Combines crash-residue cleanup and stale-data pruning
         into a single pass:
@@ -563,7 +567,7 @@ class WriteSession:
         finally:
             cur.execute("DETACH compact_target")
 
-    def forget_repo(self, repo_id: int) -> None:
+    def forget_repo(self, repo: Repo) -> None:
         """Forget a whole repo: delete its references and the `repos` row.
 
         Metadata-only — removes the repo's `file_snapshots`, `edges`,
@@ -574,7 +578,7 @@ class WriteSession:
         garbage-collection section.
         """
         self._require_active()
-        params = {"repo_id": repo_id}
+        params = {"repo_id": repo.repo_id}
         self._cursor.execute(_FORGET_SNAPSHOTS_SQL, params)
         self._cursor.execute(_FORGET_EDGES_SQL, params)
         self._cursor.execute(_FORGET_INDEXED_COMMITS_SQL, params)
@@ -596,5 +600,5 @@ class WriteSession:
             has_any = self._cursor.execute(_HAS_ANY_INDEXED_SQL, {"repo_id": repo_id}).fetchone()
             if has_any is None:
                 continue
-            self.cleanup(repo_id)
+            self._cleanup(repo_id)
             log.info("swept_orphans", repo_id=repo_id)

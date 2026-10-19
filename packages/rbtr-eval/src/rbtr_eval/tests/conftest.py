@@ -24,7 +24,7 @@ import polars as pl
 import pygit2
 import pytest
 
-from rbtr.domain.models import ChunkKind, FileSnapshot, SnapshotRef
+from rbtr.domain.models import ChunkKind, FileSnapshot, Repo, SnapshotRef
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.git import normalise_repo_path
 from rbtr.index.build import build_index
@@ -104,7 +104,7 @@ def index() -> Generator[Index]:
     s.close()
 
 
-def seed_corpus(index: Index, repo_path: Path, head: str, indexed: list[str]) -> int:
+def seed_corpus(index: Index, repo_path: Path, head: str, indexed: list[str]) -> Repo:
     """Register *repo_path* and mark each snapshot in *indexed* as indexed.
 
     The `HEAD` placeholder is substituted with *head*, so a scenario
@@ -113,15 +113,15 @@ def seed_corpus(index: Index, repo_path: Path, head: str, indexed: list[str]) ->
     a state the indexer never writes.
     """
     with index.session() as ws:
-        repo_id = ws.register_repo(str(repo_path))
+        repo = ws.register_repo(str(repo_path))
         for name in indexed:
             sha = head if name == HEAD else name
             ws.insert_snapshots(
                 [FileSnapshot(snapshot_sha=sha, file_path="a.py", blob_sha=f"blob_{sha[:8]}")],
-                repo_id=repo_id,
+                repo=repo,
             )
-            ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
-    return repo_id
+            ws.mark_indexed(at=repo.at(sha))
+    return repo
 
 
 def chunk(*, file_path: str, kind: str, name: str) -> TokenisedChunk:
@@ -212,9 +212,9 @@ def mixed_kind_ref(mixed_kind_repo: pygit2.Repository, index: Index) -> Snapshot
     """`mixed_kind_repo` built into `index`, addressed at its one commit."""
     head = str(mixed_kind_repo.head.target)
     with index.session() as ws:
-        repo_id = ws.register_repo(normalise_repo_path(mixed_kind_repo.workdir))
+        repo = ws.register_repo(normalise_repo_path(mixed_kind_repo.workdir))
     build_index(mixed_kind_repo.workdir, head, index)
-    return SnapshotRef(repo_id=repo_id, snapshot_sha=head)
+    return repo.at(head)
 
 
 @pytest.fixture

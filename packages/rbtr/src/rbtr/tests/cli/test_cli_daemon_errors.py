@@ -22,7 +22,6 @@ from pytest_mock import MockerFixture
 
 from rbtr.cli import Watch
 from rbtr.daemon.messages import ErrorCode, ErrorResponse
-from rbtr.domain.models import SnapshotRef
 from rbtr.errors import RbtrError
 from rbtr.git import normalise_repo_path
 from rbtr.index.index import Index
@@ -38,7 +37,7 @@ def start_fails(mocker: MockerFixture) -> None:
 @pytest.fixture
 def inline_index(index: Index, mocker: MockerFixture) -> Index:
     """Point the inline fallback's `from_config` at the shared
-    in-memory `index`, so the fallback runs a real build and the
+    in-memory `store`, so the fallback runs a real build and the
     test can assert the symbols were written."""
     mocker.patch("rbtr.cli.Index.from_config", return_value=index)
     return index
@@ -65,11 +64,11 @@ def test_index_falls_back_to_inline_when_start_fails(
         allow_missing_plugins=False,
     ).cli_cmd()
 
-    repo_id = inline_index.get_repo_id(normalise_repo_path(repo_path))
-    assert repo_id is not None, "inline fallback did not register the repo"
-    commits = inline_index.list_indexed_snapshots(repo_id)
+    registered = inline_index.find_repo(normalise_repo_path(repo_path))
+    assert registered is not None, "inline fallback did not register the repo"
+    commits = inline_index.indexed_snapshots(registered)
     assert len(commits) == 1, "inline fallback did not index HEAD"
-    head = SnapshotRef(repo_id=repo_id, snapshot_sha=commits[0][0])
+    head = registered.at(commits[0].snapshot_sha)
     assert inline_index.chunk_counts_for_snapshot(at=head).total > 0, "no symbols extracted"
 
 

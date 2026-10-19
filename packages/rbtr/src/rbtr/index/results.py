@@ -12,6 +12,8 @@ These are pure functions -- they never touch DuckDB directly.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import dataframely as dy
 import polars as pl
 
@@ -22,6 +24,7 @@ from rbtr.domain.models import (
     Chunks,
     EdgeKind,
     ImportMeta,
+    Repo,
     SnapshotCounts,
     SnapshotRef,
 )
@@ -247,7 +250,7 @@ def snapshot_refs_view(refs: list[SnapshotRef]) -> dy.DataFrame[SnapshotRefRow]:
         return SnapshotRefRow.create_empty()
     return pl.DataFrame(
         {
-            "repo_id": [r.repo_id for r in refs],
+            "repo_id": [r.repo.repo_id for r in refs],
             "snapshot_sha": [r.snapshot_sha for r in refs],
         }
     ).pipe(SnapshotRefRow.validate, cast=True)
@@ -315,20 +318,20 @@ def scored_to_chunks(
 
 
 def frame_to_snapshot_counts(
-    frame: dy.DataFrame[SnapshotCountsRow],
-) -> list[tuple[SnapshotRef, SnapshotCounts]]:
-    """Pair every row with the snapshot it describes, in frame order.
+    frame: dy.DataFrame[SnapshotCountsRow], repos: Mapping[int, Repo]
+) -> dict[SnapshotRef, SnapshotCounts]:
+    """Key every row's counts by the snapshot it describes, in frame order.
 
-    Returns a list, because the order is the query's answer to which
-    snapshot comes first and a mapping would lose it.
+    *repos* names each registered repo by id.  A row of a repo it lacks
+    is left out: the repo was forgotten after its rows were counted.
+    The frame's order is the query's answer to which snapshot comes
+    first, and the dict keeps it.
     """
-    return [
-        (
-            SnapshotRef(repo_id=row["repo_id"], snapshot_sha=row["snapshot_sha"]),
-            SnapshotCounts(total=row["total"], embedded=row["embedded"]),
-        )
+    return {
+        repo.at(row["snapshot_sha"]): SnapshotCounts(total=row["total"], embedded=row["embedded"])
         for row in frame.iter_rows(named=True)
-    ]
+        if (repo := repos.get(row["repo_id"])) is not None
+    }
 
 
 def changed_to_symbols(

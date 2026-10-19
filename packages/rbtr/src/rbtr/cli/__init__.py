@@ -379,7 +379,7 @@ class Watch(BaseModel):
             index.distinct_chunk_languages(), allow_missing=self.allow_missing_plugins
         )
         with index.session() as ws:
-            repo_id = ws.register_repo(resolved_repo)
+            repo = ws.register_repo(resolved_repo)
 
         with progress_reporter("Parsing files", "Embedding") as (on_parse, on_embed):
 
@@ -410,8 +410,7 @@ class Watch(BaseModel):
                 for ref in resolved_refs:
                     embedded = embed_index(
                         index,
-                        ref,
-                        repo_id=repo_id,
+                        at=repo.at(ref),
                         embedder=embedder,
                         on_progress=on_progress,
                     )

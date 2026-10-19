@@ -27,12 +27,12 @@ def unwatch_refs(index: Index, *, repo_path: str, refs: list[str], dry_run: bool
     if HEAD_REF in refs:
         msg = "HEAD cannot be removed from the watch set"
         raise RbtrError(msg)
-    repo_id = index.get_repo_id(repo_path)
-    if repo_id is None:
+    repo = index.find_repo(repo_path)
+    if repo is None:
         return {}
     if not dry_run:
         with index.session() as session:
-            session.remove_watched_refs(repo_id, refs)
+            session.remove_watched_refs(repo, refs)
     return {repo_path: refs}
 
 
@@ -54,7 +54,7 @@ def remove_stale_refs(index: Index, repos: list[Repo], *, dry_run: bool) -> Refs
         removed[repo.repo_path] = stale
         if not dry_run:
             with index.session() as session:
-                session.remove_watched_refs(repo.repo_id, stale)
+                session.remove_watched_refs(repo, stale)
     return removed
 
 
@@ -66,11 +66,11 @@ def forget_stale_repos(index: Index, *, dry_run: bool) -> list[Repo]:
     metadata-only: the chunks it orphans are reclaimed by the next GC.
     Under *dry_run* nothing is written.
     """
-    gone = [repo for repo in index.list_repos() if not _resolves(repo)]
+    gone = [repo for repo in index.repos() if not _resolves(repo)]
     if not dry_run:
         for repo in gone:
             with index.session() as session:
-                session.forget_repo(repo.repo_id)
+                session.forget_repo(repo)
     return gone
 
 
@@ -90,7 +90,7 @@ def _unresolvable(index: Index, repo: Repo) -> list[str]:
     stale.
     """
     out: list[str] = []
-    for ref in index.list_watched_refs(repo.repo_id):
+    for ref in index.watched_refs(repo):
         if ref == HEAD_REF:
             continue
         try:

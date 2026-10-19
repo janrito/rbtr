@@ -1,7 +1,7 @@
 """Which snapshot a read means: the dirty worktree, a resolved ref, or the latest indexed.
 
 The rule spans git and the index, so it lives above both: it asks git
-for the worktree's tree and for refs, and the index which snapshots are
+for the worktree's tree and for refs, and the store which snapshots are
 indexed.
 """
 
@@ -24,24 +24,24 @@ class ResolvedRead:
     source: RefSource
 
 
-def _indexed_worktree_ref(index: Index, repo_path: str, repo_id: int) -> SnapshotRef | None:
+def _indexed_worktree_ref(index: Index, repo: Repo) -> SnapshotRef | None:
     """The worktree's tree SHA, when the tree is dirty and indexed.
 
     `None` when the worktree matches HEAD's tree, when the repo
     is gone, or when that tree has never been indexed — in each
     case the caller wants a commit instead.
     """
-    tree_sha = worktree_tree_sha(repo_path, max_untracked_files=config.max_untracked_files)
+    tree_sha = worktree_tree_sha(repo.repo_path, max_untracked_files=config.max_untracked_files)
     if tree_sha is None:
         return None
-    at = SnapshotRef(repo_id=repo_id, snapshot_sha=tree_sha)
+    at = repo.at(tree_sha)
     return at if index.has_indexed(at=at) else None
 
 
-def _latest_indexed_ref(index: Index, repo_id: int) -> SnapshotRef | None:
+def _latest_indexed_ref(index: Index, repo: Repo) -> SnapshotRef | None:
     """The most recently indexed snapshot for one repo; `None` if it has none."""
-    indexed = index.list_indexed_snapshots(repo_id)
-    return SnapshotRef(repo_id=repo_id, snapshot_sha=indexed[0][0]) if indexed else None
+    indexed = index.indexed_snapshots(repo)
+    return repo.at(indexed[0].snapshot_sha) if indexed else None
 
 
 def latest_ref(index: Index, repo: Repo) -> SnapshotRef | None:
@@ -52,20 +52,20 @@ def latest_ref(index: Index, repo: Repo) -> SnapshotRef | None:
     to the newest indexed commit.  Returns `None` when the repo
     has no indexed commits at all.
     """
-    dirty = _indexed_worktree_ref(index, repo.repo_path, repo.repo_id)
-    return dirty if dirty is not None else _latest_indexed_ref(index, repo.repo_id)
+    dirty = _indexed_worktree_ref(index, repo)
+    return dirty if dirty is not None else _latest_indexed_ref(index, repo)
 
 
-def list_latest_refs(index: Index) -> list[SnapshotRef]:
+def latest_refs(index: Index) -> list[SnapshotRef]:
     """Return one `SnapshotRef` per registered repo with indexed data.
 
-    Applies `latest_ref` to every repo from `list_repos`,
+    Applies `latest_ref` to every repo from `repos`,
     skipping repos that have never been indexed.  The basis for
     cross-repo search: the returned list is passed straight to
     `search()`.
     """
     refs: list[SnapshotRef] = []
-    for repo in index.list_repos():
+    for repo in index.repos():
         ref = latest_ref(index, repo)
         if ref is not None:
             refs.append(ref)
@@ -74,8 +74,7 @@ def list_latest_refs(index: Index) -> list[SnapshotRef]:
 
 def resolve_read_ref(
     index: Index,
-    repo_path: str,
-    repo_id: int,
+    repo: Repo,
     requested_ref: str | None,
     *,
     require_indexed: bool = False,
@@ -104,29 +103,28 @@ def resolve_read_ref(
 
     explicit = requested_ref is not None
     if requested_ref is None:
-        if (dirty := _indexed_worktree_ref(index, repo_path, repo_id)) is not None:
+        if (dirty := _indexed_worktree_ref(index, repo)) is not None:
             return ResolvedRead(at=dirty, source=RefSource.WORKTREE)
         requested_ref = HEAD_REF
     try:
-        sha = resolve_ref(repo_path, requested_ref, max_untracked_files=config.max_untracked_files)
+        sha = resolve_ref(
+            repo.repo_path, requested_ref, max_untracked_files=config.max_untracked_files
+        )
     except RbtrError:
-        if (
-            requested_ref == HEAD_REF
-            and (latest := _latest_indexed_ref(index, repo_id)) is not None
-        ):
+        if requested_ref == HEAD_REF and (latest := _latest_indexed_ref(index, repo)) is not None:
             return ResolvedRead(at=latest, source=RefSource.LATEST_INDEXED)
-        msg = f"Cannot resolve ref '{requested_ref}' in {repo_path}"
+        msg = f"Cannot resolve ref '{requested_ref}' in {repo.repo_path}"
         raise RbtrError(msg) from None
-    at = SnapshotRef(repo_id=repo_id, snapshot_sha=sha)
+    at = repo.at(sha)
     if require_indexed and not index.has_indexed(at=at):
-        if not explicit and (latest := _latest_indexed_ref(index, repo_id)) is not None:
+        if not explicit and (latest := _latest_indexed_ref(index, repo)) is not None:
             return ResolvedRead(at=latest, source=RefSource.LATEST_INDEXED)
         ensure_indexed(index, at, requested_ref)
     return ResolvedRead(at=at, source=RefSource.REQUESTED if explicit else RefSource.HEAD)
 
 
 def ensure_indexed(index: Index, at: SnapshotRef, requested_ref: str) -> None:
-    """Raise `IndexNotBuiltError` if the snapshot at *at* is not indexed.
+    """Raise `IndexNotBuiltError` if the snapshot *at* is not indexed.
 
     *requested_ref* is what the client asked for, which the message
     quotes; *at* is what it resolved to.
@@ -141,5 +139,7 @@ def ensure_indexed(index: Index, at: SnapshotRef, requested_ref: str) -> None:
         msg = "Working tree is not indexed yet — run rbtr watch first"
     else:
         msg = f"Ref '{requested_ref}' is not indexed — run rbtr watch first"
-    missing = MissingSnapshot(repo_id=at.repo_id, snapshot_sha=at.snapshot_sha, ref=requested_ref)
+    missing = MissingSnapshot(
+        repo_path=at.repo.repo_path, snapshot_sha=at.snapshot_sha, ref=requested_ref
+    )
     raise IndexNotBuiltError(msg, missing=missing)

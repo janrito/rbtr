@@ -27,7 +27,6 @@ from dataclasses import dataclass
 import structlog
 
 from rbtr.config import config
-from rbtr.domain.models import SnapshotRef
 from rbtr.errors import RbtrError
 from rbtr.git import resolve_ref, worktree_tree_sha
 from rbtr.index.index import Index
@@ -72,7 +71,7 @@ class FailedBuild:
 def poll_watched(index: Index) -> list[WatchedTarget]:
     """Return every watched ref whose resolved SHA is not yet indexed.
 
-    Iterates registered repos (`index.list_repos`) and their
+    Iterates registered repos (`index.repos`) and their
     `watched_refs`, resolving each symbolic name to a SHA with
     `git.resolve_ref`.  Unresolvable refs (deleted branch, missing
     repo path) are silently skipped.  A SHA already present in
@@ -82,15 +81,15 @@ def poll_watched(index: Index) -> list[WatchedTarget]:
     """
     out: list[WatchedTarget] = []
     seen: set[tuple[str, str]] = set()
-    for repo in index.list_repos():
-        for ref in index.list_watched_refs(repo.repo_id):
+    for repo in index.repos():
+        for ref in index.watched_refs(repo):
             try:
                 sha = resolve_ref(
                     repo.repo_path, ref, max_untracked_files=config.max_untracked_files
                 )
             except RbtrError:
                 continue
-            if index.has_indexed(at=SnapshotRef(repo_id=repo.repo_id, snapshot_sha=sha)):
+            if index.has_indexed(at=repo.at(sha)):
                 continue
             if (repo.repo_path, sha) in seen:
                 continue
@@ -130,11 +129,11 @@ def poll_worktree(index: Index) -> list[DirtyWorktree]:
     by the job worker thread via `WriteSession`.
     """
     out: list[DirtyWorktree] = []
-    for repo in index.list_repos():
+    for repo in index.repos():
         sha = worktree_tree_sha(repo.repo_path, max_untracked_files=config.max_untracked_files)
         if sha is None:
             continue
-        if index.has_indexed(at=SnapshotRef(repo_id=repo.repo_id, snapshot_sha=sha)):
+        if index.has_indexed(at=repo.at(sha)):
             continue
         out.append(DirtyWorktree(repo_path=repo.repo_path, repo_id=repo.repo_id, snapshot_sha=sha))
     return out

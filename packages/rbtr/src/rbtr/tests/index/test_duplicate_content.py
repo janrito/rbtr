@@ -23,7 +23,7 @@ def test_identical_files_are_indexed_at_every_path(dup_index: Index, dup_ref: Sn
     `src/shared.py` and `lib/shared.py` are byte-identical, so they
     share one row; each path must still reach it.
     """
-    paths = {c.file_path for c in dup_index.get_chunks(at=dup_ref)}
+    paths = {c.file_path for c in dup_index.chunks(at=dup_ref)}
 
     assert "src/shared.py" in paths
     assert "lib/shared.py" in paths
@@ -37,7 +37,7 @@ def test_list_symbols_finds_the_duplicated_copy(dup_index: Index, dup_ref: Snaps
     """
     names = [
         c.name
-        for c in dup_index.get_chunks(
+        for c in dup_index.chunks(
             at=dup_ref,
             file_path="lib/shared.py",
         )
@@ -59,14 +59,14 @@ def test_same_bytes_in_two_languages_keep_separate_chunks(
     """
     declarations = {
         c.language
-        for c in dup_index.get_chunks(
+        for c in dup_index.chunks(
             at=dup_ref,
             file_path="types/api.d.ts",
         )
     }
     bundle = {
         c.language
-        for c in dup_index.get_chunks(
+        for c in dup_index.chunks(
             at=dup_ref,
             file_path="dist/api.js",
         )
@@ -102,7 +102,7 @@ def test_counting_collapses_the_copies(dup_index: Index, dup_ref: SnapshotRef) -
     Embedding writes the row the copies share, so a count that left them
     fanned out would set the progress total above the work there is to do.
     """
-    located = dup_index.get_chunks(at=dup_ref)
+    located = dup_index.chunks(at=dup_ref)
     chunks = {c.id for c in located}
     assert len(located) > len(chunks), "nothing was duplicated"
 

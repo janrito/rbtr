@@ -25,7 +25,7 @@ from rbtr.daemon.messages import (
     notification_adapter,
 )
 from rbtr.daemon.server import DaemonServer
-from rbtr.domain.models import FileSnapshot, SnapshotRef
+from rbtr.domain.models import FileSnapshot
 from rbtr.index.index import Index
 
 from ..conftest import make_commit
@@ -39,7 +39,7 @@ from .conftest import serving
 def next_job_index(scenario: NextJobScenario, index: Index) -> tuple[Index, NextJobScenario]:
     for n, snap in enumerate(scenario.snapshots):
         with index.session() as ws:
-            repo_id = ws.register_repo(snap.repo_path)
+            repo = ws.register_repo(snap.repo_path)
             chunk = make_chunk(f"c{n}", name=f"fn{n}", path=f"f{n}.py", blob=f"blob{n}")
             ws.add_chunk(chunk)
             ws.insert_snapshots(
@@ -50,12 +50,12 @@ def next_job_index(scenario: NextJobScenario, index: Index) -> tuple[Index, Next
                         blob_sha=f"blob{n}",
                     )
                 ],
-                repo_id=repo_id,
+                repo=repo,
             )
             if snap.embedded:
                 ws.update_embeddings([chunk.id], [[0.1, 0.2, 0.3]])
             if snap.indexed:
-                ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=snap.snapshot_sha))
+                ws.mark_indexed(at=repo.at(snap.snapshot_sha))
     return index, scenario
 
 
@@ -88,7 +88,7 @@ def test_startup_backfills_a_head_watch_for_every_repo(
 
     DaemonServer(runtime_dir, index=index, idle_poll_interval=60.0, busy_poll_interval=60.0)
 
-    assert index.list_watched_refs(index.resolve_repo("/test/repo")) == ["HEAD"]
+    assert index.watched_refs(index.repo("/test/repo")) == ["HEAD"]
 
 
 @pytest.fixture

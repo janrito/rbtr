@@ -21,24 +21,24 @@ def test_forget_repo_when_nothing_beyond_head_watched(index: Index, watched: lis
     """A repo is forgotten when nothing beyond HEAD is watched — whether the
     watch set is exactly HEAD or empty (an inline `--no-daemon` index)."""
     with index.session() as ws:
-        ws.register_repo("/repo")
+        repo = ws.register_repo("/repo")
         if watched:
-            ws.add_watched_refs(1, watched)
+            ws.add_watched_refs(repo, watched)
 
     resp = handle_forget(ForgetRequest(repo_path="/repo"), index)
 
     assert resp.forgotten == ["/repo"]
-    assert index.get_repo_id("/repo") is None
+    assert index.find_repo("/repo") is None
 
 
 def test_forget_refuses_repo_watching_extra_refs(index: Index) -> None:
     """A repo still watching refs beyond HEAD is *not* forgotten — the
     caller must trim those refs first."""
     with index.session() as ws:
-        ws.register_repo("/repo")
-        ws.add_watched_refs(1, ["HEAD", "main"])
+        repo = ws.register_repo("/repo")
+        ws.add_watched_refs(repo, ["HEAD", "main"])
 
     with pytest.raises(RbtrError, match="HEAD"):
         handle_forget(ForgetRequest(repo_path="/repo"), index)
 
-    assert index.get_repo_id("/repo") == 1  # untouched
+    assert index.find_repo("/repo") == repo  # untouched

@@ -6,6 +6,7 @@ import hashlib
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import StrEnum
 from typing import Literal
 
@@ -283,13 +284,10 @@ class Edge(BaseModel, frozen=True):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SnapshotRef:
-    """A repo paired with the indexed ref to read it at.
+    """A registered repo at one of its snapshots: what a read is scoped to.
 
-    Internal-only transport: built at the daemon's handler
-    boundary (where a client `path` is resolved to a `repo_id`)
-    and consumed by the store's search SQL.  It never crosses the
-    RPC boundary — clients name repos by path, never by numeric
-    `repo_id` — so the integer key stays inside the process.
+    Made by `Repo.at`.  It never crosses the RPC boundary: clients name
+    repos by path, and the daemon resolves a path to a `Repo` first.
 
     `snapshot_sha` is the snapshot identity (a commit SHA or a
     dirty worktree tree SHA) that search and edge queries join
@@ -297,7 +295,7 @@ class SnapshotRef:
     tuple-style construction and unpacking.
     """
 
-    repo_id: int
+    repo: Repo
     snapshot_sha: str
 
 
@@ -305,14 +303,13 @@ class SnapshotRef:
 class SnapshotRange:
     """One repo, compared between two indexed snapshots.
 
-    Internal-only transport alongside `SnapshotRef`, built at the
-    daemon's handler boundary and consumed by the store's diff SQL.
-    Both ends share the one `repo_id` the range carries, so a
+    Built at the daemon's handler boundary and consumed by the store's
+    diff SQL.  Both ends share the one repo the range carries, so a
     comparison spanning two repos cannot be constructed.  `kw_only`
     forbids positional / tuple-style construction and unpacking.
     """
 
-    repo_id: int
+    repo: Repo
     base_sha: str
     head_sha: str
 
@@ -357,6 +354,26 @@ class Repo:
 
     repo_id: int
     repo_path: str
+
+    def at(self, snapshot_sha: str) -> SnapshotRef:
+        """This repo at *snapshot_sha*."""
+        return SnapshotRef(repo=self, snapshot_sha=snapshot_sha)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ChunkSplit:
+    """A gc drop set's candidate chunks: those it frees, and those another ref keeps."""
+
+    dropped: int
+    kept: int
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class IndexedSnapshot:
+    """A snapshot a repo has fully indexed, and when it finished (naive UTC)."""
+
+    snapshot_sha: str
+    indexed_at: datetime
 
 
 type RefsByRepo = dict[str, list[str]]

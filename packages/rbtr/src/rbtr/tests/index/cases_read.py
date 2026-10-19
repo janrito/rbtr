@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 from pytest_cases import case
 
-from rbtr.domain.models import ChunkKind, FileSnapshot, SnapshotRef
+from rbtr.domain.models import ChunkKind, FileSnapshot
 from rbtr.index.staging import TokenisedChunk
 
 from .conftest import make_chunk, make_snap
@@ -258,9 +258,14 @@ def case_blob_is_current_multilanguage_embedded_bump() -> BlobCurrentScenario:
 
 @dataclass(frozen=True)
 class SnapshotGroup:
-    """FileSnapshots for one commit of one repo, plus the ref to seed under."""
+    """FileSnapshots for one commit of one checkout of `project_store`.
 
-    ref: SnapshotRef
+    *checkout* is the checkout's position in `project_store.repos()`: 0
+    is the main checkout, 1 its linked worktree.
+    """
+
+    checkout: int
+    snapshot_sha: str
     snapshots: list[FileSnapshot]
 
 
@@ -270,7 +275,7 @@ class GcCountScenario:
 
     chunks: list[TokenisedChunk]
     groups: list[SnapshotGroup]
-    drop_repo_id: int
+    drop_checkout: int
     drop_shas: list[str]
     expected_dropped: int
     expected_kept: int
@@ -282,12 +287,8 @@ def case_gc_split_last_reference() -> GcCountScenario:
     c = make_chunk("only", path="a.py", blob="b1")
     return GcCountScenario(
         chunks=[c],
-        groups=[
-            SnapshotGroup(
-                SnapshotRef(repo_id=1, snapshot_sha="c1"), [make_snap("c1", "a.py", "b1")]
-            )
-        ],
-        drop_repo_id=1,
+        groups=[SnapshotGroup(0, "c1", [make_snap("c1", "a.py", "b1")])],
+        drop_checkout=0,
         drop_shas=["c1"],
         expected_dropped=1,
         expected_kept=0,
@@ -301,14 +302,10 @@ def case_gc_split_shared_cross_repo() -> GcCountScenario:
     return GcCountScenario(
         chunks=[c],
         groups=[
-            SnapshotGroup(
-                SnapshotRef(repo_id=1, snapshot_sha="c1"), [make_snap("c1", "x.py", "b")]
-            ),
-            SnapshotGroup(
-                SnapshotRef(repo_id=2, snapshot_sha="c2"), [make_snap("c2", "x.py", "b")]
-            ),
+            SnapshotGroup(0, "c1", [make_snap("c1", "x.py", "b")]),
+            SnapshotGroup(1, "c2", [make_snap("c2", "x.py", "b")]),
         ],
-        drop_repo_id=1,
+        drop_checkout=0,
         drop_shas=["c1"],
         expected_dropped=0,
         expected_kept=1,
@@ -322,14 +319,10 @@ def case_gc_split_shared_same_repo_other_ref() -> GcCountScenario:
     return GcCountScenario(
         chunks=[c],
         groups=[
-            SnapshotGroup(
-                SnapshotRef(repo_id=1, snapshot_sha="c1"), [make_snap("c1", "a.py", "b")]
-            ),
-            SnapshotGroup(
-                SnapshotRef(repo_id=1, snapshot_sha="c2"), [make_snap("c2", "a.py", "b")]
-            ),
+            SnapshotGroup(0, "c1", [make_snap("c1", "a.py", "b")]),
+            SnapshotGroup(0, "c2", [make_snap("c2", "a.py", "b")]),
         ],
-        drop_repo_id=1,
+        drop_checkout=0,
         drop_shas=["c1"],
         expected_dropped=0,
         expected_kept=1,
@@ -345,14 +338,13 @@ def case_gc_split_mixed() -> GcCountScenario:
         chunks=[gone, stays],
         groups=[
             SnapshotGroup(
-                SnapshotRef(repo_id=1, snapshot_sha="c1"),
+                0,
+                "c1",
                 [make_snap("c1", "a.py", "ba"), make_snap("c1", "b.py", "bb")],
             ),
-            SnapshotGroup(
-                SnapshotRef(repo_id=1, snapshot_sha="c2"), [make_snap("c2", "b.py", "bb")]
-            ),
+            SnapshotGroup(0, "c2", [make_snap("c2", "b.py", "bb")]),
         ],
-        drop_repo_id=1,
+        drop_checkout=0,
         drop_shas=["c1"],
         expected_dropped=1,
         expected_kept=1,

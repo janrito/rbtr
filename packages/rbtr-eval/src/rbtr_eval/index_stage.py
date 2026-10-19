@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 
 from rbtr.cli.output import human_bytes
 from rbtr.config import config
-from rbtr.domain.models import ChunkKind, SnapshotRef
+from rbtr.domain.models import ChunkKind
 from rbtr.index.index import Index
 from rbtr.index.results import snapshot_refs_view
 from rbtr_eval.corpus import Corpus, corpus_refs
@@ -208,23 +208,23 @@ def _sentinel_hash(index: Index, *, embed: bool) -> str:
     unembedded count per commit so the hash changes when embeddings
     are written.
 
-    Snapshots are visited in `list_indexed_snapshots` order and the
+    Snapshots are visited in `indexed_snapshots` order and the
     counts are looked up, rather than iterated in the order the counts
     query returns them: DVC compares this value between runs, so a
     reordering would invalidate every downstream stage.
     """
     outstanding = (
-        {ref: counts.unembedded for ref, counts in index.chunk_counts_by_snapshot()}
+        {ref: counts.unembedded for ref, counts in index.chunk_counts_by_snapshot().items()}
         if embed
         else {}
     )
     h = hashlib.sha256()
-    for repo in index.list_repos():
-        for sha, _ts in index.list_indexed_snapshots(repo.repo_id):
+    for repo in index.repos():
+        for indexed in index.indexed_snapshots(repo):
+            sha = indexed.snapshot_sha
             h.update(f"{repo.repo_id}:{sha}".encode())
             if embed:
-                ref = SnapshotRef(repo_id=repo.repo_id, snapshot_sha=sha)
-                h.update(f":{outstanding[ref]}".encode())
+                h.update(f":{outstanding[repo.at(sha)]}".encode())
     return h.hexdigest()
 
 

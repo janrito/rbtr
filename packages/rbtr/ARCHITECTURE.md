@@ -283,6 +283,12 @@ path. The `repos` table holds that mapping: one row per checkout, pairing an
 id with the checkout's absolute path. **Registering** a repo means adding
 that row.
 
+In code a repo is a `Repo` value, its id and path together, and the
+registry hands them out (a session's `register_repo`, and `repo`,
+`find_repo` and `repos` on the index). Every method about one repo takes
+one, and `repo.at(sha)` names one of its snapshots, so an id and a path
+cannot be paired wrongly.
+
 Nothing registers a repo on its own. Indexing a path is what makes it known:
 `build_index` looks the path up and inserts a row if it has not seen it
 before, and adding a watched ref does the same. A repo is in the index
@@ -291,12 +297,12 @@ because it was indexed or watched, never because it was declared separately.
 That row has to exist, because everything that goes looking for work starts
 from the list of repos — garbage collection (`run_gc_all`), the watcher's
 reconcile loop, `rbtr forget --stale` and cross-repo search all walk
-`list_repos()`. Rows carrying a `repo_id` with no matching `repos` row are
+`repos()`. Rows carrying a `repo_id` with no matching `repos` row are
 reachable by none of them: never collected, never rebuilt, and impossible to
 forget. They just sit in the database.
 
-So `build_index` derives the id from the path rather than taking one as an
-argument, and the two cannot disagree. `run_gc` and search look the path up
+So `build_index` derives the repo from the path rather than taking one as
+an argument, and the two cannot disagree. `run_gc` and search look the path up
 the same way but fail when it has no row, since a repo that was never
 indexed has nothing to collect or search.
 
@@ -445,13 +451,13 @@ The language is part of the join because it is part of a chunk's
 identity: the same bytes extracted as two languages are two chunks, and
 each must pair with the files read as that language.
 
-Because the scope is always a `repo_id` and a `snapshot_sha` together,
-the two travel as one value. `SnapshotRef` carries that pair, and
-`SnapshotRange` carries one `repo_id` with a base and a head SHA for the
-symbol diff — so a query cannot name a snapshot in one repo and a repo
-id from another. Both are internal transport, built where a client path
-is resolved to a `repo_id` and consumed by the store's SQL; neither
-crosses the RPC boundary, because clients name repos by path.
+Because the scope is always a repo and a `snapshot_sha` together, the
+two travel as one value. `SnapshotRef` carries a `Repo` and a SHA, and
+`repo.at(sha)` makes one; `SnapshotRange` carries one `Repo` with a base
+and a head SHA for the symbol diff. A query cannot name a snapshot in
+one repo and a repo from another, and whatever reads a ref has the
+repo's path without a lookup. Neither crosses the RPC boundary, because
+clients name repos by path.
 
 Every read and write on the store takes its scope as a keyword, and the
 keyword says how many snapshots it holds: `at=` one `SnapshotRef`,
@@ -1177,7 +1183,7 @@ from a root-relative one.
 
 Powers `find-refs` and the importance signal in search
 ranking. `find-refs` first resolves the user's symbol *name*
-to chunk IDs via `match_by_name` (edges are keyed on chunk
+to chunk IDs via `name_matches` (edges are keyed on chunk
 IDs, not names), then a single `inbound_refs` query joins the
 inbound edges to their *source* chunk so the response names
 the referring symbol (`RefOut`) rather than exposing an opaque
@@ -1305,7 +1311,7 @@ regardless of repo count, and no scalar `repo_id`/
 
 `handle_search` builds the refs list: a one-element list
 from `resolve_read_ref` for `workspace`, or
-`list_latest_refs(index)` for `all`. `list_latest_refs`
+`latest_refs(index)` for `all`. `latest_refs`
 applies the same dirty-or-HEAD resolution as
 `resolve_read_ref` to every registered repo — preferring
 an indexed dirty worktree tree SHA, else the newest indexed
@@ -1313,11 +1319,11 @@ commit — and skips repos with no indexed data.
 
 Result attribution flows through a `repo_id` column carried
 on the chunk-result frames (`ChunkResultRow` →
-`FusedRow`). `materialise_scored` maps `repo_id` to a path
-via the `repo_paths` dict the handler passes, populating
-`ScoredChunk.repo_path` (and `IndexedRef.repo_path` for
-status). It stays `None` for workspace searches, so
-single-repo consumers are unaffected. `find_refs`,
+`FusedRow`). When the handler asks for attribution
+(`attribute_repos`), `materialise_scored` maps `repo_id` to
+the path of the searched ref's repo, populating
+`ScoredChunk.repo_path`. It stays `None` for workspace
+searches, so single-repo consumers are unaffected. `find_refs`,
 `changed_symbols`, `read_symbol`, and `list_symbols` remain
 single-repo: their edges and ref comparisons don't span
 repos.
@@ -1701,7 +1707,7 @@ first and collects second.
 
 GC is **per-repo by default**; `rbtr gc --scope all` reclaims across
 **every** registered repo at once (`GcAllRequest` ⇒ `run_gc_all`
-loops `run_gc` over `list_repos()`), then the single
+loops `run_gc` over `repos()`), then the single
 cross-repo sweep reclaims chunks no surviving snapshot references.
 Globally it takes **`WATCHED` or `WATCHED_ONLY`** — the retentions
 stated in a repo's own terms, so every repo keeps at least its HEAD and
@@ -1730,7 +1736,7 @@ no longer resolves. The latter is **daemon-driven enumeration**, not a
 per-path request: a removed checkout's path cannot be normalised into a
 request, which is why it is a request of its own —
 `ForgetStaleRequest` carries no path, and
-`rbtr.index.watch.forget_stale_repos` walks `list_repos()` and forgets
+`rbtr.index.watch.forget_stale_repos` walks `repos()` and forgets
 the unresolvable ones. Its sibling `remove_stale_refs` answers the other
 question — which of a *live* repo's watched refs git still resolves, in
 one repo or in all of them — and leaves a vanished repo alone, since git
@@ -2081,7 +2087,7 @@ goes through the write session. The mapping is inexpensive to
 keep correct in code, so it is kept there.
 
 **`build_index` canonicalises paths; store lookups do not.**
-`get_repo_id` and `resolve_repo` match a path exactly as it
+`find_repo` and `repo` match a path exactly as it
 was stored. That is what lets a deleted checkout still be
 found: `forget --stale` notices one *because* canonicalising
 its path now fails, and then removes the row using the path

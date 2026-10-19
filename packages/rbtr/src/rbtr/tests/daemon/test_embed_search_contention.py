@@ -141,11 +141,8 @@ def embedded_snapshot(fake_repo: str, index: Index) -> SnapshotRef:
     that exists, and the SHA is git's own rather than a literal.
     """
     with index.session() as ws:
-        repo_id = ws.register_repo(fake_repo)
-    return SnapshotRef(
-        repo_id=repo_id,
-        snapshot_sha=str(pygit2.Repository(fake_repo).head.target),
-    )
+        repo = ws.register_repo(fake_repo)
+    return repo.at(str(pygit2.Repository(fake_repo).head.target))
 
 
 @pytest.fixture
@@ -180,7 +177,7 @@ def embeddable_index(index: Index, embedded_snapshot: SnapshotRef) -> Index:
                 )
                 for c in chunks
             ],
-            repo_id=embedded_snapshot.repo_id,
+            repo=embedded_snapshot.repo,
         )
         session.mark_indexed(at=embedded_snapshot)
     return index
@@ -447,7 +444,7 @@ def test_no_writer_commits_while_the_write_lock_is_held(
     old connection is lost.  Two writers must wait — the worker
     embedding a batch, and a handler writing the watch set.
     """
-    repo_id = embeddable_index.resolve_repo(fake_repo)
+    repo = embeddable_index.repo(fake_repo)
     replies: list[Response] = []
 
     def ask_to_watch() -> None:
@@ -463,7 +460,7 @@ def test_no_writer_commits_while_the_write_lock_is_held(
     assert counts.unembedded == counts.total, (
         f"{counts.total - counts.unembedded} embeddings committed while the lock was held"
     )
-    assert "main" not in embeddable_index.list_watched_refs(repo_id), (
+    assert "main" not in embeddable_index.watched_refs(repo), (
         "the watch set was written while the lock was held"
     )
 
@@ -476,6 +473,6 @@ def test_no_writer_commits_while_the_write_lock_is_held(
         time.sleep(0.05)
 
     assert replies, "the index request never answered"
-    assert "main" in embeddable_index.list_watched_refs(repo_id), f"never written: {replies[0]}"
+    assert "main" in embeddable_index.watched_refs(repo), f"never written: {replies[0]}"
     final = embeddable_index.chunk_counts_for_snapshot(at=embedded_snapshot)
     assert final.is_fully_embedded, f"{final.unembedded} of {final.total} left unembedded"

@@ -11,7 +11,7 @@ import pytest
 from pytest_cases import parametrize_with_cases
 
 from rbtr.daemon.dto import ResolvedRef
-from rbtr.domain.models import FileSnapshot, RefSource, SnapshotRef
+from rbtr.domain.models import FileSnapshot, RefSource
 from rbtr.index.index import Index
 
 from ..index.conftest import make_chunk
@@ -32,7 +32,7 @@ def two_repos(index: Index) -> tuple[Index, dict[int, str]]:
     }
     for repo_id, chunk in chunks.items():
         with index.session() as ws:
-            ws.register_repo(paths[repo_id])
+            repo = ws.register_repo(paths[repo_id])
             ws.add_chunk(chunk)
             ws.insert_snapshots(
                 [
@@ -40,9 +40,9 @@ def two_repos(index: Index) -> tuple[Index, dict[int, str]]:
                         snapshot_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha
                     )
                 ],
-                repo_id=repo_id,
+                repo=repo,
             )
-            ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha="head"))
+            ws.mark_indexed(at=repo.at("head"))
     return index, paths
 
 

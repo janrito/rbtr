@@ -7,7 +7,6 @@ from pathlib import Path
 import pygit2
 from pytest_mock import MockerFixture
 
-from rbtr.domain.models import SnapshotRef
 from rbtr.git import FileEntry
 from rbtr.index.build import build_index
 from rbtr.index.index import Index
@@ -50,5 +49,6 @@ def test_build_index_extraction_error_is_nonfatal(
 
     assert len(result.errors) == 1
     assert "bad.py" in result.errors[0]
-    chunks = index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=sha))
+    [registered] = index.repos()
+    chunks = index.chunks(at=registered.at(sha))
     assert any(c.file_path == "good.py" for c in chunks)

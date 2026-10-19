@@ -25,7 +25,7 @@ from rbtr.daemon.messages import (
     StatusResponse,
 )
 from rbtr.daemon.server import DaemonServer
-from rbtr.domain.models import FileSnapshot, SnapshotRef
+from rbtr.domain.models import FileSnapshot
 from rbtr.index.index import Index
 
 from ..index.conftest import make_chunk
@@ -45,7 +45,7 @@ def shared_symbol_index(fake_repo: str, second_repo: str, index: Index) -> Index
     for path, uniq in ((fake_repo, "alpha"), (second_repo, "beta")):
         head = str(pygit2.Repository(path).head.target)
         with index.session() as ws:
-            repo_id = ws.register_repo(path)
+            repo = ws.register_repo(path)
             ws.add_chunk(make_chunk(f"{uniq}_id", name=f"{uniq}_fn", path=f"{uniq}.py"))
             ws.add_chunk(make_chunk(f"shared_{uniq}", name="shared_fn", path="shared.py"))
             ws.insert_snapshots(
@@ -57,9 +57,9 @@ def shared_symbol_index(fake_repo: str, second_repo: str, index: Index) -> Index
                         snapshot_sha=head, file_path="shared.py", blob_sha=f"blob_shared_{uniq}"
                     ),
                 ],
-                repo_id=repo_id,
+                repo=repo,
             )
-            ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=head))
+            ws.mark_indexed(at=repo.at(head))
     return index
 
 

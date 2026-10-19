@@ -51,7 +51,6 @@ def churned_index(fake_repo: str, isolated_db: Path) -> Generator[ChurnedIndex]:
     re-indexed store accumulates.
     """
     head = head_sha(fake_repo)
-    repo_id = 0
     # 800 chunks across 3 passes inflates the file past DuckDB's block
     # granularity; a rewrite then shrinks it. Reopen the store per pass
     # so each pass's stale row-versions are consolidated onto disk (as
@@ -59,8 +58,7 @@ def churned_index(fake_repo: str, isolated_db: Path) -> Generator[ChurnedIndex]:
     for pass_no in range(3):
         index = Index.from_config(writable=True)
         with index.session() as ws:
-            if pass_no == 0:
-                repo_id = ws.register_repo(fake_repo)
+            repo = ws.register_repo(fake_repo)
             snaps = []
             for i in range(800):
                 content = (
@@ -76,14 +74,14 @@ def churned_index(fake_repo: str, isolated_db: Path) -> Generator[ChurnedIndex]:
                     )
                 )
                 snaps.append(make_snap(head, f"m{i}.py", f"blob-{i}"))
-            ws.insert_snapshots(snaps, repo_id=repo_id)
-            ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=head))
+            ws.insert_snapshots(snaps, repo=repo)
+            ws.mark_indexed(at=repo.at(head))
         index.close()
     index = Index.from_config(writable=True)
     yield ChurnedIndex(
         index=index,
         repo_path=fake_repo,
-        ref=SnapshotRef(repo_id=repo_id, snapshot_sha=head),
+        ref=repo.at(head),
         query="retry backoff",
     )
     index.close()
@@ -218,10 +216,10 @@ def test_search_survives_concurrent_compaction(churned_index: ChurnedIndex) -> N
                     )
                     > 0
                 )
-                assert ci.index.match_by_name(
+                assert not ci.index.name_matches(
                     "calculate_retry_backoff_1",
-                    at=ci.ref,
-                )
+                    within=[ci.ref],
+                ).is_empty()
         except Exception as exc:  # noqa: BLE001 - re-asserted on main thread
             errors.append(exc)
 

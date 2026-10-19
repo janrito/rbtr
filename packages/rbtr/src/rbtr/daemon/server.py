@@ -93,7 +93,7 @@ from rbtr.daemon.messages import (
     request_adapter,
 )
 from rbtr.daemon.status import remove_status, write_status
-from rbtr.domain.models import Chunk, SnapshotRef
+from rbtr.domain.models import Chunk, Repo
 from rbtr.errors import BuildStopped, IndexNotBuiltError, MissingSnapshot, RbtrError
 from rbtr.git import HEAD_REF, non_commit_shas, normalise_repo_path
 from rbtr.index.build import build_index
@@ -379,12 +379,12 @@ class DaemonServer:
         `watched_refs` table existed; new repos get their HEAD row
         through the `index` request path.
         """
-        repos = index.list_repos()
+        repos = index.repos()
         if not repos:
             return
         with index.session() as ws:
             for repo in repos:
-                ws.add_watched_refs(repo.repo_id, [HEAD_REF])
+                ws.add_watched_refs(repo, [HEAD_REF])
         log.info("head_watch_backfill", repos=len(repos))
 
     def _recover_pending_embeds(self, index: Index) -> None:
@@ -394,11 +394,11 @@ class DaemonServer:
         but before embedding completed.  Sets `_wake` so the
         DB-polling worker picks up the work.
         """
-        for ref, counts in index.chunk_counts_by_snapshot():
+        for ref, counts in index.chunk_counts_by_snapshot().items():
             if not counts.is_fully_embedded:
                 log.info(
                     "recovering_embed",
-                    repo_id=ref.repo_id,
+                    repo_id=ref.repo.repo_id,
                     sha=ref.snapshot_sha[:12],
                     chunks=counts.unembedded,
                 )
@@ -429,7 +429,7 @@ class DaemonServer:
     def _build_refs(self, job: BuildJob, index: Index, push: zmq.Socket) -> None:
         """Index each of the job's refs, reporting on *push*."""
         with index.session() as ws:
-            repo_id = ws.register_repo(job.repo_path)
+            repo = ws.register_repo(job.repo_path)
 
         try:
             resolved = resolve_refs(job.repo_path, list(job.refs))
@@ -445,9 +445,7 @@ class DaemonServer:
                 on_progress=_progress_callback(push, job.repo_path),
                 stop=self._stopping,
             )
-            counts = index.chunk_counts_for_snapshot(
-                at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha)
-            )
+            counts = index.chunk_counts_for_snapshot(at=repo.at(sha))
             _notify(
                 push,
                 ReadyNotification(
@@ -465,16 +463,10 @@ class DaemonServer:
             # the old worktree was built against the previous
             # HEAD's tree.  Either way, drop any tree-type SHA
             # that isn't the one we just built.
-            self._drop_stale_worktree_shas(index, repo_id, job.repo_path, keep=sha)
+            self._drop_stale_worktree_shas(index, repo, keep=sha)
 
     @staticmethod
-    def _drop_stale_worktree_shas(
-        index: Index,
-        repo_id: int,
-        repo_path: str,
-        *,
-        keep: str,
-    ) -> None:
+    def _drop_stale_worktree_shas(index: Index, repo: Repo, *, keep: str) -> None:
         """Drop old worktree tree SHAs from `indexed_snapshots`.
 
         After a build (commit or worktree), drops every indexed SHA
@@ -486,13 +478,13 @@ class DaemonServer:
         Called from `_build_refs` inside the worker thread's
         `WriteSession` scope.
         """
-        indexed = [sha for sha, _ts in index.list_indexed_snapshots(repo_id)]
-        stale = [sha for sha in non_commit_shas(repo_path, indexed) if sha != keep]
+        indexed = [s.snapshot_sha for s in index.indexed_snapshots(repo)]
+        stale = [sha for sha in non_commit_shas(repo.repo_path, indexed) if sha != keep]
         if not stale:
             return
         with index.session() as ws:
             for sha in stale:
-                ws.drop_snapshot(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
+                ws.drop_snapshot(at=repo.at(sha))
                 log.info("dropped_stale_worktree_sha", sha=sha[:12])
 
     async def _run_embed_async(self, job: EmbedJob) -> None:
@@ -521,7 +513,7 @@ class DaemonServer:
 
         try:
             for page_ids in itertools.batched(pending, config.embedding_page_size, strict=False):
-                page = await asyncio.to_thread(index.get_chunks_by_id, list(page_ids), at=job.at)
+                page = await asyncio.to_thread(index.chunks_by_id, list(page_ids), at=job.at)
                 for batch in itertools.batched(page, config.embedding_batch_size, strict=False):
                     texts = [embedding_text(c.name, c.content) for c in batch]
                     try:
@@ -617,9 +609,12 @@ class DaemonServer:
         building_it = (
             active is not None
             and active.ref == missing.snapshot_sha
-            and index.get_repo_id(active.repo_path) == missing.repo_id
+            and active.repo_path == missing.repo_path
         )
-        return building_it or missing.ref in index.list_watched_refs(missing.repo_id)
+        if building_it:
+            return True
+        repo = index.find_repo(missing.repo_path)
+        return repo is not None and missing.ref in index.watched_refs(repo)
 
     def _snapshot_status(
         self,
@@ -692,12 +687,10 @@ class DaemonServer:
             return None
 
         # Embeds: indexed snapshots with un-embedded chunks, newest first.
-        # `EmbedJob` names the repo by path; the counts carry only its id.
-        paths = {repo.repo_id: repo.repo_path for repo in index.list_repos()}
-        for ref, counts in index.chunk_counts_by_snapshot():
+        for ref, counts in index.chunk_counts_by_snapshot().items():
             if counts.is_fully_embedded:
                 continue
-            return EmbedJob(repo_path=paths[ref.repo_id], at=ref)
+            return EmbedJob(at=ref)
 
         return None
 

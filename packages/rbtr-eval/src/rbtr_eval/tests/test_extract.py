@@ -53,8 +53,7 @@ def test_extract_covers_measurable_kinds_and_excludes_import(
     queries, _, _ = extract_queries(
         index,
         "test",
-        mixed_kind_ref.repo_id,
-        mixed_kind_ref.snapshot_sha,
+        mixed_kind_ref,
         min_per_language=1,
     )
     kinds = set(queries["symbol_kind"].cast(pl.String).to_list())
@@ -72,13 +71,12 @@ def test_generated_queries_target_real_chunks(index: Index, mixed_kind_ref: Snap
     queries, _, _ = extract_queries(
         index,
         "test",
-        mixed_kind_ref.repo_id,
-        mixed_kind_ref.snapshot_sha,
+        mixed_kind_ref,
         min_per_language=1,
     )
     chunk_ids = {
         (c.file_path, c.scope, c.name, c.line_start, c.line_end, c.kind.value)
-        for c in index.get_chunks(at=mixed_kind_ref)
+        for c in index.chunks(at=mixed_kind_ref)
     }
     for row in queries.iter_rows(named=True):
         assert tuple(row[c] for c in IDENTITY_COLUMNS) in chunk_ids
@@ -95,8 +93,7 @@ def test_two_chunks_on_one_line_are_two_targets(index: Index, mixed_kind_ref: Sn
     queries, _, _ = extract_queries(
         index,
         "test",
-        mixed_kind_ref.repo_id,
-        mixed_kind_ref.snapshot_sha,
+        mixed_kind_ref,
         min_per_language=1,
     )
 

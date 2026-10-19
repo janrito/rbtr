@@ -203,8 +203,7 @@ def paraphrase_result(
     result = paraphrase_symbols(
         queries,
         index,
-        mixed_kind_repo.workdir,
-        mixed_kind_ref.repo_id,
+        index.repos()[0],
         model=clean_model,
         concurrency=1,
     )
@@ -241,8 +240,7 @@ def test_paraphrase_symbols_skips_when_excluded_in_response(
     result = paraphrase_symbols(
         queries,
         index,
-        mixed_kind_repo.workdir,
-        mixed_kind_ref.repo_id,
+        index.repos()[0],
         model=excluded_model,
         concurrency=1,
     )
@@ -277,8 +275,7 @@ def test_paraphrase_symbols_deduplicates_across_provenances(
     result = paraphrase_symbols(
         both,
         index,
-        mixed_kind_repo.workdir,
-        mixed_kind_ref.repo_id,
+        index.repos()[0],
         model=FunctionModel(counting_fn),
         concurrency=1,
     )

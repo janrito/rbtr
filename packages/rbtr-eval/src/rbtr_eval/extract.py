@@ -186,8 +186,7 @@ def queries_for_symbol(
 def extract_queries(
     index: Index,
     slug: str,
-    repo_id: int,
-    sha: str,
+    at: SnapshotRef,
     *,
     min_per_language: int = 50,
 ) -> tuple[dy.DataFrame[QueryRow], int, list[dict[str, str | int]]]:
@@ -204,7 +203,7 @@ def extract_queries(
     where `dropped_languages` lists the skipped languages and their
     chunk counts.
     """
-    chunks = index.get_chunks(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
+    chunks = index.chunks(at=at)
     symbols = [c for c in chunks if c.kind not in EXCLUDED_KINDS]
 
     lang_counts = (
@@ -264,8 +263,7 @@ class ExtractCmd(BaseModel):
         all_queries, n_symbols, dropped = extract_queries(
             index,
             self.slug,
-            ref.repo_id,
-            ref.snapshot_sha,
+            ref,
             min_per_language=self.min_per_language,
         )
         sampled = subsample(

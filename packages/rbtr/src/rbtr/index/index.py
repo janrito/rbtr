@@ -62,7 +62,9 @@ from rbtr.config import config, own_dir
 from rbtr.domain.models import (
     Chunk,
     ChunkKind,
+    ChunkSplit,
     EdgeKind,
+    IndexedSnapshot,
     Repo,
     SnapshotCounts,
     SnapshotRange,
@@ -169,7 +171,7 @@ class Index:
         self.db_path: str | None = str(db_path) if db_path else None
         self._writable = writable
         self._bootstrapped = False
-        self._repo_cache: dict[str, int] = {}
+        self._repo_cache: dict[str, Repo] = {}
         if db_path is not None:
             own_dir(Path(db_path).parent)
         dsn = str(db_path) if db_path else ":memory:"
@@ -366,40 +368,40 @@ class Index:
         self._load_fts(con)
         self._con = con
 
-    def get_repo_id(self, path: str) -> int | None:
-        """Return the repo_id for *path*, or None if not registered.
+    def find_repo(self, path: str) -> Repo | None:
+        """Return the repo registered at *path*, or None if there is none.
 
         *path* is matched exactly, as stored at registration — it is not
         normalised, so pass a canonical path.  A repo whose checkout has
         since been deleted is still found, which is how it gets forgotten.
         """
         row = self._cursor.execute(_GET_REPO_SQL, {"path": path}).fetchone()
-        return int(row[0]) if row else None
+        return Repo(repo_id=int(row[0]), repo_path=path) if row else None
 
-    def resolve_repo(self, repo: str) -> int:
-        """Return the repo_id for *repo*, raising if not registered.
+    def repo(self, path: str) -> Repo:
+        """Return the repo registered at *path*, raising if there is none.
 
-        As with `get_repo_id`, *repo* is matched exactly and must already
-        be canonical.  Results are cached for the lifetime of the store.
+        As with `find_repo`, *path* is matched exactly and must already
+        be canonical.  Results are cached for the lifetime of the index.
         """
-        cached = self._repo_cache.get(repo)
+        cached = self._repo_cache.get(path)
         if cached is not None:
             return cached
-        repo_id = self.get_repo_id(repo)
-        if repo_id is None:
-            msg = f"Repo not registered: {repo}"
+        found = self.find_repo(path)
+        if found is None:
+            msg = f"Repo not registered: {path}"
             raise RepoNotFoundError(msg)
-        self._repo_cache[repo] = repo_id
-        return repo_id
+        self._repo_cache[path] = found
+        return found
 
-    def list_repos(self) -> list[Repo]:
+    def repos(self) -> list[Repo]:
         """Return all registered repos."""
         rows = self._cursor.execute(_LIST_REPOS_SQL).fetchall()
         return [Repo(repo_id=int(r[0]), repo_path=str(r[1])) for r in rows]
 
-    def list_watched_refs(self, repo_id: int) -> list[str]:
+    def watched_refs(self, repo: Repo) -> list[str]:
         """Return the repo's watched refs (symbolic names), sorted by name."""
-        rows = self._cursor.execute(_LIST_WATCHED_REFS_SQL, {"repo_id": repo_id}).fetchall()
+        rows = self._cursor.execute(_LIST_WATCHED_REFS_SQL, {"repo_id": repo.repo_id}).fetchall()
         return [str(r[0]) for r in rows]
 
     # ── Completion tracking (indexed_snapshots) ──────────────────────
@@ -407,20 +409,14 @@ class Index:
     def has_indexed(self, *, at: SnapshotRef) -> bool:
         """Return whether the snapshot at *at* was fully indexed."""
         row = self._cursor.execute(
-            _HAS_INDEXED_SQL, {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha}
+            _HAS_INDEXED_SQL, {"repo_id": at.repo.repo_id, "snapshot_sha": at.snapshot_sha}
         ).fetchone()
         return row is not None
 
-    def list_indexed_snapshots(self, repo_id: int) -> list[tuple[str, str]]:
-        """Return `(snapshot_sha, indexed_at)` for this repo, newest first."""
-        rows = self._cursor.execute(_LIST_INDEXED_COMMITS_SQL, {"repo_id": repo_id}).fetchall()
-        return [
-            (
-                str(r[0]),
-                str(r[1]),
-            )
-            for r in rows
-        ]
+    def indexed_snapshots(self, repo: Repo) -> list[IndexedSnapshot]:
+        """Return the repo's indexed snapshots, newest first."""
+        rows = self._cursor.execute(_LIST_INDEXED_COMMITS_SQL, {"repo_id": repo.repo_id}).fetchall()
+        return [IndexedSnapshot(snapshot_sha=str(r[0]), indexed_at=r[1]) for r in rows]
 
     def count_file_snapshots(self, *, at: SnapshotRef) -> int:
         """Return the number of `file_snapshots` rows for this commit.
@@ -428,7 +424,7 @@ class Index:
         Read-only. Used by dry-run GC reporting.
         """
         row = self._cursor.execute(
-            _COUNT_FILE_SNAPSHOTS_SQL, {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha}
+            _COUNT_FILE_SNAPSHOTS_SQL, {"repo_id": at.repo.repo_id, "snapshot_sha": at.snapshot_sha}
         ).fetchone()
         return int(row[0]) if row else 0
 
@@ -439,7 +435,7 @@ class Index:
         """
         row = self._cursor.execute(
             _COUNT_EDGES_SQL,
-            {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha},
+            {"repo_id": at.repo.repo_id, "snapshot_sha": at.snapshot_sha},
         ).fetchone()
         return int(row[0]) if row else 0
 
@@ -453,24 +449,24 @@ class Index:
         row = self._cursor.execute(_COUNT_ORPHAN_CHUNKS_SQL).fetchone()
         return int(row[0]) if row else 0
 
-    def count_gc_chunk_split(self, repo_id: int, drop_shas: list[str]) -> tuple[int, int]:
-        """Split a GC drop set's chunks into `(dropped, kept_shared)`.
+    def count_gc_chunk_split(self, repo: Repo, drop_shas: list[str]) -> ChunkSplit:
+        """Split a GC drop set's chunks into those it frees and those it keeps.
 
-        *dropped* is the chunks the drop set would free; *kept_shared*
-        is candidate chunks retained because a ref outside the drop set
+        `dropped` is the chunks the drop set would free; `kept` is
+        candidate chunks retained because a ref outside the drop set
         (another ref of this repo, or any other repo) still references
         their `(blob_sha, file_language)`.  Read-only — it computes the
         split from the reference graph without simulating the drop, so
         it serves dry-run and real runs alike.
         """
         if not drop_shas:
-            return (0, 0)
+            return ChunkSplit(dropped=0, kept=0)
         row = self._cursor.execute(
-            _COUNT_GC_CHUNK_SPLIT_SQL, {"repo_id": repo_id, "drop_shas": drop_shas}
+            _COUNT_GC_CHUNK_SPLIT_SQL, {"repo_id": repo.repo_id, "drop_shas": drop_shas}
         ).fetchone()
         if row is None:
-            return (0, 0)
-        return (int(row[0]), int(row[1]))
+            return ChunkSplit(dropped=0, kept=0)
+        return ChunkSplit(dropped=int(row[0]), kept=int(row[1]))
 
     # ── Reads ────────────────────────────────────────────────────────
 
@@ -516,7 +512,7 @@ class Index:
             ).fetchone()
         return bool(row[0]) if row and row[0] is not None else False
 
-    def get_snapshot_language(self, file_path: str, *, repo_id: int) -> str:
+    def get_snapshot_language(self, file_path: str, *, repo: Repo) -> str:
         """Return the detected language from any existing snapshot.
 
         Returns `''` if the file has never been indexed or was
@@ -524,35 +520,37 @@ class Index:
         """
         row = self._cursor.execute(
             _GET_SNAPSHOT_LANGUAGE_SQL,
-            {"repo_id": repo_id, "file_path": file_path},
+            {"repo_id": repo.repo_id, "file_path": file_path},
         ).fetchone()
         return str(row[0]) if row else ""
 
     def chunk_counts_by_snapshot(
-        self, *, repo_id: int | None = None
-    ) -> list[tuple[SnapshotRef, SnapshotCounts]]:
-        """Return chunk and embedded counts per indexed snapshot, one pair each.
+        self, *, repo: Repo | None = None
+    ) -> dict[SnapshotRef, SnapshotCounts]:
+        """Return chunk and embedded counts per indexed snapshot.
 
-        Spans every repo unless *repo_id* narrows it.  One grouped pass
+        Spans every repo unless *repo* narrows it.  One grouped pass
         whatever the scope, so the cost does not grow with the number of
         snapshots asked about — which matters because reading
         `chunks.embedding` is most of the work.
 
-        Every snapshot in `indexed_snapshots` gets a pair; one holding no
+        Every snapshot in `indexed_snapshots` gets an entry; one holding no
         chunks counts zero.  Ordered most recently indexed first, ties
         broken by `snapshot_sha`.
         """
-        return frame_to_snapshot_counts(self._chunk_counts_frame(repo_id=repo_id))
+        frame = self._chunk_counts_frame(repo)
+        return frame_to_snapshot_counts(frame, {r.repo_id: r for r in self.repos()})
 
     def _chunk_counts_frame(
-        self, *, repo_id: int | None = None, snapshot_sha: str | None = None
+        self, scope: Repo | SnapshotRef | None
     ) -> dy.DataFrame[SnapshotCountsRow]:
         """Back the counts readers with one validated frame.
 
-        *snapshot_sha* narrows to a single snapshot and is meaningful
-        only alongside *repo_id*, which is why it stays private: a SHA
-        on its own matches that commit in every repo.
+        *scope* narrows the count to one repo or one of its snapshots.
         """
+        repo = scope.repo if isinstance(scope, SnapshotRef) else scope
+        repo_id = repo.repo_id if repo is not None else None
+        snapshot_sha = scope.snapshot_sha if isinstance(scope, SnapshotRef) else None
         return (
             self._cursor.execute(
                 _CHUNK_COUNTS_BY_SNAPSHOT_SQL,
@@ -570,7 +568,7 @@ class Index:
         holds no chunks, or was never marked indexed, reads as zero of
         zero.
         """
-        frame = self._chunk_counts_frame(repo_id=at.repo_id, snapshot_sha=at.snapshot_sha)
+        frame = self._chunk_counts_frame(at)
         if frame.is_empty():
             return SnapshotCounts(total=0, embedded=0)
         row = frame.row(0, named=True)
@@ -587,11 +585,11 @@ class Index:
         """
         rows = self._cursor.execute(
             _UNEMBEDDED_CHUNK_IDS_SQL,
-            {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha},
+            {"repo_id": at.repo.repo_id, "snapshot_sha": at.snapshot_sha},
         ).fetchall()
         return [str(r[0]) for r in rows]
 
-    def get_chunks_by_id(self, chunk_ids: list[str], *, at: SnapshotRef) -> list[Chunk]:
+    def chunks_by_id(self, chunk_ids: list[str], *, at: SnapshotRef) -> list[Chunk]:
         """Return the named chunks as they are seen at *at*, ordered by id.
 
         An id that no longer resolves at *at* is left out of the
@@ -600,7 +598,7 @@ class Index:
         """
         if not chunk_ids:
             return []
-        params = {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha}
+        params = {"repo_id": at.repo.repo_id, "snapshot_sha": at.snapshot_sha}
         with self.reader(_chunk_ids=chunk_ids_view(chunk_ids)) as cur:
             frame = (
                 cur.execute(_GET_CHUNKS_BY_ID_SQL, params)
@@ -620,7 +618,7 @@ class Index:
         rows = self._cursor.execute(_DISTINCT_CHUNK_LANGUAGES_SQL).fetchall()
         return {str(r[0]) for r in rows}
 
-    def get_chunks(
+    def chunks(
         self,
         *,
         at: SnapshotRef,
@@ -631,7 +629,7 @@ class Index:
         """Query chunks visible at *at* with optional filters."""
         kind_val = kind.value if kind is not None else None
         params = {
-            "repo_id": at.repo_id,
+            "repo_id": at.repo.repo_id,
             "snapshot_sha": at.snapshot_sha,
             "file_path": file_path,
             "kind": kind_val,
@@ -671,7 +669,7 @@ class Index:
         `content`.
         """
         params = {
-            "repo_id": at.repo_id,
+            "repo_id": at.repo.repo_id,
             "snapshot_sha": at.snapshot_sha,
             "file_path": None,
             "kind": None,
@@ -748,7 +746,7 @@ class Index:
         file (the `scope_all` flag bypasses the view).
         """
         params = {
-            "repo_id": between.repo_id,
+            "repo_id": between.repo.repo_id,
             "head_sha": between.head_sha,
             "base_sha": between.base_sha,
             "scope_all": not file_paths,
@@ -761,7 +759,7 @@ class Index:
                 .pipe(ChangedSymbolRow.validate, cast=True)
             )
 
-    # ── Match (internal frame, public chunk) ─────────────────────
+    # ── Match ────────────────────────────────────────────────────
 
     def name_matches(
         self, pattern: str, *, within: list[SnapshotRef]
@@ -782,14 +780,6 @@ class Index:
                 .pipe(_decode_metadata)
                 .pipe(ChunkResultRow.validate, cast=True)
             )
-
-    def match_by_name(self, pattern: str, *, at: SnapshotRef) -> list[Chunk]:
-        """Find chunks by name with tiered resolution.
-
-        Prefers exact matches, then case-insensitive exact, then
-        prefix, then substring.  Returns only the best tier.
-        """
-        return frame_to_chunks(self.name_matches(pattern, within=[at]))
 
     def similar_matches(
         self,

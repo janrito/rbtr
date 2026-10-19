@@ -13,7 +13,6 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.domain.models import SnapshotRef
 from rbtr.git import normalise_repo_path
 from rbtr.index.index import Index
 from rbtr.tests.conftest import run_cli
@@ -24,8 +23,8 @@ def repo_with_stale_watch(fake_repo: str, isolated_db: Path) -> str:
     """A real repo whose watch set holds HEAD, main, and a deleted branch."""
     index = Index.from_config(writable=True)
     with index.session() as ws:
-        repo_id = ws.register_repo(fake_repo)
-        ws.add_watched_refs(repo_id, ["HEAD", "main", "gone-branch"])
+        repo = ws.register_repo(fake_repo)
+        ws.add_watched_refs(repo, ["HEAD", "main", "gone-branch"])
     index.close()
     return fake_repo
 
@@ -48,11 +47,11 @@ def test_fresh_repo_indexes_end_to_end(
 
     index = Index.from_config(writable=True)
     try:
-        repo_id = index.get_repo_id(normalise_repo_path(repo))
-        assert repo_id is not None, "repo not registered"
-        commits = index.list_indexed_snapshots(repo_id)
+        registered = index.find_repo(normalise_repo_path(repo))
+        assert registered is not None, "repo not registered"
+        commits = index.indexed_snapshots(registered)
         assert len(commits) == 1, "HEAD not indexed"
-        head = SnapshotRef(repo_id=repo_id, snapshot_sha=commits[0][0])
+        head = registered.at(commits[0].snapshot_sha)
         counts = index.chunk_counts_for_snapshot(at=head)
         assert counts.total > 0, "no symbols extracted"
         assert counts.embedded == 0, "embedded with embedding off"
@@ -66,9 +65,9 @@ def test_unwatch_stale_drops_unresolvable_refs(repo_with_stale_watch: str) -> No
 
     index = Index.from_config(writable=True)
     try:
-        repo_id = index.get_repo_id(repo_with_stale_watch)
-        assert repo_id is not None
-        watched = index.list_watched_refs(repo_id)
+        repo = index.find_repo(repo_with_stale_watch)
+        assert repo is not None
+        watched = index.watched_refs(repo)
     finally:
         index.close()
     assert "gone-branch" not in watched  # unresolvable → pruned
@@ -82,8 +81,8 @@ def second_repo_with_stale_watch(repo_with_stale_watch: str, second_repo: str) -
     `repo_with_stale_watch`."""
     index = Index.from_config(writable=True)
     with index.session() as ws:
-        repo_id = ws.register_repo(second_repo)
-        ws.add_watched_refs(repo_id, ["HEAD", "deleted-branch"])
+        repo = ws.register_repo(second_repo)
+        ws.add_watched_refs(repo, ["HEAD", "deleted-branch"])
     index.close()
     return second_repo
 
@@ -116,12 +115,12 @@ def test_unwatch_stale_everywhere_covers_every_live_repo(
 
     index = Index.from_config(writable=True)
     try:
-        assert index.get_repo_id(vanished_repo) is not None
-        assert index.list_watched_refs(index.resolve_repo(repo_with_stale_watch)) == [
+        assert index.find_repo(vanished_repo) is not None
+        assert index.watched_refs(index.repo(repo_with_stale_watch)) == [
             "HEAD",
             "main",
         ]
-        assert index.list_watched_refs(index.resolve_repo(second_repo_with_stale_watch)) == ["HEAD"]
+        assert index.watched_refs(index.repo(second_repo_with_stale_watch)) == ["HEAD"]
     finally:
         index.close()
 
@@ -135,7 +134,7 @@ def test_unwatch_dry_run_removes_nothing(
 
     index = Index.from_config(writable=True)
     try:
-        assert "gone-branch" in index.list_watched_refs(index.resolve_repo(repo_with_stale_watch))
+        assert "gone-branch" in index.watched_refs(index.repo(repo_with_stale_watch))
     finally:
         index.close()
 
@@ -145,8 +144,8 @@ def head_only_repo(fake_repo: str, isolated_db: Path) -> str:
     """A real repo registered with HEAD as its only watched ref."""
     index = Index.from_config(writable=True)
     with index.session() as ws:
-        repo_id = ws.register_repo(fake_repo)
-        ws.add_watched_refs(repo_id, ["HEAD"])
+        repo = ws.register_repo(fake_repo)
+        ws.add_watched_refs(repo, ["HEAD"])
     index.close()
     return fake_repo
 
@@ -157,7 +156,7 @@ def test_forget_drops_a_head_only_repo(head_only_repo: str) -> None:
     assert r.returncode == 0, r.stderr
     index = Index.from_config(writable=True)
     try:
-        assert index.get_repo_id(normalise_repo_path(head_only_repo)) is None
+        assert index.find_repo(normalise_repo_path(head_only_repo)) is None
     finally:
         index.close()
 
@@ -176,7 +175,7 @@ def test_forget_stale_forgets_vanished_repos(tmp_path: Path, isolated_db: Path) 
 
     index = Index.from_config(writable=True)
     try:
-        assert index.get_repo_id(gone) is None
+        assert index.find_repo(gone) is None
     finally:
         index.close()
 
@@ -205,11 +204,11 @@ def test_a_contradictory_run_changes_nothing(
     assert r.returncode == 2, r.stdout
     index = Index.from_config(writable=False)
     try:
-        assert index.list_watched_refs(index.resolve_repo(repo_with_stale_watch)) == [
+        assert index.watched_refs(index.repo(repo_with_stale_watch)) == [
             "HEAD",
             "gone-branch",
             "main",
         ]
-        assert index.get_repo_id(vanished_repo) is not None
+        assert index.find_repo(vanished_repo) is not None
     finally:
         index.close()

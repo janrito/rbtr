@@ -15,7 +15,6 @@ import polars as pl
 import pytest
 from pytest_cases import parametrize_with_cases
 
-from rbtr.domain.models import SnapshotRef
 from rbtr.index.index import Index
 from rbtr_eval.measure import (
     SearchBatch,
@@ -113,13 +112,13 @@ def indexed_copy(tmp_path: Path) -> Path:
     index = Index(str(tmp_path / "index.duckdb"), writable=True)
     fn = chunk(file_path="q.py", kind="function", name="load")
     with index.session() as ws:
-        repo_id = ws.register_repo(str(tmp_path / "alpha"))
+        repo = ws.register_repo(str(tmp_path / "alpha"))
         ws.add_chunk(fn)
         ws.insert_snapshots(
             [snap("a" * 40, fn), snap("a" * 40, fn, path="vendor/q.py")],
-            repo_id=repo_id,
+            repo=repo,
         )
-        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha="a" * 40))
+        ws.mark_indexed(at=repo.at("a" * 40))
         ws.update_embeddings([fn.id], [[0.5] * 768], truncated=[True])
     index.close()
     return tmp_path / "index.duckdb"

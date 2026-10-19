@@ -28,10 +28,10 @@ from .conftest import make_chunk, make_snap
 @parametrize_with_cases("scenario", has_tag="get_chunks")
 def chunk_query(scenario: ChunkQueryScenario, index: Index) -> tuple[Index, ChunkQueryScenario]:
     with index.session() as ws:
-        ws.register_repo("/repo")
+        repo = ws.register_repo("/repo")
         for c in scenario.chunks:
             ws.add_chunk(c)
-        ws.insert_snapshots(list(scenario.snapshots), repo_id=1)
+        ws.insert_snapshots(list(scenario.snapshots), repo=repo)
     return index, scenario
 
 
@@ -39,8 +39,9 @@ def test_get_chunks_returns_expected(
     chunk_query: tuple[Index, ChunkQueryScenario],
 ) -> None:
     index, s = chunk_query
-    chunks = index.get_chunks(
-        at=SnapshotRef(repo_id=1, snapshot_sha=s.snapshot_sha),
+    [repo] = index.repos()
+    chunks = index.chunks(
+        at=repo.at(s.snapshot_sha),
         file_path=s.file_path,
         kind=s.kind,
         name=s.name,
@@ -52,10 +53,10 @@ def test_get_chunks_returns_expected(
 @parametrize_with_cases("scenario", has_tag="blob_is_current")
 def blob_query(scenario: BlobCurrentScenario, index: Index) -> tuple[Index, BlobCurrentScenario]:
     with index.session() as ws:
-        ws.register_repo("/repo")
+        repo = ws.register_repo("/repo")
         for c in scenario.chunks:
             ws.add_chunk(c)
-        ws.insert_snapshots(list(scenario.snapshots), repo_id=1)
+        ws.insert_snapshots(list(scenario.snapshots), repo=repo)
     return index, scenario
 
 
@@ -72,14 +73,14 @@ def test_upsert_replaces_content(index: Index) -> None:
     c2 = make_chunk("fn1", content="def fn1(): return 2")
 
     with index.session() as ws:
-        ws.register_repo("/repo")
+        repo = ws.register_repo("/repo")
         ws.add_chunk(c1)
-        ws.insert_snapshots([make_snap("head", "f.py", c1.blob_sha)], repo_id=1)
+        ws.insert_snapshots([make_snap("head", "f.py", c1.blob_sha)], repo=repo)
 
     with index.session() as ws:
         ws.add_chunk(c2)
 
-    chunks = index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
+    chunks = index.chunks(at=repo.at("head"))
     assert len(chunks) == 1
     assert "return 2" in chunks[0].content
 
@@ -90,12 +91,12 @@ def test_delete_chunks_for_blobs_removes_target(index: Index) -> None:
     c2 = make_chunk("fn2", blob="b2", path="b.py")
 
     with index.session() as ws:
-        ws.register_repo("/repo")
+        repo = ws.register_repo("/repo")
         ws.add_chunk(c1)
         ws.add_chunk(c2)
         ws.insert_snapshots(
             [make_snap("head", "a.py", "b1"), make_snap("head", "b.py", "b2")],
-            repo_id=1,
+            repo=repo,
         )
 
     with index.session() as ws:
@@ -123,10 +124,10 @@ def test_get_edges_returns_all(index: Index) -> None:
     )
 
     with index.session() as ws:
-        ws.register_repo("/repo")
-        ws.insert_edges([e1, e2], at=SnapshotRef(repo_id=1, snapshot_sha="head"))
+        repo = ws.register_repo("/repo")
+        ws.insert_edges([e1, e2], at=repo.at("head"))
 
-    edges = index.edges(within=[SnapshotRef(repo_id=1, snapshot_sha="head")])
+    edges = index.edges(within=[repo.at("head")])
     assert len(edges) == 2
 
 
@@ -148,10 +149,10 @@ def test_get_edges_filter_by_kind(index: Index) -> None:
     )
 
     with index.session() as ws:
-        ws.register_repo("/repo")
-        ws.insert_edges([e1, e2], at=SnapshotRef(repo_id=1, snapshot_sha="head"))
+        repo = ws.register_repo("/repo")
+        ws.insert_edges([e1, e2], at=repo.at("head"))
 
-    edges = index.edges(within=[SnapshotRef(repo_id=1, snapshot_sha="head")], kind=EdgeKind.IMPORTS)
+    edges = index.edges(within=[repo.at("head")], kind=EdgeKind.IMPORTS)
     assert edges["kind"].to_list() == [EdgeKind.IMPORTS.value]
 
 
@@ -162,11 +163,11 @@ def test_inbound_refs_resolves_source(index: Index) -> None:
     )
     target = make_chunk("fn", path="m.py", blob="b_m")
     with index.session() as ws:
-        ws.register_repo("/repo")
+        repo = ws.register_repo("/repo")
         ws.add_chunk(src)
         ws.add_chunk(target)
         ws.insert_snapshots(
-            [make_snap("head", "app.py", "b_app"), make_snap("head", "m.py", "b_m")], repo_id=1
+            [make_snap("head", "app.py", "b_app"), make_snap("head", "m.py", "b_m")], repo=repo
         )
         ws.insert_edges(
             [
@@ -178,10 +179,10 @@ def test_inbound_refs_resolves_source(index: Index) -> None:
                     target_path=target.file_path,
                 )
             ],
-            at=SnapshotRef(repo_id=1, snapshot_sha="head"),
+            at=repo.at("head"),
         )
 
-    frame = index.inbound_refs([target.id], at=SnapshotRef(repo_id=1, snapshot_sha="head"))
+    frame = index.inbound_refs([target.id], at=repo.at("head"))
     assert frame.height == 1
     row = frame.to_dicts()[0]
     assert row["name"] == "from m import fn"
@@ -190,30 +191,30 @@ def test_inbound_refs_resolves_source(index: Index) -> None:
     assert row["edge"] == "imports"
 
 
-def test_inbound_refs_empty_targets(index: Index) -> None:
+def test_inbound_refs_empty_targets(index: Index, head_ref: SnapshotRef) -> None:
     """No target IDs returns an empty frame without touching the store."""
-    assert index.inbound_refs([], at=SnapshotRef(repo_id=1, snapshot_sha="head")).is_empty()
+    assert index.inbound_refs([], at=head_ref).is_empty()
 
 
 def test_get_chunks_isolated_per_repo(index: Index) -> None:
     """Chunks in repo 1 are invisible to repo 2."""
     with index.session() as ws:
-        ws.register_repo("/repo1")
-        ws.register_repo("/repo2")
+        repo1 = ws.register_repo("/repo1")
+        repo2 = ws.register_repo("/repo2")
 
     c1 = make_chunk("r1_fn", path="a.py", blob="b_r1")
     c2 = make_chunk("r2_fn", path="a.py", blob="b_r2")
 
     with index.session() as ws:
         ws.add_chunk(c1)
-        ws.insert_snapshots([make_snap("head", "a.py", "b_r1")], repo_id=1)
+        ws.insert_snapshots([make_snap("head", "a.py", "b_r1")], repo=repo1)
 
     with index.session() as ws:
         ws.add_chunk(c2)
-        ws.insert_snapshots([make_snap("head", "a.py", "b_r2")], repo_id=2)
+        ws.insert_snapshots([make_snap("head", "a.py", "b_r2")], repo=repo2)
 
-    r1_chunks = index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
-    r2_chunks = index.get_chunks(at=SnapshotRef(repo_id=2, snapshot_sha="head"))
+    r1_chunks = index.chunks(at=repo1.at("head"))
+    r2_chunks = index.chunks(at=repo2.at("head"))
 
     assert [c.id for c in r1_chunks] == [c1.id]
     assert [c.id for c in r2_chunks] == [c2.id]
@@ -222,8 +223,8 @@ def test_get_chunks_isolated_per_repo(index: Index) -> None:
 def test_get_edges_isolated_per_repo(index: Index) -> None:
     """Edges in repo 1 are invisible to repo 2."""
     with index.session() as ws:
-        ws.register_repo("/repo1")
-        ws.register_repo("/repo2")
+        repo1 = ws.register_repo("/repo1")
+        repo2 = ws.register_repo("/repo2")
 
     e1 = Edge(
         source_id="a",
@@ -241,17 +242,13 @@ def test_get_edges_isolated_per_repo(index: Index) -> None:
     )
 
     with index.session() as ws:
-        ws.insert_edges([e1], at=SnapshotRef(repo_id=1, snapshot_sha="head"))
+        ws.insert_edges([e1], at=repo1.at("head"))
 
     with index.session() as ws:
-        ws.insert_edges([e2], at=SnapshotRef(repo_id=2, snapshot_sha="head"))
+        ws.insert_edges([e2], at=repo2.at("head"))
 
-    assert index.edges(within=[SnapshotRef(repo_id=1, snapshot_sha="head")])[
-        "source_id"
-    ].to_list() == ["a"]
-    assert index.edges(within=[SnapshotRef(repo_id=2, snapshot_sha="head")])[
-        "source_id"
-    ].to_list() == ["x"]
+    assert index.edges(within=[repo1.at("head")])["source_id"].to_list() == ["a"]
+    assert index.edges(within=[repo2.at("head")])["source_id"].to_list() == ["x"]
 
 
 def test_shared_content_is_one_row_visible_to_both_repos(
@@ -260,12 +257,9 @@ def test_shared_content_is_one_row_visible_to_both_repos(
 ) -> None:
     """Shared content is a single physical row, visible to every repo."""
     index = shared_chunk_index
-    assert [c.id for c in index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))] == [
-        shared_chunk.id
-    ]
-    assert [c.id for c in index.get_chunks(at=SnapshotRef(repo_id=2, snapshot_sha="head"))] == [
-        shared_chunk.id
-    ]
+    repo1, repo2 = index.repos()
+    assert [c.id for c in index.chunks(at=repo1.at("head"))] == [shared_chunk.id]
+    assert [c.id for c in index.chunks(at=repo2.at("head"))] == [shared_chunk.id]
     row = index._cursor.execute("SELECT count(*) FROM chunks").fetchone()
     assert row is not None
     assert row[0] == 1
@@ -277,13 +271,13 @@ def test_shared_chunk_embedded_once_across_repos(
 ) -> None:
     """Embedding the shared chunk once leaves no repo with work to do."""
     index = shared_chunk_index
-    in_repo1 = SnapshotRef(repo_id=1, snapshot_sha="head")
-    in_repo2 = SnapshotRef(repo_id=2, snapshot_sha="head")
+    repo1, repo2 = index.repos()
+    in_repo1 = repo1.at("head")
+    in_repo2 = repo2.at("head")
     assert index.chunk_counts_for_snapshot(at=in_repo1).unembedded == 1
     assert index.chunk_counts_for_snapshot(at=in_repo2).unembedded == 1
 
     with index.session() as ws:
-        ws.register_repo("/repo")
         ws.update_embeddings([shared_chunk.id], [[0.1, 0.2, 0.3]])
 
     assert index.chunk_counts_for_snapshot(at=in_repo1).is_fully_embedded
@@ -302,17 +296,13 @@ def test_cleanup_keeps_chunk_referenced_by_another_repo(
     `cleanup` runs at the end of every build.
     """
     index = shared_chunk_index
+    repo1, repo2 = index.repos()
     with index.session() as ws:
-        ws.register_repo("/repo")
-        cleaned = ws.cleanup(1)
+        cleaned = ws.cleanup(repo1)
     assert cleaned.chunks == 0
     assert index.count_orphan_chunks() == 0
-    assert [c.id for c in index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))] == [
-        shared_chunk.id
-    ]
-    assert [c.id for c in index.get_chunks(at=SnapshotRef(repo_id=2, snapshot_sha="head"))] == [
-        shared_chunk.id
-    ]
+    assert [c.id for c in index.chunks(at=repo1.at("head"))] == [shared_chunk.id]
+    assert [c.id for c in index.chunks(at=repo2.at("head"))] == [shared_chunk.id]
 
 
 def test_shared_chunk_swept_only_after_last_repo_drops_it(
@@ -321,20 +311,19 @@ def test_shared_chunk_swept_only_after_last_repo_drops_it(
 ) -> None:
     """Cross-repo refcount: the chunk survives until the last reference goes."""
     index = shared_chunk_index
+    repo1, repo2 = index.repos()
     # Repo 1 drops its commit: shared chunk survives (repo 2 references it).
     with index.session() as ws:
-        first_drop = ws.drop_snapshot(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
+        first_drop = ws.drop_snapshot(at=repo1.at("head"))
     assert first_drop.chunks == 0
-    assert [c.id for c in index.get_chunks(at=SnapshotRef(repo_id=2, snapshot_sha="head"))] == [
-        shared_chunk.id
-    ]
+    assert [c.id for c in index.chunks(at=repo2.at("head"))] == [shared_chunk.id]
 
     # Repo 2 drops its commit: last reference gone, chunk is swept.
     with index.session() as ws:
-        second_drop = ws.drop_snapshot(at=SnapshotRef(repo_id=2, snapshot_sha="head"))
+        second_drop = ws.drop_snapshot(at=repo2.at("head"))
     assert second_drop.chunks == 1
     assert index.count_orphan_chunks() == 0
-    assert index.get_chunks(at=SnapshotRef(repo_id=2, snapshot_sha="head")) == []
+    assert index.chunks(at=repo2.at("head")) == []
 
 
 def test_rechunk_of_shared_blob_propagates_to_all_repos(
@@ -348,21 +337,17 @@ def test_rechunk_of_shared_blob_propagates_to_all_repos(
     triggered the re-chunk — sees the new chunks, without re-indexing.
     """
     index = shared_chunk_index  # repos 1 and 2 reference blob "b_shared"
+    repo1, repo2 = index.repos()
     rechunked = make_chunk("shared_fn_v2", path="x.py", blob="b_shared").model_copy(
         update={"extraction_serial": 2}
     )
     # A different name, so a different id: the upgrade replaces the row.
     with index.session() as ws:
-        ws.register_repo("/repo")
         ws.delete_chunks_for_blobs({"b_shared"}, file_language="")
         ws.add_chunk(rechunked)
 
-    assert [c.id for c in index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))] == [
-        rechunked.id
-    ]
-    assert [c.id for c in index.get_chunks(at=SnapshotRef(repo_id=2, snapshot_sha="head"))] == [
-        rechunked.id
-    ]
+    assert [c.id for c in index.chunks(at=repo1.at("head"))] == [rechunked.id]
+    assert [c.id for c in index.chunks(at=repo2.at("head"))] == [rechunked.id]
 
 
 def test_drop_snapshot_keeps_a_chunk_still_reachable_at_another_path(
@@ -376,23 +361,21 @@ def test_drop_snapshot_keeps_a_chunk_still_reachable_at_another_path(
     would empty a file that has not changed.
     """
     with index.session() as ws:
-        ws.register_repo("/repo")
+        repo = ws.register_repo("/repo")
         shared = make_chunk("shared", path="a.py", blob="b")
         ws.add_chunk(shared)
         # c1 references the blob at both paths; c2 keeps only a.py.
-        ws.insert_snapshots([make_snap("c1", "a.py", "b"), make_snap("c1", "b.py", "b")], repo_id=1)
-        ws.insert_snapshots([make_snap("c2", "a.py", "b")], repo_id=1)
-        ws.mark_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
-        ws.mark_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="c2"))
+        ws.insert_snapshots([make_snap("c1", "a.py", "b"), make_snap("c1", "b.py", "b")], repo=repo)
+        ws.insert_snapshots([make_snap("c2", "a.py", "b")], repo=repo)
+        ws.mark_indexed(at=repo.at("c1"))
+        ws.mark_indexed(at=repo.at("c2"))
 
     with index.session() as ws:
-        dropped = ws.drop_snapshot(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
+        dropped = ws.drop_snapshot(at=repo.at("c1"))
 
     assert dropped.chunks == 0
     assert index.count_orphan_chunks() == 0
-    assert [c.id for c in index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="c2"))] == [
-        shared.id
-    ]
+    assert [c.id for c in index.chunks(at=repo.at("c2"))] == [shared.id]
 
 
 def test_inbound_refs_to_shared_chunk_resolve_per_repo(
@@ -406,8 +389,8 @@ def test_inbound_refs_to_shared_chunk_resolve_per_repo(
     resolve the querying repo's referrer, never the other repo's.
     """
     index = shared_chunk_index
+    repo1, repo2 = index.repos()
     with index.session() as ws:
-        ws.register_repo("/repo")
         imp1 = make_chunk(
             "imp1",
             name="from m import shared_fn",
@@ -416,7 +399,7 @@ def test_inbound_refs_to_shared_chunk_resolve_per_repo(
             kind=ChunkKind.IMPORT,
         )
         ws.add_chunk(imp1)
-        ws.insert_snapshots([make_snap("head", "a.py", "b_imp1")], repo_id=1)
+        ws.insert_snapshots([make_snap("head", "a.py", "b_imp1")], repo=repo1)
         ws.insert_edges(
             [
                 Edge(
@@ -427,7 +410,7 @@ def test_inbound_refs_to_shared_chunk_resolve_per_repo(
                     target_path=shared_chunk.file_path,
                 )
             ],
-            at=SnapshotRef(repo_id=1, snapshot_sha="head"),
+            at=repo1.at("head"),
         )
         imp2 = make_chunk(
             "imp2",
@@ -437,7 +420,7 @@ def test_inbound_refs_to_shared_chunk_resolve_per_repo(
             kind=ChunkKind.IMPORT,
         )
         ws.add_chunk(imp2)
-        ws.insert_snapshots([make_snap("head", "b.py", "b_imp2")], repo_id=2)
+        ws.insert_snapshots([make_snap("head", "b.py", "b_imp2")], repo=repo2)
         ws.insert_edges(
             [
                 Edge(
@@ -448,15 +431,11 @@ def test_inbound_refs_to_shared_chunk_resolve_per_repo(
                     target_path=shared_chunk.file_path,
                 )
             ],
-            at=SnapshotRef(repo_id=2, snapshot_sha="head"),
+            at=repo2.at("head"),
         )
 
-    r1 = index.inbound_refs(
-        [shared_chunk.id], at=SnapshotRef(repo_id=1, snapshot_sha="head")
-    ).to_dicts()
-    r2 = index.inbound_refs(
-        [shared_chunk.id], at=SnapshotRef(repo_id=2, snapshot_sha="head")
-    ).to_dicts()
+    r1 = index.inbound_refs([shared_chunk.id], at=repo1.at("head")).to_dicts()
+    r2 = index.inbound_refs([shared_chunk.id], at=repo2.at("head")).to_dicts()
     assert [row["file_path"] for row in r1] == ["a.py"]
     assert [row["file_path"] for row in r2] == ["b.py"]
 
@@ -465,11 +444,12 @@ def test_inbound_refs_to_shared_chunk_resolve_per_repo(
 @parametrize_with_cases("scenario", cases=".cases_read", has_tag="gc_counts")
 def gc_count_query(scenario: GcCountScenario, index: Index) -> tuple[Index, GcCountScenario]:
     with index.session() as ws:
+        repos = [ws.register_repo("/repo1"), ws.register_repo("/repo2")]
         for c in scenario.chunks:
             ws.add_chunk(c)
         for g in scenario.groups:
-            ws.insert_snapshots(g.snapshots, repo_id=g.ref.repo_id)
-            ws.mark_indexed(at=g.ref)
+            ws.insert_snapshots(g.snapshots, repo=repos[g.checkout])
+            ws.mark_indexed(at=repos[g.checkout].at(g.snapshot_sha))
     return index, scenario
 
 
@@ -483,10 +463,8 @@ def test_gc_chunk_split_counts(
     else it is dropped.
     """
     index, s = gc_count_query
-    assert index.count_gc_chunk_split(s.drop_repo_id, s.drop_shas) == (
-        s.expected_dropped,
-        s.expected_kept,
-    )
+    split = index.count_gc_chunk_split(index.repos()[s.drop_checkout], s.drop_shas)
+    assert (split.dropped, split.kept) == (s.expected_dropped, s.expected_kept)
 
 
 def test_gc_chunk_split_agrees_with_real_deletion(
@@ -502,12 +480,13 @@ def test_gc_chunk_split_agrees_with_real_deletion(
     they must never diverge.
     """
     index, s = gc_count_query
-    predicted_dropped, _kept = index.count_gc_chunk_split(s.drop_repo_id, s.drop_shas)
+    drop = index.repos()[s.drop_checkout]
+    predicted_dropped = index.count_gc_chunk_split(drop, s.drop_shas).dropped
 
     before = index._cursor.execute("SELECT count(*) FROM chunks").fetchone()
     with index.session() as ws:
         for sha in s.drop_shas:
-            ws.drop_snapshot(at=SnapshotRef(repo_id=s.drop_repo_id, snapshot_sha=sha))
+            ws.drop_snapshot(at=drop.at(sha))
     after = index._cursor.execute("SELECT count(*) FROM chunks").fetchone()
 
     assert before is not None
@@ -522,21 +501,21 @@ def test_forget_repo_removes_references_keeps_shared_chunk(
     """forget_repo purges a repo's references and `repos` row but leaves a
     chunk another repo still references; reclamation is gc's job."""
     index = shared_chunk_index
+    repo1, repo2 = index.repos()
     with index.session() as ws:
-        ws.register_repo("/repo")
-        ws.add_watched_refs(1, ["main"])
+        ws.add_watched_refs(repo1, ["main"])
 
     with index.session() as ws:
-        ws.forget_repo(1)
+        ws.forget_repo(repo1)
 
     # Repo 1 is gone entirely.
-    assert index.get_repo_id("/repo1") is None
-    assert index.list_watched_refs(1) == []
-    assert index.has_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="head")) is False
+    assert index.find_repo("/repo1") is None
+    assert index.watched_refs(repo1) == []
+    assert index.has_indexed(at=repo1.at("head")) is False
     # Repo 2 is untouched and the shared chunk is still visible to it.
-    assert index.get_repo_id("/repo2") == 2
-    assert index.has_indexed(at=SnapshotRef(repo_id=2, snapshot_sha="head")) is True
-    assert len(index.get_chunks(at=SnapshotRef(repo_id=2, snapshot_sha="head"))) > 0
+    assert index.find_repo("/repo2") == repo2
+    assert index.has_indexed(at=repo2.at("head")) is True
+    assert len(index.chunks(at=repo2.at("head"))) > 0
 
 
 def test_forget_repo_leaves_orphan_chunks_for_gc(
@@ -545,14 +524,14 @@ def test_forget_repo_leaves_orphan_chunks_for_gc(
     """forget_repo does not sweep: a chunk only the forgotten repo
     referenced becomes an orphan that a later GC reclaims."""
     index = shared_chunk_index
+    repo1, _repo2 = index.repos()
     with index.session() as ws:
-        ws.register_repo("/repo")
         ws.add_chunk(make_chunk("only1", path="y.py", blob="b_only1"))
-        ws.insert_snapshots([make_snap("head", "y.py", "b_only1")], repo_id=1)
+        ws.insert_snapshots([make_snap("head", "y.py", "b_only1")], repo=repo1)
     assert index.count_orphan_chunks() == 0
 
     with index.session() as ws:
-        ws.forget_repo(1)
+        ws.forget_repo(repo1)
 
     # only1 is now unreferenced (repo 1 gone) but still present — no sweep.
     # (A sweep would have removed it, leaving zero orphans.)
@@ -565,22 +544,20 @@ def test_forget_repo_purges_indexed_snapshots_incl_worktree_sha(
     """Every indexed commit for the repo — HEAD and any worktree tree SHA —
     is purged along with the `repos` row."""
     with index.session() as ws:
-        ws.register_repo("/r")
+        repo = ws.register_repo("/r")
         ws.add_chunk(make_chunk("c", path="a.py", blob="b"))
-        ws.insert_snapshots([make_snap("headsha", "a.py", "b")], repo_id=1)
-        ws.mark_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="headsha"))
-        ws.mark_indexed(
-            at=SnapshotRef(repo_id=1, snapshot_sha="treesha")
-        )  # a working-tree tree SHA
-    assert index.has_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="headsha")) is True
-    assert index.has_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="treesha")) is True
+        ws.insert_snapshots([make_snap("headsha", "a.py", "b")], repo=repo)
+        ws.mark_indexed(at=repo.at("headsha"))
+        ws.mark_indexed(at=repo.at("treesha"))  # a working-tree tree SHA
+    assert index.has_indexed(at=repo.at("headsha")) is True
+    assert index.has_indexed(at=repo.at("treesha")) is True
 
     with index.session() as ws:
-        ws.forget_repo(1)
+        ws.forget_repo(repo)
 
-    assert index.get_repo_id("/r") is None
-    assert index.has_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="headsha")) is False
-    assert index.has_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="treesha")) is False
+    assert index.find_repo("/r") is None
+    assert index.has_indexed(at=repo.at("headsha")) is False
+    assert index.has_indexed(at=repo.at("treesha")) is False
 
 
 def test_an_indexed_snapshot_with_no_chunks_counts_zero(index: Index) -> None:
@@ -591,13 +568,13 @@ def test_an_indexed_snapshot_with_no_chunks_counts_zero(index: Index) -> None:
     zeroes and the caller reads a figure rather than supplying one.
     """
     with index.session() as ws:
-        ws.register_repo("/r")
-        ws.mark_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
+        repo = ws.register_repo("/r")
+        ws.mark_indexed(at=repo.at("c1"))
 
-    counts = index.chunk_counts_for_snapshot(at=SnapshotRef(repo_id=1, snapshot_sha="c1"))
+    counts = index.chunk_counts_for_snapshot(at=repo.at("c1"))
     assert counts.total == 0
     assert counts.is_fully_embedded, "nothing outstanding means no embed work"
-    assert [ref.snapshot_sha for ref, _ in index.chunk_counts_by_snapshot(repo_id=1)] == ["c1"]
+    assert [ref.snapshot_sha for ref in index.chunk_counts_by_snapshot(repo=repo)] == ["c1"]
 
 
 @parametrize_with_cases("scenario", cases=".cases_read", has_tag="embed_order")
@@ -609,9 +586,9 @@ def test_counts_come_back_in_embed_order(scenario: EmbedOrderScenario, index: In
     """
     for shas in scenario.transactions:
         with index.session() as ws:
-            ws.register_repo("/r")
+            repo = ws.register_repo("/r")
             for sha in shas:
-                ws.mark_indexed(at=SnapshotRef(repo_id=1, snapshot_sha=sha))
+                ws.mark_indexed(at=repo.at(sha))
 
-    counted = index.chunk_counts_by_snapshot(repo_id=1)
-    assert [ref.snapshot_sha for ref, _ in counted] == scenario.expected
+    counted = index.chunk_counts_by_snapshot(repo=repo)
+    assert [ref.snapshot_sha for ref in counted] == scenario.expected

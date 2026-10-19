@@ -684,17 +684,16 @@ def search(
     reranker: Reranker | None = None,
     reranker_pool: int | None = None,
     reranker_blend_weight: float | None = None,
-    repo_paths: dict[int, str] | None = None,
+    attribute_repos: bool = False,
 ) -> list[ScoredChunk]:
     """Fused search combining lexical, semantic, and name signals.
 
-    *within* lists the `(repo_id, snapshot_sha)` snapshots to search
+    *within* lists the snapshots to search
     across.  One ref is a single-repo search; many refs fan the
     query across repos and merge results into one ranked list.
 
-    *repo_paths* maps `repo_id` to a filesystem path; when given,
-    each result's `repo_path` is populated for cross-repo
-    attribution.
+    *attribute_repos* sets each result's `repo_path` to its repo's, for
+    cross-repo attribution; otherwise it stays `None`.
 
     Classifies the query, selects fusion weights, prepares
     expansion inputs, delegates to `_retrieve` for
@@ -743,4 +742,5 @@ def search(
     )
     if reranker is not None:
         frame = reranker.rerank(query, frame, top_k=top_k, blend_weight=blend)
+    repo_paths = {r.repo.repo_id: r.repo.repo_path for r in within} if attribute_repos else None
     return materialise_scored(frame, repo_paths, effective_kind, lex_query=lex_query)

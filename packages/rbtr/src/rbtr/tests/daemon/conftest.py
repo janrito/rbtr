@@ -21,7 +21,7 @@ import pygit2
 import pytest
 
 from rbtr.daemon.server import DaemonServer
-from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot, SnapshotRef
+from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot
 from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
 
@@ -120,7 +120,7 @@ def seeded_index(
     """The root store pre-loaded with daemon test data for one repo."""
     chunks = daemon_chunks
     with index.session() as ws:
-        repo_id = ws.register_repo(fake_repo)
+        repo = ws.register_repo(fake_repo)
         for c in chunks:
             ws.add_chunk(c)
         ws.insert_snapshots(
@@ -128,10 +128,10 @@ def seeded_index(
                 FileSnapshot(snapshot_sha=daemon_commit, file_path=c.file_path, blob_sha=c.blob_sha)
                 for c in chunks
             ],
-            repo_id=repo_id,
+            repo=repo,
         )
-        ws.insert_edges(daemon_edges, at=SnapshotRef(repo_id=repo_id, snapshot_sha=daemon_commit))
-        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=daemon_commit))
+        ws.insert_edges(daemon_edges, at=repo.at(daemon_commit))
+        ws.mark_indexed(at=repo.at(daemon_commit))
     return index
 
 
@@ -144,7 +144,7 @@ def changed_head(seeded_index: Index, fake_repo: str) -> str:
     the diff is keyed on the stored snapshots, not on git tree content.
     """
     head = "f" * 40
-    repo_id = seeded_index.resolve_repo(fake_repo)
+    repo = seeded_index.repo(fake_repo)
     with seeded_index.session() as ws:
         ws.add_chunk(
             make_chunk(
@@ -173,9 +173,9 @@ def changed_head(seeded_index: Index, fake_repo: str) -> str:
                 ),
                 FileSnapshot(snapshot_sha=head, file_path="src/app.py", blob_sha="blob_app"),
             ],
-            repo_id=repo_id,
+            repo=repo,
         )
-        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=head))
+        ws.mark_indexed(at=repo.at(head))
     return head
 
 

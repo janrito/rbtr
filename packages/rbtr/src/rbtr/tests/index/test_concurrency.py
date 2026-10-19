@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from rbtr.domain.models import Edge, EdgeKind, FileSnapshot, SnapshotRef
+from rbtr.domain.models import Edge, EdgeKind, FileSnapshot
 from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
 
@@ -20,7 +20,7 @@ def test_concurrent_write_then_read(
 
     def writer() -> None:
         with index.session() as ws:
-            ws.register_repo("/repo")
+            repo = ws.register_repo("/repo")
             ws.add_chunk(math_func)
             ws.add_chunk(http_func)
             ws.add_chunk(string_func)
@@ -33,7 +33,7 @@ def test_concurrent_write_then_read(
                     )
                     for c in [math_func, http_func, string_func]
                 ],
-                repo_id=1,
+                repo=repo,
             )
             ws.insert_edges(
                 [
@@ -45,15 +45,16 @@ def test_concurrent_write_then_read(
                         target_path=http_func.file_path,
                     )
                 ],
-                at=SnapshotRef(repo_id=1, snapshot_sha="head"),
+                at=repo.at("head"),
             )
 
     t = threading.Thread(target=writer)
     t.start()
     t.join()
 
-    assert len(index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))) == 3
-    assert len(index.edges(within=[SnapshotRef(repo_id=1, snapshot_sha="head")])) == 1
+    written = index.repo("/repo").at("head")
+    assert len(index.chunks(at=written)) == 3
+    assert len(index.edges(within=[written])) == 1
     index.close()
 
 
@@ -65,6 +66,8 @@ def test_commit_makes_writes_visible_during_concurrent_work(
     """After session exit, a second thread sees rows while the
     writer continues with embedding updates."""
     index = Index(writable=True)
+    with index.session() as ws:
+        repo = ws.register_repo("/repo")
     first_done = threading.Event()
 
     def writer() -> None:
@@ -80,7 +83,7 @@ def test_commit_makes_writes_visible_during_concurrent_work(
                     )
                     for c in [math_func, http_func, string_func]
                 ],
-                repo_id=1,
+                repo=repo,
             )
         first_done.set()
         with index.session() as session:
@@ -92,7 +95,7 @@ def test_commit_makes_writes_visible_during_concurrent_work(
     t.start()
 
     first_done.wait(timeout=5)
-    assert len(index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))) == 3
+    assert len(index.chunks(at=repo.at("head"))) == 3
 
     t.join()
     index.close()
@@ -102,6 +105,8 @@ def test_concurrent_batch_and_search(tmp_path: Path) -> None:
     """Reader gets results while writer runs batches on another thread."""
     db_path = tmp_path / "index.duckdb"
     index = Index(db_path, writable=True)
+    with index.session() as ws:
+        repo = ws.register_repo("/repo")
 
     chunks = [
         make_chunk(
@@ -117,7 +122,7 @@ def test_concurrent_batch_and_search(tmp_path: Path) -> None:
                 FileSnapshot(snapshot_sha="head", file_path=c.file_path, blob_sha=c.blob_sha)
                 for c in chunks
             ],
-            repo_id=1,
+            repo=repo,
         )
 
     errors: list[str] = []
@@ -140,7 +145,7 @@ def test_concurrent_batch_and_search(tmp_path: Path) -> None:
                             snapshot_sha="head", file_path=extra.file_path, blob_sha=extra.blob_sha
                         )
                     ],
-                    repo_id=1,
+                    repo=repo,
                 )
         stop.set()
 
@@ -148,9 +153,7 @@ def test_concurrent_batch_and_search(tmp_path: Path) -> None:
         nonlocal good_reads
         while not stop.is_set():
             try:
-                results = index.fulltext_matches(
-                    "common_term", within=[SnapshotRef(repo_id=1, snapshot_sha="head")], top_k=5
-                )
+                results = index.fulltext_matches("common_term", within=[repo.at("head")], top_k=5)
                 if len(results) > 0:
                     good_reads += 1
             except Exception as exc:  # noqa: BLE001
@@ -180,6 +183,8 @@ def test_index_survives_threads_that_write_and_exit(
     it passes with or without the import.
     """
     index = Index(writable=True)
+    with index.session() as ws:
+        repo = ws.register_repo("/repo")
     seen: list[int] = []
 
     def write(chunk: TokenisedChunk) -> None:
@@ -191,11 +196,11 @@ def test_index_survives_threads_that_write_and_exit(
                         snapshot_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha
                     )
                 ],
-                repo_id=1,
+                repo=repo,
             )
 
     def read() -> None:
-        seen.append(len(index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))))
+        seen.append(len(index.chunks(at=repo.at("head"))))
 
     for chunk in (math_func, http_func):
         for work in (lambda c=chunk: write(c), read):

@@ -24,7 +24,7 @@ from rbtr.config import WeightTriple
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import SearchRequest, SearchResponse
 from rbtr.daemon.server import DaemonServer
-from rbtr.domain.models import FileSnapshot, SnapshotRef
+from rbtr.domain.models import FileSnapshot
 from rbtr.index.embeddings import Embedder
 from rbtr.index.index import Index
 from rbtr.index.search import search
@@ -113,7 +113,7 @@ def channel_index(
         ("ch_parse", "src/parse.py", "parse_config", "def parse_config(path): return load(path)"),
     ]
     with index.session() as ws:
-        repo_id = ws.register_repo(fake_repo)
+        repo = ws.register_repo(fake_repo)
         chunks = [
             make_chunk(cid, name=name, content=content, path=path, blob=f"b_{cid}")
             for cid, path, name, content in specs
@@ -129,9 +129,9 @@ def channel_index(
                 FileSnapshot(snapshot_sha=sha, file_path=c.file_path, blob_sha=c.blob_sha)
                 for c in chunks
             ],
-            repo_id=repo_id,
+            repo=repo,
         )
-        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
+        ws.mark_indexed(at=repo.at(sha))
     return index
 
 
@@ -179,10 +179,11 @@ def test_daemon_and_direct_search_produce_identical_results(
     # Via direct store.search — the request sent no keywords/variants, so
     # the daemon applied no expansion; mirror that with the reranker it used.
     sha = str(pygit2.Repository(fake_repo).head.target)
+    [repo] = channel_index.repos()
     direct_results = search(
         channel_index,
         query,
-        within=[SnapshotRef(repo_id=1, snapshot_sha=sha)],
+        within=[repo.at(sha)],
         top_k=5,
         embedder=embedder,
         reranker=running_daemon._reranker,

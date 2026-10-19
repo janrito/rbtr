@@ -17,7 +17,7 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.domain.models import FileSnapshot, SnapshotRef
+from rbtr.domain.models import FileSnapshot
 from rbtr.index.index import Index
 
 from ..conftest import run_cli
@@ -69,9 +69,9 @@ def two_repos(tmp_path: Path, isolated_db: Path) -> TwoRepos:
                         snapshot_sha=head, file_path="shared.py", blob_sha=f"blob_shared_{uniq}"
                     ),
                 ],
-                repo_id=repo_id,
+                repo=repo_id,
             )
-            ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=head))
+            ws.mark_indexed(at=repo_id.at(head))
     index.close()
     return TwoRepos(path_a=path_a, path_b=path_b)
 

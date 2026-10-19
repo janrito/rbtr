@@ -32,7 +32,7 @@ from rbtr.domain.models import (
     FileOutcome,
     FileSnapshot,
     IndexResult,
-    SnapshotRef,
+    Repo,
 )
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.errors import BuildStopped
@@ -117,7 +117,7 @@ def _extract_and_store_chunks(
     index: Index,
     repo_path: str,
     snapshot_sha: str,
-    repo_id: int,
+    repo: Repo,
     base_sha: str | None = None,
     on_progress: ProgressCallback = _noop_progress,
     stop: threading.Event | None = None,
@@ -183,7 +183,7 @@ def _extract_and_store_chunks(
             # file was extracted as, so a row without one has no chunks.
             detected_lang = mgr.detect_language(entry.path) or ""
             if not detected_lang:
-                detected_lang = index.get_snapshot_language(entry.path, repo_id=repo_id)
+                detected_lang = index.get_snapshot_language(entry.path, repo=repo)
 
             # A file contributes no chunks when it is unchanged since the
             # base snapshot, or when the gate finds its blob already
@@ -237,9 +237,7 @@ def _extract_and_store_chunks(
 
             on_progress("parsing", result.stats.total_files, result.stats.total_files)
 
-        session.replace_snapshots(
-            snapshots, at=SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha)
-        )
+        session.replace_snapshots(snapshots, at=repo.at(snapshot_sha))
 
     # Every outcome that occurred, by name, so a run's file count is
     # accounted for in the log line that reports it.
@@ -259,7 +257,7 @@ def _infer_and_store_edges(
     repo_files: set[str],
     manifests: dict[str, str],
     snapshot_sha: str,
-    repo_id: int,
+    repo: Repo,
     on_progress: ProgressCallback,
 ) -> int:
     """Infer cross-file edges and write them. Returns edge count."""
@@ -270,20 +268,20 @@ def _infer_and_store_edges(
     edges.extend(infer_import_edges(chunks, repo_files, resolution_map))
 
     with index.session() as session:
-        session.replace_edges(edges, at=SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha))
+        session.replace_edges(edges, at=repo.at(snapshot_sha))
 
     log.info("inferred_edges", edges=len(edges))
     return len(edges)
 
 
 def _mark_indexed_and_cleanup(
-    *, index: Index, repo_id: int, snapshot_sha: str, on_progress: ProgressCallback
+    *, index: Index, repo: Repo, snapshot_sha: str, on_progress: ProgressCallback
 ) -> None:
     """Mark the commit indexed and remove orphaned data."""
     on_progress("finalising", 0, 0)
     with index.session() as session:
-        session.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha))
-        cleaned = session.cleanup(repo_id)
+        session.mark_indexed(at=repo.at(snapshot_sha))
+        cleaned = session.cleanup(repo)
         if cleaned.file_snapshots or cleaned.edges or cleaned.chunks:
             log.info(
                 "cleanup",
@@ -314,9 +312,9 @@ def build_index(
 
     *repo_path* may be any path inside the repository; it is resolved
     to the root and registered if not already known, since indexing a
-    path is what puts a repo in the index.  The `repo_id` comes from
-    that lookup rather than from the caller, so it always matches the
-    path being built.  A linked worktree resolves to its own
+    path is what puts a repo in the index.  The repo comes from that
+    lookup rather than from the caller, so it always matches the path
+    being built.  A linked worktree resolves to its own
     directory, and so is built as a repo of its own.
 
     When *base_sha* is provided, only files that changed between
@@ -334,14 +332,14 @@ def build_index(
     # indexed rows that nothing can find.
     repo_path = normalise_repo_path(repo_path)
     with index.session() as session:
-        repo_id = session.register_repo(repo_path)
+        repo = session.register_repo(repo_path)
 
     # Phase 1: extract chunks from git, write to DB.
     extracted = _extract_and_store_chunks(
         index=index,
         repo_path=repo_path,
         snapshot_sha=snapshot_sha,
-        repo_id=repo_id,
+        repo=repo,
         base_sha=base_sha,
         on_progress=on_progress,
         stop=stop,
@@ -352,7 +350,7 @@ def build_index(
     # Fetch committed chunks for edge inference.
     # Lightweight: skips content_tokens/name_tokens (~37% smaller).
     result = extracted.result
-    all_chunks = index.get_chunks(at=SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha))
+    all_chunks = index.chunks(at=repo.at(snapshot_sha))
 
     # Phase 2: infer cross-file edges.
     result.stats.total_edges = _infer_and_store_edges(
@@ -361,7 +359,7 @@ def build_index(
         repo_files=extracted.repo_files,
         manifests=extracted.manifests,
         snapshot_sha=snapshot_sha,
-        repo_id=repo_id,
+        repo=repo,
         on_progress=on_progress,
     )
     if stop is not None and stop.is_set():
@@ -369,7 +367,7 @@ def build_index(
 
     # Phase 3: mark complete and remove orphaned data.
     _mark_indexed_and_cleanup(
-        index=index, repo_id=repo_id, snapshot_sha=snapshot_sha, on_progress=on_progress
+        index=index, repo=repo, snapshot_sha=snapshot_sha, on_progress=on_progress
     )
 
     result.stats.total_chunks = len(all_chunks)

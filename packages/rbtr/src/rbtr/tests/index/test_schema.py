@@ -20,7 +20,7 @@ from pytest_cases import fixture, parametrize_with_cases
 from pytest_mock import MockerFixture
 
 from rbtr.config import config
-from rbtr.domain.models import FileSnapshot, SnapshotRef
+from rbtr.domain.models import FileSnapshot
 from rbtr.errors import IndexNotBuiltError, IndexSchemaTooNewError
 from rbtr.index.constants import EMBEDDING_FORMAT_VERSION
 from rbtr.index.index import Index
@@ -67,6 +67,7 @@ def reopened(
     else:
         seed = Index(path, writable=True)
         with seed.session() as ws:
+            repo = ws.register_repo("/repo")
             for chunk in before.seeded_chunks:
                 tc = (
                     chunk
@@ -84,7 +85,7 @@ def reopened(
                         )
                         for c in before.seeded_chunks
                     ],
-                    repo_id=1,
+                    repo=repo,
                 )
             if before.seeded_embeddings:
                 ids = list(before.seeded_embeddings.keys())
@@ -124,11 +125,12 @@ def test_chunks_survive_matches_scenario(
     index, scenario = reopened
     if not scenario.before.seeded_chunks:
         return
-    chunks = index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
     if scenario.expected_chunks_survive:
-        assert chunks, "expected chunks to survive"
+        [repo] = index.repos()
+        assert index.chunks(at=repo.at("head")), "expected chunks to survive"
     else:
-        assert not chunks, "expected chunks to be wiped"
+        assert not index.repos(), "expected the index to be wiped"
+        assert not index.distinct_chunk_languages(), "expected chunks to be wiped"
 
 
 def test_embeddings_survive_matches_scenario(
@@ -137,7 +139,8 @@ def test_embeddings_survive_matches_scenario(
     index, scenario = reopened
     if not scenario.before.seeded_embeddings:
         return
-    chunks = index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
+    [repo] = index.repos()
+    chunks = index.chunks(at=repo.at("head"))
     if not chunks:
         assert not scenario.expected_chunks_survive
         return
@@ -166,10 +169,11 @@ def _seed_one_chunk(path: Path) -> None:
     """Seed *path* with a single indexed chunk at the current schema."""
     seed = Index(path, writable=True)
     with seed.session() as ws:
+        repo = ws.register_repo("/repo")
         ws.add_chunk(make_chunk("c1"))
         ws.insert_snapshots(
             [FileSnapshot(snapshot_sha="head", file_path="f.py", blob_sha="blob_c1")],
-            repo_id=1,
+            repo=repo,
         )
     seed.close()
 
@@ -219,9 +223,8 @@ def test_schema_wipe_is_in_place_not_unlink(tmp_path: Path) -> None:
     index = Index(path, writable=True)  # newer code -> wipe in place
     try:
         assert path.stat().st_ino == inode_before, "wipe must not unlink/recreate the DB file"
-        assert not index.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head")), (
-            "stale data must be wiped"
-        )
+        assert not index.repos(), "stale data must be wiped"
+        assert not index.distinct_chunk_languages(), "stale data must be wiped"
     finally:
         index.close()
 
@@ -242,12 +245,13 @@ def test_fts_persists_across_reopen(tmp_path: Path) -> None:
 
     index1 = Index(db_path, writable=True)
     with index1.session() as ws:
+        repo = ws.register_repo("/repo")
         ws.add_chunk(chunk)
         ws.insert_snapshots(
             [FileSnapshot(snapshot_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha)],
-            repo_id=1,
+            repo=repo,
         )
-    ref = SnapshotRef(repo_id=1, snapshot_sha="head")
+    ref = repo.at("head")
     assert len(index1.fulltext_matches("persist", within=[ref], top_k=5)) == 1
     index1.close()
 

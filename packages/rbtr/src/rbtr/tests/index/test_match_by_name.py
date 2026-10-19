@@ -97,5 +97,5 @@ def test_match_by_name_tiering(
     pattern: str,
     expected_names: set[str],
 ) -> None:
-    results = name_index.match_by_name(pattern, at=SnapshotRef(repo_id=1, snapshot_sha=COMMIT))
-    assert {c.name for c in results} == expected_names
+    [repo] = name_index.repos()
+    assert set(name_index.name_matches(pattern, within=[repo.at(COMMIT)])["name"]) == expected_names

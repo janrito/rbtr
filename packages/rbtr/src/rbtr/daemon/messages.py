@@ -95,17 +95,16 @@ class BuildJob(BaseModel):
 
 
 class EmbedJob(BaseModel):
-    """An embed job, derived from a snapshot's unembedded chunks.
-
-    `at` names the snapshot to embed; `repo_path` is what the
-    progress notifications report, and the snapshot does not carry
-    it.
-    """
+    """An embed job, derived from a snapshot's unembedded chunks: a repo's snapshot."""
 
     model_config = _STRICT
     kind: Literal["embed"] = "embed"
-    repo_path: str
     at: SnapshotRef
+
+    @property
+    def repo_path(self) -> str:
+        """The repo's path, which progress notifications report."""
+        return self.at.repo.repo_path
 
 
 def _decode_json_array(text: str) -> Any:

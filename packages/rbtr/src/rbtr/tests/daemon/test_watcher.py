@@ -20,7 +20,6 @@ from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.config import config
 from rbtr.daemon.watcher import DirtyWorktree, WatchedTarget, poll_watched, poll_worktree
-from rbtr.domain.models import SnapshotRef
 from rbtr.git import normalise_repo_path, worktree_tree_sha
 from rbtr.index.index import Index
 
@@ -89,15 +88,13 @@ def seeded_index(
             continue
         built = built_repos[spec.name]
         with index.session() as ws:
-            repo_id = ws.register_repo(built.path)
+            repo = ws.register_repo(built.path)
             marked_index = scenario.indexed_at.get(spec.name)
             if marked_index is not None:
-                ws.mark_indexed(
-                    at=SnapshotRef(repo_id=repo_id, snapshot_sha=built.shas[marked_index])
-                )
+                ws.mark_indexed(at=repo.at(built.shas[marked_index]))
             symbolic = scenario.watched.get(spec.name, [])
             bare = [built.shas[i] for i in scenario.watched_sha_at.get(spec.name, [])]
-            ws.add_watched_refs(repo_id, [*symbolic, *bare])
+            ws.add_watched_refs(repo, [*symbolic, *bare])
     return index
 
 
@@ -165,15 +162,15 @@ def wt_index(
 ) -> Index:
     """Store with the repo registered and optionally tree-SHA-indexed."""
     with index.session() as ws:
-        repo_id = ws.register_repo(wt_repo)
+        repo = ws.register_repo(wt_repo)
         # Mark HEAD indexed (so poll() doesn't interfere).
         if wt_scenario.repo_exists:
             head_sha = pygit2.Repository(wt_repo).head.target
-            ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=str(head_sha)))
+            ws.mark_indexed(at=repo.at(str(head_sha)))
         if wt_scenario.tree_sha_indexed:
             tree_sha = worktree_tree_sha(wt_repo, max_untracked_files=config.max_untracked_files)
             if tree_sha is not None:
-                ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tree_sha))
+                ws.mark_indexed(at=repo.at(tree_sha))
     return index
 
 
@@ -207,19 +204,17 @@ def test_poll_watched_never_forgets_a_vanished_repo(
     must never auto-reclaim, since the path may be transiently absent (an
     unmounted volume)."""
     with index.session() as ws:
-        repo_id = ws.register_repo(fake_repo)
-        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=daemon_commit))
-        ws.add_watched_refs(repo_id, ["HEAD"])
-    registered_before = index.list_repos()
+        repo = ws.register_repo(fake_repo)
+        ws.mark_indexed(at=repo.at(daemon_commit))
+        ws.add_watched_refs(repo, ["HEAD"])
+    registered_before = index.repos()
 
     shutil.rmtree(fake_repo)  # the checkout disappears
     targets = poll_watched(index)
 
     assert targets == []  # vanished repo yields no build
-    assert index.list_repos() == registered_before  # still registered — not purged
-    assert (
-        index.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=daemon_commit)) is True
-    )  # its data is intact
+    assert index.repos() == registered_before  # still registered — not purged
+    assert index.has_indexed(at=repo.at(daemon_commit)) is True  # its data is intact
 
 
 def test_rbtrs_own_data_inside_a_repo_leaves_it_clean(

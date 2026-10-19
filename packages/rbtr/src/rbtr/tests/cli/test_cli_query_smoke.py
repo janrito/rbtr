@@ -15,7 +15,7 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot, SnapshotRef
+from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
@@ -81,7 +81,7 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
 
     index = Index.from_config(writable=True)
     with index.session() as ws:
-        repo_id = ws.register_repo(str(repo_path))
+        repo_repo = ws.register_repo(str(repo_path))
 
     func_content_v1 = "def load_config(path):\n    return open(path).read()\n"
     func_name = "load_config"
@@ -172,10 +172,10 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
                 FileSnapshot(snapshot_sha=c1, file_path=c.file_path, blob_sha=c.blob_sha)
                 for c in chunks_c1
             ],
-            repo_id=repo_id,
+            repo=repo_repo,
         )
-        ws.insert_edges(edges_c1, at=SnapshotRef(repo_id=repo_id, snapshot_sha=c1))
-        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=c1))
+        ws.insert_edges(edges_c1, at=repo_repo.at(c1))
+        ws.mark_indexed(at=repo_repo.at(c1))
 
     with index.session() as ws:
         for c in chunks_c2:
@@ -185,10 +185,10 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
                 FileSnapshot(snapshot_sha=c2, file_path=c.file_path, blob_sha=c.blob_sha)
                 for c in chunks_c2
             ],
-            repo_id=repo_id,
+            repo=repo_repo,
         )
-        ws.insert_edges(edges_c2, at=SnapshotRef(repo_id=repo_id, snapshot_sha=c2))
-        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=c2))
+        ws.insert_edges(edges_c2, at=repo_repo.at(c2))
+        ws.mark_indexed(at=repo_repo.at(c2))
 
     index.close()
     return SeededRepo(path=repo_path, c1=c1, c2=c2)

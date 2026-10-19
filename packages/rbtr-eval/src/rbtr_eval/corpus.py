@@ -42,9 +42,9 @@ def corpus_refs(index: Index) -> Corpus:
     doubles every per-snapshot count in the reports.
     """
     refs: list[SnapshotRef] = []
-    for repo in index.list_repos():
+    for repo in index.repos():
         head = head_sha(repo.repo_path)
-        indexed = {sha for sha, _ in index.list_indexed_snapshots(repo.repo_id)}
+        indexed = {s.snapshot_sha for s in index.indexed_snapshots(repo)}
         if head not in indexed:
             msg = (
                 f"{repo.repo_path}: HEAD {head} is not indexed, so the eval "
@@ -60,7 +60,7 @@ def corpus_refs(index: Index) -> Corpus:
                 f"`rbtr gc --keep-head-only --repo-path {repo.repo_path}`."
             )
             raise RbtrError(msg)
-        refs.append(SnapshotRef(repo_id=repo.repo_id, snapshot_sha=head))
+        refs.append(repo.at(head))
     return Corpus(refs=tuple(refs))
 
 
@@ -70,9 +70,8 @@ def corpus_ref(index: Index, slug: str) -> SnapshotRef:
     Raises `RbtrError` when no registered repo matches, or when the
     index fails the checks `corpus_refs` makes.
     """
-    paths = {repo.repo_id: repo.repo_path for repo in index.list_repos()}
     for ref in corpus_refs(index).refs:
-        if Path(paths[ref.repo_id]).name == slug:
+        if Path(ref.repo.repo_path).name == slug:
             return ref
     msg = f"No indexed repo named {slug!r}. Run the `index` stage first."
     raise RbtrError(msg)

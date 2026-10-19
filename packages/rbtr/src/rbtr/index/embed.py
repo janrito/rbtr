@@ -27,9 +27,8 @@ log = structlog.get_logger(__name__)
 
 def embed_index(
     index: Index,
-    snapshot_sha: str,
     *,
-    repo_id: int,
+    at: SnapshotRef,
     embedder: Embedder,
     on_progress: ProgressCallback = _noop_progress,
 ) -> int:
@@ -41,8 +40,7 @@ def embed_index(
 
     Returns the number of chunks that were embedded.
     """
-    ref = SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha)
-    pending = index.unembedded_chunk_ids(at=ref)
+    pending = index.unembedded_chunk_ids(at=at)
     if not pending:
         return 0
 
@@ -53,7 +51,7 @@ def embed_index(
     t0 = time.perf_counter()
 
     for page_ids in itertools.batched(pending, config.embedding_page_size, strict=False):
-        page = index.get_chunks_by_id(list(page_ids), at=ref)
+        page = index.chunks_by_id(list(page_ids), at=at)
         for batch in itertools.batched(page, config.embedding_batch_size, strict=False):
             texts = [embedding_text(c.name, c.content) for c in batch]
             try:

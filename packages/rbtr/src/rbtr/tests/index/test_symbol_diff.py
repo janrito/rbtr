@@ -45,8 +45,9 @@ def diff_result(
             head_sha = str(head_oid)
         build_index(diff_repo.workdir, head_sha, index, base_sha=base_sha)
 
+    [repo] = index.repos()
     frame = index.changed_symbols(
-        between=SnapshotRange(repo_id=1, base_sha=base_sha, head_sha=head_sha),
+        between=SnapshotRange(repo=repo, base_sha=base_sha, head_sha=head_sha),
         file_paths=scenario.file_paths,
     )
     return scenario, frame, changed_to_symbols(frame)

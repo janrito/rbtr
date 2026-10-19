@@ -27,13 +27,13 @@ class RbtrError(Exception):
 class MissingSnapshot:
     """The snapshot a read needed, and the ref the caller named it by.
 
-    The repo and commit are a `SnapshotRef`'s, held as plain values:
-    errors sit below the domain layer. Internal-only, like
-    `SnapshotRef`: raised by a handler and read by the server, it never
-    crosses the RPC boundary.
+    The repo is named by its path, as clients name it; the values are
+    plain because errors sit below the domain layer. Internal-only:
+    raised by a handler and read by the server, it never crosses the RPC
+    boundary.
     """
 
-    repo_id: int
+    repo_path: str
     snapshot_sha: str
     ref: str
 

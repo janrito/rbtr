@@ -53,9 +53,8 @@ def name_hit(scenario: SearchScenario, index: Index, head_ref: SnapshotRef) -> S
 def test_name_search_finds_hit(
     name_hit: SearchScenario, index: Index, head_ref: SnapshotRef
 ) -> None:
-    results = index.match_by_name(name_hit.query, at=head_ref)
-    assert len(results) > 0
-    assert results[0].name == name_hit.expected_hit_names[0]
+    names = index.name_matches(name_hit.query, within=[head_ref])["name"].to_list()
+    assert names[:1] == name_hit.expected_hit_names[:1]
 
 
 @fixture
@@ -68,11 +67,7 @@ def name_empty(scenario: SearchScenario, index: Index, head_ref: SnapshotRef) ->
 def test_name_search_returns_empty(
     name_empty: SearchScenario, index: Index, head_ref: SnapshotRef
 ) -> None:
-    results = index.match_by_name(
-        name_empty.query,
-        at=head_ref,
-    )
-    assert results == []
+    assert index.name_matches(name_empty.query, within=[head_ref]).is_empty()
 
 
 @pytest.fixture
@@ -84,8 +79,8 @@ def repo_one_ref(index: Index) -> SnapshotRef:
     result says which repo it came from.
     """
     with index.session() as ws:
-        repo_id = ws.register_repo("/repo_one")
-    ref = SnapshotRef(repo_id=repo_id, snapshot_sha="head")
+        repo = ws.register_repo("/repo_one")
+    ref = repo.at("head")
     seed_index(index, [make_chunk("r1_a", name="alpha_func", path="a.py", blob="b_r1")], ref)
     return ref
 
@@ -94,8 +89,8 @@ def repo_one_ref(index: Index) -> SnapshotRef:
 def repo_two_ref(index: Index) -> SnapshotRef:
     """`/repo_two` at `head`, holding `beta_func` — see `repo_one_ref`."""
     with index.session() as ws:
-        repo_id = ws.register_repo("/repo_two")
-    ref = SnapshotRef(repo_id=repo_id, snapshot_sha="head")
+        repo = ws.register_repo("/repo_two")
+    ref = repo.at("head")
     seed_index(index, [make_chunk("r2_b", name="beta_func", path="b.py", blob="b_r2")], ref)
     return ref
 
@@ -117,8 +112,9 @@ def test_shared_chunk_found_via_fts_from_both_repos(shared_chunk_index: Index) -
     must surface it for whichever repo scopes the query.
     """
     index = shared_chunk_index
-    r1 = index.fulltext_matches("shared", within=[SnapshotRef(repo_id=1, snapshot_sha="head")])
-    r2 = index.fulltext_matches("shared", within=[SnapshotRef(repo_id=2, snapshot_sha="head")])
+    repo1, repo2 = index.repos()
+    r1 = index.fulltext_matches("shared", within=[repo1.at("head")])
+    r2 = index.fulltext_matches("shared", within=[repo2.at("head")])
     assert r1["name"].to_list() == ["shared_fn"]
     assert r2["name"].to_list() == ["shared_fn"]
 
@@ -128,15 +124,12 @@ def test_shared_chunk_found_via_semantic_from_both_repos(
 ) -> None:
     """A shared chunk's single embedding is reachable by semantic search from either repo."""
     index = shared_chunk_index
+    repo1, repo2 = index.repos()
     with index.session() as ws:
         ws.update_embeddings([shared_chunk.id], [[1.0, 0.0, 0.0, 0.0]])
     query_vec = [1.0, 0.0, 0.0, 0.0]
-    r1 = index.similar_matches(
-        [query_vec], within=[SnapshotRef(repo_id=1, snapshot_sha="head")], top_k=5
-    )
-    r2 = index.similar_matches(
-        [query_vec], within=[SnapshotRef(repo_id=2, snapshot_sha="head")], top_k=5
-    )
+    r1 = index.similar_matches([query_vec], within=[repo1.at("head")], top_k=5)
+    r2 = index.similar_matches([query_vec], within=[repo2.at("head")], top_k=5)
     assert r1["name"].to_list() == ["shared_fn"]
     assert r2["name"].to_list() == ["shared_fn"]
 
@@ -146,13 +139,14 @@ def test_cross_repo_search_attributes_shared_chunk_to_each_repo(
 ) -> None:
     """Cross-repo search keeps a shared chunk as one row per repo, each attributed."""
     index = shared_chunk_index
+    repo1, repo2 = index.repos()
     refs = [
-        SnapshotRef(repo_id=1, snapshot_sha="head"),
-        SnapshotRef(repo_id=2, snapshot_sha="head"),
+        repo1.at("head"),
+        repo2.at("head"),
     ]
-    results = search(index, "shared", within=refs, top_k=10, repo_paths={1: "/repo1", 2: "/repo2"})
+    results = search(index, "shared", within=refs, top_k=10, attribute_repos=True)
     shared = [r for r in results if r.name == "shared_fn"]
-    assert {r.repo_path for r in shared} == {"/repo1", "/repo2"}
+    assert {r.repo_path for r in shared} == {repo1.repo_path, repo2.repo_path}
 
 
 def test_cross_repo_search_merges_both_repos(
@@ -223,7 +217,7 @@ def test_match_similar_empty(index: Index, head_ref: SnapshotRef) -> None:
 def test_unseeded_chunks_have_no_embedding(index: Index, head_ref: SnapshotRef) -> None:
     s = SearchScenario(chunks=[make_chunk("a")], query="")
     seed_index(index, s.chunks, head_ref)
-    chunks = index.get_chunks(at=head_ref)
+    chunks = index.chunks(at=head_ref)
     assert not chunks[0].has_embedding
 
 
@@ -233,7 +227,7 @@ def test_seeded_chunks_have_embedding_flag(index: Index, head_ref: SnapshotRef) 
     vec = [0.5, 0.5, 0.5, 0.5]
     with index.session() as ws:
         ws.update_embeddings([chunk.id], [vec])
-    chunks = index.get_chunks(at=head_ref)
+    chunks = index.chunks(at=head_ref)
     assert chunks[0].has_embedding
 
 

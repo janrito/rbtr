@@ -33,10 +33,10 @@ from pydantic_ai.settings import ModelSettings
 from rbtr.cli.output import ProgressCallback, progress_reporter
 from rbtr.config import config
 from rbtr.domain.identity import SCOPE_SEPARATOR
-from rbtr.domain.models import CODE_KINDS, ChunkKind, SnapshotRef
+from rbtr.domain.models import CODE_KINDS, ChunkKind, Repo
 from rbtr.git import read_head
 from rbtr.index.index import Index
-from rbtr.index.refs import list_latest_refs
+from rbtr.index.refs import latest_refs
 from rbtr.index.results import ChunkContentRow
 from rbtr_eval.formatting import heading_label, md_table
 from rbtr_eval.shared_schemas import IDENTITY_COLUMNS, QueryRow
@@ -166,8 +166,7 @@ def _check_excluded(ctx: RunContext[SymbolContext], data: ConceptQuery) -> Conce
 
 def _load_symbol_content(
     index: Index,
-    repo_path: str,
-    repo_id: int,
+    repo: Repo,
 ) -> dy.DataFrame[ChunkContentRow]:
     """Load symbol content from the index.
 
@@ -176,11 +175,11 @@ def _load_symbol_content(
     ``QueryRow`` on primary-key columns, so only chunks that
     were sampled by extract survive.
     """
-    sha = read_head(repo_path)
+    sha = read_head(repo.repo_path)
     if sha is None:
-        msg = f"no HEAD in {repo_path}"
+        msg = f"no HEAD in {repo.repo_path}"
         raise SystemExit(msg)
-    return index.chunk_contents(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
+    return index.chunk_contents(at=repo.at(sha))
 
 
 def _excluded_identifiers(name: str, scope: str) -> list[str]:
@@ -279,8 +278,7 @@ async def _paraphrase_one(
 def paraphrase_symbols(
     queries: dy.DataFrame[QueryRow],
     index: Index,
-    repo_path: str,
-    repo_id: int,
+    repo: Repo,
     model: str | Model,
     *,
     concurrency: int = 10,
@@ -292,7 +290,7 @@ def paraphrase_symbols(
     concurrently for each symbol, and returns validated
     concept QueryRows.
     """
-    symbols = _load_symbol_content(index, repo_path, repo_id).with_columns(
+    symbols = _load_symbol_content(index, repo).with_columns(
         pl.col("kind").alias("symbol_kind"),
     )
     join_keys = list(IDENTITY_COLUMNS)
@@ -385,14 +383,14 @@ def _sampled_content(index: Index, sampled: dy.DataFrame[QueryRow]) -> dy.DataFr
     than from one frame spanning the corpus.
     """
     slugs = set(sampled["slug"].unique())
-    by_id = {r.repo_id: r.repo_path.rsplit("/", 1)[-1] for r in index.list_repos()}
+    named = [(ref, ref.repo.repo_path.rsplit("/", 1)[-1]) for ref in latest_refs(index)]
     frames = [
         index.chunk_contents(at=ref)
         .with_columns(pl.col("kind").alias("symbol_kind"))
         .select(*IDENTITY_COLUMNS, "content")
-        .with_columns(pl.lit(by_id[ref.repo_id]).alias("slug"))
-        for ref in list_latest_refs(index)
-        if by_id.get(ref.repo_id) in slugs
+        .with_columns(pl.lit(slug).alias("slug"))
+        for ref, slug in named
+        if slug in slugs
     ]
     if not frames:
         return SymbolContent.create_empty()
@@ -474,8 +472,8 @@ class ParaphraseCmd(BaseModel):
         query_df = pl.read_parquet(self.symbols).pipe(QueryRow.validate, cast=True)
         index = Index(str(config.db_path))
         repo_path = str(Path(self.repo_path).resolve())
-        repo_id = index.get_repo_id(repo_path)
-        if repo_id is None:
+        repo = index.find_repo(repo_path)
+        if repo is None:
             msg = f"Repo not indexed: {repo_path}"
             raise SystemExit(msg)
 
@@ -483,8 +481,7 @@ class ParaphraseCmd(BaseModel):
             result = paraphrase_symbols(
                 query_df,
                 index,
-                repo_path,
-                repo_id,
+                repo,
                 self.model,
                 concurrency=self.concurrency,
                 on_progress=on_progress,

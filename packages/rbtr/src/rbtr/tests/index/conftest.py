@@ -117,7 +117,7 @@ def seed_index(index: Index, chunks: list[TokenisedChunk], ref: SnapshotRef) -> 
                 )
                 for c in chunks
             ],
-            repo_id=ref.repo_id,
+            repo=ref.repo,
         )
         ws.mark_indexed(at=ref)
 
@@ -126,13 +126,13 @@ def seed_index(index: Index, chunks: list[TokenisedChunk], ref: SnapshotRef) -> 
 def head_ref(index: Index) -> SnapshotRef:
     """Repo `/repo` registered in `index`, at snapshot `head`.
 
-    The id comes back from the registration, so the ref names a repo
+    The repo comes back from the registration, so the ref names a repo
     that exists.  The path is synthetic: these are store-level tests
     that never read git, and registration establishes identity.
     """
     with index.session() as ws:
-        repo_id = ws.register_repo("/repo")
-    return SnapshotRef(repo_id=repo_id, snapshot_sha="head")
+        repo = ws.register_repo("/repo")
+    return repo.at("head")
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -157,13 +157,13 @@ def shared_chunk_index(index: Index, shared_chunk: TokenisedChunk) -> Index:
     second repo indexes already-chunked content.
     """
     with index.session() as ws:
-        ws.register_repo("/repo1")
-        ws.register_repo("/repo2")
+        repo1 = ws.register_repo("/repo1")
+        repo2 = ws.register_repo("/repo2")
         ws.add_chunk(shared_chunk)
-        ws.insert_snapshots([make_snap("head", "x.py", "b_shared")], repo_id=1)
-        ws.insert_snapshots([make_snap("head", "x.py", "b_shared")], repo_id=2)
-        ws.mark_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
-        ws.mark_indexed(at=SnapshotRef(repo_id=2, snapshot_sha="head"))
+        ws.insert_snapshots([make_snap("head", "x.py", "b_shared")], repo=repo1)
+        ws.insert_snapshots([make_snap("head", "x.py", "b_shared")], repo=repo2)
+        ws.mark_indexed(at=repo1.at("head"))
+        ws.mark_indexed(at=repo2.at("head"))
     return index
 
 
@@ -308,7 +308,7 @@ def render_widget(widget):
 @pytest.fixture
 def dup_ref(dup_index: Index) -> SnapshotRef:
     """The duplicated repo at its head commit."""
-    ref = latest_ref(dup_index, dup_index.list_repos()[0])
+    ref = latest_ref(dup_index, dup_index.repos()[0])
     assert ref is not None
     return ref
 
@@ -541,7 +541,7 @@ def ranking_index(
     """An in-memory Index pre-loaded with the ranking dataset."""
     index = Index(writable=True)
     with index.session() as ws:
-        ws.register_repo("/repo")
+        repo = ws.register_repo("/repo")
         for c in ranking_chunks:
             tc = c if isinstance(c, TokenisedChunk) else TokenisedChunk(**c.model_dump())
             ws.add_chunk(tc)
@@ -552,9 +552,9 @@ def ranking_index(
                 )
                 for c in ranking_chunks
             ],
-            repo_id=1,
+            repo=repo,
         )
-        ws.insert_edges(ranking_edges, at=SnapshotRef(repo_id=1, snapshot_sha=ranking_commit))
+        ws.insert_edges(ranking_edges, at=repo.at(ranking_commit))
     yield index
     index.close()
 
