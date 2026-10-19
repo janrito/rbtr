@@ -41,12 +41,11 @@ def test_all_schema_tables_exist_after_open(tmp_path: Path) -> None:
         "edges",
         "indexed_snapshots",
     }
-    tables = {
-        row[0]
-        for row in index._cursor.execute(
+    with index.reader() as cur:
+        rows = cur.execute(
             "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
         ).fetchall()
-    }
+    tables = {row[0] for row in rows}
     assert expected <= tables
 
 
@@ -156,9 +155,10 @@ def test_embedding_meta_stored_after_change(
     index, scenario = reopened
     if not scenario.expected_meta_stored:
         return
-    rows = index._cursor.execute(
-        "SELECT key, value FROM meta WHERE key IN ('embedding_model', 'embedding_version')"
-    ).fetchall()
+    with index.reader() as cur:
+        rows = cur.execute(
+            "SELECT key, value FROM meta WHERE key IN ('embedding_model', 'embedding_version')"
+        ).fetchall()
     stored = {str(r[0]): str(r[1]) for r in rows}
     assert stored["embedding_model"] == config.embedding_model
     assert stored["embedding_version"] == str(EMBEDDING_FORMAT_VERSION)
@@ -196,7 +196,7 @@ def test_older_binary_refuses_and_preserves_index(tmp_path: Path, mocker: Mocker
     _seed_one_chunk(path)
     inode_before = path.stat().st_ino
 
-    mocker.patch("rbtr.index.index.SCHEMA_VERSION", "2000.1.1")
+    mocker.patch("rbtr.index.store.SCHEMA_VERSION", "2000.1.1")
     with pytest.raises(IndexSchemaTooNewError):
         Index(path, writable=True)
 

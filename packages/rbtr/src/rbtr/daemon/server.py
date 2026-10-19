@@ -743,9 +743,8 @@ class DaemonServer:
             while not self._shutdown:
                 # Off the loop: `_find_next_job` walks git per repo and
                 # reads the embedding column.  Safe in a thread because
-                # it only reads, and every store read goes through a
-                # thread-local cursor (`Index._cursor`, see the
-                # DuckDB note at the top of store.py).
+                # it only reads, and every index read runs on the
+                # calling thread's own cursor (`Store.cursor`).
                 job = await asyncio.to_thread(self._find_next_job)
                 if job is None:
                     break

@@ -260,7 +260,8 @@ def test_shared_content_is_one_row_visible_to_both_repos(
     repo1, repo2 = index.repos()
     assert [c.id for c in index.chunks(at=repo1.at("head"))] == [shared_chunk.id]
     assert [c.id for c in index.chunks(at=repo2.at("head"))] == [shared_chunk.id]
-    row = index._cursor.execute("SELECT count(*) FROM chunks").fetchone()
+    with index.reader() as cur:
+        row = cur.execute("SELECT count(*) FROM chunks").fetchone()
     assert row is not None
     assert row[0] == 1
 
@@ -487,11 +488,13 @@ def test_gc_chunk_split_agrees_with_real_deletion(
     drop = index.repos()[s.drop_checkout]
     predicted_dropped = index.count_gc_chunk_split(drop, s.drop_shas).dropped
 
-    before = index._cursor.execute("SELECT count(*) FROM chunks").fetchone()
+    with index.reader() as cur:
+        before = cur.execute("SELECT count(*) FROM chunks").fetchone()
     with index.session(drop) as ws:
         for sha in s.drop_shas:
             ws.drop_snapshot(snapshot_sha=sha)
-    after = index._cursor.execute("SELECT count(*) FROM chunks").fetchone()
+    with index.reader() as cur:
+        after = cur.execute("SELECT count(*) FROM chunks").fetchone()
 
     assert before is not None
     assert after is not None

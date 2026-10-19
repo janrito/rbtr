@@ -203,10 +203,12 @@ session runs `ws.cleanup()`, which deletes its repo's residue from
 builds that stopped part-way and the chunks no snapshot claims any
 more.
 
-`Index` owns the connection, the schema, the reads, and the
-writes that are not one repo's rows: `register`, `forget`
-and `compact`. `search` takes an index and ranks what it
-returns. An index created with `writable=False` (the
+`Index` owns the reads. Its `Store` (`index/store.py`) holds
+the database file: the connection, the schema and its version
+check, the registry and every change to it, each thread's cursor,
+and the file rewrite that compaction is; `Index` hands `register`,
+`forget` and `compact` to it. `search` takes an index
+and ranks what it returns. An index created with `writable=False` (the
 default) rejects `session`, `register`, `forget` and
 `compact`.
 
@@ -727,7 +729,7 @@ for seconds: retry now and lose again, retry later and block
 the REP socket behind it.
 
 Reads use thread-local cursors (via `connection.cursor()`)
-and run concurrently with writes. `index.py` imports pyarrow
+and run concurrently with writes. `store.py` imports pyarrow
 eagerly because duckdb's [Multiple Python Threads
 guide][ddb-threads] requires the interop library to be imported
 before threading starts — it names pandas, and the Arrow path
@@ -744,7 +746,7 @@ it.
 
 Compaction is the one
 write that swaps the connection: it publishes the rewritten
-file as a fresh connection (`Index._adopt_connection`)
+file as a fresh connection (`Store._adopt_connection`)
 and each thread rebinds its cursor on the next read, so a
 `gc` rewrite never blocks or cuts off an in-flight search.
 
@@ -2154,7 +2156,7 @@ it keeps every block it reads and does not give memory back. The
 exact cosine scan and compaction's `COPY FROM DATABASE` read the
 whole index, so on a 10 GiB index a compacting `gc` reached a
 5.2 GiB footprint and still held 4.6 GiB afterwards. Every
-connection therefore opens through `Index._connect` with
+connection therefore opens through `Store._connect` with
 `duckdb_memory_limit` (1 GiB by default) and `duckdb_threads`: the
 store's own, and the one compaction adopts, which is a second
 DuckDB instance with limits of its own. Under 1 GiB the same `gc`

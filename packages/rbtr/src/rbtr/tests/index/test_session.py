@@ -316,9 +316,8 @@ def test_update_embeddings_round_trip(index: Index) -> None:
     assert all(c.has_embedding for c in chunks)
 
     # Verify truncation flags in the DB.
-    rows = index._cursor.execute(
-        "SELECT id, embedding_truncated FROM chunks ORDER BY id"
-    ).fetchall()
+    with index.reader() as cur:
+        rows = cur.execute("SELECT id, embedding_truncated FROM chunks ORDER BY id").fetchall()
     by_id = {row[0]: row[1] for row in rows}
     assert by_id[chunk_a.id] is True
     assert by_id[chunk_b.id] is False

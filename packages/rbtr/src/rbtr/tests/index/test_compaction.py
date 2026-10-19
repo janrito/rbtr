@@ -174,7 +174,7 @@ def test_gc_compaction_failure_is_non_fatal(
     ci = churned_index
     before_size = ci.index.data_size_bytes()
     before_count = ci.index.chunk_counts_for_snapshot(at=ci.ref).total
-    mocker.patch("rbtr.index.index.os.replace", side_effect=OSError("disk full"))
+    mocker.patch("rbtr.index.store.os.replace", side_effect=OSError("disk full"))
 
     request = GcRequest(repo_path=ci.repo_path, mode=GcMode.WATCHED, compact=True)
     response = handle_gc(request, ci.index, allow_compact=True)

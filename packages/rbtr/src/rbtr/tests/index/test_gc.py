@@ -432,10 +432,11 @@ def test_run_gc_all_skips_repo_with_vanished_path(
 def test_run_gc_all_freed_matches_physical_deletion(global_gc: GlobalGcFixture) -> None:
     """Freed count equals the physical `chunks` delta, and no orphan
     survives the pass (the global-aggregation consistency guard)."""
-    cur = global_gc.index._cursor
-    before = cur.execute("SELECT count(*) FROM chunks").fetchone()
+    with global_gc.index.reader() as cur:
+        before = cur.execute("SELECT count(*) FROM chunks").fetchone()
     counts, _repos = run_gc_all(global_gc.index, mode=GcMode.WATCHED, dry_run=False)
-    after = cur.execute("SELECT count(*) FROM chunks").fetchone()
+    with global_gc.index.reader() as cur:
+        after = cur.execute("SELECT count(*) FROM chunks").fetchone()
     assert before is not None
     assert after is not None
     assert counts.chunks == before[0] - after[0]
