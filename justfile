@@ -144,6 +144,12 @@ demo:
 demo-one tape:
     vhs {{ tape }}
 
+# ── diagrams ──
+
+# Render every architecture diagram to PNG (requires the draw.io desktop app).
+diagrams:
+    for f in packages/rbtr/docs/diagrams/*.drawio; do drawio -x -f png -s 2 -o "${f%.drawio}.png" "$f"; done
+
 # ── release ──
 # Get the current version from pyproject.toml
 

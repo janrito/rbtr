@@ -10,6 +10,12 @@ classes, methods, imports), connects them with a dependency
 graph, and makes them searchable through three fused
 retrieval channels.
 
+![rbtr in context: you and your agents ask one daemon, which reads your
+checkouts, runs local models and owns the index](docs/diagrams/context.png)
+
+The diagrams in this file are draw.io sources in `docs/diagrams/`;
+after editing one, `just diagrams` renders the PNGs beside them.
+
 ### The path a file takes
 
 A build walks a git tree. Each file is matched to a language
@@ -47,6 +53,9 @@ checks that as well: `refs.py` imports `index.py`, which imports
 imports `Store` and `WriteSession`, so every read and write goes
 through it.
 
+![The layers: cli, daemon, index, languages and domain, each importing
+only from those below it](docs/diagrams/components.png)
+
 ### Chunk and symbol
 
 The two words name the same thing from either side of the
@@ -79,21 +88,11 @@ persistence detail on the way out — see
 The indexing pipeline flows in one direction: files come
 in, chunks come out, and the store makes them searchable.
 
-```mermaid
-flowchart LR
-    files(["git files"]) --> build["build_index"]
-    build --> plugins["language<br/>plugins"]
-    plugins --> chunks(["Chunks"])
-    chunks --> store[("DuckDB")]
-    chunks --> embeddings["embeddings"]
-    embeddings --> store
-    chunks --> edges["edge<br/>inference"]
-    edges --> store
-    query(["query"]) --> search["search<br/>fusion"]
-    store --> search
-    search --> reranker["cross-encoder<br/>reranking"]
-    reranker --> results(["ranked results"])
-```
+![How a build indexes a snapshot: three transactions, for extraction,
+edges and finishing, and the tables each writes](docs/diagrams/build.png)
+
+![How chunks get vectors: a job after the build reads the chunks still
+without one, embeds them in batches and stores each batch](docs/diagrams/embed.png)
 
 `build_index` drives the pipeline. It detects each
 file's language, loads the appropriate plugin, and
@@ -109,18 +108,8 @@ Plugins register capabilities via `LanguageRegistration`.
 `build_index` routes each file to the most specific
 extraction path available:
 
-```mermaid
-flowchart TD
-    file(["source file"]) --> detect{"language<br/>detected?"}
-    detect -->|yes + query| ts["tree-sitter<br/>extraction"]
-    detect -->|yes + chunker| chunker["custom<br/>chunker"]
-    detect -->|no| sniff{"prose<br/>detected?"}
-    sniff -->|yes| chunker
-    sniff -->|no| raw["line-based<br/>raw chunks"]
-    ts --> out(["Chunks"])
-    chunker --> out
-    raw --> out
-```
+![Which extraction a file gets: a tree-sitter query, a plugin's chunker,
+or line-based raw chunks](docs/diagrams/plugin-routing.png)
 
 Plugins provide whatever combination of fields their
 language needs. A query-based plugin (most languages)
@@ -130,6 +119,9 @@ query captures can't express the structure. Languages
 without a plugin get line-based chunking.
 
 ### Content-addressed chunks and blob dedup
+
+![How files become chunks once: two snapshots name the same blob for an
+unchanged file, so they share its chunks](docs/diagrams/content-addressing.png)
 
 Because chunks are content-addressed and shared by a project's
 checkouts (see [Data model](#data-model) for the keying), a blob
@@ -250,28 +242,8 @@ The tree-sitter path — the most common case. The build loop calls
 `extract_primary` → `extract_query` to `extract_symbols`
 (`rbtr.languages.treesitter`); that call chain:
 
-```mermaid
-sequenceDiagram
-    participant O as build loop
-    participant M as LanguageManager
-    participant W as WriteSession
-    participant T as languages.treesitter
-
-    O->>M: detect_language(path)
-    M-->>O: lang_id (else stored detected_language / prose sniff)
-    O->>M: get_registration(lang_id)
-    M-->>O: reg (extraction: QueryExtraction, resolve_* overrides, id, plugin_version, ...)
-    O->>W: blob_is_current(sha, language, serials)
-    W-->>O: hit then skip; miss then delete_chunks_for_blobs(sha) and extract
-    O->>M: load_grammar(lang_id)
-    M-->>O: grammar
-    O->>T: extract_symbols(reg, path, sha, content, grammar)
-    T->>T: parse + run reg.extraction.query
-    loop each @import match
-        T->>T: reg.resolve_import(node, captures) -> ImportMeta
-    end
-    T-->>O: Iterator[Chunk]
-```
+![The tree-sitter extraction call flow, from the build loop through
+LanguageManager and Index to extract_symbols](docs/diagrams/extraction.png)
 
 ## Data model
 
@@ -316,6 +288,9 @@ checkout to its project. A project file holds the tables of
 carry no data: every file gets a fresh uuid, and a file is live only if
 the registry names it.
 
+![Inside one project's file: chunks shared by the project, and each
+checkout's rows and snapshots](docs/diagrams/project-file.png)
+
 `Index` connects once, to an in-memory DuckDB instance with the
 configured memory limit and threads, and attaches the registry and
 every live project file to it. Holding the registry is owning the
@@ -332,6 +307,14 @@ each change ends by reloading the copy, which also retires any file
 the registry stopped naming. The copy is reloaded rather than edited
 in step with each transaction, so the two cannot disagree.
 
+There is one instance, not one per project: the memory and thread caps
+hold for the whole daemon only when every file shares them, compaction's
+`COPY FROM DATABASE` needs the old and the new file attached to the same
+instance, and DuckDB attaches a file once per process.
+
+![One DuckDB, many files: the daemon's one instance attaches the registry
+and every project's file](docs/diagrams/index-instance.png)
+
 Every read and write is routed by repo. The store looks up the repo's
 project and runs on its own thread's cursor that has `USE`d that
 project's file. A DuckDB transaction writes one file, so
@@ -342,17 +325,6 @@ read over several projects runs on each file at once, one pool thread
 per file, and merges the results (see
 [Cross-repo search](#cross-repo-search)).
 
-```mermaid
-flowchart LR
-    R["read(refs)"] --> M{"repo_id → project → file<br/>(routing maps from the registry)"}
-    M -->|one file| C1["this thread's cursor<br/>USE p_a"] --> F1[("index/a.duckdb")]
-    M -->|several files, at once| P["pool thread per file"]
-    P --> C2["USE p_a"] --> F1
-    P --> C3["USE p_b"] --> F2[("index/b.duckdb")]
-    C2 & C3 --> G["merge: best k, best tier, summed degrees"]
-    W["session(repo)"] --> M
-```
-
 **Switching a project's file.** No open file is ever renamed. To
 replace a project's file, the store attaches a fresh one, copies the
 old file into it with `COPY FROM DATABASE`, checkpoints it, and commits
@@ -362,17 +334,8 @@ Reads already running finish on the old file, which stays attached for
 before the commit leaves the new file unnamed, and a crash after it
 leaves the old one unnamed; the next open deletes either.
 
-```mermaid
-sequenceDiagram
-    participant S as Index
-    participant O as index/old.duckdb
-    participant N as index/new.duckdb
-    participant R as index.duckdb (registry)
-    S->>N: ATTACH, COPY FROM DATABASE old, CHECKPOINT
-    S->>R: UPDATE projects SET file = new (the switch)
-    Note over S,O: new reads use new; running reads finish on old
-    S->>O: after retire_delay_s: DETACH, delete
-```
+![How compaction replaces a project's file: copy, switch the registry,
+and delete the old file after the retire delay](docs/diagrams/file-switch.png)
 
 ### Repo registration
 
@@ -421,76 +384,8 @@ code rather than declared as a foreign key;
 The tables and their keys. `projects` and `repos` are in the registry;
 the others are in each project's file:
 
-```mermaid
-erDiagram
-    projects ||--o{ repos : "project_id"
-    repos ||--o{ file_snapshots : "repo_id"
-    repos ||--o{ edges : "repo_id"
-    repos ||--o{ indexed_snapshots : "repo_id"
-    repos ||--o{ watched_refs : "repo_id"
-
-    file_snapshots }o--o{ chunks : "blob_sha + file_language (content-addressed, shared)"
-    edges }o--|| chunks : "source_id = id"
-    edges }o--|| chunks : "target_id = id"
-
-    projects {
-        int id PK
-        text common_dir UK
-        text file UK
-        bigint compacted_bytes
-    }
-    repos {
-        int id PK
-        text path UK
-        int project_id
-        timestamp missing_since
-    }
-    file_snapshots {
-        int repo_id PK
-        text snapshot_sha PK
-        text file_path PK
-        text blob_sha
-        text detected_language
-    }
-    chunks {
-        text id PK
-        text blob_sha
-        text file_path
-        text kind
-        text name
-        text scope
-        text language
-        int extraction_serial
-        text content
-        text content_tokens
-        text name_tokens
-        int line_start
-        int line_end
-        text metadata
-        float_array embedding
-        bool embedding_truncated
-    }
-    edges {
-        int repo_id PK
-        text source_id PK
-        text target_id PK
-        text kind PK
-        text snapshot_sha PK
-    }
-    indexed_snapshots {
-        int repo_id PK
-        text snapshot_sha PK
-        timestamp indexed_at
-    }
-    watched_refs {
-        int repo_id PK
-        text ref PK
-    }
-    meta {
-        text key PK
-        text value
-    }
-```
+![The index data model: the registry's meta, projects and repos, and a
+project file's tables, with the joins between them](docs/diagrams/data-model.png)
 
 ### Record identity
 
@@ -702,14 +597,9 @@ dedup](#content-addressed-chunks-and-blob-dedup).
 The daemon keeps the index current without blocking the
 CLI or editor. Single process, asyncio event loop:
 
-```text
-DaemonServer.serve()          — zmq REP poll + dispatch, on the event loop
- ├─ _notification_relay       — zmq inproc PULL → PUB
- ├─ _job_worker               — await Event, to_thread(run_job)
- ├─ _watcher_loop             — sleep, to_thread(pending_builds), wake
- ├─ _maintenance_loop         — sleep, retire files, maintain when idle
- └─ _idle_loop (per GPU model) — sleep, check idle, unload
-```
+![What the daemon runs: the REP loop, job worker, watcher,
+maintenance and relay on one event loop, with worker threads
+beside it](docs/diagrams/daemon-tasks.png)
 
 Dispatch is not a task of its own: `serve()` *is* the REP loop, and
 the tasks below it are the work it spawns.
@@ -843,6 +733,9 @@ worker's, and empties the field while `gc` compacts. Compaction
 copies a project's file and switches to the copy, so a batch
 committing to the old file during the copy would be lost. gc pays
 one batch for that.
+
+![Two locks, and reads that take none: _write_sem orders the writers,
+_gpu_lock the users of the GPU](docs/diagrams/daemon-locks.png)
 
 Two alternatives do not hold. An `RLock` in `Index`
 repeats what DuckDB already does, in the wrong place.
@@ -1052,20 +945,8 @@ with the run's outcome and counts, `auto_rebuild` when the
 watcher starts a build nobody asked for, and `index_error`
 when one fails.
 
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant D as Daemon (REP)
-    participant P as Daemon (PUB)
-    participant S as Subscriber
-
-    C->>D: {kind: "search", repo_path: "...", query: "..."}
-    D-->>C: {kind: "search", results: [...]}
-
-    Note over P,S: Meanwhile, during a build:
-    P->>S: {kind: "progress", phase: "parsing", current: 42, total: 177}
-    P->>S: {kind: "ready", ref: "abc123", chunks: 1200}
-```
+![A request on REQ and its reply on REP, and notifications on PUB
+during a build](docs/diagrams/protocol.png)
 
 A concrete search exchange:
 
@@ -1368,6 +1249,9 @@ cannot.
 
 ## Search fusion
 
+![How a search is answered: prepare the query, run three searches on
+every project file at once, then merge, fuse and rerank](docs/diagrams/search-flow.png)
+
 Three channels fused into one ranked list:
 
 - **Name matching** — case-insensitive substring matching.
@@ -1375,6 +1259,9 @@ Three channels fused into one ranked list:
   tokenised content.
 - **Semantic similarity** — exact cosine between query and
   chunk embeddings. Local GGUF model, no API calls.
+
+![How scores are fused: normalise, weigh, multiply, then blend the top few
+with the reranker](docs/diagrams/fusion.png)
 
 Each channel is normalised to [0, 1], then combined:
 

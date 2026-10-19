@@ -50,6 +50,16 @@ watched ref current (`HEAD` by default; add more with
 `rbtr watch <ref>`). Subsequent builds are incremental —
 unchanged files (by blob SHA) are skipped.
 
+## How it works
+
+One background daemon per data directory does the work: it watches the
+refs you ask it to, indexes and embeds them, and answers the CLI and the
+pi extension from the same index. It starts on the first command that
+needs it.
+
+![rbtr in context: you and your agents ask one daemon, which reads your
+checkouts, runs local models and owns the index](docs/diagrams/context.png)
+
 ## Walkthrough
 
 Index a repository, then explore it. The transcripts below
