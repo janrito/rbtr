@@ -57,7 +57,8 @@ class KindCountRow(dy.Schema):
 
     An edge contributes to `outbound_edges` of its source kind and
     `inbound_edges` of its target kind, so both columns sum to the
-    edge total.
+    edge total.  Counts are summed over repos, so content two repos
+    share counts in each.
     """
 
     kind = dy.Enum(k.value for k in ChunkKind)
@@ -105,27 +106,62 @@ _EMB_TOTALS_SQL = _load_sql("embedding_totals.sql")
 _EMB_REPOS_SQL = _load_sql("embedding_repos.sql")
 
 
+def _per_ref(index: Index, corpus: Corpus, sql: str) -> pl.DataFrame:
+    """*sql* run on each of *corpus*'s refs in its repo's file, stacked.
+
+    Each repo's data lives in its project's file, so a query over several
+    repos runs once per repo; callers sum the stacked rows.
+    """
+    frames = []
+    for ref in corpus.refs:
+        with index.reader(ref.repo, _snapshot_refs=snapshot_refs_view([ref])) as cur:
+            frames.append(cur.execute(sql).pl())
+    return pl.concat(frames)
+
+
+def _with_repo_names(index: Index, frame: pl.DataFrame) -> pl.DataFrame:
+    """*frame* keyed by `repo_id`, with each repo's directory name, by path."""
+    paths = pl.DataFrame(
+        [{"repo_id": r.repo_id, "path": r.repo_path} for r in index.repos()],
+        schema={"repo_id": frame.schema["repo_id"], "path": pl.String},
+    )
+    return (
+        frame.join(paths, on="repo_id")
+        .sort("path")
+        .with_columns(pl.col("path").str.split("/").list.last().alias("repo"))
+    )
+
+
 def _repo_counts(index: Index, corpus: Corpus) -> dy.DataFrame[RepoCountRow]:
     """Chunks and edges per repo, over *corpus*."""
-    with index.reader(_snapshot_refs=snapshot_refs_view(list(corpus.refs))) as cur:
-        frame = cur.execute(_REPOS_SQL).pl()
     return (
-        frame.with_columns(pl.col("path").str.split("/").list.last().alias("repo"))
+        _with_repo_names(index, _per_ref(index, corpus, _REPOS_SQL))
         .select("repo", "chunks", "locations", "edges")
         .pipe(RepoCountRow.validate, cast=True)
     )
 
 
+def _summed_by(frame: pl.DataFrame, key: str) -> pl.DataFrame:
+    """*frame*'s counts summed per *key*, largest first."""
+    return (
+        frame.group_by(key)
+        .agg(pl.col("n", "outbound_edges", "inbound_edges").sum())
+        .sort(["n", key], descending=[True, False])
+    )
+
+
 def _kind_counts(index: Index, corpus: Corpus) -> dy.DataFrame[KindCountRow]:
     """Chunks and incident edges per chunk kind, over *corpus*."""
-    with index.reader(_snapshot_refs=snapshot_refs_view(list(corpus.refs))) as cur:
-        return cur.execute(_KINDS_SQL).pl().pipe(KindCountRow.validate, cast=True)
+    return _summed_by(_per_ref(index, corpus, _KINDS_SQL), "kind").pipe(
+        KindCountRow.validate, cast=True
+    )
 
 
 def _language_counts(index: Index, corpus: Corpus) -> dy.DataFrame[LanguageCountRow]:
     """Chunks and incident edges per language, over *corpus*."""
-    with index.reader(_snapshot_refs=snapshot_refs_view(list(corpus.refs))) as cur:
-        return cur.execute(_LANGS_SQL).pl().pipe(LanguageCountRow.validate, cast=True)
+    return _summed_by(_per_ref(index, corpus, _LANGS_SQL), "lang").pipe(
+        LanguageCountRow.validate, cast=True
+    )
 
 
 def _totals(index: Index, corpus: Corpus) -> tuple[int, int, int]:
@@ -135,17 +171,14 @@ def _totals(index: Index, corpus: Corpus) -> tuple[int, int, int]:
     per file in `locations`, so the pair says how much of the corpus
     is repeated content.
     """
-    with index.reader(_snapshot_refs=snapshot_refs_view(list(corpus.refs))) as cur:
-        row = cur.execute(_TOTALS_SQL).fetchone()
-    return (int(row[0]), int(row[1]), int(row[2])) if row else (0, 0, 0)
+    row = _per_ref(index, corpus, _TOTALS_SQL).sum().row(0)
+    return (int(row[0]), int(row[1]), int(row[2]))
 
 
 def _embedding_counts(index: Index, corpus: Corpus) -> dy.DataFrame[EmbeddingRepoRow]:
     """Embedding coverage per repo, over *corpus*."""
-    with index.reader(_snapshot_refs=snapshot_refs_view(list(corpus.refs))) as cur:
-        frame = cur.execute(_EMB_REPOS_SQL).pl()
     return (
-        frame.with_columns(pl.col("path").str.split("/").list.last().alias("repo"))
+        _with_repo_names(index, _per_ref(index, corpus, _EMB_REPOS_SQL))
         .select("repo", "chunks", "embedded", "truncated")
         .pipe(EmbeddingRepoRow.validate, cast=True)
     )
@@ -153,9 +186,8 @@ def _embedding_counts(index: Index, corpus: Corpus) -> dy.DataFrame[EmbeddingRep
 
 def _embedding_totals(index: Index, corpus: Corpus) -> tuple[int, int, int]:
     """`(chunks, embedded, truncated)` over *corpus*."""
-    with index.reader(_snapshot_refs=snapshot_refs_view(list(corpus.refs))) as cur:
-        row = cur.execute(_EMB_TOTALS_SQL).fetchone()
-    return (int(row[0]), int(row[1]), int(row[2])) if row else (0, 0, 0)
+    row = _per_ref(index, corpus, _EMB_TOTALS_SQL).sum().row(0)
+    return (int(row[0]), int(row[1]), int(row[2]))
 
 
 def _index_report(

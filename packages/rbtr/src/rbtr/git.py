@@ -193,6 +193,22 @@ def normalise_repo_path(path: str) -> str:
     return workdir.rstrip("/")
 
 
+def common_dir(repo_path: str) -> str | None:
+    """The git directory shared by *repo_path* and its linked worktrees.
+
+    A main checkout's own `.git` directory, or the one a linked worktree
+    points to through its `commondir` file. `None` when *repo_path* is not
+    inside a git repository, as for a checkout that has been deleted.
+    """
+    discovered = pygit2.discover_repository(repo_path)
+    if discovered is None:
+        return None
+    git_dir = Path(discovered)
+    link = git_dir / "commondir"
+    shared = git_dir / link.read_text().strip() if link.exists() else git_dir
+    return str(shared.resolve())
+
+
 def read_head(repo_path: str) -> str | None:
     """Return the current HEAD SHA for the repo at *repo_path*.
 

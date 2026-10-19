@@ -61,10 +61,10 @@ def run_gc_all(
 ) -> tuple[GcCounts, int]:
     """Run `run_gc` over every registered repo; sum counts, count repos.
 
-    Backs `rbtr gc --scope all`.  The chunk sweep is already global
-    (content-addressed), so reclamation is correct regardless of iteration
-    order; summing the per-repo `GcCounts` is exact (each chunk is freed in
-    exactly the pass that drops its last reference). Returns the summed
+    Backs `rbtr gc --scope all`.  The chunk sweep covers each repo's
+    project (content-addressed), so reclamation is correct regardless of
+    iteration order; summing the per-repo `GcCounts` is exact (each chunk is
+    freed in exactly the pass that drops its last reference). Returns the summed
     counts and the number of repos actually collected (skipped ones
     excluded).
 
@@ -83,12 +83,12 @@ def run_gc_all(
             log.info("gc_skipped_unresolvable_repo", repo=repo.repo_path)
     total = GcCounts()
     for collected, repo in enumerate(live, start=1):
-        # Never compact per repo: a rewrite is expensive, so compact once
-        # after every repo's logical deletes have landed.
+        # Never compact per repo: a project's checkouts share its file, so
+        # each file is rewritten once, after every repo's deletes commit.
         total = total + run_gc(index, repo.repo_path, mode=mode, refs=[], dry_run=dry_run)
         on_progress(repo.repo_path, collected, len(live))
     if compact and not dry_run:
-        index.compact()
+        index.compact_all()
     return total, len(live)
 
 
@@ -113,12 +113,12 @@ def run_gc(
 
     Returns accumulated `GcCounts` across every deletion performed.
     When *dry_run* is true, computes the counts without writing to
-    the database.  When *compact* is true, the index file is rewritten
-    after the deletions commit, reclaiming the freed disk space.
+    the database.  When *compact* is true, the repo's project file is
+    rewritten after the deletions commit, reclaiming the freed disk space.
 
     *repo_path* must already be registered — collecting a repo that was
     never indexed is meaningless, so this raises rather than creating
-    one.  The repo is looked up from it, so the two cannot disagree.
+    one.
     """
     repo = index.repo(repo_path)
     if mode is GcMode.ORPHANS:
@@ -132,16 +132,15 @@ def run_gc(
         # graph intact). Pre-existing orphans the global prune would also
         # reclaim are added once by the caller (`handle_gc`).
         counts = _dry_run_counts(index, repo, drop_set=drop_set)
-        split = index.count_gc_chunk_split(repo, list(drop_set))
         return GcCounts(
             snapshots=counts.snapshots,
             file_snapshots=counts.file_snapshots,
             edges=counts.edges,
-            chunks=split.dropped,
+            chunks=index.count_gc_chunk_split(repo, list(drop_set)).dropped,
         )
 
     # Real run: accumulate the *actual* deletions (commit drops + the
-    # global orphan prune in `cleanup`), so the chunk figure is the true
+    # project's orphan prune in `cleanup`), so the chunk figure is the true
     # reclamation — including orphans left by a forgotten repo.
     with index.session(repo) as session:
         total = GcCounts()
@@ -149,7 +148,7 @@ def run_gc(
             total = total + session.drop_snapshot(snapshot_sha=sha)
         total = total + session.cleanup()
     if compact:
-        index.compact()
+        index.compact(repo)
     return total
 
 
@@ -163,7 +162,7 @@ def _run_orphans_only(
     with index.session(repo) as session:
         total = session.cleanup()
     if compact:
-        index.compact()
+        index.compact(repo)
     return total
 
 

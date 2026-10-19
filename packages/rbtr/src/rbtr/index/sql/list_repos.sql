@@ -1,5 +1,6 @@
 SELECT
   id,
-  path
+  path,
+  project_id
 FROM repos
 ORDER BY id

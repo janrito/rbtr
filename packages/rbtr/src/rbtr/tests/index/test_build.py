@@ -246,22 +246,6 @@ def test_build_index_cache_hit(
     assert r2.stats.parsed_files == 0
 
 
-@pytest.fixture
-def linked_worktree(
-    git_repo: pygit2.Repository, tmp_path_factory: pytest.TempPathFactory
-) -> pygit2.Repository:
-    """A linked git worktree of `git_repo` at the same HEAD commit.
-
-    Models a second checkout of one repository: a distinct workdir over
-    the *same* object store, so identical content yields identical blob
-    SHAs — the real-world worktree/clone case the content-addressed
-    store deduplicates.
-    """
-    path = tmp_path_factory.mktemp("linked") / "checkout"
-    git_repo.add_worktree("checkout", str(path))
-    return pygit2.Repository(pygit2.discover_repository(str(path)))
-
-
 def test_build_dedups_across_linked_worktrees(
     git_repo: pygit2.Repository,
     linked_worktree: pygit2.Repository,

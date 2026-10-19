@@ -62,9 +62,10 @@ def forget_stale_repos(index: Index, *, dry_run: bool) -> list[Repo]:
     """Forget every registered repo whose path no longer resolves.
 
     Found by enumeration, since a removed checkout's path cannot be
-    normalised and so cannot be named by a caller.  Forgetting is
-    metadata-only: the chunks it orphans are reclaimed by the next GC.
-    Under *dry_run* nothing is written.
+    normalised and so cannot be named by a caller.  Forgetting a
+    project's last checkout deletes the project's file; otherwise the
+    chunks it orphans are reclaimed by the next GC.  Under *dry_run*
+    nothing is written.
     """
     gone = [repo for repo in index.repos() if not _resolves(repo)]
     if not dry_run:

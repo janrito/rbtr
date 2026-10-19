@@ -99,3 +99,18 @@ def test_match_by_name_tiering(
 ) -> None:
     [repo] = name_index.repos()
     assert set(name_index.name_matches(pattern, within=[repo.at(COMMIT)])["name"]) == expected_names
+
+
+def test_name_matches_across_projects_keep_the_best_tier(
+    name_index: Index, head_ref: SnapshotRef
+) -> None:
+    """Each project's file returns its own best tier; the search keeps the best of those.
+
+    The other project holds only a prefix match, which its file returns as
+    its best; the first project's case-insensitive exact match outranks it.
+    """
+    other = name_index.register("/other").at(COMMIT)
+    seed_index(name_index, [make_chunk("c_chunk_size", name="chunk_size", path="size.py")], other)
+
+    within = [head_ref, other]
+    assert set(name_index.name_matches("chunk", within=within)["name"]) == {"Chunk"}

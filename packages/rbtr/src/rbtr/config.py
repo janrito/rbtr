@@ -19,7 +19,8 @@ Derived paths are exposed as computed fields:
 
 - `runtime_dir`  — `platformdirs.user_runtime_path / hash(data_dir)`,
                    for sockets + status file
-- `db_path`      — `data_dir / db_name`
+- `db_path`      — `data_dir / db_name`, the index's registry
+- `index_dir`    — `index/` beside `db_path`, the project files
 - `daemon_log`   — `log_dir / "daemon.log"`
 - `daemon_stderr` — `log_dir / "daemon.stderr"`
 - `daemon_rpc`   — `runtime_dir / "daemon.rpc"`
@@ -134,7 +135,7 @@ class Config(BaseSettings):
     )
     db_name: str = Field(
         default="index.duckdb",
-        description="Filename of the DuckDB index under `data_dir`.",
+        description="Filename of the index's registry under `data_dir`.",
     )
     max_file_size: ByteSize = Field(
         default=ByteSize(512 * 2**10),
@@ -276,6 +277,12 @@ Only used by the daemon.",
         description="Seconds between watcher polls while a build is in progress.  \
 Slowed down to avoid flooding the queue with duplicates.  Only used by the daemon.",
     )
+    retire_delay_s: float = Field(
+        default=60.0,
+        gt=0,
+        description="Seconds a project's old data file stays open after a compaction \
+replaces it, so reads already running on it can finish.  It is deleted after that.",
+    )
     daemon_wait_budget_s: float = Field(
         default=120.0,
         description="Seconds the daemon client waits for one reply before "
@@ -355,6 +362,11 @@ Disable in tests or resource-constrained environments.",
 
     @computed_field  # type: ignore[prop-decorator]
     @property
+    def index_dir(self) -> Path:
+        return index_dir_of(self.db_path)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
     def daemon_log(self) -> Path:
         return self.log_dir / "daemon.log"
 
@@ -423,6 +435,11 @@ Disable in tests or resource-constrained environments.",
 
 
 config = Config()
+
+
+def index_dir_of(db_path: Path) -> Path:
+    """The directory holding the project files of the index whose registry is *db_path*."""
+    return db_path.parent / "index"
 
 
 def own_dir(path: Path) -> Path:

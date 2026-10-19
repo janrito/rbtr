@@ -9,9 +9,11 @@ cleanup).
 
 from __future__ import annotations
 
+import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.domain.models import ChunkKind, Edge, EdgeKind, SnapshotRef
+from rbtr.errors import RepoNotFoundError
 from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
 
@@ -260,7 +262,7 @@ def test_shared_content_is_one_row_visible_to_both_repos(
     repo1, repo2 = index.repos()
     assert [c.id for c in index.chunks(at=repo1.at("head"))] == [shared_chunk.id]
     assert [c.id for c in index.chunks(at=repo2.at("head"))] == [shared_chunk.id]
-    with index.reader() as cur:
+    with index.reader(repo1) as cur:
         row = cur.execute("SELECT count(*) FROM chunks").fetchone()
     assert row is not None
     assert row[0] == 1
@@ -444,10 +446,13 @@ def test_inbound_refs_to_shared_chunk_resolve_per_repo(
 
 @fixture
 @parametrize_with_cases("scenario", cases=".cases_read", has_tag="gc_counts")
-def gc_count_query(scenario: GcCountScenario, index: Index) -> tuple[Index, GcCountScenario]:
+def gc_count_query(
+    scenario: GcCountScenario, project_index: Index
+) -> tuple[Index, GcCountScenario]:
+    index = project_index
     # Claims first, one session per repo; then the chunks, which a
-    # session may add only for blobs some snapshot claims.
-    repos = [index.register("/repo1"), index.register("/repo2")]
+    # session may add only for blobs some snapshot of the project claims.
+    repos = index.repos()
     for g in scenario.groups:
         with index.session(repos[g.checkout]) as ws:
             ws.insert_snapshots(g.snapshots)
@@ -488,12 +493,12 @@ def test_gc_chunk_split_agrees_with_real_deletion(
     drop = index.repos()[s.drop_checkout]
     predicted_dropped = index.count_gc_chunk_split(drop, s.drop_shas).dropped
 
-    with index.reader() as cur:
+    with index.reader(drop) as cur:
         before = cur.execute("SELECT count(*) FROM chunks").fetchone()
     with index.session(drop) as ws:
         for sha in s.drop_shas:
             ws.drop_snapshot(snapshot_sha=sha)
-    with index.reader() as cur:
+    with index.reader(drop) as cur:
         after = cur.execute("SELECT count(*) FROM chunks").fetchone()
 
     assert before is not None
@@ -505,8 +510,9 @@ def test_gc_chunk_split_agrees_with_real_deletion(
 def test_forget_removes_references_keeps_shared_chunk(
     shared_chunk_index: Index,
 ) -> None:
-    """`forget` purges a repo's references and `repos` row but leaves a
-    chunk another repo still references; reclamation is gc's job."""
+    """`forget` purges a checkout's references and `repos` row but leaves a
+    chunk the project's other checkout still references; reclamation is
+    gc's job."""
     index = shared_chunk_index
     repo1, repo2 = index.repos()
     with index.session(repo1) as ws:
@@ -514,12 +520,17 @@ def test_forget_removes_references_keeps_shared_chunk(
 
     index.forget(repo1)
 
-    # Repo 1 is gone entirely.
-    assert index.find_repo("/repo1") is None
-    assert index.watched_refs(repo1) == []
-    assert index.has_indexed(at=repo1.at("head")) is False
+    # Repo 1 is gone entirely, its rows with it.
+    assert index.repos() == [repo2]
+    gone = {"repo_id": repo1.repo_id}
+    with index.reader(repo2) as cur:
+        watched = cur.execute("SELECT count(*) FROM watched_refs WHERE repo_id = $repo_id", gone)
+        assert watched.fetchone() == (0,)
+        indexed = cur.execute(
+            "SELECT count(*) FROM indexed_snapshots WHERE repo_id = $repo_id", gone
+        )
+        assert indexed.fetchone() == (0,)
     # Repo 2 is untouched and the shared chunk is still visible to it.
-    assert index.find_repo("/repo2") == repo2
     assert index.has_indexed(at=repo2.at("head")) is True
     assert len(index.chunks(at=repo2.at("head"))) > 0
 
@@ -543,25 +554,25 @@ def test_forget_leaves_orphan_chunks_for_gc(
     assert index.count_orphan_chunks() == 1
 
 
-def test_forget_purges_indexed_snapshots_incl_worktree_sha(
-    index: Index,
-) -> None:
-    """Every indexed commit for the repo — HEAD and any worktree tree SHA —
-    is purged along with the `repos` row."""
+def test_forget_last_checkout_forgets_its_project(index: Index) -> None:
+    """Forgetting a project's last checkout takes every indexed commit with it.
+
+    HEAD and a working-tree tree SHA alike: the project's file is retired,
+    so the repo has nothing left to read.
+    """
     repo = index.register("/r")
     with index.session(repo) as ws:
         ws.add_chunk(make_chunk("c", path="a.py", blob="b"))
         ws.insert_snapshots([make_snap("headsha", "a.py", "b")])
         ws.mark_indexed(snapshot_sha="headsha")
         ws.mark_indexed(snapshot_sha="treesha")  # a working-tree tree SHA
-    assert index.has_indexed(at=repo.at("headsha")) is True
-    assert index.has_indexed(at=repo.at("treesha")) is True
 
     index.forget(repo)
 
     assert index.find_repo("/r") is None
-    assert index.has_indexed(at=repo.at("headsha")) is False
-    assert index.has_indexed(at=repo.at("treesha")) is False
+    assert index.distinct_chunk_languages() == set()
+    with pytest.raises(RepoNotFoundError):
+        index.has_indexed(at=repo.at("headsha"))
 
 
 def test_an_indexed_snapshot_with_no_chunks_counts_zero(index: Index) -> None:

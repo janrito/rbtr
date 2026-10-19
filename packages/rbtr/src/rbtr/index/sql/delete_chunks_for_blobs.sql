@@ -1,6 +1,7 @@
--- Content-addressed store: chunks are shared across repos and paths, so
--- a blob's chunks are deleted globally (chunking is deterministic per
--- extraction serial, so every repo sees the same chunks for a blob).
+-- Content-addressed store: chunks are shared across a project's checkouts
+-- and paths, so a blob's chunks are deleted for all of them (chunking is
+-- deterministic per extraction serial, so every checkout sees the same
+-- chunks for a blob).
 --
 -- Scoped to one `file_language`, because the same bytes extracted as a
 -- second language are different chunks: deleting by blob alone would

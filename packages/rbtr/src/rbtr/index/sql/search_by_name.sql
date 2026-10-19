@@ -46,7 +46,10 @@ SELECT
   line_start,
   line_end,
   metadata,
-  has_embedding
+  has_embedding,
+  -- Returned so a search over several project files keeps only the best
+  -- tier any file found.
+  match_tier
 FROM ranked  -- noqa: AL04
 WHERE match_tier = (SELECT min(match_tier) FROM ranked)  -- noqa: AL04, RF02
 ORDER BY file_path, line_start

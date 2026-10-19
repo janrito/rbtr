@@ -650,7 +650,7 @@ class GcResponse(BaseModel):
     snapshots_dropped: int
     file_snapshots_dropped: int
     edges_dropped: int
-    chunks_freed: int  # chunks actually removed from the global pool
+    chunks_freed: int  # chunks actually removed from the projects' files
     size_before_bytes: int = 0  # on-disk footprint before the run
     size_after_bytes: int = 0  # on-disk footprint after the run
     elapsed_seconds: float

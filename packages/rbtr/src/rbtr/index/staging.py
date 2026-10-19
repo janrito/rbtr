@@ -61,7 +61,7 @@ class ChunkStagingRow(dy.Schema):
     """Matches the `_stg` view columns consumed by `upsert_chunks.sql`.
 
     No `repo_id` and no `file_path` column: the chunk store is
-    content-addressed and shared across repos and paths (both live in
+    content-addressed and shared across checkouts and paths (both live in
     `file_snapshots`, joined on blob_sha + file_language).
     No `embedding` column: embeddings are always NULL on
     initial insert and set later via `update_embedding(s)`.

@@ -87,6 +87,8 @@ def test_extract_writes_validated_parquet_files(
     from rbtr.index.build import build_index  # deferred: heavy native libs
 
     build_index(repo.workdir, head, file_index)
+    # The index has one owner at a time, as across processes.
+    file_index.close()
 
     argv = [
         "extract",

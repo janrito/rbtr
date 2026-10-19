@@ -219,6 +219,36 @@ Run `format_name` to clean strings.
 
 
 @pytest.fixture
+def linked_worktree(
+    git_repo: pygit2.Repository, tmp_path_factory: pytest.TempPathFactory
+) -> pygit2.Repository:
+    """A linked git worktree of `git_repo` at the same HEAD commit.
+
+    Models a second checkout of one repository: a distinct workdir over
+    the *same* object store, so identical content yields identical blob
+    SHAs — the real-world worktree/clone case the content-addressed
+    store deduplicates.
+    """
+    path = tmp_path_factory.mktemp("linked") / "checkout"
+    git_repo.add_worktree("checkout", str(path))
+    return pygit2.Repository(pygit2.discover_repository(str(path)))
+
+
+@pytest.fixture
+def project_index(
+    index: Index, git_repo: pygit2.Repository, linked_worktree: pygit2.Repository
+) -> Index:
+    """`index` with two checkouts of one project registered, as repos 1 and 2.
+
+    Repo 1 is `git_repo`'s main checkout and repo 2 its linked worktree, so
+    both write to one project file, as every checkout of a project does.
+    """
+    index.register(normalise_repo_path(git_repo.workdir))
+    index.register(normalise_repo_path(linked_worktree.workdir))
+    return index
+
+
+@pytest.fixture
 def repo_path(git_repo: pygit2.Repository) -> str:
     """`git_repo`'s canonical root — the path a repo is identified by.
 

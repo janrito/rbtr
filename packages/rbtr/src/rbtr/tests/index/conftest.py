@@ -99,12 +99,11 @@ def seed_index(index: Index, chunks: list[TokenisedChunk], ref: SnapshotRef) -> 
     *ref* is marked indexed, so the seeded snapshot is one a read can
     find.
 
-    The repo named by *ref* must already be registered: per-repo rows
-    hang off a real `repos` row, and the foreign key rejects an id that
-    was never registered.  `head_ref` does that registration for the
-    common single-repo case; a test seeding several repos registers each
-    one and builds a ref from the id it gets back, then calls this once
-    per ref.  Passing the same chunk under two refs models content shared
+    The repo named by *ref* must already be registered: its rows live in
+    its project's file, which registration makes.  `head_ref` does that
+    registration for the common single-repo case; a test seeding several
+    repos registers each one and takes a ref from the repo it gets back,
+    then calls this once per ref.  Passing the same chunk under two refs models content shared
     across worktrees or clones.
     """
     with index.session(ref.repo) as ws:
@@ -144,17 +143,18 @@ def shared_chunk() -> TokenisedChunk:
 
 
 @pytest.fixture
-def shared_chunk_index(index: Index, shared_chunk: TokenisedChunk) -> Index:
-    """A store where one chunk is shared by repo 1 and repo 2.
+def shared_chunk_index(project_index: Index, shared_chunk: TokenisedChunk) -> Index:
+    """An index where one chunk is shared by repo 1 and repo 2.
 
-    Models byte-identical content in two worktrees/clones of one
-    repository: the blob (and so the chunk `id`) coincides. The chunk
-    is inserted **once**; each repo records a snapshot referencing the
-    same blob — mirroring the `blob_is_current` skip that happens when a
-    second repo indexes already-chunked content.
+    Models byte-identical content in two checkouts of one project
+    (`project_index`): the blob (and so the chunk `id`) coincides. The
+    chunk is inserted **once** in the project's file; each repo records
+    a snapshot referencing the same blob — mirroring the
+    `blob_is_current` skip that happens when a second checkout indexes
+    already-chunked content.
     """
-    repo1 = index.register("/repo1")
-    repo2 = index.register("/repo2")
+    index = project_index
+    repo1, repo2 = project_index.repos()
     with index.session(repo1) as ws:
         ws.add_chunk(shared_chunk)
         ws.insert_snapshots([make_snap("head", "x.py", "b_shared")])

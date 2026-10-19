@@ -167,6 +167,8 @@ rbtr forget --stale --dry-run # report, change nothing
 
 Run `--stale` from anywhere, including outside a git repo: a
 deleted worktree or clone can no longer be named, only found.
+Forgetting a repo's last checkout deletes its file and hands the space
+back at once.
 
 ### `rbtr search <query>`
 
@@ -281,8 +283,9 @@ $ rbtr status
    aa2ecc4bbefb (HEAD, main)  5.8k indexed  5.8k embedded ✓
 ```
 
-The chunk count is this repo's; the size is the whole file,
-which every indexed repo shares. Most of it is embeddings —
+The chunk count is this repo's; the size is the whole index's:
+the registry beside the path shown and every repo's file in
+`index/`. Most of it is embeddings —
 one vector per chunk, and they dominate everything else
 stored. `--scope all` breaks the count down per repo.
 
@@ -348,12 +351,11 @@ rbtr gc --dry-run                 # preview what would be dropped
 ```
 
 `rbtr gc` collects the current repo by default. `--scope all` reclaims
-across **every** indexed repo at once — useful because chunks are shared
-between repos, keeping `watched` or `watched-only`. `head-only`
-and `--keep-refs` name one repo's refs, so scope those with
-`--repo-path`. (The chunk sweep is global on every gc
-regardless, so a plain `rbtr gc` still frees chunks no other repo
-references.)
+across **every** indexed repo at once, keeping `watched` or
+`watched-only`. `head-only` and `--keep-refs` name one repo's refs, so
+scope those with `--repo-path`. A repo and its linked worktrees share
+their chunks, so a plain `rbtr gc` frees the chunks no checkout of the
+repo references any more.
 
 By default it keeps HEAD, every local branch and tag, and
 every watched ref (plus the current worktree), dropping only
@@ -371,16 +373,17 @@ If the daemon is mid-build or mid-embed when you run it, gc waits
 for that work to commit before it starts — usually a second or two,
 longer if a large repo is building.
 
-After deleting, gc rewrites the index file to hand the freed disk
-space back to the operating system — deleting alone keeps that space
-inside the file, so it never shrinks on its own. The rewrite reports
-the size change (`index 2.0 GiB → 1.2 GiB (-819.2 MiB)`). Pass
-`--no-compact` to skip it.
+After deleting, gc rewrites the repo's index file to hand the freed
+disk space back to the operating system — deleting alone keeps that
+space inside the file, so it never shrinks on its own. Searches keep
+running throughout. The rewrite reports the size change
+(`index 2.0 GiB → 1.2 GiB (-819.2 MiB)`). Pass `--no-compact` to skip
+it.
 
 **When to run it.** Never on a schedule — the daemon does not
 collect on its own, and a healthy index does not need it. Two
-situations call for it: the file has grown past what you want
-to give it, or you have stopped indexing refs and want the
+situations call for it: the files have grown past what you want
+to give them, or you have stopped indexing refs and want the
 space back (`--keep watched-only`, after `rbtr unwatch --stale
 --scope all` has dropped the branches that no longer exist).
 
@@ -474,6 +477,8 @@ Notable settings:
   `duckdb_memory_limit`.
 - `max_untracked_files` — the most untracked files a dirty working
   tree may hold and still have them indexed (1,000 by default).
+- `retire_delay_s` — how long a rewritten file's old copy stays, so
+  searches already running finish on it (60 s).
 - `log_level` — root log level (`DEBUG`, `INFO`, …).
 - `log_format` — `auto` (console on a TTY, else JSON), `console`,
   or `json`.

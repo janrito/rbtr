@@ -84,9 +84,10 @@ def test_chunks_cannot_be_committed_without_a_claim(index: Index) -> None:
         lambda index, repo: index.session(repo),
         lambda index, repo: index.register("/other"),
         lambda index, repo: index.forget(repo),
-        lambda index, repo: index.compact(),
+        lambda index, repo: index.compact(repo),
+        lambda index, repo: index.compact_all(),
     ],
-    ids=["session", "register", "forget", "compact"],
+    ids=["session", "register", "forget", "compact", "compact_all"],
 )
 def test_a_read_only_index_refuses_every_write(
     tmp_path: Path, write: Callable[[Index, Repo], object]
@@ -125,23 +126,23 @@ def test_cleanup_removes_the_repos_unfinished_snapshots(index: Index) -> None:
     assert index.count_file_snapshots(at=repo.at("good_sha")) > 0
 
 
-def test_cleanup_leaves_another_repos_residue(index: Index) -> None:
-    """`cleanup` clears its own repo's residue, not another repo's.
+def test_cleanup_leaves_a_sibling_checkouts_residue(project_index: Index) -> None:
+    """`cleanup` clears its own repo's residue, not another checkout's.
 
-    The other repo's unfinished snapshot still claims its chunk, so the
-    chunk is not an orphan; that repo's own clean-up removes both.
+    The sibling's unfinished snapshot still claims its chunk, so the
+    chunk is not an orphan; the sibling's own clean-up removes both.
     """
-    first = index.register("/repo1")
-    second = index.register("/repo2")
-    with index.session(first) as ws:
+    index = project_index
+    main, worktree = index.repos()
+    with index.session(main) as ws:
         ws.add_chunk(make_chunk("wip"))
         ws.insert_snapshots([make_snap("wip_sha", "f.py", "blob_wip")])
         # No mark_indexed: the build stopped here.
 
-    with index.session(second) as ws:
+    with index.session(worktree) as ws:
         ws.cleanup()
 
-    assert index.count_file_snapshots(at=first.at("wip_sha")) > 0
+    assert index.count_file_snapshots(at=main.at("wip_sha")) > 0
     assert index.count_orphan_chunks() == 0
 
 
@@ -316,7 +317,7 @@ def test_update_embeddings_round_trip(index: Index) -> None:
     assert all(c.has_embedding for c in chunks)
 
     # Verify truncation flags in the DB.
-    with index.reader() as cur:
+    with index.reader(repo) as cur:
         rows = cur.execute("SELECT id, embedding_truncated FROM chunks ORDER BY id").fetchall()
     by_id = {row[0]: row[1] for row in rows}
     assert by_id[chunk_a.id] is True

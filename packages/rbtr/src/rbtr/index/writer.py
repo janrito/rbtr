@@ -1,4 +1,4 @@
-"""The index's write session: every change to the index's data goes through `WriteSession`."""
+"""The index's write session: every change to a project's data goes through `WriteSession`."""
 
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ log = structlog.get_logger(__name__)
 
 
 class WriteSession:
-    """One transaction on the index, writing for one repo.
+    """One transaction on one project's file, writing for one of its repos.
 
     Use as a context manager via `Index.session(repo)`:
 
@@ -57,15 +57,15 @@ class WriteSession:
     ```
 
     Every row a write adds belongs to the session's repo, so no method
-    takes one.  Chunks are shared: every repo holding a blob claims
-    them.  The reads the transaction depends on (`blob_is_current`,
+    takes one.  Chunks are the project's: its checkouts share them.  The
+    reads the transaction depends on (`blob_is_current`,
     `get_snapshot_language`) run on the session's cursor, so they see
     what it has written.
 
     Every method raises `RuntimeError` outside the `with` block.  The
     commit rolls back and raises `RuntimeError` when the session stored
     chunks for a `(blob_sha, file_language)` that no `file_snapshots`
-    row claims, so a snapshot's chunks and its rows are
+    row in the file claims, so a snapshot's chunks and its rows are
     written in one transaction.  ARCHITECTURE's "Garbage collection"
     explains why.
     """
@@ -168,11 +168,11 @@ class WriteSession:
 
         This is the blob-dedup check: the build calls it before extracting
         a file.  If True, the blob's chunks are current and valid — skip.
-        If False, the file needs (re-)extraction.  The check is global
-        (chunks are content-addressed and shared), so a blob already
-        parsed by any repo is reused — no re-parse when a second
-        repo or worktree indexes it.  It runs on the session's cursor,
-        so it sees chunks this transaction deleted.
+        If False, the file needs (re-)extraction.  The check spans the
+        session's project (its chunks are content-addressed and shared by
+        its checkouts), so a blob already parsed by any of them is reused —
+        no re-parse when a linked worktree indexes it.  It runs on the
+        session's cursor, so it sees chunks this transaction deleted.
 
         *language* is the file's currently detected host language;
         *serials* maps language id → current extraction serial (the
@@ -227,7 +227,8 @@ class WriteSession:
         on commit/exit, when the buffer reaches
         `config.insert_batch_size`, or before any operation that
         depends on chunks being in the DB.  Chunks carry no `repo_id`
-        (they are keyed by content hash `id` and shared across repos);
+        (they are keyed by content hash `id` and shared by the project's
+        checkouts);
         a repo claims a chunk by inserting a `file_snapshots` row for
         its blob in the same transaction, which `_commit` requires.
         """
@@ -366,7 +367,7 @@ class WriteSession:
 
         1. Delete file snapshots and edges of the repo's snapshots never
            marked indexed: what a build that stopped part-way left.
-        2. Delete chunks no file snapshot references.
+        2. Delete chunks no file snapshot in the project references.
         3. Delete the repo's edges whose snapshot has no file snapshots.
 
         A build runs it once its snapshot is marked indexed.  Returns

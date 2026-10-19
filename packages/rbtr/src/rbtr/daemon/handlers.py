@@ -426,10 +426,10 @@ def handle_gc(
     """Reclaim index storage in the repo at `request.repo_path`."""
     t0 = time.monotonic()
     size_before = index.disk_size_bytes()
-    # Compaction rewrites and swaps the database file, so it is only safe
-    # when the caller owns the connection exclusively -- the inline
-    # no-daemon path (`allow_compact=True`). The daemon shares the
-    # connection with live searches and leaves it off.
+    # Compaction switches the repo's project to a rewritten file, which a
+    # write committing to the old file meanwhile would miss; only a caller
+    # that holds the writes passes `allow_compact=True`: the inline
+    # no-daemon path, and the daemon under `_write_sem`.
     counts = run_gc(
         index,
         request.repo_path,
@@ -524,8 +524,7 @@ def handle_unwatch_stale(request: UnwatchStaleRequest, index: Index) -> UnwatchR
 
     Raises `RbtrError` if that repo was never indexed.
     """
-    repo = index.repo(request.repo_path)
-    return _unwatch_stale([repo], index, dry_run=request.dry_run)
+    return _unwatch_stale([index.repo(request.repo_path)], index, dry_run=request.dry_run)
 
 
 def handle_unwatch_stale_all(request: UnwatchStaleAllRequest, index: Index) -> UnwatchResponse:

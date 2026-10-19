@@ -527,9 +527,9 @@ class DaemonServer:
                         log.warning("embedding_batch_failed", exc_info=True)
                         continue
                     # Under `_write_sem` like every other write: gc
-                    # compacts by copying the database and renaming the
-                    # copy over the original, so a batch that commits on
-                    # the old connection is lost.  gc waits one batch.
+                    # compacts a project by copying its file and switching
+                    # to the copy, so a batch that commits to the old file
+                    # during the copy is lost.  gc waits one batch.
                     async with self._write_sem:
                         await asyncio.to_thread(
                             self._write_embed_batch,
@@ -581,7 +581,7 @@ class DaemonServer:
         vectors: list[list[float]],
         truncated: list[bool] | None = None,
     ) -> None:
-        """Write one embedding batch in its own session."""
+        """Write one embedding batch in its own session on *repo*'s file."""
         with index.session(repo) as session:
             session.update_embeddings([c.id for c in batch], vectors, truncated=truncated)
 
@@ -743,8 +743,9 @@ class DaemonServer:
             while not self._shutdown:
                 # Off the loop: `_find_next_job` walks git per repo and
                 # reads the embedding column.  Safe in a thread because
-                # it only reads, and every index read runs on the
-                # calling thread's own cursor (`Store.cursor`).
+                # it only reads, and every store read goes through a
+                # cursor of the reading thread's own (`Index`'s
+                # class docstring).
                 job = await asyncio.to_thread(self._find_next_job)
                 if job is None:
                     break
@@ -854,6 +855,7 @@ class DaemonServer:
             relay_task = asyncio.create_task(self._notification_relay(progress_pull, pub))
             worker_task = asyncio.create_task(self._job_worker(), name="job_worker")
             watcher_task = asyncio.create_task(self._watcher_loop(), name="watcher")
+            retire_task = asyncio.create_task(self._retire_loop(), name="retire")
 
             def stop_when_it_fails(task: asyncio.Task[None]) -> None:
                 # A daemon that answers reads but builds or watches nothing
@@ -865,6 +867,7 @@ class DaemonServer:
 
             worker_task.add_done_callback(stop_when_it_fails)
             watcher_task.add_done_callback(stop_when_it_fails)
+            retire_task.add_done_callback(stop_when_it_fails)
             try:
                 while not self._shutdown:
                     if await rep.poll(timeout=100):
@@ -880,6 +883,9 @@ class DaemonServer:
                 watcher_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await watcher_task
+                retire_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await retire_task
                 relay_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await relay_task
@@ -982,6 +988,20 @@ class DaemonServer:
                         ),
                     )
                     self._wake.set()
+
+    async def _retire_loop(self) -> None:
+        """Async task that deletes the project files compactions replaced.
+
+        Every idle poll, once `retire_delay_s` has passed for them.  It
+        detaches files, so it holds `_write_sem` as compaction does.
+        """
+        while not self._shutdown:
+            await asyncio.sleep(self._idle_poll_interval)
+            index = self._index
+            if self._shutdown or index is None:
+                continue
+            async with self._write_sem:
+                await asyncio.to_thread(index.retire_due)
 
     async def _dispatch(self, raw: bytes) -> Response:
         try:

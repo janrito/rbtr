@@ -99,9 +99,9 @@ flowchart LR
 file's language, loads the appropriate plugin, and
 routes extraction through one of three strategies (see
 [Language decomposition](#language-decomposition)).
-Chunks and edges are written to a single DuckDB file via
-the store; embedding is a separate step (`embed_index`),
-and search reads from the same store.
+Chunks and edges are written to the repo's project file via the index
+(see [Index files](#index-files)); embedding is a separate step
+(`embed_index`), and search reads from the same index.
 
 ### Language plugin routing
 
@@ -131,20 +131,22 @@ without a plugin get line-based chunking.
 
 ### Content-addressed chunks and blob dedup
 
-Because chunks are content-addressed and shared across repos
-(see [Data model](#data-model) for the keying), a blob already
-chunked by any checkout need not be parsed again: two worktrees
-or co-located clones share `.git` object SHAs, so their blobs
-and chunk `id`s coincide, and the existing chunks are reused —
-no re-parsing, no re-embedding.
+Because chunks are content-addressed and shared by a project's
+checkouts (see [Data model](#data-model) for the keying), a blob
+already chunked by any of them need not be parsed again: a main
+checkout and its linked worktrees share `.git` object SHAs, so
+their blobs and chunk `id`s coincide, and the existing chunks
+are reused — no re-parsing, no re-embedding. A clone is a
+project of its own, so it parses and embeds its content again.
 
 The build checks `session.blob_is_current(blob_sha, language,
 serials)` before extracting a file, where `language` is the
 file's detected host language and `serials` is the current
 `{language: extraction serial}` registry map (plus `""` for
-plaintext). The check is global, so a blob already chunked by
-any repo is reused. A blob is **up to date** — the file skipped
-and only its `file_snapshots` row written — iff it has at least
+plaintext). The check spans the repo's project, so a blob
+already chunked by any of its checkouts is reused. A blob is
+**up to date** — the file skipped and only its `file_snapshots`
+row written — iff it has at least
 one chunk in the detected `language` *and* every stored chunk
 is at its language's current extraction serial. Both are matched
 in one query against a registered `_serial_map` view (a
@@ -209,14 +211,14 @@ session runs `ws.cleanup()`, which deletes its repo's residue from
 builds that stopped part-way and the chunks no snapshot claims any
 more.
 
-`Index` owns the reads. Its `Store` (`index/store.py`) holds
-the database file: the connection, the schema and its version
-check, the registry and every change to it, each thread's cursor,
-and the file rewrite that compaction is; `Index` hands `register`,
-`forget` and `compact` to it. `search` takes an index
-and ranks what it returns. An index created with `writable=False` (the
-default) rejects `session`, `register`, `forget` and
-`compact`.
+`Index` owns the reads, and hands `register`, `forget` and
+`compact` to its `Store` (`index/store.py`), which holds the
+connection, the registry and every change to it, the attached
+files, the routing and each thread's cursors (see
+[Index files](#index-files)). `search`
+takes an index and ranks what it returns. An index created
+with `writable=False` (the default) rejects `session`,
+`register`, `forget` and `compact`.
 
 The build pipeline registers the repo, then opens one
 session per phase: extract → edges → finalise →
@@ -273,7 +275,8 @@ sequenceDiagram
 
 ## Data model
 
-The index is a single DuckDB file. Its central design point is that
+The index is a registry and one DuckDB file per project (see
+[Index files](#index-files)). Its central design point is that
 **`chunks` is a content-addressed store**: a chunk row is keyed by `id`
 alone (a content hash) and carries **no `repo_id`**. The only table where
 a repo meets content is **`file_snapshots`**, which maps
@@ -290,13 +293,95 @@ a repo meets content is **`file_snapshots`**, which maps
 - `edges` and `indexed_snapshots` stay per-repo (they carry `repo_id`);
   only `chunks` is shared.
 
+### Index files
+
+The index is a registry and one data file per project, in the data
+directory:
+
+```text
+<data_dir>/
+  index.duckdb          the registry: projects, checkouts, schema version
+  index.duckdb.tmp/     where DuckDB spills past its memory limit
+  index/<uuid>.duckdb   one project's data, named by the registry
+```
+
+A **project** is a git common directory. A main checkout and its linked
+worktrees share one, so they share one data file, and a new worktree
+finds its content already indexed. A path git does not know is a
+project of its own. The registry (`registry.sql`) has two tables:
+`projects` names each project's file, and `repos` maps each checkout to
+its project. A project file holds the tables of
+`schema.sql` and a `meta` of its own, and no `repos` table. File names
+carry no data: every file gets a fresh uuid, and a file is live only if
+the registry names it.
+
+`Index` connects once, to an in-memory DuckDB instance with the
+configured memory limit and threads, and attaches the registry and
+every live project file to it. Holding the registry is owning the
+index. DuckDB's lock on the file keeps other processes out, and its
+check against attaching one file twice keeps out a second index in the
+same process; both raise `IndexLockedError`. A writable open deletes
+whatever under `index/` the registry does not name: a crash during a
+build or a retirement leaves such files.
+
+`Store` also keeps a copy of the registry, which routes each read
+and write to its project's file and answers repo lookups. Only the
+process holding the registry writes it, and only `Store` changes it:
+each change ends by reloading the copy, which also retires any file
+the registry stopped naming. The copy is reloaded rather than edited
+in step with each transaction, so the two cannot disagree.
+
+Every read and write is routed by repo. The store looks up the repo's
+project and runs on its own thread's cursor that has `USE`d that
+project's file. A DuckDB transaction writes one file, so
+`index.session(repo)` is bound to one project's file and writes for
+that repo alone; registering, forgetting and compacting are the
+store's own registry transactions. A
+read over several projects runs on each file at once, one pool thread
+per file, and merges the results (see
+[Cross-repo search](#cross-repo-search)).
+
+```mermaid
+flowchart LR
+    R["read(refs)"] --> M{"repo_id → project → file<br/>(routing maps from the registry)"}
+    M -->|one file| C1["this thread's cursor<br/>USE p_a"] --> F1[("index/a.duckdb")]
+    M -->|several files, at once| P["pool thread per file"]
+    P --> C2["USE p_a"] --> F1
+    P --> C3["USE p_b"] --> F2[("index/b.duckdb")]
+    C2 & C3 --> G["merge: best k, best tier, summed degrees"]
+    W["session(repo)"] --> M
+```
+
+**Switching a project's file.** No open file is ever renamed. To
+replace a project's file, the store attaches a fresh one, copies the
+old file into it with `COPY FROM DATABASE`, checkpoints it, and commits
+one registry `UPDATE` naming the new file; that commit is the switch.
+Reads already running finish on the old file, which stays attached for
+`retire_delay_s` (60 s) and is then detached and deleted. A crash
+before the commit leaves the new file unnamed, and a crash after it
+leaves the old one unnamed; the next open deletes either.
+
+```mermaid
+sequenceDiagram
+    participant S as Index
+    participant O as index/old.duckdb
+    participant N as index/new.duckdb
+    participant R as index.duckdb (registry)
+    S->>N: ATTACH, COPY FROM DATABASE old, CHECKPOINT
+    S->>R: UPDATE projects SET file = new (the switch)
+    Note over S,O: new reads use new; running reads finish on old
+    S->>O: after retire_delay_s: DETACH, delete
+```
+
 ### Repo registration
 
 Every per-repo table — `file_snapshots`, `edges`, `indexed_snapshots`,
 `watched_refs` — names its repo with a small integer `repo_id` rather than a
-path. The `repos` table holds that mapping: one row per checkout, pairing an
-id with the checkout's absolute path. **Registering** a repo means adding
-that row.
+path. The registry's `repos` table holds that mapping: one row per
+checkout, pairing an id with the checkout's absolute path and its project.
+Ids come from one sequence, so they are unique across project files.
+**Registering** a repo means adding that row, and the project's row and
+file when its project is new.
 
 In code a repo is a `Repo` value, its id and path together, and the
 registry hands them out (`register`, `repo`, `find_repo` and
@@ -314,7 +399,7 @@ from the list of repos — garbage collection (`run_gc_all`), the watcher's
 reconcile loop, `rbtr forget --stale` and cross-repo search all walk
 `repos()`. Rows carrying a `repo_id` with no matching `repos` row are
 reachable by none of them: never collected, never rebuilt, and impossible to
-forget. They just sit in the database.
+forget. They just sit in a project's file.
 
 So `build_index` derives the repo from the path rather than taking one as
 an argument, and the two cannot disagree. `run_gc` and search look the path up
@@ -332,10 +417,12 @@ The link between `repos` and the tables that reference it is maintained in
 code rather than declared as a foreign key;
 [Design decisions](#design-decisions) explains why.
 
-The tables and their keys:
+The tables and their keys. `projects` and `repos` are in the registry;
+the others are in each project's file:
 
 ```mermaid
 erDiagram
+    projects ||--o{ repos : "project_id"
     repos ||--o{ file_snapshots : "repo_id"
     repos ||--o{ edges : "repo_id"
     repos ||--o{ indexed_snapshots : "repo_id"
@@ -345,9 +432,15 @@ erDiagram
     edges }o--|| chunks : "source_id = id"
     edges }o--|| chunks : "target_id = id"
 
+    projects {
+        int id PK
+        text common_dir UK
+        text file UK
+    }
     repos {
         int id PK
         text path UK
+        int project_id
     }
     file_snapshots {
         int repo_id PK
@@ -400,9 +493,10 @@ erDiagram
 
 | Table               | Natural key                                                                                                                                                                                               |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `projects`          | `common_dir`, the git common directory, unique; `file` is unique too, so no two projects share a file                                                                                                     |
 | `repos`             | `path`, unique and always canonical; `id` is a surrogate the other tables carry                                                                                                                           |
 | `file_snapshots`    | `(repo_id, snapshot_sha, file_path)`                                                                                                                                                                      |
-| `chunks`            | `(id)` = `blake2b(blob_sha:file_language:kind:name:line_start:line_end, digest_size=8)` — content-addressed, shared across repos and paths                                                                |
+| `chunks`            | `(id)` = `blake2b(blob_sha:file_language:kind:name:line_start:line_end, digest_size=8)` — content-addressed, shared across a project's checkouts and paths                                                |
 | `edges`             | `(repo_id, snapshot_sha, source_id, target_id, kind, source_path, target_path)` — the whole tuple is the key, the paths included: one import chunk imports a different sibling from each of its locations |
 | `indexed_snapshots` | `(repo_id, snapshot_sha)`                                                                                                                                                                                 |
 | `watched_refs`      | `(repo_id, ref)`                                                                                                                                                                                          |
@@ -533,33 +627,46 @@ builds. GC uses it to identify orphans: any
 
 ### Versioning
 
-`meta` is a key-value table that tracks compatibility.
-Three keys:
+`meta` is a key-value table that tracks compatibility, in the
+registry and in each project file. Three keys:
 
-- `schema_version` — the DDL version. A mismatch deletes
-  the database on open (it's derived data; a full rebuild
-  is the only safe migration).
-- `embedding_model` — the GGUF model ID used to compute
-  vectors.
-- `embedding_version` — a format version for the embedding
-  pipeline.
+- `schema_version`, in the registry — the DDL version of
+  both schemas. A mismatch replaces the index with an empty
+  one on open: it is derived data, so rebuilding is the only
+  migration.
+- `embedding_model`, in each project file — the GGUF model
+  ID used to compute its vectors.
+- `embedding_version`, in each project file — a format
+  version for the embedding pipeline.
 
-When the model or version changes, all embeddings are
+When the model or version changes, the file's embeddings are
 cleared and recomputed on the next build.
+
+**Replacing the index.** Deleting rows does not shrink a DuckDB
+file, so a stale index is replaced rather than emptied. Its
+registry is unlinked while it is still open, so its lock holds
+until a new file exists at the path, and a new registry is then
+created there. A process that creates one first wins DuckDB's
+lock on it, and this one stops with `IndexLockedError`. The old
+project files, which the new registry does not name, are deleted
+as residue. An older rbtr finds a newer `schema_version` and
+refuses to open the index (`IndexSchemaTooNewError`), changing
+nothing.
 
 A fourth invalidation axis lives outside `meta`, per chunk:
 `chunks.extraction_serial`. It is not a global
 compatibility key — it scopes the blob-dedup gate so a plugin
 can invalidate only its own stale extractions (see
 [Content-addressed chunks and blob dedup](#content-addressed-chunks-and-blob-dedup)),
-without the database-wide wipe a `schema_version` bump forces.
+without the rebuild a `schema_version` bump forces.
 
-**Additive vs breaking changes.** `schema.sql` is applied
-`CREATE TABLE IF NOT EXISTS` on every writable open, so a
-purely **additive** table (e.g. `watched_refs`) appears in
-existing databases in place — no `schema_version` bump, no
-wipe. Only a **breaking** change to an existing table or
-column bumps `schema_version` (and so deletes the database).
+**Additive vs breaking changes.** `registry.sql` and `schema.sql`
+are applied `CREATE TABLE IF NOT EXISTS` on every writable open,
+to the registry and to every project file, so a purely
+**additive** table (e.g. `watched_refs`) appears in existing
+indexes in place — no `schema_version` bump, no rebuild. Only a
+**breaking** change to an existing table or column bumps
+`schema_version` (and so replaces the index).
 
 **Constraints reach only new databases.** DuckDB has no
 `ALTER TABLE ... ADD CONSTRAINT`, and `CREATE TABLE IF NOT
@@ -597,6 +704,7 @@ DaemonServer.serve()          — zmq REP poll + dispatch, on the event loop
  ├─ _notification_relay       — zmq inproc PULL → PUB
  ├─ _job_worker               — await Event, to_thread(run_job)
  ├─ _watcher_loop             — sleep, to_thread(pending_builds), wake
+ ├─ _retire_loop              — sleep, to_thread(retire_due)
  └─ _idle_loop (per GPU model) — sleep, check idle, unload
 ```
 
@@ -629,6 +737,10 @@ protocol code.
   due are derived. Sets `_wake` when any is. The embed worker
   calls the same function between batches to decide whether to
   stand aside.
+- **`_retire_loop`** — async task that deletes the files
+  compactions replaced, once `retire_delay_s` has passed. Like
+  the worker and the watcher, if it fails the daemon logs it and
+  stops.
 - **`_notification_relay`** — async task that receives
   progress from worker threads via zmq inproc PULL and
   forwards to the PUB socket.
@@ -723,9 +835,10 @@ a time. Every write takes `_write_sem`
 build, each embed batch, the watch-set write behind `index`
 and `forget`, and `gc`. The worker orders builds against
 embeds; the semaphore orders a handler's write against the
-worker's, and empties the field while `gc` compacts — which
-publishes a rewritten file, so a batch committing on the old
-connection is lost. gc pays one batch for that.
+worker's, and empties the field while `gc` compacts. Compaction
+copies a project's file and switches to the copy, so a batch
+committing to the old file during the copy would be lost. gc pays
+one batch for that.
 
 Two alternatives do not hold. An `RLock` in `Index`
 repeats what DuckDB already does, in the wrong place.
@@ -750,11 +863,11 @@ not the writing. duckdb 1.5.6 does not show the fault with or
 without the import; the import stays because the guide asks for
 it.
 
-Compaction is the one
-write that swaps the connection: it publishes the rewritten
-file as a fresh connection (`Store._adopt_connection`)
-and each thread rebinds its cursor on the next read, so a
-`gc` rewrite never blocks or cuts off an in-flight search.
+Compaction never swaps the connection. It copies a project's
+file into a fresh one and switches the registry to the copy;
+reads already running finish on the old file, so a `gc`
+rewrite never blocks or cuts off an in-flight search (see
+[Index files](#index-files)).
 
 [ddb-threads]: https://duckdb.org/docs/current/guides/python/multiple_threads
 
@@ -829,10 +942,11 @@ nothing needs carrying across the interruption.
 
 **A job may stand aside only between transactions.** An
 embed's is one batch. A build's is the whole snapshot:
-chunks and `file_snapshots` commit together, or a co-tenant
-repo's global orphan sweep deletes chunks whose snapshot row
-has not landed. `WriteSession` refuses such a commit, so a
-build runs to completion, which its 4.0 s median affords.
+chunks and `file_snapshots` commit together, or a sibling
+checkout's clean-up, which prunes the project's unclaimed
+chunks, deletes chunks whose snapshot row is not yet committed.
+`WriteSession` refuses such a commit, so a build runs to
+completion, which its 4.0 s median affords.
 
 Between batches the job asks `watcher.pending_builds`, and
 checks `_shutdown`. A stop also ends the batch in progress,
@@ -912,6 +1026,10 @@ aside](#standing-aside)), and it costs 204 ms over a
 
 **Transactional writes:** `WriteSession` rolls back on
 exception. No partial state persists.
+
+**Index files:** a file a crash left half-built or half-retired
+is one the registry does not name, and the next writable open
+deletes it (see [Index files](#index-files)).
 
 ### Daemon protocol
 
@@ -1309,7 +1427,7 @@ current defaults.
 
 `SearchRequest.scope` (`workspace` | `all`) controls
 breadth. `workspace` searches the single repo at `path`;
-`all` searches every indexed repo in the shared store and
+`all` searches every indexed repo in the index and
 merges the hits into one ranked list.
 
 Both modes run the *same* pipeline — `_retrieve` →
@@ -1322,9 +1440,18 @@ joins against a cursor-registered temporary view,
 `_snapshot_refs(repo_id, snapshot_sha)`. For a workspace search
 the view holds one row; for a search across every repo
 (`search_all`) it holds one per repo. This mirrors the `_qvecs`
-register/unregister pattern used for multi-vector semantic scan — a single table scan
-regardless of repo count, and no scalar `repo_id`/
-`snapshot_sha` bind params in the search SQL.
+register/unregister pattern used for multi-vector semantic scan,
+and needs no scalar `repo_id`/`snapshot_sha` bind params in the
+search SQL.
+
+Each channel runs on every project file the refs span, all at
+once, with that file's refs in its view (see
+[Index files](#index-files)). The store merges what the files
+return: the lexical and semantic channels keep the best *k* of
+each file's best *k*, the name channel keeps the best match tier
+any file found, and a chunk's inbound degree is summed over files.
+Each file scores BM25 against its own document lengths, so lexical
+scores differ slightly from those of one shared index.
 
 `handle_search` builds the refs list: a one-element list
 from `resolve_read_ref` for `workspace`, or
@@ -1495,17 +1622,21 @@ The persisted index survives connection close + reopen and
 is queryable immediately. It does **not** auto-update after
 INSERT or DELETE.
 
-**Write path** (build, GC): uses `index.session(repo)`, which
-yields a `WriteSession` — the exclusive write surface.
-All mutations go through the session. On clean exit it
-commits the transaction and, if chunks were modified,
-rebuilds the FTS index (with `overwrite = 1`, atomic
-drop + create). On exception it rolls back. This is the
-only path that writes FTS DDL.
+Each project file has its own FTS index, made with the file over
+its still empty `chunks` table, so every file has one.
+
+**Write path** (build, GC): uses `index.session(repo)`,
+which yields a `WriteSession` on the project's file, writing
+for that repo — the exclusive write surface for its rows. On
+clean exit it commits the transaction and, if chunks were
+modified, rebuilds that file's FTS index (with
+`overwrite = 1`, atomic drop + create). On exception it
+rolls back. Making a file and this are the only paths that
+write FTS DDL; a compaction copies the index with the rest
+of the file.
 
 **Read path** (search): queries the existing persisted
-index. Never rebuilds. If no FTS index exists (no build has
-ever completed), raises `IndexNotBuiltError`.
+index. Never rebuilds.
 
 DuckDB's MVCC ensures readers see a consistent snapshot
 during a concurrent rebuild — they block briefly on the DDL
@@ -1669,35 +1800,40 @@ row is orphan. Both operations live on `WriteSession`:
   (chunks not referenced by any snapshot, edges whose
   commit has no snapshots).
 
-Because chunks are content-addressed and **shared across repos**,
-the orphan sweep is a cross-repo reference count: a chunk is
-deleted only when **no** `file_snapshots` row in **any** repo
-references its blob. Dropping a commit (or a whole repo) that
-shared content with another repo leaves the shared chunks intact
-until the last referencing snapshot is gone. Consequently the
-chunk count in `GcCounts` is a global figure, not a per-repo one.
+Because chunks are content-addressed and **shared by a project's
+checkouts**, the orphan sweep is a reference count over the
+project's file: a chunk is deleted only when **no** `file_snapshots`
+row of **any** of its checkouts references its blob. Dropping a
+commit (or a whole checkout) that shared content with another
+checkout leaves the shared chunks intact until the last referencing
+snapshot is gone. Consequently the chunk count in `GcCounts` is a
+per-project figure, not a per-repo one. Content two projects hold
+is a copy in each file, collected in each on its own.
 
-This global sweep rests on **a chunk entering only for a blob somebody
+This sweep rests on **a chunk entering only for a blob somebody
 claims**. `WriteSession._commit` counts the `(blob_sha,
 file_language)` pairs the session stored chunks for, and rolls back
-when any of them has no `file_snapshots` row — in any repo. An
+when any of them has no `file_snapshots` row in the file. An
 unreferenced chunk is therefore one whose claims were removed later,
-never a half-written build, so the sweep cannot take chunks a
-co-tenant repo still needs. The check keys on the blob rather than on
+never a half-written build, so the sweep cannot take chunks another
+checkout still needs. The check keys on the blob rather than on
 writing a claim in the same session, which is what lets one
-re-extraction re-chunk a blob for every repo sharing it.
+re-extraction re-chunk a blob for every checkout sharing it.
 
-**Compaction.** Deleting rows does not shrink the database file — the
-freed space is kept inside it for reuse, so the file only ever grows.
-To hand that space back, `gc` finishes by rewriting the database:
-`Index.compact` copies the live data, search index included,
-into a temporary sibling file and atomically renames it over the
-original, so search keeps working without a rebuild.
+**Compaction.** Deleting rows does not shrink a DuckDB file — the
+freed space is kept inside it for reuse, so a file only ever grows.
+To hand that space back, `gc` finishes by rewriting each project
+file it collected: `Index.compact` switches the project to a
+fresh copy, search index included (see
+[Index files](#index-files)), so search keeps working without a
+rebuild.
 
-The rename either fully succeeds or leaves the original in place, and
-the row deletions are already durable by then, so an interrupted or
-failed rewrite leaves the index correct — just not smaller. `gc` logs
-the failure and carries on; `--no-compact` skips the rewrite entirely.
+The switch either commits or leaves the old file live, and the row
+deletions are already durable by then, so an interrupted or failed
+rewrite leaves the index correct — just not smaller. `gc` logs the
+failure and carries on; `--no-compact` skips the rewrite entirely.
+The size `gc` reports counts live files only, not the old ones
+waiting out `retire_delay_s`.
 
 Both modes rewrite the same way: standalone, `rbtr gc` owns the
 database (`handle_gc(..., allow_compact=True)`); in the daemon the
@@ -1724,8 +1860,8 @@ first and collects second.
 
 GC is **per-repo by default**; `rbtr gc --scope all` reclaims across
 **every** registered repo at once (`GcAllRequest` ⇒ `run_gc_all`
-loops `run_gc` over `repos()`), then the single
-cross-repo sweep reclaims chunks no surviving snapshot references.
+loops `run_gc` over `repos()`), and each repo's sweep reclaims
+the chunks no surviving snapshot of its project references.
 Globally it takes **`WATCHED` or `WATCHED_ONLY`** — the retentions
 stated in a repo's own terms, so every repo keeps at least its HEAD and
 its watch set. `HEAD_ONLY` and `KEEP` name one repo's refs and
@@ -1740,13 +1876,17 @@ stderr; from the daemon, as a `gc_progress` notification between
 the three names a repo, since one gc covers many, and none touches a
 running build's progress.
 
-**Forgetting a repo** removes it entirely from the index — its
-`watched_refs`, `indexed_snapshots`, `file_snapshots`, `edges`, and the
-`repos` row, in one transaction (`Index.forget`) — undoing
-what [registration](#repo-registration) set up. It is
-**metadata-only**: it deliberately does not sweep chunks, so it reports
-no statistics; the now-orphaned chunks are reclaimed by the next GC (or
-build cleanup), keeping removal cheap and uniform with ref removal.
+**Forgetting a repo** removes it entirely from the index, undoing what
+[registration](#repo-registration) set up (`Store.forget`).
+A project's last checkout takes the project with it: one registry
+transaction deletes both rows, and the project's file is retired and
+deleted. Another checkout's `watched_refs`, `indexed_snapshots`,
+`file_snapshots` and `edges` are deleted from the project's file in one
+transaction, then its `repos` row.
+That is **metadata-only**: it deliberately does not sweep chunks, so it
+reports no statistics; the chunks it orphans are reclaimed by the next
+GC (or build cleanup), keeping removal cheap and uniform with ref
+removal.
 `rbtr forget` forgets the current repo, but only when HEAD is its sole
 watched ref; `rbtr forget --stale` forgets every repo whose stored path
 no longer resolves. The latter is **daemon-driven enumeration**, not a
@@ -1881,8 +2021,9 @@ be visible through both paths if the file hasn't changed.
   distinct from the committed version's. Both sets coexist —
   HEAD snapshots point at the committed chunks, worktree
   snapshots at the dirty ones. These rows are still shared:
-  any other repo or worktree holding the same dirty blob
-  reaches the very same chunks (nothing is duplicated per repo).
+  any other checkout of the project holding the same dirty
+  blob reaches the very same chunks (nothing is duplicated per
+  checkout).
 
 ### Build lifecycle
 
@@ -2091,15 +2232,49 @@ that sets or clears an embedding would have to maintain it, and
 admits. Revisit if one grouped pass grows to dominate a status
 request.
 
-**No foreign keys.** The `repos` mapping would be the natural
-candidate for one, but DuckDB will not delete a row and its
-dependent rows in the same transaction, and rejects
-`ON DELETE CASCADE` outright — and removing a repo together
-with everything indexed under it, in one transaction, is
-exactly what `Index.forget` does. Declaring the key would mean
-splitting that deletion into two transactions, giving up atomic
-removal. The mapping is inexpensive to keep correct in code, so
-it is kept there.
+**No foreign keys.** The data tables cannot reference `repos`:
+they live in other files. `repos.project_id` could reference
+`projects`, but DuckDB rejects an `UPDATE` of a referenced row
+whose indexed column changes, and switching a project to a new file
+updates `projects.file`; it also rejects `ON DELETE CASCADE`
+outright. The mappings are inexpensive to keep correct in code: the
+store inserts a project in the registry transaction that registers
+its first checkout, and deletes it in the one that forgets its last.
+
+**One data file per project, named by a registry.** Deleting rows
+never shrinks a DuckDB file, so reclaiming space means writing the
+live data into a new file and using that one instead. Renaming a
+compacted copy over the open index lost writes after a crash: the
+adopted connection kept writing its WAL under the copy's old name,
+which the next open did not look for, and a crash could replay the
+old WAL's committed inserts onto the compacted file (2,000 rows for
+1,000 primary keys in the reproduction). Switching which file a
+registry names never renames an open file.
+
+One data file named by the registry would get the same switch, but
+searches at today's speed. On a 13-repo, 304,278-chunk index
+compacted into one file, the database part of a one-repo search
+took 2.74 s against 1.26 s on the repo's own file, and a 13-repo
+search 2.85 s against 1.69 s with the 13 files read at once.
+Restricting the scan to the repo's chunks first does not recover
+it in one file (2.5 s): BM25 still scores over the whole full-text
+index, and the vector scan still reads every row. Per-project
+files change BM25's document-length statistics; on 1,000 eval
+queries, lexical Hit@1, Hit@10 and MRR each moved by about a point,
+in both directions.
+
+The files of a cross-repo read are read at once, because a
+statement costs 10–30 ms on even a tiny file: in turn, 13 files
+took 3.55 s. They cannot be read as one query, because DuckDB's
+`match_bm25` is a macro whose body names its tables without a
+database, so it reads whichever file the cursor has `USE`d; called
+by another file's name, it silently reads the wrong tables. A file
+per checkout, rather than per project, would duplicate every chunk
+a worktree shares with its main checkout, and a name derived from
+the project would be wanted by the old file and the new at once
+during a switch. Revisit if DuckDB gains a way to vacuum a file in
+place: one file would then need neither the registry nor the
+switch.
 
 **`build_index` canonicalises paths; store lookups do not.**
 `find_repo` and `repo` match a path exactly as it
@@ -2159,13 +2334,13 @@ measured as a bottleneck.
 **A fixed DuckDB memory limit, not DuckDB's default.** DuckDB's
 default limit is 80% of RAM, and it treats that limit as a cache:
 it keeps every block it reads and does not give memory back. The
-exact cosine scan and compaction's `COPY FROM DATABASE` read the
-whole index, so on a 10 GiB index a compacting `gc` reached a
-5.2 GiB footprint and still held 4.6 GiB afterwards. Every
-connection therefore opens through `Store._connect` with
-`duckdb_memory_limit` (1 GiB by default) and `duckdb_threads`: the
-store's own, and the one compaction adopts, which is a second
-DuckDB instance with limits of its own. Under 1 GiB the same `gc`
+exact cosine scan and compaction's `COPY FROM DATABASE` read a
+whole file, so on a 10 GiB index a compacting `gc` reached a
+5.2 GiB footprint and still held 4.6 GiB afterwards. The store's
+one DuckDB instance therefore opens through `Store._connect`
+with `duckdb_memory_limit` (1 GiB by default) and
+`duckdb_threads`, and every index file is attached to it, so the
+limit covers them all. Under 1 GiB the same `gc`
 peaked at 1.2 GiB and ran faster (34 s against 43 s), and search
 and `gc` began failing only between 256 MiB and 128 MiB. Past the
 limit DuckDB spills to `<index>.tmp`, or fails that one query with

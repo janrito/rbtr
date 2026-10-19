@@ -30,7 +30,6 @@ from pathlib import Path
 from typing import Any
 
 import dataframely as dy
-import duckdb
 import minijinja
 import polars as pl
 from pydantic import BaseModel, Field
@@ -41,6 +40,7 @@ from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import SearchRequest, SearchResponse
 from rbtr.domain.models import ChunkKind, QueryKind
 from rbtr.index.classify import classify_query
+from rbtr.index.index import Index
 from rbtr_eval.agg import Dimension, SearchMetrics, search_metric_aggs
 from rbtr_eval.charts import render_vl_to_png
 from rbtr_eval.formatting import md_table
@@ -212,14 +212,20 @@ _TRUNCATED_CHUNKS_SQL = (
 def _truncated_targets(db_path: Path) -> dy.DataFrame[TruncatedTarget]:
     """The chunks whose embedding input was truncated, read from the index at *db_path*.
 
-    Opens it read-only; the daemon is stopped by this point.  Empty when
-    no index exists.
+    Reads each repo's truncated chunks from its project's file; the
+    daemon is stopped by this point.  Empty when no index exists.
     """
     if not db_path.exists():
         return TruncatedTarget.create_empty()
 
-    with duckdb.connect(str(db_path), read_only=True) as con:
-        trunc = con.execute(_TRUNCATED_CHUNKS_SQL).pl()
+    index = Index(db_path)
+    frames = []
+    for repo in index.repos():
+        with index.reader(repo) as cur:
+            frame = cur.execute(_TRUNCATED_CHUNKS_SQL, {"repo_id": repo.repo_id}).pl()
+        frames.append(frame.with_columns(pl.lit(repo.repo_path).alias("path")))
+    index.close()
+    trunc = pl.concat(frames) if frames else pl.DataFrame()
 
     if trunc.is_empty():
         return TruncatedTarget.create_empty()

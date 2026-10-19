@@ -52,6 +52,7 @@ class SnapshotCountsRow(dy.Schema):
 
     repo_id = dy.Int32(primary_key=True)
     snapshot_sha = dy.String(primary_key=True)
+    indexed_at = dy.Datetime(nullable=False)
     total = dy.Int64(nullable=False)
     embedded = dy.Int64(nullable=False)
 
@@ -153,6 +154,16 @@ class ChunkContentRow(dy.Schema):
     kind = dy.Enum((k.value for k in ChunkKind), primary_key=True)
     language = dy.String()
     content = dy.String()
+
+
+class NameMatchRow(ChunkResultRow):
+    """Columns projected by `search_by_name.sql`: a chunk and its match tier.
+
+    `match_tier` ranks how the name matched, 1 (exact) to 4 (substring);
+    each file returns its best tier only.
+    """
+
+    match_tier = dy.Int32(nullable=False)
 
 
 class ScoredChunkResultRow(ChunkResultRow):

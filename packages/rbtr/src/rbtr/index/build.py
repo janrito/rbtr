@@ -309,10 +309,11 @@ def build_index(
 
     *repo_path* may be any path inside the repository; it is resolved
     to the root and registered if not already known, since indexing a
-    path is what puts a repo in the index.  The repo comes from that
-    lookup rather than from the caller, so it always matches the path
-    being built.  A linked worktree resolves to its own
-    directory, and so is built as a repo of its own.
+    path is what puts a repo in the index.  The repo comes from
+    that lookup rather than from the caller, so it always matches the
+    path being built.  A linked worktree resolves to its own
+    directory, and so is built as a repo of its own, in its main
+    checkout's project.
 
     When *base_sha* is provided, only files that changed between
     *base_sha* and *snapshot_sha* are considered for extraction.

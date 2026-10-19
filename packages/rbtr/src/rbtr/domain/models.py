@@ -474,9 +474,10 @@ class GcCounts:
     """Rows removed by a garbage-collection operation.
 
     `snapshots`, `file_snapshots`, and `edges` are per-repo (summed when a
-    global GC visits several repos). `chunks` is the number of chunks actually
-    freed from the content-addressed pool — a global figure, since a chunk
-    dies only when no `file_snapshots` row in any repo references it.
+    GC visits several repos). `chunks` is the number of chunks actually
+    freed from the projects' content-addressed stores — a per-project
+    figure, since a chunk dies only when no `file_snapshots` row of any
+    checkout of its project references it.
     """
 
     snapshots: int = 0

@@ -17,10 +17,9 @@ WITH repo_chunks AS (
 )
 
 SELECT
-  r.path,
+  s.repo_id,
   COALESCE(rc.chunks, 0) AS chunks,
   COALESCE(rc.embedded, 0) AS embedded,
   COALESCE(rc.truncated, 0) AS truncated
-FROM repos AS r
-LEFT JOIN repo_chunks AS rc ON r.id = rc.repo_id
-ORDER BY r.path
+FROM (SELECT DISTINCT repo_id FROM _snapshot_refs) AS s
+LEFT JOIN repo_chunks AS rc ON s.repo_id = rc.repo_id

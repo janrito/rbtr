@@ -197,14 +197,16 @@ def test_dry_run_reports_without_writing(gc: GcFixture) -> None:
     assert gc.index.has_indexed(at=gc.registered.at(gc.c3)) is True
 
 
-def test_gc_frees_only_unshared_chunks(gc: GcFixture) -> None:
-    """GC frees a dropped commit's chunk only when no other repo shares it.
+def test_gc_frees_only_unshared_chunks(gc: GcFixture, tmp_path: Path) -> None:
+    """GC frees a dropped commit's chunk only when no other checkout shares it.
 
-    A second repo references commit c1's blob, so dropping c1 and c2 in
-    repo 1 frees c2's unshared chunk but leaves c1's — still referenced by
-    the other repo — in the pool.
+    A linked worktree of the repo references commit c1's blob, so dropping
+    c1 and c2 in repo 1 frees c2's unshared chunk but leaves c1's — still
+    referenced by the other checkout of the project — in the pool.
     """
-    other = gc.index.register("/other")
+    worktree = tmp_path / "other"
+    gc.repo.add_worktree("other", str(worktree))
+    other = gc.index.register(normalise_repo_path(str(worktree)))
     with gc.index.session(other) as ws:
         ws.insert_snapshots(
             [FileSnapshot(snapshot_sha="other_head", file_path="a.py", blob_sha="b0")],
@@ -251,7 +253,7 @@ def test_unknown_ref_in_keep_raises(gc: GcFixture) -> None:
 
 
 def test_search_works_after_gc(gc: GcFixture) -> None:
-    """FTS and get_chunks still work after GC drops commits."""
+    """FTS and chunks still work after GC drops commits."""
     run_gc(gc.index, gc.repo_path, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
 
     # HEAD (c3) survives — its chunks are still queryable.
@@ -362,14 +364,16 @@ def global_gc(tmp_path: Path, gc_signature: pygit2.Signature) -> Generator[Globa
 
     a = index.register(repo_a.workdir)
     b = index.register(repo_b.workdir)
-    # Content-addressed chunks (the shared one is a single row). A chunk
-    # is referenced by a snapshot only when (blob_sha, file_path) match,
-    # so the shared chunk lives on b.py — as do its snapshots.
+    # Two repositories are two projects, so each file holds its own copy of
+    # the chunk both reference. A chunk is referenced by a snapshot only
+    # when (blob_sha, file_path) match, so the shared chunk lives on b.py —
+    # as do its snapshots.
+    shared = make_chunk("k_shared", path="b.py", blob="shared")
     with index.session(a) as ws:
         for c in (
             make_chunk("k_a_old", path="a.py", blob="a_old"),
             make_chunk("k_a_head", path="a.py", blob="a_head"),
-            make_chunk("k_shared", path="b.py", blob="shared"),
+            shared,
         ):
             ws.add_chunk(c)
         # Repo A: c0 references a_old + shared; HEAD references a_head.
@@ -381,6 +385,7 @@ def global_gc(tmp_path: Path, gc_signature: pygit2.Signature) -> Generator[Globa
         for c in (
             make_chunk("k_b_old", path="a.py", blob="b_old"),
             make_chunk("k_b_head", path="a.py", blob="b_head"),
+            shared,
         ):
             ws.add_chunk(c)
         # Repo B: c0 references b_old; HEAD references shared + b_head.
@@ -405,12 +410,15 @@ def test_run_gc_all_drops_unreferenced_in_every_repo(global_gc: GlobalGcFixture)
     assert s.has_indexed(at=global_gc.b.at(global_gc.b0)) is False
 
 
-def test_run_gc_all_keeps_chunk_shared_across_repos(global_gc: GlobalGcFixture) -> None:
-    """A chunk a dropped commit referenced survives while another repo's
-    surviving commit still references it; only the unshared ones are freed."""
+def test_run_gc_all_frees_each_projects_own_copy(global_gc: GlobalGcFixture) -> None:
+    """Content two projects share is a copy in each file, collected per file.
+
+    Repo A's dropped commit was the last in A to reference the shared
+    chunk, so A's copy is freed; repo B's HEAD still references its own.
+    """
     counts, _repos = run_gc_all(global_gc.index, mode=GcMode.WATCHED, dry_run=False)
-    # a_old and b_old freed; shared kept (repo B HEAD still references it).
-    assert counts.chunks == 2
+    # a_old, A's shared copy and b_old freed; B's shared copy kept.
+    assert counts.chunks == 3
     # Shared chunk still queryable from repo B's HEAD.
     b_head = global_gc.b.at(global_gc.b1)
     assert global_gc.index.chunk_counts_for_snapshot(at=b_head).total > 0
@@ -432,14 +440,17 @@ def test_run_gc_all_skips_repo_with_vanished_path(
 def test_run_gc_all_freed_matches_physical_deletion(global_gc: GlobalGcFixture) -> None:
     """Freed count equals the physical `chunks` delta, and no orphan
     survives the pass (the global-aggregation consistency guard)."""
-    with global_gc.index.reader() as cur:
-        before = cur.execute("SELECT count(*) FROM chunks").fetchone()
+
+    def chunk_rows() -> int:
+        total = 0
+        for repo in (global_gc.a, global_gc.b):
+            with global_gc.index.reader(repo) as cur:
+                total += cur.execute("SELECT count(*) FROM chunks").fetchall()[0][0]
+        return total
+
+    before = chunk_rows()
     counts, _repos = run_gc_all(global_gc.index, mode=GcMode.WATCHED, dry_run=False)
-    with global_gc.index.reader() as cur:
-        after = cur.execute("SELECT count(*) FROM chunks").fetchone()
-    assert before is not None
-    assert after is not None
-    assert counts.chunks == before[0] - after[0]
+    assert counts.chunks == before - chunk_rows()
     assert global_gc.index.count_orphan_chunks() == 0
 
 

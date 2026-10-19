@@ -1,4 +1,4 @@
-"""Statements on a cursor over the index, shared by the index and its sessions."""
+"""Statements on a cursor over a project's file, shared by the store and its sessions."""
 
 from __future__ import annotations
 
