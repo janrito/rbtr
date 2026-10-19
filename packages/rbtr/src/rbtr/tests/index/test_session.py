@@ -222,6 +222,15 @@ def test_repo_returns_the_registered_repo(index: Index) -> None:
     assert index.repo("/r") == registered
 
 
+def test_repo_follows_a_forgotten_path_registered_again(index: Index) -> None:
+    """`repo` returns the new registration, not the forgotten one."""
+    forgotten = index.repo(index.register("/r").repo_path)
+    index.forget(forgotten)
+    registered = index.register("/r")
+    assert registered != forgotten
+    assert index.repo("/r") == registered
+
+
 def test_repo_raises_for_unknown(index: Index) -> None:
     """`repo` raises `RepoNotFoundError`, coded `repo_not_found`."""
     with pytest.raises(RepoNotFoundError, match="not registered") as raised:

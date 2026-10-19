@@ -374,6 +374,7 @@ class Index:
         for sql in (*_FORGET_ROWS_SQL, _FORGET_REPO_SQL):
             cur.execute(sql, {"repo_id": repo.repo_id})
         cur.commit()
+        self._repo_cache.pop(repo.repo_path, None)
 
     def compact(self) -> None:
         """Rewrite the database into a fresh file, live.
