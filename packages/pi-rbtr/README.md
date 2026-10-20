@@ -181,9 +181,17 @@ The extension shows index state in the pi footer:
   outside pi's terminal UI).
 - **Ready:** `rbtr: ● 1.2k symbols`. `○` with
   `· 42% embedded` or `· not embedded` while embedding is
-  incomplete, and `· no daemon` when the CLI serves the
+  incomplete, and `· not running` when the CLI serves the
   tools.
-- **No index:** `rbtr: no index — /rbtr-index`.
+- **Not running:** `rbtr: not running`, when no daemon answers
+  and the index holds nothing of this repository.
+- **No index:** `rbtr: no index — /rbtr-index`, when the index
+  holds no repository.
+- **Repo not indexed:** `rbtr: repo not indexed — /rbtr-index`,
+  when the index holds other repositories but not this one.
+- **Ref not indexed:** `rbtr: ref not indexed`, when the
+  repository's other refs are indexed but not the one reads use;
+  reads use the latest indexed commit.
 - **Error:** `rbtr: cannot run`, `rbtr: indexing failed`,
   or `rbtr: ✗ error`.
 

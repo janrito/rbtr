@@ -13,7 +13,7 @@ import { test, until } from "./session.fixtures.js";
 
 /** The footer of an index with no embeddings, its daemon running or gone; "23.9k symbols" or "812 symbols". */
 const INDEXED = /^rbtr: ○ [\d.]+k? symbols · not embedded$/;
-const INDEXED_NO_DAEMON = /^rbtr: ○ [\d.]+k? symbols · no daemon · not embedded$/;
+const INDEXED_NO_DAEMON = /^rbtr: ○ [\d.]+k? symbols · not running · not embedded$/;
 
 test("in the terminal UI, a footer that waits on rbtr animates", async ({ heldRbtr: _, pi }) => {
   await pi.start({ mode: "tui" });
@@ -87,7 +87,7 @@ describe("with a daemon of its own", () => {
       await until(() => INDEXED.test(last()));
       cli("daemon", "stop");
       vi.advanceTimersByTime(HEALTH_CHECK_MS);
-      await until(() => / · no daemon/.test(last()));
+      await until(() => / · not running/.test(last()));
       cli("daemon", "start");
       // `held-rbtr` reads its release file when it starts: the next health
       // check's look for the daemon waits for this one.

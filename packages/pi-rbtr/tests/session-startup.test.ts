@@ -60,7 +60,7 @@ describe.for<{
 describe.for<{ index: "unindexed" | "unreadable"; settings: { autoIndex: boolean; command?: string }; footer: RegExp }>(
   [
     { index: "unindexed", settings: { autoIndex: true }, footer: / symbols/ },
-    { index: "unindexed", settings: { autoIndex: false }, footer: /^rbtr: no index — \/rbtr-index$/ },
+    { index: "unindexed", settings: { autoIndex: false }, footer: /^rbtr: repo not indexed — \/rbtr-index$/ },
     {
       index: "unreadable",
       settings: { autoIndex: false, command: DAEMON_AT },

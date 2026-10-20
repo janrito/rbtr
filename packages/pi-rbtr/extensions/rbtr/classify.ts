@@ -36,8 +36,8 @@ export function classifyDaemonFailure(code: number | null, reply: ErrorResponse 
 }
 
 export type StartupDecision =
-  | { kind: "indexed" } // status has refs: show the footer
-  | { kind: "empty"; index: boolean } // no refs yet: index if enabled
+  | { kind: "indexed" } // the repo has indexed refs: show the footer
+  | { kind: "empty"; index: boolean } // no index, or not this repo: index if enabled
   | { kind: "transient"; index: boolean }; // daemon/db busy: warn, index if enabled
 
 /**
@@ -48,7 +48,6 @@ export type StartupDecision =
  */
 export function decideStartupDecision(status: StatusResponse | null, autoIndex: boolean): StartupDecision {
   if (status === null) return { kind: "transient", index: autoIndex };
-  const indexed = (status.indexed_refs ?? []).length > 0;
-  if (indexed) return { kind: "indexed" };
+  if (status.state === "indexed" || status.state === "ref_not_indexed") return { kind: "indexed" };
   return { kind: "empty", index: autoIndex };
 }

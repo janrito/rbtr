@@ -93,6 +93,7 @@ import {
   renderSearchResult,
   renderStatusCall,
   renderStatusResult,
+  statusFooter,
 } from "./render.js";
 import { loadSettings, type RbtrIndexSettings, saveProjectSettings } from "./settings.js";
 import { LOADER, ON_REQUEST, withOnRequest } from "./tool-set.js";
@@ -475,8 +476,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     cli = "available";
 
     if (decision.kind === "indexed") {
-      const top = (status?.indexed_refs ?? [])[0];
-      if (top) footer?.setStatic("success", footerLabel(top, session.available));
+      const shown = statusFooter(status, session.available);
+      footer?.setStatic(shown.color, shown.text);
       return;
     }
 
@@ -489,10 +490,11 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     // wait for the build: the footer reports it.
     if (decision.index) {
       void triggerIndex(ctx);
+    } else if (decision.kind === "transient") {
+      footer?.setStatic("muted", "rbtr: index unavailable — retrying");
     } else {
-      const hint =
-        decision.kind === "transient" ? "rbtr: index unavailable — retrying" : "rbtr: no index — /rbtr-index";
-      footer?.setStatic("muted", hint);
+      const shown = statusFooter(status, session.available);
+      footer?.setStatic(shown.color, shown.text);
     }
   }
 
@@ -519,24 +521,15 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     if (!isCurrent()) return;
     switch (transition.kind) {
       case "died": {
-        const status = await queryIndexStatus(ctx.cwd);
-        const indexed = status?.indexed_refs ?? [];
-        if (indexed.length > 0) {
-          footer?.setStatic("success", footerLabel(indexed[0], false));
-        } else {
-          footer?.setStatic("muted", "rbtr: no index · no daemon");
-        }
+        const shown = statusFooter(await queryIndexStatus(ctx.cwd), false);
+        footer?.setStatic(shown.color, shown.text);
         break;
       }
       case "returned": {
         const status = await queryIndexStatus(ctx.cwd);
         if (!isCurrent()) return;
-        const indexed = status?.indexed_refs ?? [];
-        if (indexed.length > 0) {
-          footer?.setStatic("success", footerLabel(indexed[0], true));
-        } else {
-          footer?.setStatic("muted", "rbtr: no index");
-        }
+        const shown = statusFooter(status, true);
+        footer?.setStatic(shown.color, shown.text);
         startSubscription(ctx);
         break;
       }
@@ -574,9 +567,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         }
         if (notification.kind === "gc_ended") {
           void queryIndexStatus(ctx.cwd).then((status) => {
-            const top = status?.indexed_refs?.[0];
-            if (top) footer?.setStatic("success", footerLabel(top, true));
-            else footer?.setStatic("muted", "rbtr: no index");
+            const shown = statusFooter(status, true);
+            footer?.setStatic(shown.color, shown.text);
           });
           return;
         }

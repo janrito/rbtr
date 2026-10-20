@@ -460,8 +460,21 @@ export function renderStatusResult(result: ToolResult, options: { isPartial: boo
   const lines: string[] = [];
   const indexed = response?.indexed_refs ?? [];
   const crossRepo = new Set(indexed.map((ref) => ref.repo_path)).size > 1;
-  if (indexed.length === 0) {
-    lines.push(theme.fg("error", "✗ No index found"));
+  if (response?.state === undefined || response.state === "no_index") {
+    lines.push(theme.fg("error", "✗ the index does not exist"));
+  } else if (response.state === "repo_not_indexed") {
+    const subject = response.repo_path == null ? "no repo is" : "this repo is not";
+    lines.push(theme.fg("error", `✗ ${subject} indexed${formatSizeSuffix(response)}`));
+  } else if (response.state === "ref_not_indexed") {
+    lines.push(
+      theme.fg(
+        "warning",
+        `! this ref is not indexed; ${indexed.length} other refs of this repo are${formatSizeSuffix(response)}`,
+      ),
+    );
+    for (const ref of indexed) {
+      lines.push(theme.fg("muted", formatIndexedRef(ref)));
+    }
   } else if (crossRepo) {
     lines.push(theme.fg("success", `✓ indexed repos${formatSizeSuffix(response)}`));
     const byRepo = new Map<string, typeof indexed>();
@@ -552,18 +565,40 @@ export function shortSha(sha: string): string {
  *   rbtr: ● 3.5k symbols
  *   rbtr: ○ 3.5k symbols · not embedded
  *   rbtr: ○ 3.5k symbols · 42% embedded
- *   rbtr: ● 3.5k symbols · no daemon
- *   rbtr: ○ 3.5k symbols · no daemon · not embedded
+ *   rbtr: ● 3.5k symbols · not running
+ *   rbtr: ○ 3.5k symbols · not running · not embedded
  */
 export function footerLabel(counts: EmbedCounts, daemon: boolean): string {
   const { total, embedded } = counts;
   const glyph = isFullyEmbedded(counts) ? "●" : "○";
   const parts = [`rbtr: ${glyph} ${humanCount(total)} symbols`];
-  if (!daemon) parts.push("no daemon");
+  if (!daemon) parts.push("not running");
   if (!isFullyEmbedded(counts)) {
     parts.push(embedded > 0 ? `${Math.round((100 * embedded) / total)}% embedded` : "not embedded");
   }
   return parts.join(" · ");
+}
+
+/**
+ * The footer for *status*, what the index holds for the session's
+ * repository; *daemon* says whether a daemon answered. An indexed repo
+ * shows its symbols whether or not the daemon runs.
+ */
+export function statusFooter(
+  status: StatusResponse | null,
+  daemon: boolean,
+): { color: "success" | "warning" | "muted"; text: string } {
+  const top = status?.indexed_refs?.[0];
+  if (top && (status?.state === "indexed" || !daemon)) return { color: "success", text: footerLabel(top, daemon) };
+  if (!daemon) return { color: "muted", text: "rbtr: not running" };
+  switch (status?.state) {
+    case "ref_not_indexed":
+      return { color: "warning", text: "rbtr: ref not indexed" };
+    case "repo_not_indexed":
+      return { color: "muted", text: "rbtr: repo not indexed — /rbtr-index" };
+    default:
+      return { color: "muted", text: "rbtr: no index — /rbtr-index" };
+  }
 }
 
 /** Format a count for humans: 42, 1.2k, 11.2k. */

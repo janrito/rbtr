@@ -23,6 +23,7 @@ import {
   renderReadSymbolResult,
   renderSearchResult,
   renderStatusResult,
+  statusFooter,
 } from "../extensions/rbtr/render.js";
 import { test } from "./session.fixtures.js";
 
@@ -201,8 +202,24 @@ describe("renderStatusResult", () => {
     expect(statusLines(starting, theme)).toContain("⟳ Building: ffffffffffff — walking 0/0 — 2s");
   });
 
-  test("says the index is missing when no ref is indexed", ({ theme }) => {
-    expect(statusLines({ kind: "status", state: "no_index" }, theme)).toContain("✗ No index found");
+  test.for<{ response: StatusResponse; line: string }>([
+    { response: { kind: "status", state: "no_index" }, line: "✗ the index does not exist" },
+    {
+      response: { kind: "status", state: "repo_not_indexed", repo_path: "/repo", db_size_bytes: 2 ** 20 },
+      line: "✗ this repo is not indexed · 1.0 MiB",
+    },
+    { response: { kind: "status", state: "repo_not_indexed" }, line: "✗ no repo is indexed" },
+    {
+      response: {
+        kind: "status",
+        state: "ref_not_indexed",
+        repo_path: "/repo",
+        indexed_refs: [{ sha: "a".repeat(40), names: ["main"], total: 3, embedded: 3 }],
+      },
+      line: "! this ref is not indexed; 1 other refs of this repo are",
+    },
+  ])("says what is missing: $line", ({ response, line }, { theme }) => {
+    expect(statusLines(response, theme)).toContain(line);
   });
 
   test("names each repo whose untracked files are not indexed", ({ theme }) => {
@@ -271,8 +288,35 @@ describe("footerLabel", () => {
   });
 
   test("names a missing daemon before the embed state", () => {
-    expect(footerLabel({ total: 3500, embedded: 3500 }, false)).toBe("rbtr: ● 3.5k symbols · no daemon");
-    expect(footerLabel({ total: 3500, embedded: 0 }, false)).toBe("rbtr: ○ 3.5k symbols · no daemon · not embedded");
+    expect(footerLabel({ total: 3500, embedded: 3500 }, false)).toBe("rbtr: ● 3.5k symbols · not running");
+    expect(footerLabel({ total: 3500, embedded: 0 }, false)).toBe("rbtr: ○ 3.5k symbols · not running · not embedded");
+  });
+});
+
+describe("statusFooter", () => {
+  const ref = { sha: "a".repeat(40), names: ["main"], total: 3500, embedded: 3500 };
+  test.for<{ status: StatusResponse | null; daemon: boolean; text: string }>([
+    { status: null, daemon: false, text: "rbtr: not running" },
+    { status: { kind: "status", state: "no_index" }, daemon: false, text: "rbtr: not running" },
+    {
+      status: { kind: "status", state: "indexed", indexed_refs: [ref] },
+      daemon: false,
+      text: "rbtr: ● 3.5k symbols · not running",
+    },
+    { status: { kind: "status", state: "no_index" }, daemon: true, text: "rbtr: no index — /rbtr-index" },
+    {
+      status: { kind: "status", state: "repo_not_indexed" },
+      daemon: true,
+      text: "rbtr: repo not indexed — /rbtr-index",
+    },
+    {
+      status: { kind: "status", state: "ref_not_indexed", indexed_refs: [ref] },
+      daemon: true,
+      text: "rbtr: ref not indexed",
+    },
+    { status: { kind: "status", state: "indexed", indexed_refs: [ref] }, daemon: true, text: "rbtr: ● 3.5k symbols" },
+  ])("$text", ({ status, daemon, text }) => {
+    expect(statusFooter(status, daemon).text).toBe(text);
   });
 });
 
