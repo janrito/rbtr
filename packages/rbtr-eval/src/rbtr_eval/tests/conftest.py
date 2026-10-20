@@ -19,6 +19,8 @@ from __future__ import annotations
 from collections.abc import Generator
 from pathlib import Path
 
+import dataframely as dy
+import polars as pl
 import pygit2
 import pytest
 
@@ -29,6 +31,7 @@ from rbtr.index.build import build_index
 from rbtr.index.staging import TokenisedChunk
 from rbtr.index.store import IndexStore
 from rbtr.tests.conftest import make_commit
+from rbtr_eval.shared_schemas import RepoHeader
 from rbtr_eval.tests.cases_corpus import HEAD
 
 
@@ -212,3 +215,24 @@ def mixed_kind_ref(mixed_kind_repo: pygit2.Repository, store: IndexStore) -> Sna
         repo_id = ws.register_repo(normalise_repo_path(mixed_kind_repo.workdir))
     build_index(mixed_kind_repo.workdir, head, store)
     return SnapshotRef(repo_id=repo_id, snapshot_sha=head)
+
+
+@pytest.fixture
+def headers() -> dy.DataFrame[RepoHeader]:
+    """The header of one repo, `r`, that dropped no language."""
+    return pl.DataFrame(
+        [
+            {
+                "slug": "r",
+                "sha": "abc123def456",
+                "seed": 0,
+                "queries_per_cell": 25,
+                "n_documented": 2,
+                "n_queries": 3,
+                "dropped_languages": [],
+            }
+        ],
+        schema_overrides={
+            "dropped_languages": pl.List(pl.Struct({"language": pl.String, "n_chunks": pl.UInt32}))
+        },
+    ).pipe(RepoHeader.validate, cast=True)

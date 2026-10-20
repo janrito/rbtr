@@ -1,7 +1,7 @@
 """Cases for the measure polars pipeline.
 
 Each case returns a validated `SearchBatch` for one behaviour of the
-`_score_outcomes |> _aggregate` chain. Rows are built with the `hit` /
+scoring and its statistics. Rows are built with the `hit` /
 `outcome_row` builders from `conftest`, so the case bodies stay
 readable.
 """
@@ -58,8 +58,8 @@ def case_known_rank_distribution() -> dy.DataFrame[SearchBatch]:
     """Five queries across two slugs with a known-good rank distribution.
 
     Slug `r` has ranks 1, 3, null, null and latencies 10/20/30/40;
-    slug `r2` contributes one rank-1 query so the `__all__` rollup spans
-    more than one repo.
+    slug `r2` contributes one rank-1 query, so the per-repo breakdown has
+    more than one row.
     """
     return pl.DataFrame(
         [

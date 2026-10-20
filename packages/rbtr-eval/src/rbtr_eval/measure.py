@@ -5,13 +5,13 @@ the already-built rbtr index home (one shared home across all
 repos), and writes:
 
 * `data/BENCHMARKS.md` - human-readable report.
-* `data/metrics.json`  - DVC metrics (polars-written array).
+* `data/metrics.json`  - DVC metrics: each arm's figures, over every
+  query and per query kind (`MetricsFile`).
 
 Indexing is a separate DVC stage; this command only queries.
 Searches go through `DaemonClient` against a daemon bound to
 the shared home.  Ranking is declarative polars (explode +
-`int_range().over()` + filter + join); aggregation is one
-`group_by(...).agg(*aggs)` call per grouping level.
+`int_range().over()` + filter + join).
 
 Every query is searched once per expansion *arm* (`none`,
 `keywords`, `variants`, `both` — the full `ArmKind` set).
@@ -27,6 +27,7 @@ import time
 from enum import StrEnum
 from importlib import resources
 from pathlib import Path
+from typing import Any
 
 import dataframely as dy
 import duckdb
@@ -40,7 +41,7 @@ from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import SearchRequest, SearchResponse
 from rbtr.domain.models import ChunkKind, QueryKind
 from rbtr.index.classify import classify_query
-from rbtr_eval.agg import search_metric_aggs
+from rbtr_eval.agg import Dimension, SearchMetrics, search_metric_aggs
 from rbtr_eval.charts import render_vl_to_png
 from rbtr_eval.formatting import md_table
 from rbtr_eval.queries import load_all_queries
@@ -140,113 +141,94 @@ class SearchOutcome(SearchQuery):
     target_truncated = dy.Bool()
 
 
-class Metrics(dy.Schema):
-    """Per-arm headline metrics plus rollups.
+class TruncatedTarget(dy.Schema):
+    """A chunk whose embedding input was truncated, keyed like a query's target."""
 
-    Every level is partitioned by `arm` (always a real
-    `ArmKind` value, never a sentinel).  Within an arm, the
-    `slug` / `language` / `symbol_kind` / `provenance` /
-    `query_kind` dimensions use the `'__all__'` sentinel for the
-    dimensions a level does not span:
-
-    * per group           → slug, language, provenance real
-    * per repo+lang       → provenance == '__all__'
-    * per language        → slug == '__all__', provenance == '__all__'
-    * per provenance      → slug == '__all__', language == '__all__'
-    * per symbol_kind      → slug/language/provenance == '__all__'
-    * per query_kind      → slug/language/symbol_kind/provenance == '__all__'
-    * per (symbol_kind, query_kind) → slug/language/provenance == '__all__'
-    * global              → all '__all__'
-
-    `median_rank` is null when every query missed.
-    `search_p50_ms` / `search_p95_ms` come from the latency column
-    on `SearchOutcome`.
-    """
-
-    arm = dy.String(primary_key=True)
     slug = dy.String(primary_key=True)
-    language = dy.String(primary_key=True)
-    # A grouping dimension, not a target's kind: it holds a `ChunkKind`
-    # or the sentinel standing for every kind at once, so it is a
-    # different column from the `symbol_kind` the other schemas carry
-    # and does not share their enum.
-    symbol_kind = dy.String(primary_key=True)
-    provenance = dy.String(primary_key=True)
-    query_kind = dy.String(primary_key=True)
-    n_queries = dy.UInt32(min=0)
-    hit_at_1 = dy.Float64(min=0.0, max=1.0)
-    hit_at_3 = dy.Float64(min=0.0, max=1.0)
-    hit_at_10 = dy.Float64(min=0.0, max=1.0)
-    mrr = dy.Float64(min=0.0, max=1.0)
-    ndcg_at_10 = dy.Float64(min=0.0, max=1.0)
-    median_rank = dy.Float64(nullable=True, min=1.0, max=10.0)
-    not_found_pct = dy.Float64(min=0.0, max=1.0)
+    file_path = dy.String(primary_key=True)
+    scope = dy.String(primary_key=True)
+    name = dy.String(primary_key=True)
+    line_start = dy.UInt32(primary_key=True)
+    line_end = dy.UInt32(primary_key=True)
+    symbol_kind = dy.Enum((k.value for k in ChunkKind), primary_key=True)
+
+
+class LatencyMetrics(SearchMetrics):
+    """`SearchMetrics` plus the searches' latency quantiles."""
+
     search_p50_ms = dy.Float64(min=0.0)
     search_p95_ms = dy.Float64(min=0.0)
 
 
-class MetricsFile(Metrics):
-    """Shape of the on-disk `metrics.json` file.
+class ArmMetrics(LatencyMetrics):
+    """The figures over every query searched under one arm."""
 
-    `Metrics` joined with per-slug SHA on `slug` (`__all__` rows stay
-    null on `sha`), plus run metadata as literal columns so the JSON
-    file carries everything DVC's metrics parser might want.
+    arm = dy.String(primary_key=True)
+
+
+class Breakdown(LatencyMetrics):
+    """The figures over the queries whose `dimension` column holds `value`, under one arm."""
+
+    arm = dy.String(primary_key=True)
+    dimension = dy.Enum((d.value for d in Dimension), primary_key=True)
+    value = dy.String(primary_key=True)
+
+
+class TargetShape(SearchMetrics):
+    """The figures per target kind and request shape, under one arm."""
+
+    arm = dy.String(primary_key=True)
+    symbol_kind = dy.String(primary_key=True)
+    query_kind = dy.String(primary_key=True)
+
+
+class TruncationImpact(dy.Schema):
+    """MRR of the found targets, split by whether their embedding was truncated."""
+
+    target_truncated = dy.Bool(primary_key=True)
+    n = dy.UInt32(min=0)
+    mrr = dy.Float64(nullable=True, min=0.0, max=1.0)
+
+
+class MetricsFile(BaseModel):
+    """`metrics.json`: the figures `dvc metrics` compares between runs.
+
+    `arms` maps each arm to `all` (every query) and to each query kind,
+    each mapping a `LatencyMetrics` column to its value.
     """
 
-    sha = dy.String(nullable=True)
-    seed = dy.UInt32()
-    queries_per_cell = dy.UInt32(min=1)
-    elapsed_seconds = dy.Float64(min=0.0)
+    seed: int
+    queries_per_cell: int
+    elapsed_seconds: float
+    shas: dict[str, str]
+    arms: dict[str, dict[str, dict[str, int | float | None]]]
 
-
-_ALL = "__all__"
-
-# ── Typed search ─────────────────────────────────────────────────────────────
 
 _TRUNCATED_CHUNKS_SQL = (
     resources.files("rbtr_eval.sql").joinpath("truncated_chunks.sql").read_text()
 )
 
 
-def _annotate_truncation(
-    outcomes: dy.DataFrame[SearchOutcome],
-    db_path: Path,
-) -> dy.DataFrame[SearchOutcome]:
-    """Set `target_truncated` on outcomes whose target chunk was truncated.
+def _truncated_targets(db_path: Path) -> dy.DataFrame[TruncatedTarget]:
+    """The chunks whose embedding input was truncated, read from the index at *db_path*.
 
-    Opens the index DB at *db_path* read-only (daemon is stopped by
-    this point) and left-joins truncated chunk coordinates onto outcomes.
+    Opens it read-only; the daemon is stopped by this point.  Empty when
+    no index exists.
     """
     if not db_path.exists():
-        return outcomes
+        return TruncatedTarget.create_empty()
 
     with duckdb.connect(str(db_path), read_only=True) as con:
         trunc = con.execute(_TRUNCATED_CHUNKS_SQL).pl()
 
     if trunc.is_empty():
-        return outcomes
+        return TruncatedTarget.create_empty()
 
-    # The frame arrives straight from DuckDB rather than through a schema,
-    # so its columns carry SQL's types and are cast to the outcome's here.
-    trunc = trunc.with_columns(
-        pl.col("path").str.split("/").list.last().alias("slug"),
-        pl.col("line_start").cast(pl.UInt32),
-        pl.col("line_end").cast(pl.UInt32),
-        pl.col("symbol_kind").cast(SearchOutcome.symbol_kind.dtype),
-    ).select("slug", *IDENTITY_COLUMNS)
-
-    join_keys = ["slug", *IDENTITY_COLUMNS]
-    trunc_marked = trunc.unique().with_columns(
-        pl.lit(True).alias("_is_truncated"),
-    )
     return (
-        outcomes.drop("target_truncated")
-        .join(trunc_marked, on=join_keys, how="left")
-        .with_columns(
-            pl.col("_is_truncated").fill_null(False).alias("target_truncated"),
-        )
-        .drop("_is_truncated")
-        .pipe(SearchOutcome.validate, cast=True)
+        trunc.with_columns(pl.col("path").str.split("/").list.last().alias("slug"))
+        .select("slug", *IDENTITY_COLUMNS)
+        .unique()
+        .pipe(TruncatedTarget.validate, cast=True)
     )
 
 
@@ -273,9 +255,6 @@ def _search(
         variants=variants,
     )
     return client.send_or_raise_as(SearchResponse, request)
-
-
-# ── Search execution ─────────────────────────────────────────────────────────
 
 
 def _arm_inputs(
@@ -371,14 +350,18 @@ def _run_searches(
     return pl.DataFrame(rows, infer_schema_length=None).pipe(SearchBatch.validate, cast=True)
 
 
-def _score_outcomes(batch: dy.DataFrame[SearchBatch]) -> dy.DataFrame[SearchOutcome]:
+def _score_outcomes(
+    batch: dy.DataFrame[SearchBatch],
+    truncated: dy.DataFrame[TruncatedTarget],
+) -> dy.DataFrame[SearchOutcome]:
     """Expand raw hits into ranked + top-hit columns.
 
     Explodes `hits`, numbers rows within each outcome via
     `int_range().over(...)`, picks the rank of the matching
     target (if any), and the top-1 hit for the misses
     appendix.  Left-joins back so queries whose target never
-    appeared keep a null rank.
+    appeared keep a null rank.  `target_truncated` holds whether the
+    target is one of *truncated*.
     """
     outcome_keys = ["arm", "slug", "language", *IDENTITY_COLUMNS, "provenance"]
     exploded = (
@@ -388,12 +371,7 @@ def _score_outcomes(batch: dy.DataFrame[SearchBatch]) -> dy.DataFrame[SearchOutc
         )
         .explode("hits", empty_as_null=True)
         .with_columns(
-            pl.col("hits").struct.field("file_paths").alias("hit_file_paths"),
-            pl.col("hits").struct.field("scope").alias("hit_scope"),
-            pl.col("hits").struct.field("name").alias("hit_name"),
-            pl.col("hits").struct.field("line_start").alias("hit_line_start"),
-            pl.col("hits").struct.field("line_end").alias("hit_line_end"),
-            pl.col("hits").struct.field("symbol_kind").alias("hit_symbol_kind"),
+            pl.col("hits").struct.unnest().name.prefix("hit_"),
             pl.int_range(1, pl.len() + 1, dtype=pl.UInt8).over(outcome_keys).alias("hit_rank"),
         )
     )
@@ -427,335 +405,124 @@ def _score_outcomes(batch: dy.DataFrame[SearchBatch]) -> dy.DataFrame[SearchOutc
         batch.drop("hits")
         .join(ranks, on=outcome_keys, how="left")
         .join(tops, on=outcome_keys, how="left")
-        .with_columns(pl.lit(False).alias("target_truncated"))
+        .join(
+            truncated.with_columns(pl.lit(True).alias("target_truncated")),
+            on=["slug", *IDENTITY_COLUMNS],
+            how="left",
+        )
+        .with_columns(pl.col("target_truncated").fill_null(False))
         .pipe(SearchOutcome.validate, cast=True)
     )
 
 
-# ── Aggregation ──────────────────────────────────────────────────────────────
-
-
-def _aggregate(outcomes: dy.DataFrame[SearchOutcome]) -> dy.DataFrame[Metrics]:
-    """Aggregate per arm at several levels into one `Metrics` frame.
-
-    Every level is partitioned by `arm` (always a real value).
-    Within an arm, dims the level does not span carry the
-    `'__all__'` sentinel:
-
-    1. `(slug, language, provenance)` — finest grain.
-    2. `(slug, language)`.
-    3. `(language)`.
-    4. `(provenance)`.
-    5. `(query_kind)` — the expansion ablation, per kind.
-    6. global — overall per-arm effect.
-
-    Hit@k counts null ranks as misses (`fill_null(False)`).
-    MRR treats null ranks as reciprocal 0 via an explicit
-    `when / then / otherwise`.
-    """
-    latency = pl.col("latency_ms")
-    latency_aggs = [
-        latency.quantile(0.5).alias("search_p50_ms"),
-        latency.quantile(0.95).alias("search_p95_ms"),
-    ]
-    aggs = [*search_metric_aggs(), *latency_aggs]
-
-    key_cols = ["arm", "slug", "language", "symbol_kind", "provenance", "query_kind"]
-    val_cols = [
-        "n_queries",
-        "hit_at_1",
-        "hit_at_3",
-        "hit_at_10",
-        "mrr",
-        "ndcg_at_10",
-        "median_rank",
-        "not_found_pct",
-        "search_p50_ms",
-        "search_p95_ms",
-    ]
-
-    def rollup(*dims: str) -> pl.DataFrame:
-        sentinels = [pl.lit(_ALL).alias(c) for c in key_cols if c not in ("arm", *dims)]
-        return (
-            outcomes.group_by("arm", *dims)
-            .agg(*aggs)
-            .with_columns(*sentinels)
-            # A rollup either groups by the kind, giving the outcome's enum,
-            # or covers every kind, giving the sentinel — which no enum of
-            # kinds holds. The levels concatenate on the wider type.
-            .with_columns(pl.col("symbol_kind").cast(pl.String))
-            .select(key_cols + val_cols)
+def _arm_metrics(outcomes: dy.DataFrame[SearchOutcome]) -> dy.DataFrame[ArmMetrics]:
+    """Each arm's figures over every query."""
+    return (
+        outcomes.group_by("arm")
+        .agg(
+            *search_metric_aggs(),
+            pl.col("latency_ms").quantile(0.5).alias("search_p50_ms"),
+            pl.col("latency_ms").quantile(0.95).alias("search_p95_ms"),
         )
-
-    rollups = [
-        rollup("slug", "language", "provenance"),
-        rollup("slug", "language"),
-        rollup("slug"),
-        rollup("language"),
-        rollup("symbol_kind"),
-        rollup("provenance"),
-        rollup("query_kind"),
-        rollup("symbol_kind", "query_kind"),
-        rollup(),
-    ]
-
-    return pl.concat(rollups, how="vertical").sort(key_cols).pipe(Metrics.validate, cast=True)
+        .sort("arm")
+        .pipe(ArmMetrics.validate, cast=True)
+    )
 
 
-# ── Rendering ────────────────────────────────────────────────────────────────
+def _breakdowns(outcomes: dy.DataFrame[SearchOutcome]) -> dy.DataFrame[Breakdown]:
+    """Each arm's figures per value of every `Dimension`."""
+    return (
+        pl.concat(
+            outcomes.group_by("arm", dimension.value)
+            .agg(
+                *search_metric_aggs(),
+                pl.col("latency_ms").quantile(0.5).alias("search_p50_ms"),
+                pl.col("latency_ms").quantile(0.95).alias("search_p95_ms"),
+            )
+            .select(
+                "arm",
+                pl.lit(dimension.value).alias("dimension"),
+                pl.col(dimension.value).cast(pl.String).alias("value"),
+                pl.exclude("arm", dimension.value),
+            )
+            for dimension in Dimension
+        )
+        .sort("arm", "dimension", "value")
+        .pipe(Breakdown.validate, cast=True)
+    )
 
 
-# Display-frame projections.  Each turns a typed source frame
-# (Metrics, RepoHeader) into a polars frame whose
-# string columns render directly as a markdown table.  No
-# Python-level row dicts.
-
-_repo_display_expr = (
-    pl.when(pl.col("slug") == "__all__")
-    .then(pl.lit("**all repos**"))
-    .otherwise(pl.format("`{}`", pl.col("slug")))
-    .alias("repo")
-)
+def _target_shapes(outcomes: dy.DataFrame[SearchOutcome]) -> dy.DataFrame[TargetShape]:
+    """Each arm's figures per target kind and request shape."""
+    return (
+        outcomes.group_by("arm", pl.col("symbol_kind").cast(pl.String), "query_kind")
+        .agg(*search_metric_aggs())
+        .sort("arm", "symbol_kind", "query_kind")
+        .pipe(TargetShape.validate, cast=True)
+    )
 
 
-def _pct_str(col: str) -> pl.Expr:
-    """Polars expression: a `0..1` float column rendered as `30.0%`."""
+def _truncation_impact(
+    outcomes: dy.DataFrame[SearchOutcome],
+) -> dy.DataFrame[TruncationImpact]:
+    """MRR of the found targets, for truncated and for whole embeddings.
+
+    A miss has a null rank and is left out of the mean.
+    """
+    return (
+        outcomes.group_by("target_truncated")
+        .agg(pl.len().alias("n"), (1.0 / pl.col("rank")).mean().alias("mrr"))
+        .sort("target_truncated")
+        .pipe(TruncationImpact.validate, cast=True)
+    )
+
+
+def _metrics_file(
+    arm_metrics: dy.DataFrame[ArmMetrics],
+    breakdowns: dy.DataFrame[Breakdown],
+    headers: dy.DataFrame[RepoHeader],
+    elapsed_seconds: float,
+) -> MetricsFile:
+    """The `metrics.json` content: each arm's figures overall and per query kind."""
+    arms: dict[str, dict[str, dict[str, int | float | None]]] = {}
+    for row in arm_metrics.iter_rows(named=True):
+        arms[row.pop("arm")] = {"all": row}
+    by_kind = breakdowns.filter(pl.col("dimension") == Dimension.QUERY_KIND).drop("dimension")
+    for row in by_kind.iter_rows(named=True):
+        arms[row.pop("arm")][row.pop("value")] = row
+    return MetricsFile(
+        seed=int(headers["seed"][0]),
+        queries_per_cell=int(headers["queries_per_cell"][0]),
+        elapsed_seconds=elapsed_seconds,
+        shas=dict(headers.select("slug", "sha").iter_rows()),
+        arms=arms,
+    )
+
+
+def _as_percent(col: str) -> pl.Expr:
+    """*col*, a `0..1` fraction, as text like `30.0%`."""
     return ((pl.col(col) * 100).round(1).cast(pl.String) + pl.lit("%")).alias(col)
 
 
-# The slug/language/provenance breakdown tables predate the
-# arm dimension; they report the no-expansion baseline (arm
-# `none`, all kinds) so they keep their historical meaning.
-# The expansion ablation lives in its own arm x kind table.
+def _quality_columns() -> list[pl.Expr]:
+    """The display columns every retrieval-quality table shows: n, Hit@k, MRR, NDCG@10."""
+    return [
+        pl.col("n_queries").alias("n"),
+        _as_percent("hit_at_1").alias("Hit@1"),
+        _as_percent("hit_at_3").alias("Hit@3"),
+        _as_percent("hit_at_10").alias("Hit@10"),
+        pl.col("mrr").round(3).cast(pl.String).alias("MRR"),
+        pl.col("ndcg_at_10").round(3).cast(pl.String).alias("NDCG@10"),
+    ]
 
 
-def _headline_table(metrics_df: dy.DataFrame[Metrics]) -> str:
-    """`Metrics` -> markdown table for the headline-metrics section.
-
-    Filters to the baseline arm with `language == '__all__'` and
-    `provenance == '__all__'` so only the per-repo rollups appear.
-    """
-    return md_table(
-        metrics_df.filter(
-            (pl.col("arm") == ArmKind.NONE.value)
-            & (pl.col("query_kind") == _ALL)
-            & (pl.col("language") == "__all__")
-            & (pl.col("symbol_kind") == _ALL)
-            & (pl.col("provenance") == "__all__")
-        ).select(
-            _repo_display_expr,
-            pl.col("n_queries").alias("n"),
-            _pct_str("hit_at_1").alias("Hit@1"),
-            _pct_str("hit_at_3").alias("Hit@3"),
-            _pct_str("hit_at_10").alias("Hit@10"),
-            pl.col("mrr").round(3).cast(pl.String).alias("MRR"),
-            pl.col("ndcg_at_10").round(3).cast(pl.String).alias("NDCG@10"),
-            pl.when(pl.col("median_rank").is_null())
-            .then(pl.lit("-"))
-            .otherwise(pl.col("median_rank").cast(pl.Int64).cast(pl.String))
-            .alias("median rank"),
-            _pct_str("not_found_pct").alias("not found"),
-        )
-    )
-
-
-def _latency_table(metrics_df: dy.DataFrame[Metrics]) -> str:
-    """`Metrics` -> markdown table for the search-latency section."""
-    return md_table(
-        metrics_df.filter(
-            (pl.col("arm") == ArmKind.NONE.value)
-            & (pl.col("query_kind") == _ALL)
-            & (pl.col("language") == "__all__")
-            & (pl.col("symbol_kind") == _ALL)
-            & (pl.col("provenance") == "__all__")
-        ).select(
-            _repo_display_expr,
-            (pl.col("search_p50_ms").round(0).cast(pl.Int64).cast(pl.String) + pl.lit(" ms")).alias(
-                "search P50"
-            ),
-            (pl.col("search_p95_ms").round(0).cast(pl.Int64).cast(pl.String) + pl.lit(" ms")).alias(
-                "search P95"
-            ),
-        )
-    )
-
-
-def _provenance_table(metrics_df: dy.DataFrame[Metrics]) -> str:
-    """`Metrics` -> markdown table for per-provenance breakdown.
-
-    Shows rows where `slug == '__all__'` and `language == '__all__'`
-    but `provenance` is a real provenance value.
-    """
-    return md_table(
-        metrics_df.filter(
-            (pl.col("arm") == ArmKind.NONE.value)
-            & (pl.col("query_kind") == _ALL)
-            & (pl.col("slug") == "__all__")
-            & (pl.col("language") == "__all__")
-            & (pl.col("symbol_kind") == _ALL)
-            & (pl.col("provenance") != "__all__")
-        )
-        .sort("provenance")
-        .select(
-            pl.format("`{}`", pl.col("provenance")).alias("provenance"),
-            pl.col("n_queries").alias("n"),
-            _pct_str("hit_at_1").alias("Hit@1"),
-            _pct_str("hit_at_3").alias("Hit@3"),
-            _pct_str("hit_at_10").alias("Hit@10"),
-            pl.col("mrr").round(3).cast(pl.String).alias("MRR"),
-            pl.col("ndcg_at_10").round(3).cast(pl.String).alias("NDCG@10"),
-            pl.when(pl.col("median_rank").is_null())
-            .then(pl.lit("-"))
-            .otherwise(pl.col("median_rank").cast(pl.Int64).cast(pl.String))
-            .alias("median rank"),
-            _pct_str("not_found_pct").alias("not found"),
-        )
-    )
-
-
-def _language_table(metrics_df: dy.DataFrame[Metrics]) -> str:
-    """`Metrics` -> markdown table for per-language breakdown.
-
-    Shows rows where `slug == '__all__'` but `language` is a
-    real language id, ordered by MRR desc.
-    """
-    return md_table(
-        metrics_df.filter(
-            (pl.col("arm") == ArmKind.NONE.value)
-            & (pl.col("query_kind") == _ALL)
-            & (pl.col("slug") == "__all__")
-            & (pl.col("language") != "__all__")
-            & (pl.col("symbol_kind") == _ALL)
-            & (pl.col("provenance") == "__all__")
-        )
-        .sort("language")
-        .select(
-            pl.format("`{}`", pl.col("language")).alias("language"),
-            pl.col("n_queries").alias("n"),
-            _pct_str("hit_at_1").alias("Hit@1"),
-            _pct_str("hit_at_3").alias("Hit@3"),
-            _pct_str("hit_at_10").alias("Hit@10"),
-            pl.col("mrr").round(3).cast(pl.String).alias("MRR"),
-            pl.col("ndcg_at_10").round(3).cast(pl.String).alias("NDCG@10"),
-            pl.when(pl.col("median_rank").is_null())
-            .then(pl.lit("-"))
-            .otherwise(pl.col("median_rank").cast(pl.Int64).cast(pl.String))
-            .alias("median rank"),
-            _pct_str("not_found_pct").alias("not found"),
-        )
-    )
-
-
-def _symbol_kind_table(metrics_df: dy.DataFrame[Metrics]) -> str:
-    """`Metrics` -> per-target-kind retrieval quality, ordered by MRR.
-
-    Reads the `(arm=none, symbol_kind)` rollup: slug / language /
-    provenance / query_kind all `'__all__'`.
-    """
-    return md_table(
-        metrics_df.filter(
-            (pl.col("arm") == ArmKind.NONE.value)
-            & (pl.col("query_kind") == _ALL)
-            & (pl.col("slug") == _ALL)
-            & (pl.col("language") == _ALL)
-            & (pl.col("provenance") == _ALL)
-            & (pl.col("symbol_kind") != _ALL)
-        )
-        .sort("mrr", "symbol_kind", descending=[True, False])
-        .select(
-            pl.format("`{}`", pl.col("symbol_kind")).alias("symbol_kind"),
-            pl.col("n_queries").alias("n"),
-            _pct_str("hit_at_1").alias("Hit@1"),
-            _pct_str("hit_at_3").alias("Hit@3"),
-            _pct_str("hit_at_10").alias("Hit@10"),
-            pl.col("mrr").round(3).cast(pl.String).alias("MRR"),
-            pl.col("ndcg_at_10").round(3).cast(pl.String).alias("NDCG@10"),
-            _pct_str("not_found_pct").alias("not found"),
-        )
-    )
-
-
-def _target_shape_table(metrics_df: dy.DataFrame[Metrics]) -> str:
-    """`Metrics` -> MRR cross-tab of `symbol_kind` x `query_kind`.
-
-    Which target kinds search finds well, sliced by request shape.
-    Reads the `(arm=none, symbol_kind, query_kind)` rollup.
-    """
-    cross = (
-        metrics_df.filter(
-            (pl.col("arm") == ArmKind.NONE.value)
-            & (pl.col("slug") == _ALL)
-            & (pl.col("language") == _ALL)
-            & (pl.col("provenance") == _ALL)
-            & (pl.col("symbol_kind") != _ALL)
-            & (pl.col("query_kind") != _ALL)
-        )
-        .with_columns(pl.col("mrr").round(3))
-        .pivot(on="query_kind", index="symbol_kind", values="mrr")
-    )
-    for kind in QueryKind:
-        if kind.value not in cross.columns:
-            cross = cross.with_columns(pl.lit(None, dtype=pl.Float64).alias(kind.value))
-    return md_table(
-        cross.sort("symbol_kind").select(
-            pl.format("`{}`", pl.col("symbol_kind")).alias("symbol_kind"),
-            *(
-                pl.col(kind.value).cast(pl.String).fill_null("-").alias(kind.value)
-                for kind in QueryKind
-            ),
-        )
-    )
-
-
-def _truncation_table(outcomes: dy.DataFrame[SearchOutcome]) -> str:
-    """`SearchOutcome` -> markdown table for the truncation-impact section."""
-    return md_table(
-        outcomes.group_by("target_truncated")
-        .agg(
-            pl.len().alias("n"),
-            (1.0 / pl.col("rank")).mean().alias("mrr"),
-        )
-        .sort("target_truncated")
-        .with_columns(
-            pl.when(pl.col("target_truncated"))
-            .then(pl.lit("truncated"))
-            .otherwise(pl.lit("full"))
-            .alias("embedding"),
-            _pct_str("mrr").alias("MRR"),
-        )
-        .select("embedding", "n", "MRR")
-    )
-
-
-def _arm_kind_table(metrics_df: dy.DataFrame[Metrics]) -> str:
-    """`Metrics` -> markdown table for the expansion ablation.
-
-    The headline experimental result: MRR + Hit@k for each
-    `(arm, query_kind)`, plus the per-arm global row
-    (`query_kind == '__all__'`).  Reads the
-    `slug == language == provenance == '__all__'` rollup so
-    each cell aggregates over all repos.
-    """
-    rows = metrics_df.filter(
-        (pl.col("slug") == _ALL)
-        & (pl.col("language") == _ALL)
-        & (pl.col("symbol_kind") == _ALL)
-        & (pl.col("provenance") == _ALL)
-    )
-    return md_table(
-        rows.sort("query_kind", "arm").select(
-            pl.col("arm").alias("arm"),
-            pl.when(pl.col("query_kind") == _ALL)
-            .then(pl.lit("**all**"))
-            .otherwise(pl.format("`{}`", pl.col("query_kind")))
-            .alias("query kind"),
-            pl.col("n_queries").alias("n"),
-            _pct_str("hit_at_1").alias("Hit@1"),
-            _pct_str("hit_at_3").alias("Hit@3"),
-            _pct_str("hit_at_10").alias("Hit@10"),
-            pl.col("mrr").round(3).cast(pl.String).alias("MRR"),
-            pl.col("ndcg_at_10").round(3).cast(pl.String).alias("NDCG@10"),
-        )
+def _median_rank_column() -> pl.Expr:
+    """`median rank` for display; `-` when no query found its target."""
+    return (
+        pl.when(pl.col("median_rank").is_null())
+        .then(pl.lit("-"))
+        .otherwise(pl.col("median_rank").cast(pl.Int64).cast(pl.String))
+        .alias("median rank")
     )
 
 
@@ -764,29 +531,24 @@ def _render_report(
     headers: dy.DataFrame[RepoHeader],
     n_queries: int,
     elapsed_seconds: float,
-    metrics_df: dy.DataFrame[Metrics],
-    outcomes: dy.DataFrame[SearchOutcome],
-    batch: dy.DataFrame[SearchBatch],
-    report_dir: Path | None = None,
+    arm_metrics: dy.DataFrame[ArmMetrics],
+    breakdowns: dy.DataFrame[Breakdown],
+    target_shapes: dy.DataFrame[TargetShape],
+    truncation: dy.DataFrame[TruncationImpact],
 ) -> str:
     """Render `BENCHMARKS.md` from the jinja template.
 
-    Tables come from polars (`pl.Config(tbl_formatting='MARKDOWN')`)
-    pre-rendered as strings.  Cosmetic markdown formatting
-    (column alignment, line wrapping) is left to
-    `just lint-md` / CI; this stage emits whatever polars and
-    jinja produce.
+    Every breakdown reports the no-expansion arm (`none`); the ablation
+    table compares the arms.  The truncation table appears only when
+    some target was truncated.  Cosmetic markdown formatting (column
+    alignment, line wrapping) is left to `just lint-md` / CI.
     """
-    template = resources.files("rbtr_eval.templates").joinpath("benchmarks.md.j2").read_text()
+    baseline = breakdowns.filter(pl.col("arm") == ArmKind.NONE)
+    not_found = _as_percent("not_found_pct").alias("not found")
 
     run_table = pl.DataFrame(
         {
-            "field": [
-                "seed",
-                "sample target",
-                "total queries",
-                "elapsed",
-            ],
+            "field": ["seed", "sample target", "total queries", "elapsed"],
             "value": [
                 str(int(headers["seed"][0])),
                 f"{int(headers['queries_per_cell'][0])} per (repo, language, kind, provenance)",
@@ -795,81 +557,129 @@ def _render_report(
             ],
         }
     )
+    repos = pl.concat(
+        [
+            arm_metrics.filter(pl.col("arm") == ArmKind.NONE).select(
+                pl.lit("**all repos**").alias("repo"), pl.exclude("arm")
+            ),
+            baseline.filter(pl.col("dimension") == Dimension.SLUG)
+            .sort("value")
+            .select(
+                pl.format("`{}`", pl.col("value")).alias("repo"),
+                pl.exclude("arm", "dimension", "value"),
+            ),
+        ]
+    )
+    headline_table = repos.select("repo", *_quality_columns(), _median_rank_column(), not_found)
+    latency_table = repos.select(
+        "repo",
+        (pl.col("search_p50_ms").round(0).cast(pl.Int64).cast(pl.String) + " ms").alias(
+            "search P50"
+        ),
+        (pl.col("search_p95_ms").round(0).cast(pl.Int64).cast(pl.String) + " ms").alias(
+            "search P95"
+        ),
+    )
+    kind_table = (
+        baseline.filter(pl.col("dimension") == Dimension.SYMBOL_KIND)
+        .sort("mrr", "value", descending=[True, False])
+        .select(
+            pl.format("`{}`", pl.col("value")).alias("symbol_kind"),
+            *_quality_columns(),
+            not_found,
+        )
+    )
+    target_shape_table = (
+        target_shapes.filter(pl.col("arm") == ArmKind.NONE)
+        .pivot(
+            on="query_kind",
+            on_columns=[kind.value for kind in QueryKind],
+            index="symbol_kind",
+            values="mrr",
+        )
+        .sort("symbol_kind")
+        .select(
+            pl.format("`{}`", pl.col("symbol_kind")).alias("symbol_kind"),
+            *(pl.col(kind.value).round(3).cast(pl.String).fill_null("-") for kind in QueryKind),
+        )
+    )
+    language_table = (
+        baseline.filter(pl.col("dimension") == Dimension.LANGUAGE)
+        .sort("value")
+        .select(
+            pl.format("`{}`", pl.col("value")).alias("language"),
+            *_quality_columns(),
+            _median_rank_column(),
+            not_found,
+        )
+    )
+    provenance_table = (
+        baseline.filter(pl.col("dimension") == Dimension.PROVENANCE)
+        .sort("value")
+        .select(
+            pl.format("`{}`", pl.col("value")).alias("provenance"),
+            *_quality_columns(),
+            _median_rank_column(),
+            not_found,
+        )
+    )
+    arm_kind_table = pl.concat(
+        [
+            arm_metrics.select("arm", pl.lit("**all**").alias("query kind"), *_quality_columns()),
+            breakdowns.filter(pl.col("dimension") == Dimension.QUERY_KIND)
+            .sort("value", "arm")
+            .select(
+                "arm",
+                pl.format("`{}`", pl.col("value")).alias("query kind"),
+                *_quality_columns(),
+            ),
+        ]
+    )
+    truncation_table = truncation.select(
+        pl.when(pl.col("target_truncated"))
+        .then(pl.lit("truncated"))
+        .otherwise(pl.lit("full"))
+        .alias("embedding"),
+        "n",
+        _as_percent("mrr").alias("MRR"),
+    )
 
-    # Charts: render to PNG if report_dir is provided.
-    if report_dir is not None:
-        repo_data = (
-            metrics_df.filter(
-                (pl.col("arm") == ArmKind.NONE.value)
-                & (pl.col("query_kind") == _ALL)
-                & (pl.col("language") == "__all__")
-                & (pl.col("symbol_kind") == _ALL)
-                & (pl.col("provenance") == "__all__")
-                & (pl.col("slug") != "__all__")
-            )
-            .select("slug", "mrr")
-            .to_dicts()
-        )
-        repo_spec = json.loads(
-            resources.files("rbtr_eval.templates").joinpath("mrr_by_repo.vl.json").read_text()
-        )
-        repo_spec["data"]["values"] = repo_data
-        render_vl_to_png(repo_spec, report_dir / "mrr_by_repo.png")
-
-        provenance_data = (
-            metrics_df.filter(
-                (pl.col("arm") == ArmKind.NONE.value)
-                & (pl.col("query_kind") == _ALL)
-                & (pl.col("slug") == "__all__")
-                & (pl.col("language") == "__all__")
-                & (pl.col("symbol_kind") == _ALL)
-                & (pl.col("provenance") != "__all__")
-            )
-            .select("provenance", "mrr")
-            .to_dicts()
-        )
-        provenance_spec = json.loads(
-            resources.files("rbtr_eval.templates").joinpath("mrr_by_provenance.vl.json").read_text()
-        )
-        provenance_spec["data"]["values"] = provenance_data
-        render_vl_to_png(provenance_spec, report_dir / "mrr_by_provenance.png")
-
-        kind_data = (
-            metrics_df.filter(
-                (pl.col("arm") == ArmKind.NONE.value)
-                & (pl.col("query_kind") == _ALL)
-                & (pl.col("slug") == "__all__")
-                & (pl.col("language") == "__all__")
-                & (pl.col("provenance") == "__all__")
-                & (pl.col("symbol_kind") != "__all__")
-            )
-            .select("symbol_kind", "mrr")
-            .to_dicts()
-        )
-        kind_spec = json.loads(
-            resources.files("rbtr_eval.templates").joinpath("mrr_by_kind.vl.json").read_text()
-        )
-        kind_spec["data"]["values"] = kind_data
-        render_vl_to_png(kind_spec, report_dir / "mrr_by_kind.png")
-
-    has_truncation = outcomes["target_truncated"].any()
-    trunc_table = _truncation_table(outcomes) if has_truncation else ""
-
+    template = resources.files("rbtr_eval.templates").joinpath("benchmarks.md.j2").read_text()
     return minijinja.Environment().render_str(
         template,
         run_table=md_table(run_table),
-        headline_table=_headline_table(metrics_df),
-        latency_table=_latency_table(metrics_df),
-        kind_table=_symbol_kind_table(metrics_df),
-        target_shape_table=_target_shape_table(metrics_df),
-        language_table=_language_table(metrics_df),
-        provenance_table=_provenance_table(metrics_df),
-        arm_kind_table=_arm_kind_table(metrics_df),
-        truncation_table=trunc_table,
+        headline_table=md_table(headline_table),
+        latency_table=md_table(latency_table),
+        kind_table=md_table(kind_table),
+        target_shape_table=md_table(target_shape_table),
+        language_table=md_table(language_table),
+        provenance_table=md_table(provenance_table),
+        arm_kind_table=md_table(arm_kind_table),
+        truncation_table=md_table(truncation_table) if truncation["target_truncated"].any() else "",
     )
 
 
-# ── Entry point ──────────────────────────────────────────────────────────────
+def _charts(breakdowns: dy.DataFrame[Breakdown]) -> dict[str, dict[str, Any]]:
+    """The report's Vega-Lite specs, by name, each holding the no-expansion MRR it plots."""
+    baseline = breakdowns.filter(pl.col("arm") == ArmKind.NONE)
+    data = {
+        "mrr_by_repo": (Dimension.SLUG, "slug"),
+        "mrr_by_provenance": (Dimension.PROVENANCE, "provenance"),
+        "mrr_by_kind": (Dimension.SYMBOL_KIND, "symbol_kind"),
+    }
+    specs = {}
+    for name, (dimension, field) in data.items():
+        spec = json.loads(
+            resources.files("rbtr_eval.templates").joinpath(f"{name}.vl.json").read_text()
+        )
+        spec["data"]["values"] = (
+            baseline.filter(pl.col("dimension") == dimension)
+            .sort("value")
+            .select(pl.col("value").alias(field), "mrr")
+            .to_dicts()
+        )
+        specs[name] = spec
+    return specs
 
 
 class MeasureCmd(BaseModel):
@@ -909,42 +719,29 @@ class MeasureCmd(BaseModel):
             batch = _run_searches(client, queries, self.repos_dir)
         elapsed_seconds = time.monotonic() - t0
 
-        outcomes = _score_outcomes(batch)
-        outcomes = _annotate_truncation(outcomes, config.db_path)
-        metrics_df = _aggregate(outcomes)
+        outcomes = _score_outcomes(batch, _truncated_targets(config.db_path))
+        arm_metrics = _arm_metrics(outcomes)
+        breakdowns = _breakdowns(outcomes)
 
         self.report.parent.mkdir(parents=True, exist_ok=True)
-        report_text = _render_report(
-            headers=headers,
-            n_queries=queries.height,
-            elapsed_seconds=elapsed_seconds,
-            metrics_df=metrics_df,
-            outcomes=outcomes,
-            batch=batch,
-            report_dir=self.report.parent,
+        self.report.write_text(
+            _render_report(
+                headers=headers,
+                n_queries=queries.height,
+                elapsed_seconds=elapsed_seconds,
+                arm_metrics=arm_metrics,
+                breakdowns=breakdowns,
+                target_shapes=_target_shapes(outcomes),
+                truncation=_truncation_impact(outcomes),
+            ),
+            encoding="utf-8",
         )
-
-        # metrics.json: metrics frame + per-slug SHA (joined) + run
-        # metadata as literal columns.  `__all__` rollup rows stay
-        # null on sha.
-        metrics_file = (
-            metrics_df.join(headers.select("slug", "sha"), on="slug", how="left")
-            .with_columns(
-                pl.lit(int(headers["seed"][0])).cast(pl.UInt32).alias("seed"),
-                pl.lit(int(headers["queries_per_cell"][0]))
-                .cast(pl.UInt32)
-                .alias("queries_per_cell"),
-                pl.lit(elapsed_seconds).alias("elapsed_seconds"),
-            )
-            .pipe(MetricsFile.validate, cast=True)
-        )
-
-        self.report.parent.mkdir(parents=True, exist_ok=True)
-        self.report.write_text(report_text, encoding="utf-8")
+        for name, spec in _charts(breakdowns).items():
+            render_vl_to_png(spec, self.report.parent / f"{name}.png")
         self.metrics.parent.mkdir(parents=True, exist_ok=True)
-        # Indented so the metrics file reads and diffs cleanly; polars'
-        # write_json emits a single compact line.
         self.metrics.write_text(
-            json.dumps(metrics_file.to_dicts(), indent=2) + "\n",
+            _metrics_file(arm_metrics, breakdowns, headers, elapsed_seconds).model_dump_json(
+                indent=2
+            ),
             encoding="utf-8",
         )

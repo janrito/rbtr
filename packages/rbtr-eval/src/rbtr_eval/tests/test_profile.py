@@ -61,27 +61,6 @@ def queries() -> dy.DataFrame[QueryRow]:
     return pl.DataFrame(rows).pipe(QueryRow.validate, cast=True)
 
 
-@pytest.fixture
-def headers() -> dy.DataFrame[RepoHeader]:
-    """Header row for the single repo in `queries`."""
-    return pl.DataFrame(
-        [
-            {
-                "slug": "r",
-                "sha": "abc123def456",
-                "seed": 0,
-                "queries_per_cell": 25,
-                "n_documented": 2,
-                "n_queries": 3,
-                "dropped_languages": [],
-            }
-        ],
-        schema_overrides={
-            "dropped_languages": pl.List(pl.Struct({"language": pl.String, "n_chunks": pl.UInt32}))
-        },
-    ).pipe(RepoHeader.validate, cast=True)
-
-
 def test_report_shows_present_kinds_not_absent_ones(
     queries: dy.DataFrame[QueryRow],
     headers: dy.DataFrame[RepoHeader],
