@@ -43,9 +43,6 @@ _SECTION_QUERY = load_query(__package__, "sections")
 # is captured dynamically and resolved to a language id by the runner.
 
 
-# ── Chunking ─────────────────────────────────────────────────────────
-
-
 def _has_headings(root: Node) -> bool:
     """Return True if any section in the tree has an atx_heading."""
     for child in root.children:
@@ -189,8 +186,6 @@ def chunk_markdown(
     yield from _extract_links(content_bytes, file_path, blob_sha, ranges)
 
 
-# ── Link extraction ──────────────────────────────────────────────────
-
 _LINK_QUERY = load_query(__package__, "links")
 
 
@@ -242,9 +237,6 @@ def _extract_links(
                 line_start=dest_node.start_point[0] + 1,
                 line_end=last_line(dest_node),
             )
-
-
-# ── Plugin ───────────────────────────────────────────────────────────
 
 
 markdown = LanguageRegistration(

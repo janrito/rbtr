@@ -207,9 +207,6 @@ def progress_reporter(*labels: str) -> Iterator[list[ProgressCallback]]:
         yield [_make_progress_callback(progress, tid) for tid in task_ids]
 
 
-# ── Helpers ──────────────────────────────────────────────────────────
-
-
 def _short_path(file_path: str) -> str:
     """Shorten a file path relative to CWD when possible."""
     try:
@@ -225,9 +222,6 @@ def _score_style(score: float) -> str:
     if score >= 0.5:
         return "yellow"
     return "dim"
-
-
-# ── Rich formatting ─────────────────────────────────────────────────
 
 
 def _print_rich(model: BaseModel) -> None:

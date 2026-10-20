@@ -36,14 +36,10 @@ from rbtr.languages.registration import (
 if TYPE_CHECKING:
     from tree_sitter import Node
 
-# ── Query ────────────────────────────────────────────────────────────
-
 # The `@_docstring` sub-capture marks the first-statement body
 # docstring for doc-range detection (used by `extract_doc_spans`
 # and the eval query sampler).  It is optional in the match
 # (`?`), so functions/classes without a docstring still match.
-
-# ── Import extractor ─────────────────────────────────────────────────
 
 
 def extract_import_meta(
@@ -97,9 +93,6 @@ def extract_import_meta(
             meta.names = ",".join(names)
 
     return meta
-
-
-# ── Plugin ───────────────────────────────────────────────────────────
 
 
 python = LanguageRegistration(

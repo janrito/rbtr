@@ -27,8 +27,6 @@ if TYPE_CHECKING:
 
     from rbtr.languages.registration import LanguageRegistration
 
-# ── Constants ────────────────────────────────────────────────────────
-
 # The chunk kinds produced by a structural query capture. The capture name
 # equals the `ChunkKind` value (a `StrEnum`), so `ChunkKind(capture_name)` is
 # the reverse map; this set is the whitelist that keeps non-capture kinds
@@ -51,9 +49,6 @@ _CAPTURE_KINDS: frozenset[ChunkKind] = frozenset(
 # interior docstrings.  Plugins opt in by adding a `@_docstring`
 # sub-capture to their query.
 _DOCSTRING_CAPTURE = "_docstring"
-
-
-# ── Internal helpers ─────────────────────────────────────────────────
 
 
 @lru_cache(maxsize=32)
@@ -197,9 +192,6 @@ def _leading_comment_block(node: Node, comments: list[Node], source: bytes) -> l
     if block and _contiguous(source, block[-1].end_byte, node.start_byte):
         return block
     return []
-
-
-# ── Public API ───────────────────────────────────────────────────────
 
 
 def extract_symbols(

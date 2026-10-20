@@ -369,8 +369,6 @@ def case_one_transaction_falls_to_the_sha() -> EmbedOrderScenario:
     return EmbedOrderScenario(transactions=[["c3", "c1", "c2"]], expected=["c1", "c2", "c3"])
 
 
-# ── Isolation between checkouts of one project ──────────────────────
-
 type PathsRead = Callable[[Index, SnapshotRef], set[str]]
 """A read at one snapshot, reduced to the file paths it returned."""
 

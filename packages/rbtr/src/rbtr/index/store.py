@@ -131,8 +131,6 @@ class Store:
                 cur.execute(_SCHEMA_SQL)
                 self._check_embedding_version(cur)
 
-    # ── Opening ──────────────────────────────────────────────────────
-
     def _attach_registry(self) -> None:
         """Attach `index.duckdb` as `registry`."""
         self._attach_file(str(self.db_path), "registry")
@@ -281,8 +279,6 @@ class Store:
         con.install_extension("fts")
         con.load_extension("fts")
 
-    # ── Files ────────────────────────────────────────────────────────
-
     def _attach(self, file: str) -> None:
         """Attach the project file named *file* under its alias."""
         target = ":memory:" if self.db_path is None else str(self._projects_dir / file)
@@ -310,8 +306,6 @@ class Store:
         path = self._projects_dir / file
         wal = path.with_name(f"{file}.wal")
         return sum(p.stat().st_size for p in (path, wal) if p.exists())
-
-    # ── Registry ─────────────────────────────────────────────────────
 
     def register(self, path: str) -> Repo:
         """Register a repo path and return the repo.
@@ -500,8 +494,6 @@ class Store:
             cur.execute(_CLEAR_ALL_EMBEDDINGS_SQL)
         cur.execute(_SET_EMBEDDING_VERSION_SQL, {"embedding_version": current_version})
         cur.execute(_SET_EMBEDDING_MODEL_SQL, {"embedding_model": current_model})
-
-    # ── Cursors ──────────────────────────────────────────────────────
 
     def _cursor_for(self, alias: str) -> duckdb.DuckDBPyConnection:
         """This thread's cursor on the file attached as *alias*.

@@ -27,8 +27,6 @@ Type "cd ~/apps/rbtr"
 Enter
 Wait@60s
 
-# ── File outline ─────────────────────────────────────────────
-
 Type "# What's in this file?"
 Enter
 Sleep 500ms
@@ -38,8 +36,6 @@ Enter
 Wait@60s
 Sleep 3s
 
-
-# ── Read symbol ──────────────────────────────────────────────
 
 Type "# Read one of them, by name alone"
 Enter
@@ -51,8 +47,6 @@ Wait@60s
 Sleep 4s
 
 
-# ── Find references ──────────────────────────────────────────
-
 Type "# Who depends on this type?"
 Enter
 Sleep 500ms
@@ -62,8 +56,6 @@ Enter
 Wait@60s
 Sleep 3s
 
-
-# ── Structural diff ──────────────────────────────────────────
 
 Type "# And what did this branch change here?"
 Enter

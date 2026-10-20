@@ -169,8 +169,6 @@ class ChunkExtraction:
     chunker: Chunker
 
 
-# ── Registration dataclass ───────────────────────────────────────────
-
 # Language ID must be lowercase ascii, digits, or underscores.
 _VALID_ID = re.compile(r"[a-z][a-z0-9_]*")
 
@@ -364,7 +362,7 @@ class LanguageRegistration:
             )
             raise ValueError(msg)
 
-    # ── Extraction overrides ─────────────────────────────────────────
+    # Extraction overrides
     # Wrap-style: an override receives the current resolver as its first
     # argument, so it can delegate. Composed over the slot via `partial`, so the
     # slot always holds a plain resolver. Works as a decorator
@@ -404,7 +402,7 @@ class LanguageRegistration:
         object.__setattr__(self, "extraction", ChunkExtraction(fn))
         return fn
 
-    # ── Resolution (called by the engine) ────────────────────────
+    # Resolution (called by the engine)
     # The slot holds the effective resolver (built-in default or a composed
     # override), so these just call it — no branching, no injection.
 
@@ -418,9 +416,6 @@ class LanguageRegistration:
 
     def resolve_import(self, node: Node, captures: dict[str, list[Node]]) -> ImportMeta:
         return self._import_resolver(node, captures)
-
-
-# ── Shared utilities for plugin authors ──────────────────────────────
 
 
 @functools.cache

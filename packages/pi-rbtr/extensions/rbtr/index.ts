@@ -98,8 +98,6 @@ import {
 import { loadSettings, type RbtrIndexSettings, saveProjectSettings } from "./settings.js";
 import { LOADER, ON_REQUEST, withOnRequest } from "./tool-set.js";
 
-// ── Tool result shape ─────────────────────────────────────────
-
 type ToolReturn = AgentToolResult<Record<string, unknown>>;
 
 /**
@@ -110,8 +108,6 @@ function toolResult(response: Response): ToolReturn {
   const text = JSON.stringify(response);
   return { content: [{ type: "text", text }], structuredContent: JSON.parse(text), details: { response } };
 }
-
-// ── Tool metadata ─────────────────────────────────────────────
 
 /** The group every rbtr tool belongs to, for codemode listings and tool search. */
 const NAMESPACE: ToolNamespace = {
@@ -137,8 +133,6 @@ const DELETES: ToolAnnotations = {
   idempotentHint: false,
   openWorldHint: false,
 };
-
-// ── Extension ─────────────────────────────────────────────────
 
 /**
  * Surface reconcile outcomes to the user.  `up_to_date` and
@@ -331,8 +325,6 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     repoRoot = named ?? repoRoot;
   }
 
-  // ── Index facts in bash and read output ────────────────────
-
   function lookups(cwd: string, signal: AbortSignal | undefined): IndexLookups {
     return {
       readSymbol: (symbol) => session.send({ kind: "read_symbol", repo_path: cwd, symbol }, signal),
@@ -391,7 +383,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     outlinedThisTurn.clear();
   });
 
-  // ── Session lifecycle ───────────────────────────────────────
+  // Session lifecycle
 
   pi.on("session_start", (_event, ctx) => {
     settings = loadSettings(ctx.cwd, ctx.isProjectTrusted());
@@ -733,7 +725,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     );
   }
 
-  // ── Commands ────────────────────────────────────────────────
+  // Commands
 
   pi.registerCommand("rbtr-status", {
     description: "Show rbtr index status",
@@ -845,7 +837,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     },
   });
 
-  // ── Tools ──────────────────────────────────────────────────
+  // Tools
 
   pi.registerTool({
     name: "rbtr_search",

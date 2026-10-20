@@ -98,9 +98,6 @@ def build_resolution_map(
     return result
 
 
-# ── Shared helpers ───────────────────────────────────────────────────
-
-
 def _substituted(module_path: str, resolution: ImportResolution) -> str:
     """Apply the first matching prefix substitution, then the module style."""
     resolved = module_path
@@ -384,7 +381,6 @@ def _build_file_chunks_index(chunks: list[Chunk]) -> dict[str, list[Chunk]]:
     return index
 
 
-# ── Import edges ─────────────────────────────────────────────────────
 #
 # Strategy: structural (tree-sitter metadata) with text-search fallback.
 #

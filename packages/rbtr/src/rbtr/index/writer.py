@@ -82,8 +82,6 @@ class WriteSession:
         # buffer holds repo-independent content flushed via upsert.
         self._chunk_buffer: list[TokenisedChunk] = []
 
-    # ── Context manager ──────────────────────────────────────────
-
     def __enter__(self) -> WriteSession:
         self._cursor.begin()
         self._active = True
@@ -142,8 +140,6 @@ class WriteSession:
             msg = "No active transaction. Use 'with index.session(repo) as ws:'"
             raise RuntimeError(msg)
 
-    # ── Bulk helpers ─────────────────────────────────────────────
-
     def _bulk_insert(self, sql: str, frame: pl.DataFrame) -> None:
         """Execute *sql* against *frame*, bound as the view `_stg`.
 
@@ -160,8 +156,6 @@ class WriteSession:
             frame = frame.with_columns(pl.col(c).struct.json_encode() for c in struct_cols)
         with registered_views(self._cursor, _stg=frame) as cur:
             cur.execute(sql)
-
-    # ── Reads inside the transaction ─────────────────────────────
 
     def blob_is_current(self, blob_sha: str, language: str, serials: dict[str, int]) -> bool:
         """Check whether *blob_sha* is up to date for host *language*.
@@ -217,8 +211,6 @@ class WriteSession:
             _GET_SNAPSHOT_LANGUAGE_SQL, {"repo_id": self._repo.repo_id, "file_path": file_path}
         ).fetchone()
         return str(row[0]) if row else ""
-
-    # ── Write methods ────────────────────────────────────────────
 
     def add_chunk(self, chunk: TokenisedChunk) -> None:
         """Buffer a content-addressed chunk for insertion.
@@ -341,8 +333,6 @@ class WriteSession:
         self._cursor.execute(
             _MARK_INDEXED_SQL, {"repo_id": self._repo.repo_id, "snapshot_sha": snapshot_sha}
         )
-
-    # ── GC ───────────────────────────────────────────────────────
 
     def drop_snapshot(self, *, snapshot_sha: str) -> GcCounts:
         """Remove all trace of the repo's snapshot *snapshot_sha*."""

@@ -60,9 +60,6 @@ def _filter_semantic(
     )
 
 
-# ── Name matching ────────────────────────────────────────────────────
-
-
 def _name_score_expr(query: str) -> pl.Expr:
     """Score how well *query* matches each chunk name.
 
@@ -108,12 +105,6 @@ def _name_score_expr(query: str) -> pl.Expr:
     )
 
 
-# ── Query classification ─────────────────────────────────────────────
-
-
-# ── Kind boost ───────────────────────────────────────────────────────
-
-
 def _kind_boost_expr() -> pl.Expr:
     """Ranking boost multiplier based on chunk kind.
 
@@ -149,9 +140,6 @@ def _kind_boost_expr() -> pl.Expr:
         .then(0.3)
         .otherwise(1.0)
     )
-
-
-# ── File category penalty ────────────────────────────────────────────
 
 
 # Patterns for file classification.  Checked in order — first
@@ -219,9 +207,6 @@ def _file_category_penalty_expr() -> pl.Expr:
     )
 
 
-# ── Importance (inbound-degree) ──────────────────────────────────────
-
-
 def _importance_expr() -> pl.Expr:
     """Ranking boost from inbound edge count.
 
@@ -239,9 +224,6 @@ def _importance_expr() -> pl.Expr:
     degree = pl.col("degree").cast(pl.Float64)
     raw = 1.0 + (1 + degree).log(base=2) / 4
     return pl.when(degree <= 0).then(1.0).otherwise(pl.min_horizontal(raw, pl.lit(3.0)))
-
-
-# ── Diff proximity ──────────────────────────────────────────────────
 
 
 def compute_proximity(
@@ -344,25 +326,25 @@ def fuse_scores(
     # FusionInputRow.  Work with pl.DataFrame internally.
     frame: pl.DataFrame = scored
 
-    # ── Name score ───────────────────────────────────────────────
+    # Name score
     frame = frame.with_columns(
         _name_score_expr(query).alias("name_match"),
     )
 
-    # ── Normalise all three channels at once ─────────────────────
+    # Normalise all three channels at once
     frame = frame.with_columns(
         _normalise_col("lexical"),
         _normalise_col("semantic"),
         _normalise_col("name_match"),
     )
 
-    # ── Kind boost + file category penalty ─────────────────────
+    # Kind boost + file category penalty
     frame = frame.with_columns(
         _kind_boost_expr().alias("kind_boost"),
         _file_category_penalty_expr().alias("file_penalty"),
     )
 
-    # ── Final score ──────────────────────────────────────────────
+    # Final score
     frame = frame.with_columns(
         (
             (alpha * pl.col("semantic") + beta * pl.col("lexical") + gamma * pl.col("name_match"))
@@ -373,7 +355,7 @@ def fuse_scores(
         ).alias("score"),
     )
 
-    # ── Top-k ───────────────────────────────────────────────────────
+    # Top-k
     return (
         frame.sort("score", "id", descending=[True, False])
         .head(top_k)
@@ -488,9 +470,6 @@ def materialise_scored(
     return ScoredChunks.validate_python(rows)
 
 
-# ── Weight selection ─────────────────────────────────────────────────
-
-
 def _select_reranker_params(
     kind: QueryKind,
     *,
@@ -532,9 +511,6 @@ def _select_weights(
         alpha = 0.0
 
     return (alpha, beta, gamma)
-
-
-# ── Unified search ───────────────────────────────────────────────────
 
 
 def _embed_query(
@@ -586,11 +562,11 @@ def _retrieve(
     pre-embedded query vectors for the semantic channel (empty
     to skip semantic).
     """
-    # ── Channel 1: BM25 lexical ─────────────────────────────
+    # Channel 1: BM25 lexical
     pool_size = top_k * config.retrieval_multiplier_lexical
     lex_frame = index.fulltext_matches(lex_query, within=refs, top_k=pool_size)
 
-    # ── Channel 2: semantic (embedding cosine) ───────────────
+    # Channel 2: semantic (embedding cosine)
     sem_frame = ScoredChunkResultRow.create_empty()
     if query_vecs:
         try:
@@ -602,10 +578,10 @@ def _retrieve(
         except duckdb.Error:
             pass
 
-    # ── Channel 3: name match ───────────────────────────────
+    # Channel 3: name match
     name_frame = index.name_matches(query, within=refs)
 
-    # ── Merge candidates with scores via outer joins ─────────
+    # Merge candidates with scores via outer joins
     chunk_cols = list(ChunkResultRow.columns())
     scored = (
         lex_frame.rename({"score": "lexical"})
@@ -622,7 +598,7 @@ def _retrieve(
         )
     )
 
-    # ── Importance (inbound-degree) ──────────────────────
+    # Importance (inbound-degree)
     candidate_ids = scored["id"].to_list()
     degree_frame = index.inbound_degrees(candidate_ids, within=refs)
     if not degree_frame.is_empty():
@@ -635,7 +611,7 @@ def _retrieve(
     else:
         scored = scored.with_columns(pl.lit(1.0).alias("importance"))
 
-    # ── Proximity (diff distance) ────────────────────────
+    # Proximity (diff distance)
     if changed_files:
         edges = index.edges(within=refs)
         # Build paths frame: candidates + unknown neighbours.
@@ -702,12 +678,12 @@ def search(
     """
     effective_kind = kind if kind is not None else classify_query(query)
 
-    # ── Expansion: augment query for BM25 ────────────────────
+    # Expansion: augment query for BM25
     lex_query = query
     if keywords:
         lex_query = query + " " + " ".join(keywords)
 
-    # ── Embed query + variants ─────────────────────────────
+    # Embed query + variants
     query_vecs = _embed_query(query, embedder, variants) if embedder is not None else []
 
     candidates = _retrieve(

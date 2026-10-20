@@ -21,8 +21,6 @@ from pydantic import (
 
 from rbtr.domain.identity import compose_scope
 
-# ── Enums ────────────────────────────────────────────────────────────
-
 
 class ChunkKind(StrEnum):
     """Kind of indexed chunk."""
@@ -93,9 +91,6 @@ class EdgeKind(StrEnum):
     CONFIGURES = "configures"
 
 
-# ── Structured metadata ──────────────────────────────────────────────
-
-
 class ImportMeta(BaseModel):
     """Structured import data extracted by tree-sitter.
 
@@ -114,9 +109,6 @@ class ImportMeta(BaseModel):
     """Target language when known from structure (e.g. HTML
     `<script src>` → `'javascript'`).  Empty means unknown —
     resolver uses `import_targets`."""
-
-
-# ── Data models ──────────────────────────────────────────────────────
 
 
 class Chunk(BaseModel, frozen=True):
@@ -451,9 +443,6 @@ class IndexStats(BaseModel):
         )
 
 
-# ── GC / session types ────────────────────────────────────────
-
-
 class GcMode(StrEnum):
     """What a `rbtr gc` invocation is allowed to delete."""
 
@@ -492,9 +481,6 @@ class GcCounts:
             edges=self.edges + other.edges,
             chunks=self.chunks + other.chunks,
         )
-
-
-# ── Pipeline result types ────────────────────────────────────────────
 
 
 @dataclass

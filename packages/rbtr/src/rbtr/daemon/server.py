@@ -665,8 +665,6 @@ class DaemonServer:
             return
         loop.call_soon_threadsafe(self._wake.set)
 
-    # ── DB-polling worker ─────────────────────────────────────────────────
-
     def _find_next_job(self) -> BuildJob | EmbedJob | None:
         """Query the DB for the next piece of work.
 

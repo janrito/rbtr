@@ -111,9 +111,6 @@ def resolve_refs(repo_path: str, refs: list[str]) -> list[str]:
     ]
 
 
-# ── Read-only handlers ───────────────────────────────────────────────
-
-
 def handle_search(
     request: SearchRequest,
     index: Index,
@@ -438,9 +435,6 @@ def handle_daemon_config(_request: DaemonConfigRequest) -> DaemonConfigResponse:
         config=config.model_dump(mode="json"),
         plugins=plugins,
     )
-
-
-# ── Build handler ────────────────────────────────────────────────────
 
 
 def handle_gc(

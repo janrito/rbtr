@@ -57,8 +57,6 @@ export function formatWatched(watched: WatchedRef[]): string[] {
   return lines;
 }
 
-// ── Helpers ─────────────────────────────────────────────────────
-
 /** A running read's row: what it reported, such as a wait for a build, or *doing*. */
 function partialRow(result: ToolResult, doing: string, theme: Theme): Text {
   return new Text(theme.fg("warning", getContentText(result) || doing), 0, 0);
@@ -118,8 +116,6 @@ function refSuffix(args: Record<string, unknown>, theme: Theme): string {
   if (!ref) return "";
   return theme.fg("dim", ` @${ref}`);
 }
-
-// ── Search ──────────────────────────────────────────────────────
 
 function scoreStyle(theme: Theme, score: number): string {
   if (score >= 1.0) return theme.fg("success", score.toFixed(2));
@@ -252,8 +248,6 @@ export function renderSearchResult(
   return new Text(lines.join("\n"), 0, 0);
 }
 
-// ── Read symbol ─────────────────────────────────────────────────
-
 export function renderReadSymbolCall(args: Record<string, unknown>, theme: Theme): Text {
   const symbol = str(args.symbol);
   const label =
@@ -305,8 +299,6 @@ export function renderReadSymbolResult(
   return new Text(lines.join("\n"), 0, 0);
 }
 
-// ── List symbols ────────────────────────────────────────────────
-
 export function renderListSymbolsCall(args: Record<string, unknown>, theme: Theme): Text {
   const file = str(args.file);
   const label = file === null ? invalidArg(theme) : file ? theme.fg("accent", file) : theme.fg("toolOutput", "...");
@@ -329,8 +321,6 @@ export function renderListSymbolsResult(result: ToolResult, options: { isPartial
   lines.push(theme.fg("dim", `${chunks.length} symbol(s)`));
   return new Text(lines.join("\n"), 0, 0);
 }
-
-// ── Find refs ───────────────────────────────────────────────────
 
 export function renderFindRefsCall(args: Record<string, unknown>, theme: Theme): Text {
   const symbol = str(args.symbol);
@@ -364,8 +354,6 @@ export function renderFindRefsResult(result: ToolResult, options: { isPartial: b
   lines.push(theme.fg("dim", `${refs.length} reference(s)`));
   return new Text(lines.join("\n"), 0, 0);
 }
-
-// ── Changed symbols ─────────────────────────────────────────────
 
 export function renderChangedSymbolsCall(args: Record<string, unknown>, theme: Theme): Text {
   const base = str(args.base);
@@ -419,8 +407,6 @@ export function renderChangedSymbolsResult(result: ToolResult, options: { isPart
   return new Text(lines.join("\n"), 0, 0);
 }
 
-// ── Index ───────────────────────────────────────────────────────
-
 export function renderIndexCall(args: Record<string, unknown>, theme: Theme): Text {
   const refs = decodeStringList(args.refs);
   const label = refs.length > 0 ? refs.join(", ") : "HEAD";
@@ -444,8 +430,6 @@ export function renderIndexResult(result: ToolResult, options: { isPartial: bool
   }
   return new Text(theme.fg("dim", getContentText(result)), 0, 0);
 }
-
-// ── Status ──────────────────────────────────────────────────────
 
 export function renderStatusCall(_args: Record<string, unknown>, theme: Theme): Text {
   return new Text(theme.fg("toolTitle", theme.bold("rbtr_status")), 0, 0);

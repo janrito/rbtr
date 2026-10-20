@@ -105,8 +105,6 @@ def _code_keywords() -> frozenset[str]:
     return frozenset(keywords - _TS_META - _ENGLISH_STOPWORDS)
 
 
-# ── Syntax patterns ──────────────────────────────────────────────────
-
 _BRACES = re.compile(r"[{}]")
 _FUNC_CALL = re.compile(r"\w\(")
 _OPERATORS = re.compile(r"==|!=|<=|>=|=>|->")

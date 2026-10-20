@@ -43,9 +43,7 @@ _JS_QUERY = load_query(__package__, "javascript") + _SHARED_QUERIES
 _TS_QUERY = load_query(__package__, "typescript") + _SHARED_QUERIES
 
 
-# ── Import extractor (shared by JS and TS) ───────────────────────────
-
-
+# Shared by the JavaScript and TypeScript plugins.
 def extract_import_meta(
     resolver: ImportResolver, node: Node, captures: dict[str, list[Node]]
 ) -> ImportMeta:
@@ -109,9 +107,6 @@ def extract_import_meta(
     if names:
         meta.names = ",".join(names)
     return meta
-
-
-# ── Plugin ───────────────────────────────────────────────────────────
 
 
 javascript = LanguageRegistration(

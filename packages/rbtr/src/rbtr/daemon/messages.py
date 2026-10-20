@@ -51,8 +51,6 @@ from rbtr.domain.models import (
     SnapshotRef,
 )
 
-# ── Error codes ──────────────────────────────────────────────────────
-
 
 class ErrorCode(StrEnum):
     """Error codes for the daemon protocol."""
@@ -67,8 +65,6 @@ class ErrorCode(StrEnum):
     INTERNAL = "internal"
 
 
-# ── Base ─────────────────────────────────────────────────────────────
-
 _STRICT = ConfigDict(extra="forbid")
 
 
@@ -77,9 +73,6 @@ class HasRepoPath(Protocol):
     """Any message that carries a repository path."""
 
     repo_path: str
-
-
-# ── Job types (what the worker runs) ─────────────────────────────────
 
 
 class BuildJob(BaseModel):
@@ -184,9 +177,6 @@ RepoRelativePath = Annotated[str, AfterValidator(_repo_relative)]
 RepoRelativePaths = Annotated[
     list[str] | None, BeforeValidator(_unwrap_json_list), AfterValidator(_to_repo_relative)
 ]
-
-
-# ── Requests (client → server) ──────────────────────────────────────
 
 
 class ShutdownRequest(BaseModel):
@@ -449,9 +439,6 @@ Request = Annotated[
 ]
 
 request_adapter: TypeAdapter[Request] = TypeAdapter(Request)
-
-
-# ── Responses (server → client) ─────────────────────────────────────
 
 
 class ErrorResponse(BaseModel):
@@ -736,9 +723,6 @@ Response = Annotated[
 ]
 
 response_adapter: TypeAdapter[Response] = TypeAdapter(Response)
-
-
-# ── Notifications (server → PUB) ────────────────────────────────────
 
 
 class ProgressNotification(BaseModel):

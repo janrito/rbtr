@@ -32,9 +32,6 @@ from rbtr.config import config, own_dir
 log = structlog.get_logger(__name__)
 
 
-# ── GpuModelSlot ─────────────────────────────────────────────────────
-
-
 class GpuModelSlot[T]:
     """Lazy-loading, idle-unloading slot for a GPU model.
 
@@ -82,8 +79,6 @@ class GpuModelSlot[T]:
         self._idle_task: asyncio.Task[None] | None = None
         self._gpu_lock = gpu_lock
         self._label = label
-
-    # ── Public ───────────────────────────────────────────────────
 
     @property
     def idle_timeout(self) -> float:
@@ -140,8 +135,6 @@ class GpuModelSlot[T]:
             self._model = None
         self._last_use_time = 0.0
 
-    # ── Internals ────────────────────────────────────────────────
-
     async def _idle_loop(self) -> None:
         """Asyncio task: unload model after idle timeout."""
         check_interval = min(self._idle_timeout, 30.0)
@@ -184,7 +177,6 @@ class GpuModelSlot[T]:
         self._last_use_time = 0.0
 
 
-# ── llama.cpp log redirect ───────────────────────────────────────────
 #
 # The ggml Metal backend writes hundreds of "loaded kernel_..."
 # messages plus "embeddings required" warnings to stdout/stderr
@@ -216,9 +208,6 @@ def install_llama_log_callback() -> None:
 
     _llama_log_cb_ref = _cb
     llama_log_set(_cb, ctypes.c_void_p())
-
-
-# ── GGUF download utilities ─────────────────────────────────────────
 
 
 def _silence_hf_hub() -> None:

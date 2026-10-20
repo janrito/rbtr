@@ -22,8 +22,6 @@ Type "cd ~/apps/rbtr"
 Enter
 Wait@120s
 
-# ── Index ────────────────────────────────────────────────────
-
 Type "# Keep this repo indexed"
 Enter
 Sleep 500ms
@@ -32,8 +30,6 @@ Type "rbtr watch"
 Enter
 Wait@300s
 Sleep 1.5s
-
-# ── Identifier search ────────────────────────────────────────
 
 Type "# I know a name"
 Enter
@@ -44,8 +40,6 @@ Enter
 Wait@120s
 Sleep 2.5s
 
-# ── Code search ──────────────────────────────────────────────
-
 Type "# I have a snippet from a traceback"
 Enter
 Sleep 500ms
@@ -55,8 +49,6 @@ Enter
 Wait@120s
 Sleep 2.5s
 
-# ── Concept search ───────────────────────────────────────────
-
 Type "# I have a question"
 Enter
 Sleep 500ms
@@ -65,8 +57,6 @@ Type 'rbtr search "where is the embedding model loaded" --limit 3'
 Enter
 Wait@120s
 Sleep 3s
-
-# ── Read symbol ──────────────────────────────────────────────
 
 Type "# Show me the code"
 Enter

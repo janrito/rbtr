@@ -82,9 +82,6 @@ class ChunkIdRow(dy.Schema):
     id = dy.String(nullable=False)
 
 
-# ── Result-row schemas (DuckDB -> Python reads) ──────────────────────
-
-
 class _ChunkIdentity(dy.Schema):
     """Identity and content columns present in every chunk frame."""
 
@@ -265,8 +262,6 @@ def chunk_ids_view(chunk_ids: list[str]) -> dy.DataFrame[ChunkIdRow]:
     frame = pl.DataFrame({"id": chunk_ids}, schema={"id": pl.String})
     return ChunkIdRow.validate(frame, cast=True)
 
-
-# ── Row → Chunk mapping ────────────────────────────────────────
 
 # Polars Struct dtype matching ImportMeta's fields.  Derived from
 # the model so it stays in sync when fields are added.

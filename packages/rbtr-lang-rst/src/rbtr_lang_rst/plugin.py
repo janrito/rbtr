@@ -38,8 +38,6 @@ _SYMBOL_ROLES = frozenset({":func:", ":class:", ":meth:", ":attr:"})
 # RST roles that reference a document/module by path.
 _PATH_ROLES = frozenset({":doc:", ":mod:"})
 
-# ── Chunking ─────────────────────────────────────────────────────────
-
 
 def _rst_title_text(section: Node) -> str:
     """Extract the title text from an RST section node."""
@@ -217,8 +215,6 @@ def _sectioned_chunks(
     yield from chunks
 
 
-# ── Reference extraction ─────────────────────────────────────────────
-
 _REF_QUERY = load_query(__package__, "references")
 
 
@@ -344,9 +340,6 @@ def _extract_references(
                     line_start=ref_node.start_point[0] + 1,
                     line_end=last_line(ref_node),
                 )
-
-
-# ── Plugin ───────────────────────────────────────────────────────────
 
 
 rst = LanguageRegistration(

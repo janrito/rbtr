@@ -153,9 +153,6 @@ class KeptSet(StrEnum):
 KeepField = Annotated[KeptSet, BeforeValidator(_normalise_choice)]
 
 
-# ── Internal server entry point ───────────────────────────────────────
-
-
 class DaemonServe(BaseModel):
     """Internal: run the daemon server (spawned by `daemon start`)."""
 
@@ -187,9 +184,6 @@ class DaemonServe(BaseModel):
             config.runtime_dir, index, allow_missing_plugins=self.allow_missing_plugins
         )
         asyncio.run(server.serve())
-
-
-# ── Daemon subcommands ───────────────────────────────────────────────
 
 
 class DaemonStart(BaseModel):
@@ -274,9 +268,6 @@ class Daemon(BaseModel):
     def cli_cmd(self) -> None:
         # config.json_output is already set by root Rbtr.cli_cmd()
         CliApp.run_subcommand(self)
-
-
-# ── Watch subcommand ─────────────────────────────────────────────────
 
 
 class Watch(BaseModel):
@@ -423,9 +414,6 @@ class Watch(BaseModel):
                 errors=result.errors,
             )
         )
-
-
-# ── Read subcommands (daemon-first, fallback) ───────────────────────
 
 
 class Unwatch(BaseModel):
@@ -1004,9 +992,6 @@ class ConfigCmd(BaseModel):
                 fail(err)
             case resp:
                 fail(ErrorResponse(code=ErrorCode.INTERNAL, message=f"unexpected response: {resp}"))
-
-
-# ── Root command ─────────────────────────────────────────────────────
 
 
 class Rbtr(

@@ -66,9 +66,6 @@ def _get_attr(start_tag: Node, attr_name: str) -> str | None:
     return None
 
 
-# ── Plugin ───────────────────────────────────────────────────────────
-
-
 html = LanguageRegistration(
     id="html",
     extensions=frozenset({".html", ".htm"}),

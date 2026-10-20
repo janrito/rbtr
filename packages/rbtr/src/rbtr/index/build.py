@@ -50,9 +50,6 @@ from rbtr.rbtrignore import load_ignore
 log = structlog.get_logger(__name__)
 
 
-# ── Build phases ─────────────────────────────────────────────────────
-
-
 @dataclass(frozen=True)
 class ExtractedFile:
     """A file's extraction output, bundled with the language it used.
@@ -286,9 +283,6 @@ def _mark_indexed_and_cleanup(
                 edges=cleaned.edges,
                 chunks=cleaned.chunks,
             )
-
-
-# ── Public API ───────────────────────────────────────────────────────
 
 
 def build_index(

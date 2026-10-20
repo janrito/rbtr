@@ -38,11 +38,6 @@ from rbtr.languages.registration import (
 if TYPE_CHECKING:
     from tree_sitter import Node
 
-# ── Query ────────────────────────────────────────────────────────────
-
-
-# ── Import extractor ─────────────────────────────────────────────────
-
 
 def _path_to_meta(parts: list[str], meta: ImportMeta) -> None:
     """Convert collected Rust path segments into module/dots metadata.
@@ -125,9 +120,6 @@ def extract_import_meta(
                 meta.module = arg.text.decode()
 
     return meta
-
-
-# ── Plugin ───────────────────────────────────────────────────────────
 
 
 rust = LanguageRegistration(

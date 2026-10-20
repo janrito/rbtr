@@ -31,12 +31,6 @@ if TYPE_CHECKING:
     from tree_sitter import Node
 
 
-# ── Query ────────────────────────────────────────────────────────────
-
-
-# ── Plugin ───────────────────────────────────────────────────────────
-
-
 bash = LanguageRegistration(
     id="bash",
     extensions=frozenset({".sh", ".bash", ".zsh"}),

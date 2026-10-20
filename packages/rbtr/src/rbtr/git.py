@@ -56,9 +56,6 @@ log = structlog.get_logger(__name__)
 _HEX_SHA_LEN = 40
 
 
-# ── Data types ───────────────────────────────────────────────────────
-
-
 @dataclass(frozen=True)
 class FileEntry:
     """A file in the git tree with its decoded content.
@@ -72,9 +69,6 @@ class FileEntry:
     path: str
     blob_sha: str
     content: bytes
-
-
-# ── Internal helpers ─────────────────────────────────────────────────
 
 
 def _open_repo(path: str) -> pygit2.Repository:
@@ -160,9 +154,6 @@ def _diff_paths(diff: pygit2.Diff) -> set[str]:
     return paths
 
 
-# ── Path filtering ───────────────────────────────────────────────────
-
-
 def is_binary(data: bytes, sample_size: int = 8192) -> bool:
     """Heuristic binary detection.
 
@@ -170,9 +161,6 @@ def is_binary(data: bytes, sample_size: int = 8192) -> bool:
     *sample_size* bytes of *data*.
     """
     return b"\x00" in data[:sample_size]
-
-
-# ── Public API ───────────────────────────────────────────────────────
 
 
 def normalise_repo_path(path: str) -> str:

@@ -24,12 +24,6 @@ from rbtr.languages.registration import (
     load_query,
 )
 
-# ── Query ────────────────────────────────────────────────────────────
-
-
-# ── Plugin ───────────────────────────────────────────────────────────
-
-
 java = LanguageRegistration(
     id="java",
     extensions=frozenset({".java"}),

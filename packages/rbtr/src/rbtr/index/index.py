@@ -81,9 +81,6 @@ _UNEMBEDDED_CHUNK_IDS_SQL = load_sql("unembedded_chunk_ids.sql")
 _GET_CHUNKS_BY_ID_SQL = load_sql("get_chunks_by_id.sql")
 
 
-# ── Index ─────────────────────────────────────────────────────────
-
-
 class Index:
     """The code index: registry changes and every read.
 
@@ -147,8 +144,6 @@ class Index:
         """Total bytes the index occupies on disk; see `Store.disk_size_bytes`."""
         return self._store.disk_size_bytes()
 
-    # ── Registry, kept by `Store` ─────────────────────────────────────
-
     def register(self, path: str) -> Repo:
         """Register a repo path and return the repo; see `Store.register`."""
         return self._store.register(path)
@@ -210,8 +205,6 @@ class Index:
             .fetchall()
         )
         return [str(r[0]) for r in rows]
-
-    # ── Completion tracking (indexed_snapshots) ──────────────────────
 
     def has_indexed(self, *, at: SnapshotRef) -> bool:
         """Return whether the snapshot at *at* was fully indexed."""
@@ -290,8 +283,6 @@ class Index:
         if row is None:
             return ChunkSplit(dropped=0, kept=0)
         return ChunkSplit(dropped=int(row[0]), kept=int(row[1]))
-
-    # ── Reads ────────────────────────────────────────────────────────
 
     def chunk_counts_by_snapshot(
         self, *, repo: Repo | None = None
@@ -555,8 +546,6 @@ class Index:
                 .pipe(ChangedSymbolRow.validate, cast=True)
             )
 
-    # ── Match (internal frame, public chunk) ─────────────────────
-
     def name_matches(
         self, pattern: str, *, within: list[SnapshotRef]
     ) -> dy.DataFrame[ChunkResultRow]:
@@ -601,8 +590,6 @@ class Index:
         vecs_frame = pl.DataFrame({"vec": query_embeddings}).cast({"vec": pl.List(pl.Float32)})
         frames = self._within(within, _SEARCH_SIMILAR_SQL, {"top_k": top_k}, _qvecs=vecs_frame)
         return _best(frames, top_k)
-
-    # ── FTS ──────────────────────────────────────────────────────────
 
     def fulltext_matches(
         self,
