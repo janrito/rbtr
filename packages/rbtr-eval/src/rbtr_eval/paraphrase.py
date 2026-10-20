@@ -403,6 +403,7 @@ def _render_paraphrase_report(
         _sampled_content(store, sampled),
         on=["slug", *IDENTITY_COLUMNS],
         how="left",
+        maintain_order="left",
     )
     examples = [
         {

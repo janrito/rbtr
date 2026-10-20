@@ -124,6 +124,43 @@ def mixed_queries() -> dy.DataFrame[QueryRow]:
     ).pipe(QueryRow.validate, cast=True)
 
 
+@pytest.fixture
+def many_queries() -> dy.DataFrame[QueryRow]:
+    """Two hundred queries over forty names.
+
+    Each name targets five symbols, so choosing one row per name is a
+    real choice.
+    """
+    return pl.DataFrame(
+        [
+            {
+                "slug": "test",
+                "file_path": f"src/m{i}.py",
+                "scope": "",
+                "name": f"symbol_{i % 40}",
+                "line_start": i + 1,
+                "line_end": i + 1,
+                "symbol_kind": "function",
+                "language": "python",
+                "provenance": "docstring",
+                "text": f"how does part {i} work",
+            }
+            for i in range(200)
+        ],
+    ).pipe(QueryRow.validate, cast=True)
+
+
+@pytest.fixture
+def many_expansions(many_queries: dy.DataFrame[QueryRow]) -> dy.DataFrame[ExpansionRow]:
+    """One expansion for each of `many_queries`."""
+    return many_queries.select(
+        *ExpansionRow.primary_key(),
+        pl.lit("concept").alias("query_kind"),
+        pl.concat_list(pl.format("kw{}", "line_start")).alias("keywords"),
+        pl.concat_list(pl.format("var{}", "line_start")).alias("variants"),
+    ).pipe(ExpansionRow.validate, cast=True)
+
+
 @parametrize_with_cases(
     "queries, model, expected_kind, expected_keywords, expected_variants",
     cases=".cases_expand",
@@ -189,3 +226,14 @@ def test_expansion_report_joins_queries_onto_expansions(
     report = _render_expansion_report(result, concept_query, "test-model")
 
     assert "how does configuration loading work" in report
+
+
+def test_expansion_report_renders_the_same_every_time(
+    many_expansions: dy.DataFrame[ExpansionRow], many_queries: dy.DataFrame[QueryRow]
+) -> None:
+    """The sampled examples depend only on the data, not on row order."""
+    reports = {
+        _render_expansion_report(many_expansions, many_queries, "test-model") for _ in range(5)
+    }
+
+    assert len(reports) == 1

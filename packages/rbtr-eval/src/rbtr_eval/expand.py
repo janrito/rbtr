@@ -392,6 +392,7 @@ def _render_expansion_report(
         queries.select(*ExpansionRow.primary_key(), "text", "language"),
         on=ExpansionRow.primary_key(),
         how="left",
+        maintain_order="left",
     )
     n_expanded = expanded.height
 
@@ -457,7 +458,7 @@ def _render_expansion_report(
         # Unique by name so the sample never repeats a symbol
         # (e.g. many GitHub workflows share the name `on`).
         subset = expanded.filter(pl.col("query_kind") == kind.value).unique(
-            subset="name", keep="first"
+            subset="name", keep="first", maintain_order=True
         )
         if subset.height > 0:
             sample = subset.sample(min(5, subset.height), seed=42)
