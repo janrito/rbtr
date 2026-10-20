@@ -32,11 +32,12 @@ from rbtr.tests.conftest import make_commit
 from rbtr_eval.paraphrase import (
     SymbolContext,
     _excluded_identifiers,
+    _paraphrase_examples,
     _sampled_content,
     paraphrase_agent,
     paraphrase_symbols,
 )
-from rbtr_eval.shared_schemas import IDENTITY_COLUMNS, QueryRow
+from rbtr_eval.shared_schemas import QueryRow
 
 
 @pytest.mark.parametrize(
@@ -327,8 +328,7 @@ def test_example_content_comes_from_the_sampled_repo(two_repos: IndexStore) -> N
         ]
     ).pipe(QueryRow.validate, cast=True)
 
-    content = _sampled_content(two_repos, sampled)
-    joined = sampled.join(content, on=["slug", *IDENTITY_COLUMNS], how="left").sort("slug")
+    joined = _paraphrase_examples(sampled, _sampled_content(two_repos, sampled)).sort("slug")
 
     assert joined.height == 2
     assert 'f"hi {name}"' in joined["content"][0]
