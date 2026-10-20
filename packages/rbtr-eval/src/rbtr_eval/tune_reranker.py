@@ -28,7 +28,7 @@ from rbtr.daemon.messages import SearchRequest, SearchResponse
 from rbtr.domain.models import ChunkKind
 from rbtr_eval.agg import search_metric_aggs
 from rbtr_eval.formatting import md_table
-from rbtr_eval.queries import load_all_queries, sample_distribution, subsample, with_query_kind
+from rbtr_eval.queries import load_all_queries, query_kind, sample_distribution, subsample
 from rbtr_eval.rbtr_cli import daemon_session
 from rbtr_eval.shared_schemas import (
     IDENTITY_COLUMNS,
@@ -124,14 +124,13 @@ def _collect_candidates(
     )
 
     meta = (
-        with_query_kind(queries)
-        .with_row_index("query_idx")
+        queries.with_row_index("query_idx")
         .select(
             "query_idx",
             "slug",
             "language",
             "provenance",
-            "query_kind",
+            query_kind(),
             *IDENTITY_COLUMNS,
         )
         .pipe(QueryMeta.validate, cast=True)

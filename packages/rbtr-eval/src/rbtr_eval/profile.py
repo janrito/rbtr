@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field
 from rbtr.domain.models import QueryKind
 from rbtr_eval.formatting import heading_label, md_table
 from rbtr_eval.kinds import EXCLUDED_KINDS
-from rbtr_eval.queries import load_all_queries, with_query_kind
+from rbtr_eval.queries import load_all_queries, query_kind
 from rbtr_eval.shared_schemas import IDENTITY_COLUMNS, QueryRow, RepoHeader
 
 _EXAMPLES_PER_PROVENANCE = 3
@@ -184,7 +184,7 @@ def _render_report(
     seed: int,
 ) -> str:
     """Render DATASET.md from the classified query set."""
-    classified = with_query_kind(queries)
+    classified = queries.with_columns(query_kind())
     languages = classified["language"].n_unique()
     repos = classified["slug"].n_unique()
 

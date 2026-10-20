@@ -19,6 +19,7 @@ import time
 from enum import StrEnum
 from importlib import resources
 from pathlib import Path
+from typing import Any
 
 import dataframely as dy
 import minijinja
@@ -32,10 +33,10 @@ from rbtr.config import WeightTriple, config as rbtr_config
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import SearchRequest, SearchResponse
 from rbtr.domain.models import ChunkKind, QueryKind
-from rbtr_eval.agg import search_metric_aggs
+from rbtr_eval.agg import Dimension, at_target_path, rank_by_score, search_metric_aggs
 from rbtr_eval.charts import render_vl_to_png
 from rbtr_eval.formatting import md_table
-from rbtr_eval.queries import load_all_queries, sample_distribution, subsample, with_query_kind
+from rbtr_eval.queries import load_all_queries, query_kind, sample_distribution, subsample
 from rbtr_eval.rbtr_cli import daemon_session
 from rbtr_eval.shared_schemas import (
     IDENTITY_COLUMNS,
@@ -103,22 +104,22 @@ class DetailedOutcome(dy.Schema):
     rank = dy.UInt8(nullable=True, min=1, max=10)
 
 
-class ImpactComparison(dy.Schema):
-    """Side-by-side MRR for baseline vs best weights.
+class ImpactOverall(dy.Schema):
+    """MRR and NDCG@10 over every query, under the current and the best weights."""
 
-    One row per rollup dimension (repo, language, provenance,
-    and `__all__` sentinels for rollups).
-    """
-
-    slug = dy.String()
-    language = dy.String()
-    provenance = dy.String()
     baseline_mrr = dy.Float64(min=0.0, max=1.0)
     best_mrr = dy.Float64(min=0.0, max=1.0)
     delta = dy.Float64(min=-1.0, max=1.0)
     baseline_ndcg_at_10 = dy.Float64(min=0.0, max=1.0)
     best_ndcg_at_10 = dy.Float64(min=0.0, max=1.0)
     delta_ndcg_at_10 = dy.Float64(min=-1.0, max=1.0)
+
+
+class ImpactBreakdown(ImpactOverall):
+    """`ImpactOverall` over the queries whose `dimension` column holds `value`."""
+
+    dimension = dy.Enum((d.value for d in Dimension), primary_key=True)
+    value = dy.String(primary_key=True)
 
 
 class TuneReport(dy.Schema):
@@ -181,8 +182,6 @@ class TrialSpread(dy.Schema):
 type TrialRow = dict[str, float | int | str]
 """One Optuna trial's record: its kind, index, weights and scores."""
 
-# ── Scored-candidate collection ──────────────────────────────────────────────
-
 
 def _collect_scored_candidates(
     client: DaemonClient,
@@ -243,22 +242,18 @@ def _collect_scored_candidates(
     )
 
     meta = (
-        with_query_kind(queries)
-        .with_row_index("query_idx")
+        queries.with_row_index("query_idx")
         .select(
             "query_idx",
             "slug",
             "language",
             "provenance",
-            "query_kind",
+            query_kind(),
             *IDENTITY_COLUMNS,
         )
         .pipe(QueryMeta.validate, cast=True)
     )
     return candidates, meta
-
-
-# ── Re-score and rank ─────────────────────────────────────────────────────────
 
 
 def _pool_recall(
@@ -275,15 +270,14 @@ def _pool_recall(
     for what it is: either the ranking is poor, or the answer was never
     in the pool to rank.
     """
-    in_pool = candidates.join(queries.select("query_idx", "file_path"), on="query_idx").filter(
-        pl.col("file_paths").list.contains(pl.col("file_path"))
+    in_pool = (
+        candidates.join(queries.select("query_idx", "file_path"), on="query_idx")
+        .filter(at_target_path())
+        .select("query_idx", *MATCH_COLUMNS)
     )
-    hits = queries.join(
-        in_pool.select("query_idx", *MATCH_COLUMNS),
-        on=["query_idx", *MATCH_COLUMNS],
-        how="semi",
+    return (
+        queries.join(in_pool, on=["query_idx", *MATCH_COLUMNS], how="semi").height / queries.height
     )
-    return hits.height / queries.height
 
 
 def _rescore_and_rank(
@@ -300,56 +294,30 @@ def _rescore_and_rank(
     is outside the top 10).
     """
     alpha, beta, gamma = weights
-
-    ranked = candidates.with_columns(
-        (
+    top = (
+        candidates.with_columns(
             (
-                (pl.lit(alpha) * pl.col("semantic"))
-                + (pl.lit(beta) * pl.col("lexical"))
-                + (pl.lit(gamma) * pl.col("name_match"))
-            )
-            * pl.col("kind_boost")
-            * pl.col("file_penalty")
-            * pl.col("importance")
-            * pl.col("proximity")
-        ).alias("score")
-    )
-    ranked = ranked.with_columns(
-        pl.col("score")
-        .rank("ordinal", descending=True)
-        .over("query_idx")
-        .cast(pl.UInt8)
-        .alias("rank")
-    )
-    top = ranked.filter(pl.col("rank") <= 10)
-
-    target = top.join(queries.select("query_idx", "file_path"), on="query_idx").filter(
-        pl.col("file_paths").list.contains(pl.col("file_path"))
-    )
-
-    return (
-        queries.join(
-            target.select("query_idx", *MATCH_COLUMNS, "rank"),
-            on=["query_idx", *MATCH_COLUMNS],
-            how="left",
+                (
+                    (pl.lit(alpha) * pl.col("semantic"))
+                    + (pl.lit(beta) * pl.col("lexical"))
+                    + (pl.lit(gamma) * pl.col("name_match"))
+                )
+                * pl.col("kind_boost")
+                * pl.col("file_penalty")
+                * pl.col("importance")
+                * pl.col("proximity")
+            ).alias("score")
         )
+        .with_columns(rank_by_score("query_idx"))
+        .filter(pl.col("rank") <= 10)
+        .join(queries.select("query_idx", "file_path"), on="query_idx")
+        .filter(at_target_path())
+        .select("query_idx", *MATCH_COLUMNS, "rank")
+    )
+    return (
+        queries.join(top, on=["query_idx", *MATCH_COLUMNS], how="left")
         .select("query_idx", "slug", "language", "provenance", "rank")
         .pipe(DetailedOutcome.validate, cast=True)
-    )
-
-
-def _mrr_per_provenance(
-    outcomes: dy.DataFrame[DetailedOutcome],
-) -> pl.DataFrame:
-    """MRR per provenance from per-query ranks.
-
-    Returns a frame with `provenance` and `mrr` columns.
-    """
-    return (
-        outcomes.group_by("provenance")
-        .agg(*search_metric_aggs())
-        .select("provenance", "mrr")
-        .sort("provenance")
     )
 
 
@@ -436,9 +404,6 @@ def _verdict(delta: float, delta_se: float) -> Verdict:
     return Verdict.RECOMMEND if delta > 2 * delta_se else Verdict.WITHHOLD
 
 
-# ── Simplex parameterisation ─────────────────────────────────────────────────
-
-
 def _simplex_from_unit_square(u: float, v: float) -> tuple[float, float, float]:
     """Map `(u, v) ∈ [0, 1]²` to `(alpha, beta, gamma)` on the simplex."""
     alpha = u
@@ -447,23 +412,18 @@ def _simplex_from_unit_square(u: float, v: float) -> tuple[float, float, float]:
     return (alpha, beta, gamma)
 
 
-# ── Markdown rendering ──────────────────────────────────────────────────────
-
-
 def _render_tuning_report(
     report: dy.DataFrame[TuneReport],
-    trials_data: list[TrialRow],
-    impact: dy.DataFrame[ImpactComparison],
+    spread: dy.DataFrame[TrialSpread],
+    impact_overall: dy.DataFrame[ImpactOverall],
+    impact_breakdowns: dy.DataFrame[ImpactBreakdown],
     dist: pl.DataFrame,
-    report_dir: Path | None = None,
 ) -> str:
     """Render a `TuneReport` frame as a human-readable markdown string.
 
     All formatting is done with polars expressions; the template
-    receives pre-rendered markdown table strings.  Vega-Lite specs
-    are embedded as fenced JSON via `trials_json`.  The impact
-    table shows per-dimension MRR comparison.  Follows the same
-    pattern as `measure._render_report`.
+    receives pre-rendered markdown table strings.  The impact table
+    shows the MRR comparison over every query, then per dimension.
     """
     r = report
     weights_df = r.select("kind", "best_alpha", "best_beta", "best_gamma").rename(
@@ -493,38 +453,37 @@ def _render_tuning_report(
         pl.col("pool_recall").round(4).alias("pool ceiling"),
     )
 
-    template = resources.files("rbtr_eval.templates").joinpath("tuning.md.j2").read_text()
-    convergence_spec = json.loads(
-        resources.files("rbtr_eval.templates").joinpath("convergence.vl.json").read_text()
+    figures = [
+        pl.col("baseline_mrr").round(4).alias("baseline MRR"),
+        pl.col("best_mrr").round(4).alias("best MRR"),
+        pl.col("delta").round(4),
+        pl.col("baseline_ndcg_at_10").round(4).alias("baseline NDCG@10"),
+        pl.col("best_ndcg_at_10").round(4).alias("best NDCG@10"),
+        pl.col("delta_ndcg_at_10").round(4).alias("delta NDCG@10"),
+    ]
+    impact_df = pl.concat(
+        [
+            impact_overall.select(
+                pl.lit("**all**").alias("dimension"), pl.lit("").alias("value"), *figures
+            ),
+            impact_breakdowns.sort("dimension", "value").select(
+                pl.col("dimension").cast(pl.String),
+                pl.format("`{}`", pl.col("value")).alias("value"),
+                *figures,
+            ),
+        ]
     )
-    convergence_spec["data"]["values"] = trials_data
-
-    simplex_spec = json.loads(
-        resources.files("rbtr_eval.templates").joinpath("simplex.vl.json").read_text()
-    )
-    simplex_spec["layer"][1]["data"]["values"] = trials_data
-
-    # Impact table: show rows where any key is __all__ (rollups),
-    # formatted for readability.
-    impact_display = impact.filter(
-        (pl.col("slug") == "__all__")
-        | (pl.col("language") == "__all__")
-        | (pl.col("provenance") == "__all__")
-    )
-
-    if report_dir is not None:
-        render_vl_to_png(convergence_spec, report_dir / "convergence.png")
-        render_vl_to_png(simplex_spec, report_dir / "simplex.png")
 
     # Per-kind: sum n_queries across all kinds.
     total_queries = r.select(pl.col("n_queries").sum()).item()
 
+    template = resources.files("rbtr_eval.templates").joinpath("tuning.md.j2").read_text()
     return minijinja.Environment().render_str(
         template,
         weights_table=md_table(weights_df),
         result_table=md_table(result_df),
-        spread_table=md_table(_top_trial_spread(trials_data)),
-        impact_table=md_table(impact_display),
+        spread_table=md_table(spread),
+        impact_table=md_table(impact_df),
         sample_table=md_table(dist),
         toml_snippet=_toml_snippet(report),
         n_trials=r["n_trials"][0],
@@ -533,92 +492,79 @@ def _render_tuning_report(
     )
 
 
-# ── Impact analysis ────────────────────────────────────────────────────
+def _tuning_charts(trials_data: list[TrialRow]) -> dict[str, dict[str, Any]]:
+    """The report's Vega-Lite specs, by name, each holding every trial it plots."""
+    templates = resources.files("rbtr_eval.templates")
+    convergence = json.loads(templates.joinpath("convergence.vl.json").read_text())
+    convergence["data"]["values"] = trials_data
+    simplex = json.loads(templates.joinpath("simplex.vl.json").read_text())
+    simplex["layer"][1]["data"]["values"] = trials_data
+    return {"convergence": convergence, "simplex": simplex}
 
 
-def _impact_comparison(
+def _impact_overall(
     baseline: dy.DataFrame[DetailedOutcome],
     best: dy.DataFrame[DetailedOutcome],
-) -> dy.DataFrame[ImpactComparison]:
-    """Build a side-by-side MRR comparison across dimensions.
+) -> dy.DataFrame[ImpactOverall]:
+    """MRR and NDCG@10 over every query under *baseline* and *best* weights."""
+    return (
+        pl.concat(
+            [
+                baseline.select(*search_metric_aggs()).select(
+                    pl.col("mrr", "ndcg_at_10").name.prefix("baseline_")
+                ),
+                best.select(*search_metric_aggs()).select(
+                    pl.col("mrr", "ndcg_at_10").name.prefix("best_")
+                ),
+            ],
+            how="horizontal",
+        )
+        .with_columns(
+            (pl.col("best_mrr") - pl.col("baseline_mrr")).alias("delta"),
+            (pl.col("best_ndcg_at_10") - pl.col("baseline_ndcg_at_10")).alias("delta_ndcg_at_10"),
+        )
+        .pipe(ImpactOverall.validate, cast=True)
+    )
 
-    Takes per-query rank frames for baseline and best weights,
-    aggregates at multiple rollup levels, and pivots to produce
-    `(dimension, value, baseline_mrr, best_mrr, delta)` rows.
-    """
-    combined = pl.concat(
+
+def _impact_breakdowns(
+    baseline: dy.DataFrame[DetailedOutcome],
+    best: dy.DataFrame[DetailedOutcome],
+) -> dy.DataFrame[ImpactBreakdown]:
+    """`_impact_overall` per repo, language and provenance."""
+    weighted = pl.concat(
         [
-            baseline.with_columns(pl.lit("baseline").alias("label")),
-            best.with_columns(pl.lit("best").alias("label")),
+            baseline.with_columns(pl.lit("baseline").alias("weights")),
+            best.with_columns(pl.lit("best").alias("weights")),
         ]
     )
-
-    key_cols = ["slug", "language", "provenance"]
-    aggs = search_metric_aggs()
-
-    levels = [
-        combined.group_by("label", *key_cols).agg(*aggs),
-        (
-            combined.group_by("label", "slug")
-            .agg(*aggs)
-            .with_columns(
-                pl.lit("__all__").alias("language"),
-                pl.lit("__all__").alias("provenance"),
-            )
-        ),
-        (
-            combined.group_by("label", "language")
-            .agg(*aggs)
-            .with_columns(
-                pl.lit("__all__").alias("slug"),
-                pl.lit("__all__").alias("provenance"),
-            )
-        ),
-        (
-            combined.group_by("label", "provenance")
-            .agg(*aggs)
-            .with_columns(
-                pl.lit("__all__").alias("slug"),
-                pl.lit("__all__").alias("language"),
-            )
-        ),
-        (
-            combined.group_by("label")
-            .agg(*aggs)
-            .with_columns(
-                pl.lit("__all__").alias("slug"),
-                pl.lit("__all__").alias("language"),
-                pl.lit("__all__").alias("provenance"),
-            )
-        ),
-    ]
-
-    select_cols = ["label", *key_cols, "mrr", "ndcg_at_10"]
-    rollup = pl.concat([level.select(select_cols) for level in levels])
-
-    # Pivot: one row per dimension, baseline_mrr + best_mrr columns.
-    mrr_pivot = rollup.pivot(on="label", index=key_cols, values="mrr").rename(
-        {"baseline": "baseline_mrr", "best": "best_mrr"}
-    )
-    ndcg_pivot = (
-        rollup.pivot(on="label", index=key_cols, values="ndcg_at_10")
-        .rename({"baseline": "baseline_ndcg_at_10", "best": "best_ndcg_at_10"})
-        .select(*key_cols, "baseline_ndcg_at_10", "best_ndcg_at_10")
-    )
     return (
-        mrr_pivot.join(ndcg_pivot, on=key_cols)
-        .with_columns(
-            (pl.col("best_mrr") - pl.col("baseline_mrr")).round(4).alias("delta"),
-            (pl.col("best_ndcg_at_10") - pl.col("baseline_ndcg_at_10"))
-            .round(4)
-            .alias("delta_ndcg_at_10"),
+        pl.concat(
+            weighted.group_by("weights", dimension.value)
+            .agg(*search_metric_aggs())
+            .select(
+                "weights",
+                pl.lit(dimension.value).alias("dimension"),
+                pl.col(dimension.value).alias("value"),
+                "mrr",
+                "ndcg_at_10",
+            )
+            for dimension in (Dimension.SLUG, Dimension.LANGUAGE, Dimension.PROVENANCE)
         )
-        .sort(key_cols)
-        .pipe(ImpactComparison.validate, cast=True)
+        .pivot(on="weights", index=["dimension", "value"], values=["mrr", "ndcg_at_10"])
+        .select(
+            "dimension",
+            "value",
+            pl.col("mrr_baseline").alias("baseline_mrr"),
+            pl.col("mrr_best").alias("best_mrr"),
+            (pl.col("mrr_best") - pl.col("mrr_baseline")).alias("delta"),
+            pl.col("ndcg_at_10_baseline").alias("baseline_ndcg_at_10"),
+            pl.col("ndcg_at_10_best").alias("best_ndcg_at_10"),
+            (pl.col("ndcg_at_10_best") - pl.col("ndcg_at_10_baseline")).alias("delta_ndcg_at_10"),
+        )
+        .sort("dimension", "value")
+        .pipe(ImpactBreakdown.validate, cast=True)
     )
-
-
-# ── TOML config snippet ────────────────────────────────────────────────
 
 
 _TunedWeights = TypeAdapter(dict[QueryKind, WeightTriple])
@@ -656,8 +602,6 @@ def _toml_snippet(report: dy.DataFrame[TuneReport]) -> str:
     commented = "\n".join(f"# {line}" if line else "#" for line in withheld.splitlines())
     return "\n".join(part for part in (recommended, commented) if part).strip()
 
-
-# ── Optuna study runner ──────────────────────────────────────────────────
 
 type StudyResult = tuple[
     tuple[float, float, float],
@@ -697,7 +641,12 @@ def _run_study(
         weights = _simplex_from_unit_square(u, v)
 
         trial_ranks = _rescore_and_rank(candidates, meta, weights)
-        per_prov = trial_ranks.pipe(_mrr_per_provenance)
+        mrr_per_provenance = (
+            trial_ranks.group_by("provenance")
+            .agg(*search_metric_aggs())
+            .select("provenance", "mrr")
+            .sort("provenance")
+        )
         mrr = _mean_mrr(trial_ranks)
 
         study.tell(trial, mrr)
@@ -717,14 +666,11 @@ def _run_study(
             "mrr": mrr,
             "best_so_far": best_mrr,
         }
-        for prov, prov_mrr in per_prov.iter_rows():
+        for prov, prov_mrr in mrr_per_provenance.iter_rows():
             trial_row[f"mrr_{prov}"] = prov_mrr
         trials_data.append(trial_row)
 
     return best_weights, best_mrr, best_ranks, trials_data
-
-
-# ── Entry point ──────────────────────────────────────────────────────────────
 
 
 class TuneCmd(BaseModel):
@@ -752,7 +698,7 @@ class TuneCmd(BaseModel):
         all_queries: dy.DataFrame[QueryRow],
         t0: float,
     ) -> None:
-        tagged = with_query_kind(all_queries)
+        tagged = all_queries.with_columns(query_kind())
         kinds = [k.value for k in QueryKind]
 
         # Pre-compute per-kind subsampled query sets.
@@ -777,68 +723,67 @@ class TuneCmd(BaseModel):
         all_baseline_ranks: list[dy.DataFrame[DetailedOutcome]] = []
         all_best_ranks: list[dy.DataFrame[DetailedOutcome]] = []
 
+        collected: dict[str, tuple[dy.DataFrame[ScoredCandidate], dy.DataFrame[QueryMeta]]] = {}
         with (
             daemon_session() as client,
             progress_reporter("tune") as (on_progress,),
         ):
             offset = 0
             for kind in kinds:
-                queries = kind_queries[kind]
-                n_queries = queries.height
-                if n_queries == 0:
+                if kind_queries[kind].height == 0:
                     continue
-
-                candidates, meta = _collect_scored_candidates(
+                collected[kind] = _collect_scored_candidates(
                     client,
-                    queries,
+                    kind_queries[kind],
                     self.repos_dir,
                     on_progress=on_progress,
                     offset=offset,
                     total=total_queries,
                 )
-                offset += n_queries
+                offset += kind_queries[kind].height
 
-                t = rbtr_config.search_weights[QueryKind(kind)]
-                baseline_ranks = _rescore_and_rank(candidates, meta, (t.alpha, t.beta, t.gamma))
-                baseline_mrr = _mean_mrr(baseline_ranks)
+        for kind, (candidates, meta) in collected.items():
+            t = rbtr_config.search_weights[QueryKind(kind)]
+            baseline_ranks = _rescore_and_rank(candidates, meta, (t.alpha, t.beta, t.gamma))
+            baseline_mrr = _mean_mrr(baseline_ranks)
 
-                best_weights, best_mrr, best_ranks, trials_data = _run_study(
-                    candidates,
-                    meta,
-                    baseline_ranks,
-                    kind=kind,
-                    n_trials=self.n_trials,
-                    seed=self.seed,
-                )
+            best_weights, best_mrr, best_ranks, trials_data = _run_study(
+                candidates,
+                meta,
+                baseline_ranks,
+                kind=kind,
+                n_trials=self.n_trials,
+                seed=self.seed,
+            )
 
-                all_baseline_ranks.append(baseline_ranks)
-                all_best_ranks.append(best_ranks)
-                all_trials_data.extend(trials_data)
+            all_baseline_ranks.append(baseline_ranks)
+            all_best_ranks.append(best_ranks)
+            all_trials_data.extend(trials_data)
 
-                best_alpha, best_beta, best_gamma = best_weights
-                delta = best_mrr - baseline_mrr
-                delta_se = _paired_delta_se(baseline_ranks, best_ranks)
-                report_rows.append(
-                    {
-                        "kind": kind,
-                        "best_alpha": best_alpha,
-                        "best_beta": best_beta,
-                        "best_gamma": best_gamma,
-                        "score_best": best_mrr,
-                        "current_alpha": rbtr_config.search_weights[QueryKind(kind)].alpha,
-                        "current_beta": rbtr_config.search_weights[QueryKind(kind)].beta,
-                        "current_gamma": rbtr_config.search_weights[QueryKind(kind)].gamma,
-                        "score_current": baseline_mrr,
-                        "delta": delta,
-                        "delta_se": delta_se,
-                        "verdict": _verdict(delta, delta_se),
-                        "pool_recall": _pool_recall(candidates, meta),
-                        "metric": "MRR",
-                        "n_trials": self.n_trials,
-                        "n_queries": n_queries,
-                        "elapsed_seconds": 0.0,  # filled below
-                    }
-                )
+            best_alpha, best_beta, best_gamma = best_weights
+            delta = best_mrr - baseline_mrr
+            delta_se = _paired_delta_se(baseline_ranks, best_ranks)
+            report_rows.append(
+                {
+                    "kind": kind,
+                    "best_alpha": best_alpha,
+                    "best_beta": best_beta,
+                    "best_gamma": best_gamma,
+                    "score_best": best_mrr,
+                    "current_alpha": t.alpha,
+                    "current_beta": t.beta,
+                    "current_gamma": t.gamma,
+                    "score_current": baseline_mrr,
+                    "delta": delta,
+                    "delta_se": delta_se,
+                    "verdict": _verdict(delta, delta_se),
+                    "pool_recall": _pool_recall(candidates, meta),
+                    "metric": "MRR",
+                    "n_trials": self.n_trials,
+                    "n_queries": meta.height,
+                    "elapsed_seconds": 0.0,  # filled below
+                }
+            )
 
         elapsed = time.monotonic() - t0
         for row in report_rows:
@@ -849,34 +794,22 @@ class TuneCmd(BaseModel):
             raise SystemExit(msg)
 
         report = pl.DataFrame(report_rows).pipe(TuneReport.validate, cast=True)
-
         combined_baseline = pl.concat(all_baseline_ranks).pipe(DetailedOutcome.validate, cast=True)
         combined_best = pl.concat(all_best_ranks).pipe(DetailedOutcome.validate, cast=True)
-        impact = _impact_comparison(combined_baseline, combined_best)
 
-        all_sampled = pl.concat(list(kind_queries.values())).pipe(QueryRow.validate, cast=True)
-        dist = sample_distribution(
-            all_sampled,
-            strat_keys=("slug", "language", "provenance"),
-        )
-
-        self._write_output(report, all_trials_data, impact, dist)
-
-    def _write_output(
-        self,
-        report: dy.DataFrame[TuneReport],
-        trials_data: list[TrialRow],
-        impact: dy.DataFrame[ImpactComparison],
-        dist: pl.DataFrame,
-    ) -> None:
         self.report.parent.mkdir(parents=True, exist_ok=True)
         self.report.write_text(
             _render_tuning_report(
                 report,
-                trials_data,
-                impact,
-                dist,
-                report_dir=self.report.parent,
+                _top_trial_spread(all_trials_data),
+                _impact_overall(combined_baseline, combined_best),
+                _impact_breakdowns(combined_baseline, combined_best),
+                sample_distribution(
+                    pl.concat(list(kind_queries.values())).pipe(QueryRow.validate, cast=True),
+                    strat_keys=("slug", "language", "provenance"),
+                ),
             ),
             encoding="utf-8",
         )
+        for name, spec in _tuning_charts(all_trials_data).items():
+            render_vl_to_png(spec, self.report.parent / f"{name}.png")

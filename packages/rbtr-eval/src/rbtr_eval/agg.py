@@ -58,3 +58,17 @@ def search_metric_aggs() -> list[pl.Expr]:
         pl.col("rank").drop_nulls().cast(pl.Float64).median().alias("median_rank"),
         pl.col("rank").is_null().mean().alias("not_found_pct"),
     ]
+
+
+def rank_by_score(*over: str) -> pl.Expr:
+    """`rank`: 1 for the highest `score` within each group of *over*."""
+    return pl.col("score").rank("ordinal", descending=True).over(*over).cast(pl.UInt8).alias("rank")
+
+
+def at_target_path() -> pl.Expr:
+    """Whether a candidate covers the query's target file.
+
+    A candidate carries every path its content sits at (`file_paths`),
+    so the target's `file_path` counts as found when it is one of them.
+    """
+    return pl.col("file_paths").list.contains(pl.col("file_path"))
