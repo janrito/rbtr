@@ -110,14 +110,15 @@ shipped with the CLI.
 
 ## Documentation
 
-| Document                                                   | What's in it                                                                                                                          |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| [`rbtr` README](packages/rbtr/README.md)                   | CLI reference, configuration, output modes, and how to write a language plugin                                                        |
-| [`rbtr` ARCHITECTURE](packages/rbtr/ARCHITECTURE.md)       | Indexing pipeline, data model, daemon, search fusion, garbage collection, design rationale                                            |
-| [`pi-rbtr` README](packages/pi-rbtr/README.md)             | The agent tools, slash commands, index notes, and extension settings                                                                  |
-| [`pi-rbtr` ARCHITECTURE](packages/pi-rbtr/ARCHITECTURE.md) | How a session works: startup, the daemon transport and CLI fallback, the footer, the tools and index notes, and the choices behind it |
-| [`rbtr-eval` README](packages/rbtr-eval/README.md)         | Benchmark and tuning pipeline, and what the measurements found                                                                        |
-| [`demo` README](demo/README.md)                            | Recording the terminal demos above with VHS                                                                                           |
+| Document                                                       | What's in it                                                                                                                          |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| [`rbtr` README](packages/rbtr/README.md)                       | CLI reference, configuration, output modes, and how to write a language plugin                                                        |
+| [`rbtr` ARCHITECTURE](packages/rbtr/ARCHITECTURE.md)           | Indexing pipeline, data model, daemon, search fusion, garbage collection, design rationale                                            |
+| [`pi-rbtr` README](packages/pi-rbtr/README.md)                 | The agent tools, slash commands, index notes, and extension settings                                                                  |
+| [`pi-rbtr` ARCHITECTURE](packages/pi-rbtr/ARCHITECTURE.md)     | How a session works: startup, the daemon transport and CLI fallback, the footer, the tools and index notes, and the choices behind it |
+| [`rbtr-eval` README](packages/rbtr-eval/README.md)             | Benchmark and tuning pipeline, and what the measurements found                                                                        |
+| [`rbtr-eval` ARCHITECTURE](packages/rbtr-eval/ARCHITECTURE.md) | How a stage splits its I/O, statistics and rendering, and the choices behind it                                                       |
+| [`demo` README](demo/README.md)                                | Recording the terminal demos above with VHS                                                                                           |
 
 ### Languages
 
