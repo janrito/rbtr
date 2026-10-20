@@ -1907,21 +1907,20 @@ ignored, so an older client still finds a newer daemon's
 endpoints, and a missing or malformed file reads as no
 daemon.
 
-`StatusResponse` is the most complex response. For one
-repo (`status`), `repo_path` is the repository's normalised
-root, even when nothing in it is indexed, so a client in a
-subdirectory or behind a symlink learns what its paths are
-relative to. Per-ref state is grouped in `IndexedRef` (sha, symbolic names,
-chunk count, embed completeness) — a single list rather
-than parallel maps. `active_build` and `active_embed`
-share the same `ActiveJob` type; the field name
-distinguishes them. Both are filtered to the requested
-repo so a status query never leaks activity from
-unrelated repos. Text renderers (CLI, TUI, LLM) derive
-output solely from the response model — never from
-external state like config. `watched` lists the repo's
-watch set (each `WatchedRef` carries the resolved sha and
-whether it is indexed yet).
+`StatusResponse` is the most complex response. For one repo (`status`), `repo_path` is
+the repository's normalised root, even when nothing in it is indexed, so a client in a
+subdirectory or behind a symlink learns what its paths are relative to. `state`
+(`IndexState`) says what the index holds for the request: no repository at all, not this
+one, this one but not the snapshot a read without a ref would use (`resolve_read_ref`
+falls back to the latest indexed commit), or that snapshot. The daemon computes it where
+the index is read, so the CLI, the footer and the status tool word the same four cases
+alike. Per-ref state is grouped in `IndexedRef` (sha, symbolic names, chunk count, embed
+completeness) — a single list rather than parallel maps. `active_build` and
+`active_embed` share the same `ActiveJob` type; the field name distinguishes them. Both
+are filtered to the requested repo so a status query never leaks activity from unrelated
+repos. Text renderers (CLI, TUI, LLM) derive output solely from the response model —
+never from external state like config. `watched` lists the repo's watch set (each
+`WatchedRef` carries the resolved sha and whether it is indexed yet).
 
 Five notification kinds go out on PUB: `progress` during a
 build, `ready` when a snapshot is indexed, `embed_ended`
