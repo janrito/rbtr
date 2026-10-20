@@ -151,9 +151,21 @@ def _embedding_counts(store: IndexStore, corpus: Corpus) -> dy.DataFrame[Embeddi
     )
 
 
-def _index_report(store: IndexStore, corpus: Corpus) -> str:
-    """Generate INDEX.md from the index store."""
-    total_chunks, total_locations, total_edges = _totals(store, corpus)
+def _embedding_totals(store: IndexStore, corpus: Corpus) -> tuple[int, int, int]:
+    """`(chunks, embedded, truncated)` over *corpus*."""
+    with store.reader(_snapshot_refs=snapshot_refs_view(list(corpus.refs))) as cur:
+        row = cur.execute(_EMB_TOTALS_SQL).fetchone()
+    return (int(row[0]), int(row[1]), int(row[2])) if row else (0, 0, 0)
+
+
+def _index_report(
+    totals: tuple[int, int, int],
+    repos: dy.DataFrame[RepoCountRow],
+    kinds: dy.DataFrame[KindCountRow],
+    languages: dy.DataFrame[LanguageCountRow],
+) -> str:
+    """Render INDEX.md from the counts `_totals` and the per-group readers return."""
+    total_chunks, total_locations, total_edges = totals
 
     template = resources.files("rbtr_eval.templates").joinpath("index.md.j2").read_text()
     return minijinja.Environment().render_str(
@@ -161,21 +173,19 @@ def _index_report(store: IndexStore, corpus: Corpus) -> str:
         total_chunks=f"{total_chunks:,}",
         total_locations=f"{total_locations:,}",
         total_edges=f"{total_edges:,}",
-        repos_table=md_table(_repo_counts(store, corpus)),
-        kinds_table=md_table(_kind_counts(store, corpus)),
-        langs_table=md_table(_language_counts(store, corpus)),
+        repos_table=md_table(repos),
+        kinds_table=md_table(kinds),
+        langs_table=md_table(languages),
     )
 
 
-def _embedding_report(store: IndexStore, corpus: Corpus) -> str:
-    """Generate EMBEDDING.md from the index store."""
-    repos = _embedding_counts(store, corpus).select("repo", "chunks", "embedded")
-
-    with store.reader(_snapshot_refs=snapshot_refs_view(list(corpus.refs))) as cur:
-        totals = cur.execute(_EMB_TOTALS_SQL).fetchone()
-    total_chunks = totals[0] if totals else 0
-    with_embedding = totals[1] if totals else 0
-    truncated = totals[2] if totals else 0
+def _embedding_report(
+    totals: tuple[int, int, int],
+    repos: dy.DataFrame[EmbeddingRepoRow],
+    index_bytes: int,
+) -> str:
+    """Render EMBEDDING.md from `_embedding_totals`, `_embedding_counts` and the index size."""
+    total_chunks, with_embedding, truncated = totals
     coverage = f"{with_embedding / total_chunks * 100:.1f}%" if total_chunks else "N/A"
 
     template = resources.files("rbtr_eval.templates").joinpath("embedding.md.j2").read_text()
@@ -185,8 +195,8 @@ def _embedding_report(store: IndexStore, corpus: Corpus) -> str:
         with_embedding=f"{with_embedding:,}",
         truncated=f"{truncated:,}",
         coverage=coverage,
-        index_size_human=human_bytes(store.disk_size_bytes()),
-        repos_table=md_table(repos),
+        index_size_human=human_bytes(index_bytes),
+        repos_table=md_table(repos.select("repo", "chunks", "embedded")),
     )
 
 
@@ -248,8 +258,21 @@ class IndexCmd(BaseModel):
 
         if self.report is not None:
             self.report.parent.mkdir(parents=True, exist_ok=True)
-            report_fn = _embedding_report if config.embed else _index_report
-            self.report.write_text(report_fn(store, corpus), encoding="utf-8")
+            report = (
+                _embedding_report(
+                    _embedding_totals(store, corpus),
+                    _embedding_counts(store, corpus),
+                    store.disk_size_bytes(),
+                )
+                if config.embed
+                else _index_report(
+                    _totals(store, corpus),
+                    _repo_counts(store, corpus),
+                    _kind_counts(store, corpus),
+                    _language_counts(store, corpus),
+                )
+            )
+            self.report.write_text(report, encoding="utf-8")
 
         self.sentinel.parent.mkdir(parents=True, exist_ok=True)
         self.sentinel.write_text(_sentinel_hash(store, embed=config.embed), encoding="utf-8")
