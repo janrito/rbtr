@@ -23,6 +23,12 @@ from rbtr.index.classify import classify_query
 from rbtr_eval.shared_schemas import IDENTITY_COLUMNS, QueryRow
 
 
+class ClassifiedQuery(QueryRow):
+    """A `QueryRow` with the `query_kind` its text classifies as."""
+
+    query_kind = dy.String()
+
+
 def query_kind() -> pl.Expr:
     """`query_kind`: the `QueryKind` that `classify_query(text)` returns.
 
