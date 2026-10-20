@@ -87,6 +87,7 @@ from rbtr.daemon.messages import (
     GcAllRequest,
     GcRequest,
     GcResponse,
+    IndexState,
     ListSymbolsRequest,
     ListSymbolsResponse,
     OkResponse,
@@ -822,10 +823,12 @@ class Status(BaseModel):
             case ErrorResponse() as err:
                 fail(err)
             case None:
+                print_err("[yellow]![/]  rbtr is not running")
                 db = config.db_path
                 # No index yet: the reply still names the repository.
                 empty = StatusResponse(
-                    repo_path=request.repo_path if isinstance(request, StatusRequest) else None
+                    state=IndexState.NO_INDEX,
+                    repo_path=request.repo_path if isinstance(request, StatusRequest) else None,
                 )
                 if not db.exists():
                     emit(empty)

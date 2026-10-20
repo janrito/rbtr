@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from rbtr.daemon.messages import ErrorCode, ErrorResponse, StatusResponse
+from rbtr.daemon.messages import ErrorCode, ErrorResponse, IndexState, StatusResponse
 from rbtr.errors import ExitCode
 from rbtr.tests.conftest import run_cli
 
@@ -58,12 +58,17 @@ def test_error_is_an_error_response_on_stdout(
 
 
 def test_status_after_a_failed_read_reports_no_index(repo_path: str, isolated_db: Path) -> None:
-    """A read before any build leaves an empty DB file; status still says no index."""
+    """A read before any build leaves an empty DB file; status still says no index.
+
+    No daemon runs, so stderr says so, beside the reply on stdout.
+    """
     run_cli(["--json", "read-symbol", "load_config", "--repo-path", repo_path])
 
     result = run_cli(["--json", "status", "--repo-path", repo_path])
 
     assert result.returncode == 0, result.stdout
     status = StatusResponse.model_validate_json(result.stdout)
+    assert status.state is IndexState.NO_INDEX
     assert status.indexed_refs == []
     assert status.repo_path == repo_path
+    assert "rbtr is not running" in result.stderr

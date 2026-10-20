@@ -9,18 +9,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import pygit2
 from pytest_cases import case
 
 from rbtr.daemon.messages import (
     ActiveJob,
     ErrorCode,
     FindRefsRequest,
+    IndexState,
     ListSymbolsRequest,
     ReadSymbolRequest,
     SearchRequest,
     StatusAllRequest,
     StatusRequest,
 )
+from rbtr.index.index import Index
 
 
 @dataclass(frozen=True)
@@ -120,6 +123,63 @@ def case_status_unregistered(second_repo: str) -> StatusRootScenario:
 def case_status_every_repo() -> StatusRootScenario:
     """Every repository's status names no single root."""
     return StatusRootScenario(request=StatusAllRequest(), expected=None)
+
+
+@dataclass(frozen=True)
+class IndexStateScenario:
+    """A status request against an index, and the state its reply should report."""
+
+    index: Index
+    request: StatusRequest | StatusAllRequest
+    expected: IndexState
+
+
+# A case that needs more state than its fixtures makes it in its own body:
+# a test fed by cases sets up every case's fixtures for each case, so a
+# commit made by a fixture would move every case's HEAD.
+
+
+@case(id="nothing_registered")
+def case_state_nothing_registered(empty_index: Index, fake_repo: str) -> IndexStateScenario:
+    return IndexStateScenario(empty_index, StatusRequest(repo_path=fake_repo), IndexState.NO_INDEX)
+
+
+@case(id="nothing_registered_every_repo")
+def case_state_nothing_registered_every_repo(empty_index: Index) -> IndexStateScenario:
+    return IndexStateScenario(empty_index, StatusAllRequest(), IndexState.NO_INDEX)
+
+
+@case(id="registered_never_built")
+def case_state_registered_never_built(seeded_index: Index, second_repo: str) -> IndexStateScenario:
+    seeded_index.register(second_repo)
+    return IndexStateScenario(
+        seeded_index, StatusRequest(repo_path=second_repo), IndexState.REPO_NOT_INDEXED
+    )
+
+
+@case(id="registered_never_built_every_repo")
+def case_state_registered_never_built_every_repo(
+    empty_index: Index, fake_repo: str
+) -> IndexStateScenario:
+    empty_index.register(fake_repo)
+    return IndexStateScenario(empty_index, StatusAllRequest(), IndexState.REPO_NOT_INDEXED)
+
+
+@case(id="head_past_the_index")
+def case_state_head_past_the_index(seeded_index: Index, fake_repo: str) -> IndexStateScenario:
+    """A commit after the indexed one: reads fall back to the indexed commit."""
+    repo = pygit2.Repository(fake_repo)
+    sig = pygit2.Signature("t", "t@t.t")
+    head = repo.head.peel(pygit2.Commit)
+    repo.create_commit("refs/heads/main", sig, sig, "next", head.tree.id, [head.id])
+    return IndexStateScenario(
+        seeded_index, StatusRequest(repo_path=fake_repo), IndexState.REF_NOT_INDEXED
+    )
+
+
+@case(id="head_indexed_every_repo")
+def case_state_head_indexed_every_repo(seeded_index: Index) -> IndexStateScenario:
+    return IndexStateScenario(seeded_index, StatusAllRequest(), IndexState.INDEXED)
 
 
 # Each read a client can make at a ref: one the daemon has not indexed is

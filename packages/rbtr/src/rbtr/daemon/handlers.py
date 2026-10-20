@@ -48,6 +48,7 @@ from rbtr.daemon.messages import (
     GcRequest,
     GcResponse,
     IndexedRef,
+    IndexState,
     ListSymbolsRequest,
     ListSymbolsResponse,
     ReadSymbolRequest,
@@ -71,6 +72,7 @@ from rbtr.domain.models import (
     Chunk,
     GcCounts,
     QueryKind,
+    RefSource,
     Repo,
     SnapshotCounts,
     SnapshotRange,
@@ -328,6 +330,7 @@ def handle_status(
     repo = index.find_repo(request.repo_path)
     if repo is None:
         return StatusResponse(
+            state=IndexState.REPO_NOT_INDEXED if index.repos() else IndexState.NO_INDEX,
             repo_path=request.repo_path,
             db_path=index.db_path,
             db_size_bytes=index.disk_size_bytes(),
@@ -338,6 +341,7 @@ def handle_status(
         )
     return _status(
         index,
+        _read_state(index, repo),
         request.repo_path,
         [repo],
         index.chunk_counts_by_snapshot(repo=repo),
@@ -351,17 +355,38 @@ def handle_status_all(
     snapshot_status: SnapshotStatusFn | None = None,
 ) -> StatusResponse:
     """Report index status for every indexed repo."""
+    repos = index.repos()
+    counted = index.chunk_counts_by_snapshot()
+    if not repos:
+        state = IndexState.NO_INDEX
+    elif counted:
+        state = IndexState.INDEXED
+    else:
+        state = IndexState.REPO_NOT_INDEXED
     return _status(
         index,
+        state,
         None,
-        index.repos(),
-        index.chunk_counts_by_snapshot(),
+        repos,
+        counted,
         snapshot_status(None) if snapshot_status is not None else (None, None),
     )
 
 
+def _read_state(index: Index, repo: Repo) -> IndexState:
+    """Whether a read of *repo* without a ref finds the snapshot it asks for (`resolve_read_ref`)."""
+    try:
+        read = resolve_read_ref(index, repo, None, require_indexed=True)
+    except RbtrError:
+        return IndexState.REPO_NOT_INDEXED
+    if read.source is RefSource.LATEST_INDEXED:
+        return IndexState.REF_NOT_INDEXED
+    return IndexState.INDEXED
+
+
 def _status(
     index: Index,
+    state: IndexState,
     repo_path: str | None,
     repos: list[Repo],
     counted: Mapping[SnapshotRef, SnapshotCounts],
@@ -369,6 +394,7 @@ def _status(
 ) -> StatusResponse:
     """The status of *repos*, given their *counted* snapshots and the *active* jobs."""
     return StatusResponse(
+        state=state,
         repo_path=repo_path,
         db_path=index.db_path,
         db_size_bytes=index.disk_size_bytes(),

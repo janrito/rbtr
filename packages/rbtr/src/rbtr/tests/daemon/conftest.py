@@ -109,6 +109,19 @@ def registered_index(fake_repo: str, index: Index) -> Index:
 
 
 @pytest.fixture
+def empty_index() -> Generator[Index]:
+    """An in-memory writable `Index` no other fixture fills.
+
+    A test fed by cases sets up every case's fixtures for each case, and
+    `seeded_index` fills `index`; a case that needs an empty index asks
+    for this one.
+    """
+    index = Index(writable=True)
+    yield index
+    index.close()
+
+
+@pytest.fixture
 def seeded_index(
     fake_repo: str,
     daemon_commit: str,

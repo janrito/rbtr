@@ -375,6 +375,13 @@ export const PROTOCOL_DEFS = {
     title: "IndexErrorNotification",
     type: "object",
   },
+  IndexState: {
+    description:
+      "What the index holds for a status request.\n\n`NO_INDEX`         — no index file, or it holds no repository.\n`REPO_NOT_INDEXED` — the index holds other repositories, but not an\n                     indexed snapshot of this one; for every\n                     repository, none has one.\n`REF_NOT_INDEXED`  — this repository has indexed snapshots, but not\n                     the one a read without a ref uses, so reads\n                     fall back to the latest indexed commit\n                     (`RefSource.LATEST_INDEXED`).\n`INDEXED`          — reads find the snapshot they ask for.",
+    enum: ["no_index", "repo_not_indexed", "ref_not_indexed", "indexed"],
+    title: "IndexState",
+    type: "string",
+  },
   IndexStats: {
     description:
       "Summary statistics for a completed index.\n\n`outcomes` holds one entry per file and is the only thing stored or\nsent; the file counts are properties over it, so they cannot\ndisagree with each other or with what the loop did.",
@@ -699,6 +706,7 @@ export const PROTOCOL_DEFS = {
       "Index status for one repository (`StatusRequest`), or every one\n(`StatusAllRequest`).\n\n`repo_path` is the repository's root, normalised, for one\nrepository, whether or not anything of it is indexed; a caller in a\nsubdirectory learns from it what its paths are relative to. It is\n`None` for every repository.",
     properties: {
       kind: { const: "status", default: "status", type: "string" },
+      state: { $ref: "#/$defs/IndexState" },
       repo_path: { anyOf: [{ type: "string" }, { type: "null" }], default: null },
       db_path: { anyOf: [{ type: "string" }, { type: "null" }], default: null },
       db_size_bytes: { anyOf: [{ type: "integer" }, { type: "null" }], default: null },
@@ -708,9 +716,9 @@ export const PROTOCOL_DEFS = {
       active_build: { anyOf: [{ $ref: "#/$defs/ActiveJob" }, { type: "null" }], default: null },
       active_embed: { anyOf: [{ $ref: "#/$defs/ActiveJob" }, { type: "null" }], default: null },
     },
+    required: ["state", "kind"],
     title: "StatusResponse",
     type: "object",
-    required: ["kind"],
   },
   SymbolOut: {
     additionalProperties: false,

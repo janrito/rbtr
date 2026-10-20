@@ -23,6 +23,7 @@ from rbtr.daemon.messages import (
     FindRefsResponse,
     ForgetResponse,
     GcResponse,
+    IndexState,
     ListSymbolsResponse,
     OkResponse,
     ReadSymbolResponse,
@@ -67,7 +68,7 @@ def one_of_each_response(resolved: ResolvedRef) -> tuple[BaseModel, ...]:
         ListSymbolsResponse(chunks=[], resolved=resolved, file_path="a.py"),
         FindRefsResponse(refs=[], resolved=resolved, file_paths=None),
         ChangedSymbolsResponse(changes=[], base_sha="abc", head_sha="def", file_paths=None),
-        StatusResponse(db_path="/db"),
+        StatusResponse(state=IndexState.NO_INDEX, db_path="/db"),
         DaemonConfigResponse(rbtr_version="0", config={}, plugins=[]),
         GcResponse(
             snapshots_dropped=0,

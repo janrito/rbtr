@@ -510,6 +510,7 @@ export const test = base.extend<{
       request.kind === "status"
         ? {
             kind: "status",
+            state: "indexed",
             repo_path: repo,
             indexed_refs: [{ sha: "a".repeat(40), names: ["HEAD"], total: 1, embedded: 1, repo_path: repo }],
             watched: [{ ref: "HEAD", sha: "a".repeat(40), indexed: true, repo_path: repo }],

@@ -100,6 +100,20 @@ export type EdgeKind = "calls" | "imports" | "inherits" | "documents" | "configu
  * How a symbol changed between two indexed commits.
  */
 export type ChangeKind = "added" | "modified" | "removed";
+/**
+ * What the index holds for a status request.
+ *
+ * `NO_INDEX`         — no index file, or it holds no repository.
+ * `REPO_NOT_INDEXED` — the index holds other repositories, but not an
+ *                      indexed snapshot of this one; for every
+ *                      repository, none has one.
+ * `REF_NOT_INDEXED`  — this repository has indexed snapshots, but not
+ *                      the one a read without a ref uses, so reads
+ *                      fall back to the latest indexed commit
+ *                      (`RefSource.LATEST_INDEXED`).
+ * `INDEXED`          — reads find the snapshot they ask for.
+ */
+export type IndexState = "no_index" | "repo_not_indexed" | "ref_not_indexed" | "indexed";
 export type JsonValue = unknown;
 export type Notification =
   | ProgressNotification
@@ -589,6 +603,7 @@ export interface ChangedSymbol {
  */
 export interface StatusResponse {
   kind: "status";
+  state: IndexState;
   repo_path?: string | null;
   db_path?: string | null;
   db_size_bytes?: number | null;

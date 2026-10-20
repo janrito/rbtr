@@ -19,6 +19,7 @@ from rbtr.daemon.messages import (
     ForgetResponse,
     GcResponse,
     IndexedRef,
+    IndexState,
     SearchResponse,
     StatusResponse,
     UnwatchResponse,
@@ -137,6 +138,7 @@ def case_status_grouped_by_repo() -> RenderScenario:
     """Cross-repo status groups refs under each repo path."""
     return RenderScenario(
         model=StatusResponse(
+            state=IndexState.INDEXED,
             db_path="/db",
             db_size_bytes=3 * 2**19,  # 1.5 MiB
             indexed_refs=[
@@ -156,6 +158,7 @@ def case_status_brackets_a_partial_embed_percentage() -> RenderScenario:
     """A partly embedded ref shows its percentage in brackets."""
     return RenderScenario(
         model=StatusResponse(
+            state=IndexState.INDEXED,
             db_path="/db",
             indexed_refs=[
                 IndexedRef(sha="a" * 40, total=1200, embedded=512, repo_path="/projects/one")
@@ -171,8 +174,61 @@ def case_status_brackets_a_partial_embed_percentage() -> RenderScenario:
 def case_status_names_repos_whose_untracked_files_are_not_indexed() -> RenderScenario:
     """A repo over the untracked-file limit is named, with its count and how to exclude."""
     return RenderScenario(
-        model=StatusResponse(db_path="/db", untracked_not_indexed={"/projects/one": 6489}),
+        model=StatusResponse(
+            state=IndexState.REPO_NOT_INDEXED,
+            db_path="/db",
+            untracked_not_indexed={"/projects/one": 6489},
+        ),
         expected=("6489 untracked files in /projects/one", ".git/info/exclude"),
+    )
+
+
+@case(tags=["status"])
+def case_status_says_the_index_does_not_exist() -> RenderScenario:
+    """No index file, or one holding no repo."""
+    return RenderScenario(
+        model=StatusResponse(state=IndexState.NO_INDEX, repo_path="/projects/one"),
+        expected=("the index does not exist",),
+    )
+
+
+@case(tags=["status"])
+def case_status_says_this_repo_is_not_indexed() -> RenderScenario:
+    """The index exists, so its size and path are shown beside the repo's state."""
+    return RenderScenario(
+        model=StatusResponse(
+            state=IndexState.REPO_NOT_INDEXED,
+            repo_path="/projects/one",
+            db_path="/db",
+            db_size_bytes=2**20,
+        ),
+        expected=("this repo is not indexed", "1.0 MiB"),
+    )
+
+
+@case(tags=["status"])
+def case_status_says_no_repo_is_indexed() -> RenderScenario:
+    """Every repo's status, with repos registered but none built."""
+    return RenderScenario(
+        model=StatusResponse(state=IndexState.REPO_NOT_INDEXED, db_path="/db"),
+        expected=("no repo is indexed",),
+    )
+
+
+@case(tags=["status"])
+def case_status_says_this_ref_is_not_indexed_and_lists_those_that_are() -> RenderScenario:
+    """Reads fall back to the latest indexed commit; the indexed ones are listed."""
+    return RenderScenario(
+        model=StatusResponse(
+            state=IndexState.REF_NOT_INDEXED,
+            repo_path="/projects/one",
+            db_path="/db",
+            indexed_refs=[
+                IndexedRef(sha="a" * 40, total=3, embedded=3, names=["main"]),
+                IndexedRef(sha="b" * 40, total=4, embedded=4, names=["v1"]),
+            ],
+        ),
+        expected=("this ref is not indexed", "2 other refs of this repo are", "main", "v1"),
     )
 
 
@@ -252,6 +308,7 @@ def case_status_shows_watch_set() -> RenderScenario:
     """Watched refs render with indexed / pending / unresolvable markers."""
     return RenderScenario(
         model=StatusResponse(
+            state=IndexState.INDEXED,
             db_path="/db",
             indexed_refs=[IndexedRef(sha="a" * 40, total=3, embedded=3)],
             watched=[

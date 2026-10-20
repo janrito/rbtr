@@ -39,6 +39,7 @@ from rbtr.daemon.messages import (
     ForgetResponse,
     GcResponse,
     IndexedRef,
+    IndexState,
     ListSymbolsResponse,
     OkResponse,
     ReadSymbolResponse,
@@ -505,23 +506,35 @@ def _render_status_response(response: StatusResponse) -> None:
     loc = f"[dim]{response.db_path}[/]"
     if response.db_size_bytes is not None:
         loc = f"[dim]{human_bytes(response.db_size_bytes)} · {response.db_path}[/]"
-    if not response.indexed_refs:
-        _out.print("[red]✗[/]  No index found")
-    elif len({ref.repo_path for ref in response.indexed_refs}) > 1:
-        # Cross-repo: group refs under their repo.
-        _out.print(f"[green]✓[/]  indexed repos  {loc}")
-        by_repo: dict[str, list[IndexedRef]] = {}
-        for ref in response.indexed_refs:
-            by_repo.setdefault(ref.repo_path or "?", []).append(ref)
-        for repo_path, refs in by_repo.items():
-            _out.print(f"  [bold]{repo_path}[/]")
-            for ref in refs:
-                _out.print(f"     {_fmt_ref(ref)}")
-    else:
-        total = response.indexed_refs[0].total
-        _out.print(f"[green]✓[/]  {_human(total)} chunks  {loc}")
-        for ref in response.indexed_refs:
-            _out.print(f"   {_fmt_ref(ref)}")
+    match response.state:
+        case IndexState.NO_INDEX:
+            _out.print("[red]✗[/]  the index does not exist")
+        case IndexState.REPO_NOT_INDEXED if response.repo_path is None:
+            _out.print(f"[red]✗[/]  no repo is indexed  {loc}")
+        case IndexState.REPO_NOT_INDEXED:
+            _out.print(f"[red]✗[/]  this repo is not indexed  {loc}")
+        case IndexState.REF_NOT_INDEXED:
+            _out.print(
+                f"[yellow]![/]  this ref is not indexed; "
+                f"{len(response.indexed_refs)} other refs of this repo are  {loc}"
+            )
+            for ref in response.indexed_refs:
+                _out.print(f"   {_fmt_ref(ref)}")
+        case IndexState.INDEXED if len({ref.repo_path for ref in response.indexed_refs}) > 1:
+            # Cross-repo: group refs under their repo.
+            _out.print(f"[green]✓[/]  indexed repos  {loc}")
+            by_repo: dict[str, list[IndexedRef]] = {}
+            for ref in response.indexed_refs:
+                by_repo.setdefault(ref.repo_path or "?", []).append(ref)
+            for repo_path, refs in by_repo.items():
+                _out.print(f"  [bold]{repo_path}[/]")
+                for ref in refs:
+                    _out.print(f"     {_fmt_ref(ref)}")
+        case IndexState.INDEXED:
+            total = response.indexed_refs[0].total
+            _out.print(f"[green]✓[/]  {_human(total)} chunks  {loc}")
+            for ref in response.indexed_refs:
+                _out.print(f"   {_fmt_ref(ref)}")
     if response.watched:
         _out.print("[dim]watching:[/]")
         for w in response.watched:

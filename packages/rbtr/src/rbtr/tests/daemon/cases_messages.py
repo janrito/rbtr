@@ -453,10 +453,10 @@ def case_changed_symbols_response() -> MessageScenario:
 @case(tags=["response"])
 def case_status_response_empty() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"status"}',
+        raw=b'{"kind":"status","state":"no_index"}',
         adapter=response_adapter,
         expected_type=StatusResponse,
-        checks={"indexed_refs": []},
+        checks={"indexed_refs": [], "state": "no_index"},
     )
 
 
@@ -464,7 +464,7 @@ def case_status_response_empty() -> MessageScenario:
 def case_status_response_with_refs() -> MessageScenario:
     return MessageScenario(
         raw=(
-            b'{"kind":"status",'
+            b'{"kind":"status","state":"indexed",'
             b'"indexed_refs":['
             b'{"sha":"abc123","total":50,"embedded":50},'
             b'{"sha":"def456","total":30,"embedded":10}'

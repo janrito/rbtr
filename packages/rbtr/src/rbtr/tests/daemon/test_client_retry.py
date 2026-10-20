@@ -21,7 +21,7 @@ import structlog
 import zmq
 
 from rbtr.daemon.client import DaemonClient
-from rbtr.daemon.messages import ErrorCode, StatusRequest, StatusResponse
+from rbtr.daemon.messages import ErrorCode, IndexState, StatusRequest, StatusResponse
 from rbtr.daemon.server import DaemonServer
 from rbtr.daemon.status import write_status
 from rbtr.errors import DaemonBusyError
@@ -92,7 +92,7 @@ def test_a_late_reply_is_waited_for_not_asked_for_again(
         nonlocal calls
         calls += 1
         await asyncio.sleep(0.15)
-        return StatusResponse()
+        return StatusResponse(state=IndexState.NO_INDEX)
 
     running_daemon._handlers["status"] = slow
 

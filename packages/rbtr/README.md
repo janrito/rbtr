@@ -286,9 +286,23 @@ $ rbtr status
 
 The chunk count is this repo's; the size is the whole index's:
 the registry beside the path shown and every repo's file in
-`index/`. Most of it is embeddings —
-one vector per chunk, and they dominate everything else
-stored. `--scope all` breaks the count down per repo.
+`index/`. Most of it is embeddings — one vector per chunk, and
+they dominate everything else stored. `--scope all` breaks the count down per repo.
+
+When the repo's index is not ready, status says which part is
+missing:
+
+```bash
+✗  the index does not exist
+✗  this repo is not indexed  1.2 GiB · ~/.local/share/rbtr/index.duckdb
+!  this ref is not indexed; 2 other refs of this repo are  1.2 GiB · ~/.local/share/rbtr/index.duckdb
+```
+
+The first means the index holds no repo yet; the second, that
+it holds others but not this one; the third, that reads fall back to the
+latest indexed commit until the current one is built. With no
+daemon running, status reads the index itself and adds
+`rbtr is not running` on stderr.
 
 A dirty working tree is indexed together with its untracked
 files, so new work is searchable before `git add`. When git lists

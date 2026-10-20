@@ -603,6 +603,26 @@ class WatchedRef(BaseModel):
     repo_path: str | None = None
 
 
+class IndexState(StrEnum):
+    """What the index holds for a status request.
+
+    `NO_INDEX`         — no index file, or it holds no repository.
+    `REPO_NOT_INDEXED` — the index holds other repositories, but not an
+                         indexed snapshot of this one; for every
+                         repository, none has one.
+    `REF_NOT_INDEXED`  — this repository has indexed snapshots, but not
+                         the one a read without a ref uses, so reads
+                         fall back to the latest indexed commit
+                         (`RefSource.LATEST_INDEXED`).
+    `INDEXED`          — reads find the snapshot they ask for.
+    """
+
+    NO_INDEX = "no_index"
+    REPO_NOT_INDEXED = "repo_not_indexed"
+    REF_NOT_INDEXED = "ref_not_indexed"
+    INDEXED = "indexed"
+
+
 class StatusResponse(BaseModel):
     """Index status for one repository (`StatusRequest`), or every one
     (`StatusAllRequest`).
@@ -615,6 +635,7 @@ class StatusResponse(BaseModel):
 
     model_config = _STRICT
     kind: Literal["status"] = "status"
+    state: IndexState
     repo_path: str | None = None
     db_path: str | None = None
     db_size_bytes: int | None = None  # whole index file on disk, a global figure

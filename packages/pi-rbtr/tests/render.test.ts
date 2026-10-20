@@ -145,6 +145,7 @@ describe("renderStatusResult", () => {
   // embedded, partly, not at all, and an empty snapshot.
   const status: StatusResponse = {
     kind: "status",
+    state: "indexed",
     db_path: "/db",
     indexed_refs: [
       { sha: "a".repeat(40), names: ["HEAD", "main"], total: 1200, embedded: 1200 },
@@ -187,6 +188,7 @@ describe("renderStatusResult", () => {
   test("suppresses the percentage when the job has no total yet", ({ theme }) => {
     const starting: StatusResponse = {
       kind: "status",
+      state: "repo_not_indexed",
       active_build: {
         repo_path: "/repo",
         ref: "f".repeat(40),
@@ -200,11 +202,15 @@ describe("renderStatusResult", () => {
   });
 
   test("says the index is missing when no ref is indexed", ({ theme }) => {
-    expect(statusLines({ kind: "status" }, theme)).toContain("✗ No index found");
+    expect(statusLines({ kind: "status", state: "no_index" }, theme)).toContain("✗ No index found");
   });
 
   test("names each repo whose untracked files are not indexed", ({ theme }) => {
-    const over: StatusResponse = { kind: "status", untracked_not_indexed: { "/repo": 6489 } };
+    const over: StatusResponse = {
+      kind: "status",
+      state: "repo_not_indexed",
+      untracked_not_indexed: { "/repo": 6489 },
+    };
     expect(statusLines(over, theme)).toContain(
       "! 6489 untracked files in /repo not indexed (over max_untracked_files): add their directories to .gitignore or .git/info/exclude",
     );
@@ -213,6 +219,7 @@ describe("renderStatusResult", () => {
   test("pads the seconds on the minute boundary", ({ theme }) => {
     const justOverAMinute: StatusResponse = {
       kind: "status",
+      state: "repo_not_indexed",
       active_embed: {
         repo_path: "/repo",
         ref: "f".repeat(40),
@@ -230,6 +237,7 @@ describe("renderStatusResult size suffix", () => {
   function sizeLine(bytes: number | null, theme: Theme): string {
     const response = {
       kind: "status",
+      state: "indexed",
       indexed_refs: [{ sha: "a".repeat(40), names: [], total: 10, embedded: 10 }],
       db_size_bytes: bytes,
     } satisfies StatusResponse;

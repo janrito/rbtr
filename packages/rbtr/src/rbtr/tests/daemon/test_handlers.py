@@ -22,6 +22,7 @@ from rbtr.daemon.handlers import (
     handle_daemon_config,
     handle_gc_all,
     handle_status,
+    handle_status_all,
     handle_unwatch,
     handle_watch,
 )
@@ -32,12 +33,14 @@ from rbtr.daemon.messages import (
     FindRefsRequest,
     FindRefsResponse,
     GcAllRequest,
+    IndexState,
     ListSymbolsRequest,
     ListSymbolsResponse,
     ReadSymbolRequest,
     ReadSymbolResponse,
     SearchRequest,
     SearchResponse,
+    StatusAllRequest,
     StatusRequest,
     StatusResponse,
     UnwatchRequest,
@@ -47,7 +50,11 @@ from rbtr.daemon.messages import (
 from rbtr.daemon.server import DaemonServer
 from rbtr.domain.models import EdgeKind, EveryRepoGcMode, GcMode, QueryKind, RefSource
 from rbtr.index.index import Index
-from rbtr.tests.daemon.cases_handlers import StatusRootScenario, UnbuiltRefScenario
+from rbtr.tests.daemon.cases_handlers import (
+    IndexStateScenario,
+    StatusRootScenario,
+    UnbuiltRefScenario,
+)
 
 
 @pytest.fixture
@@ -396,6 +403,7 @@ def test_status_with_index(
         resp = client.send(StatusRequest(repo_path=fake_repo))
     assert isinstance(resp, StatusResponse)
     assert resp.db_size_bytes is not None  # populated (0 for the in-memory test store)
+    assert resp.state is IndexState.INDEXED
     assert len(resp.indexed_refs) == 1
     assert resp.indexed_refs[0].sha == daemon_commit
     assert resp.indexed_refs[0].total > 0
@@ -421,8 +429,19 @@ def test_status_names_the_repository_it_reports_on(
     assert resp.repo_path == scenario.expected
 
 
+@parametrize_with_cases("scenario", prefix="case_state_")
+def test_status_reports_what_the_index_holds(scenario: IndexStateScenario) -> None:
+    """The index missing, the repo missing from it, and the read ref missing from the repo are told apart."""
+    match scenario.request:
+        case StatusAllRequest():
+            resp = handle_status_all(scenario.request, scenario.index)
+        case StatusRequest():
+            resp = handle_status(scenario.request, scenario.index)
+    assert resp.state is scenario.expected
+
+
 def test_status_unknown_repo(running_daemon: DaemonServer, second_repo: str) -> None:
-    """Status for an unregistered repo returns empty response.
+    """Status for an unregistered repo says it is not indexed, and lists no refs.
 
     `second_repo` is a real repo the seeded store never registered —
     `fake_repo` is the one `running_daemon` serves.
@@ -430,6 +449,7 @@ def test_status_unknown_repo(running_daemon: DaemonServer, second_repo: str) -> 
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(StatusRequest(repo_path=second_repo))
     assert isinstance(resp, StatusResponse)
+    assert resp.state is IndexState.REPO_NOT_INDEXED
     assert resp.indexed_refs == []
 
 
