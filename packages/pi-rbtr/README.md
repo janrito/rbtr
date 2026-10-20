@@ -224,11 +224,11 @@ trusts the project (`/trust`), like pi's own `.pi/` files:
 }
 ```
 
-| Key         | Default  | Description                                                                             |
-| ----------- | -------- | --------------------------------------------------------------------------------------- |
-| `command`   | `"rbtr"` | How to invoke the CLI (see below)                                                       |
-| `autoIndex` | `true`   | Auto-index on session start when no index exists                                        |
-| `annotate`  | `true`   | Append index facts to `bash` searches and to the first read of a large file (see below) |
+| Key         | Default  | Description                                                                                |
+| ----------- | -------- | ------------------------------------------------------------------------------------------ |
+| `command`   | `"rbtr"` | How to invoke the CLI (see below)                                                          |
+| `autoIndex` | `true`   | Index this repository when it is not indexed, at session start and when the daemon returns |
+| `annotate`  | `true`   | Append index facts to `bash` searches and to the first read of a large file (see below)    |
 
 ### Index facts in `bash` and `read` output
 

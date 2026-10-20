@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { describe, expect, vi } from "vitest";
 
 import { SPINNER_FRAMES, STATIC_FRAME } from "../extensions/rbtr/footer.js";
+import type { StatusResponse } from "../extensions/rbtr/generated/protocol.js";
 import { HEALTH_CHECK_MS } from "../extensions/rbtr/index.js";
 import { test, until } from "./session.fixtures.js";
 
@@ -45,6 +46,31 @@ describe("in a repository of the test's own", () => {
       const building = since.findIndex((status) => status.includes("indexing"));
       return building !== -1 && since.slice(building + 1).some((status) => INDEXED.test(status));
     });
+  });
+});
+
+describe("in a repository of the test's own, with a daemon of its own", () => {
+  test.override({ ownDaemon: true });
+  test.override("cwd", ({ writableRepo }) => writableRepo);
+
+  test("a daemon back without the repository indexes it again", async ({ cli, writableRepo, pi }) => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const last = () => pi.ui.statuses.at(-1) ?? "";
+      await pi.start();
+      await until(() => INDEXED.test(last()));
+      cli("forget", "--repo-path", writableRepo);
+      cli("daemon", "stop");
+      vi.advanceTimersByTime(HEALTH_CHECK_MS);
+      await until(() => last() === "rbtr: not running");
+      cli("daemon", "start");
+      vi.advanceTimersByTime(HEALTH_CHECK_MS);
+      await until(() => INDEXED.test(last()));
+      const status = JSON.parse(cli("--json", "status", "--repo-path", writableRepo)) as StatusResponse;
+      expect(status.state).toBe("indexed");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

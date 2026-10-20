@@ -510,8 +510,9 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   });
 
   /**
-   * Periodic health check: detect daemon death/return and update
-   * the footer accordingly.  The ZMQ SUB socket auto-reconnects
+   * Periodic health check: detect daemon death/return, update the
+   * footer accordingly, and index this repository when a returned
+   * daemon lacks it and autoIndex is on.  The ZMQ SUB socket auto-reconnects
    * on the transport layer; this function handles the UI gap.
    * *isCurrent* turns false once the session has ended; nothing past
    * that point touches the session.
@@ -531,6 +532,10 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         const shown = statusFooter(status, true);
         footer?.setStatic(shown.color, shown.text);
         startSubscription(ctx);
+        // A daemon back without this repository, as after an index
+        // replaced on a schema change, indexes it as session start does.
+        const decision = decideStartupDecision(status, settings.autoIndex);
+        if (decision.kind === "empty" && decision.index) void triggerIndex(ctx);
         break;
       }
       case "unchanged":
