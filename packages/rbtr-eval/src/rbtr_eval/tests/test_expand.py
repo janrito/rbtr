@@ -17,7 +17,7 @@ from pydantic_ai.messages import TextPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pytest_cases import parametrize_with_cases
 
-from rbtr_eval.expand import _render_expansion_report, expand_queries
+from rbtr_eval.expand import _expansion_examples, expand_queries
 from rbtr_eval.shared_schemas import ExpansionRow, QueryRow
 
 if TYPE_CHECKING:
@@ -212,28 +212,29 @@ def test_expand_mixed_queries(
     assert len(code_row["variants"]) > 0
 
 
-def test_expansion_report_joins_queries_onto_expansions(
+def test_expansion_examples_join_queries_onto_expansions(
     concept_query: dy.DataFrame[QueryRow], expansion_model: FunctionModel
 ) -> None:
-    """The report's examples carry the query text joined from `QueryRow`.
+    """The examples carry the query text joined from `QueryRow`.
 
-    `ExpansionRow` does not hold `text`, so the report joins it back on the
-    target identity.  Asserting the text reaches the output proves the join
+    `ExpansionRow` does not hold `text`, so the examples join it back on
+    the target identity.  Asserting the text arrives proves the join
     matched, rather than merely that it did not raise.
     """
     result = expand_queries(concept_query, model=expansion_model, concurrency=1)
 
-    report = _render_expansion_report(result, concept_query, "test-model")
+    examples = _expansion_examples(result, concept_query, per_kind=5, seed=42)
 
-    assert "how does configuration loading work" in report
+    assert examples["text"].to_list() == ["how does configuration loading work"]
 
 
-def test_expansion_report_renders_the_same_every_time(
+def test_expansion_examples_are_the_same_every_time(
     many_expansions: dy.DataFrame[ExpansionRow], many_queries: dy.DataFrame[QueryRow]
 ) -> None:
     """The sampled examples depend only on the data, not on row order."""
-    reports = {
-        _render_expansion_report(many_expansions, many_queries, "test-model") for _ in range(5)
-    }
+    first = _expansion_examples(many_expansions, many_queries, per_kind=5, seed=42)
 
-    assert len(reports) == 1
+    assert all(
+        _expansion_examples(many_expansions, many_queries, per_kind=5, seed=42).equals(first)
+        for _ in range(4)
+    )
