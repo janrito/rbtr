@@ -13,8 +13,6 @@ from rbtr.index.store import IndexStore
 
 from .asserts import assert_in_results
 
-# ── Importance (inbound-degree) ──────────────────────────────────────
-
 
 def test_importance_boosts_highly_imported_symbol(
     ranking_store: IndexStore,
@@ -67,9 +65,6 @@ def test_zero_inbound_importance_is_neutral(ranking_store: IndexStore, ranking_c
 
     r = assert_in_results(results, "start_server")
     assert r.importance == 1.0
-
-
-# ── Proximity (diff distance) ───────────────────────────────────────
 
 
 def test_proximity_boosts_chunks_in_changed_file(

@@ -17,8 +17,6 @@ from rbtr.languages.registration import (
     parse_path_relative,
 )
 
-# ── parse_path_relative ──────────────────────────────────────────────
-
 
 @pytest.mark.parametrize(
     ("path", "expected_dots", "expected_cleaned"),
@@ -51,9 +49,6 @@ def test_parse_path_relative(path: str, expected_dots: int, expected_cleaned: st
     dots, cleaned = parse_path_relative(path)
     assert dots == expected_dots
     assert cleaned == expected_cleaned
-
-
-# ── LanguageRegistration defaults ────────────────────────────────────
 
 
 def test_registration_defaults() -> None:
@@ -137,9 +132,6 @@ def test_registration_override_decorator() -> None:
     assert isinstance(reg._name_resolver, functools.partial)
     assert reg._name_resolver.func is _name  # composed over the built-in
     assert isinstance(reg._scope_resolver, DefaultScope)  # untouched
-
-
-# ── ID validation ────────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize(

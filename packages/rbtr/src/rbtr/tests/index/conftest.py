@@ -648,9 +648,6 @@ def all_store_chunks(
     return [math_func, http_func, string_func, math_class]
 
 
-# ── GC building-block chunks ─────────────────────────────────────────
-
-
 @pytest.fixture
 def gc_chunk_x() -> Chunk:
     return TokenisedChunk(
@@ -688,9 +685,6 @@ def gc_chunk_z() -> Chunk:
         line_start=1,
         line_end=1,
     )
-
-
-# ── Edge fixtures ────────────────────────────────────────────────────
 
 
 @pytest.fixture

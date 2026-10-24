@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 class RerankScenario:
     """One reranking test scenario."""
 
-    # ── Inputs ────────────────────────────────────────────────────
     query: str = "search query"
     # Pre-fused candidates: id → (fusion_score, content).
     candidates: dict[str, tuple[float, str]] = field(default_factory=dict)
@@ -24,13 +23,9 @@ class RerankScenario:
     # When True, stub model raises instead of scoring.
     model_raises: bool = False
 
-    # ── Expected outputs (None = not asserted) ────────────────────
     expected_top: str | None = None
     expected_order: list[str] | None = None
     expected_count: int | None = None
-
-
-# ── Core reordering ──────────────────────────────────────────────────
 
 
 def case_reranker_promotes_lower_fusion_candidate() -> RerankScenario:
@@ -44,9 +39,6 @@ def case_reranker_promotes_lower_fusion_candidate() -> RerankScenario:
         blend_weight=0.5,
         expected_top="B",
     )
-
-
-# ── Blend weight extremes ───────────────────────────────────────────
 
 
 def case_blend_weight_zero_ignores_fusion() -> RerankScenario:
@@ -77,9 +69,6 @@ def case_blend_weight_one_ignores_reranker() -> RerankScenario:
     )
 
 
-# ── Edge cases ───────────────────────────────────────────────────────
-
-
 def case_single_candidate() -> RerankScenario:
     """One candidate normalises to 1.0."""
     return RerankScenario(
@@ -107,9 +96,6 @@ def case_equal_reranker_scores() -> RerankScenario:
 def case_empty_frame() -> RerankScenario:
     """No candidates — returns empty."""
     return RerankScenario(expected_count=0)
-
-
-# ── Failure ──────────────────────────────────────────────────────────
 
 
 def case_model_failure() -> RerankScenario:

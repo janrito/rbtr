@@ -20,7 +20,6 @@ from .cases_common import ChunkSpec
 
 @dataclass(frozen=True)
 class FuseScenario:
-    # ── Inputs to fuse_scores ────────────────────────────────────
     chunks: list[ChunkSpec] = field(default_factory=list)
     lexical: dict[str, float] = field(default_factory=dict)
     semantic: dict[str, float] = field(default_factory=dict)
@@ -30,7 +29,6 @@ class FuseScenario:
     gamma: float | None = None
     top_k: int = 10
 
-    # ── Expected output properties ───────────────────────────────
     #
     # Set only the ones the test cares about.  ``None`` means "not
     # asserted by this case".
@@ -45,9 +43,6 @@ class FuseScenario:
     expected_ids: list[str] | None = None
     # Rank 0's score must satisfy approx(expected_first_score).
     expected_first_score_approx: float | None = None
-
-
-# ── Degenerate ───────────────────────────────────────────────────────
 
 
 def case_empty_inputs_yields_empty_list() -> FuseScenario:
@@ -66,9 +61,6 @@ def case_single_result_normalises_to_zero() -> FuseScenario:
     )
 
 
-# ── Ranking: lexical-only ───────────────────────────────────────────
-
-
 def case_lexical_only_ranks_higher_score_first() -> FuseScenario:
     """With alpha=0, gamma=0, beta=1, lexical alone decides order."""
     return FuseScenario(
@@ -79,9 +71,6 @@ def case_lexical_only_ranks_higher_score_first() -> FuseScenario:
         gamma=0.0,
         expected_order=["b", "a"],
     )
-
-
-# ── Ranking: name match vs higher lexical ──────────────────────────
 
 
 def case_exact_name_match_beats_higher_lexical() -> FuseScenario:
@@ -101,22 +90,30 @@ def case_exact_name_match_beats_higher_lexical() -> FuseScenario:
     )
 
 
-# ── Ranking: kind boost ──────────────────────────────────────────────
-
-
 def case_class_outranks_import_via_kind_boost() -> FuseScenario:
-    """Identical lexical, no name signal, but CLASS boost > IMPORT boost."""
+    """Identical lexical, no name signal, but CLASS boost > IMPORT boost.
+
+    A third chunk the lexical channel scores lower keeps the pair's
+    normalised score above zero, so the boost has a score to scale.
+    """
     return FuseScenario(
         chunks=[
             ChunkSpec(id="cls", kind=ChunkKind.CLASS, name="Engine"),
             ChunkSpec(id="imp", kind=ChunkKind.IMPORT, name="from .core import Engine"),
+            ChunkSpec(id="other", name="unrelated"),
         ],
         lexical={"cls": 1.0, "imp": 1.0},
         expected_top="cls",
     )
 
 
-# ── Ranking: file category penalty ──────────────────────────────────
+def case_tied_scores_rank_by_id() -> FuseScenario:
+    """Equal scores rank by id, whatever order the chunks arrive in."""
+    return FuseScenario(
+        chunks=[ChunkSpec(id="b"), ChunkSpec(id="a")],
+        lexical={"a": 1.0, "b": 1.0},
+        expected_order=["a", "b"],
+    )
 
 
 def case_source_outranks_test_via_file_penalty() -> FuseScenario:
@@ -141,9 +138,6 @@ def case_source_outranks_test_via_file_penalty() -> FuseScenario:
     )
 
 
-# ── Shape: ScoredChunk fields populated ────────────────────────────
-
-
 def case_score_breakdown_populated_for_every_result() -> FuseScenario:
     """Every `ScoredChunk` has positive kind_boost and file_penalty."""
     return FuseScenario(
@@ -157,9 +151,6 @@ def case_score_breakdown_populated_for_every_result() -> FuseScenario:
     )
 
 
-# ── Truncation: top_k ───────────────────────────────────────────────
-
-
 def case_top_k_limits_output() -> FuseScenario:
     return FuseScenario(
         chunks=[ChunkSpec(id=f"c{i}") for i in range(20)],
@@ -167,9 +158,6 @@ def case_top_k_limits_output() -> FuseScenario:
         top_k=5,
         expected_count=5,
     )
-
-
-# ── Partial input: missing channels ─────────────────────────────────
 
 
 def case_chunks_missing_from_a_channel_get_zero() -> FuseScenario:

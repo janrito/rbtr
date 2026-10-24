@@ -38,6 +38,13 @@ class MissingSnapshot:
     ref: str
 
 
+class BuildStopped(Exception):
+    """Raised inside a build that was asked to stop.
+
+    Not an `RbtrError`: nothing went wrong, and no caller reports it.
+    """
+
+
 class IndexNotBuiltError(RbtrError):
     """Raised when what a read needs is not indexed.
 

@@ -17,8 +17,6 @@ from rbtr.index.search import (
     _name_score_expr,
 )
 
-# ── _name_score_expr ─────────────────────────────────────────────────
-
 
 @pytest.mark.parametrize(
     ("query", "name", "expected"),
@@ -58,9 +56,6 @@ def test_name_score_expr(query: str, name: str, expected: float) -> None:
     assert result == pytest.approx(expected)
 
 
-# ── _kind_boost_expr ─────────────────────────────────────────────────
-
-
 @pytest.mark.parametrize(
     ("kind", "expected"),
     [
@@ -89,9 +84,6 @@ def test_kind_boost_expr(kind: ChunkKind, expected: float) -> None:
     )
     assert result > 0.0
     assert result == pytest.approx(expected)
-
-
-# ── _file_category_penalty_expr ──────────────────────────────────────
 
 
 @pytest.mark.parametrize(
@@ -132,9 +124,6 @@ def test_file_category_penalty_expr(path: str, expected: float) -> None:
         .item()
     )
     assert result == pytest.approx(expected)
-
-
-# ── _importance_expr ─────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize(

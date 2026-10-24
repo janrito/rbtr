@@ -61,9 +61,6 @@ def run_cli(args: list[str], *, timeout: float = 60.0) -> subprocess.CompletedPr
     )
 
 
-# ── Git commit projections (pure; over caller-supplied paths) ──────
-
-
 def build_tree(
     repo: pygit2.Repository,
     files: dict[str, bytes],

@@ -20,8 +20,6 @@ from rbtr.index.store import IndexStore
 from rbtr_eval.measure import SearchBatch, _aggregate, _annotate_truncation, _score_outcomes
 from rbtr_eval.tests.conftest import chunk, hit, outcome_row, snap
 
-# ── scoring ──────────────────────────────────────────────────────────────────
-
 
 @parametrize_with_cases("batch", cases=".cases_pipeline", has_tag="scoring")
 def test_scoring_assigns_ranks(batch: dy.DataFrame[SearchBatch]) -> None:
@@ -51,9 +49,6 @@ def test_scoring_assigns_ranks(batch: dy.DataFrame[SearchBatch]) -> None:
     assert foo["top_file"] == "q.py"
     assert foo["top_line"] == 99
     assert foo["top_name"] == "foo"
-
-
-# ── aggregation ──────────────────────────────────────────────────────────────
 
 
 @parametrize_with_cases("batch", cases=".cases_pipeline", has_tag="metrics")
@@ -112,9 +107,6 @@ def test_aggregate_breaks_out_symbol_kind(batch: dy.DataFrame[SearchBatch]) -> N
     )
     pairs = set(zip(cross["symbol_kind"].to_list(), cross["query_kind"].to_list(), strict=True))
     assert pairs == {("function", "concept"), ("config_key", "identifier")}
-
-
-# ── truncation ───────────────────────────────────────────────────────────────
 
 
 @pytest.fixture

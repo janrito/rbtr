@@ -82,7 +82,6 @@ def test_edges_match_snapshot(
     assert render_edges(edges, chunks) == snapshot_json
 
 
-# ── SQL dialects ─────────────────────────────────────────────────────
 # rbtr ships one generic SQL grammar for all `.sql` files. These pin
 # current extraction per dialect; the parse-clean test is a strict-xfail
 # sentinel that fires when the grammar gains full support for a dialect.

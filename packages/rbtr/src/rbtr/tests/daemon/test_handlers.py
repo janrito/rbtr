@@ -98,9 +98,6 @@ def test_handle_gc_global_accepts_a_retention_every_repo_can_answer(
     assert resp.repos_collected == 0  # nothing registered, but not refused
 
 
-# ── Search ───────────────────────────────────────────────────────────
-
-
 def test_search_returns_results(running_daemon: DaemonServer, fake_repo: str) -> None:
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(SearchRequest(repo_path=fake_repo, query="load_config"))
@@ -170,9 +167,6 @@ def test_search_query_kind_override_without_expansion(
         )
     assert isinstance(resp, SearchResponse)
     assert resp.query_kind == QueryKind.CODE
-
-
-# ── Read symbol ──────────────────────────────────────────────────────
 
 
 def test_read_symbol(running_daemon: DaemonServer, fake_repo: str, daemon_commit: str) -> None:
@@ -333,9 +327,6 @@ def test_read_symbol_implicit_falls_back_when_head_unindexed(
     assert resp.resolved == ResolvedRef(sha=daemon_commit, source=RefSource.LATEST_INDEXED)
 
 
-# ── List symbols ─────────────────────────────────────────────────────
-
-
 def test_list_symbols(running_daemon: DaemonServer, fake_repo: str, daemon_commit: str) -> None:
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(ListSymbolsRequest(repo_path=fake_repo, file_path="src/config.py"))
@@ -377,9 +368,6 @@ def test_list_symbols_empty_file(running_daemon: DaemonServer, fake_repo: str) -
     assert len(resp.chunks) == 0
 
 
-# ── Find refs ────────────────────────────────────────────────────────
-
-
 def test_find_refs(running_daemon: DaemonServer, fake_repo: str, daemon_commit: str) -> None:
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(FindRefsRequest(repo_path=fake_repo, symbol="load_config"))
@@ -412,9 +400,6 @@ def test_find_refs_with_file_paths(running_daemon: DaemonServer, fake_repo: str)
     assert scoped.file_paths == ["src/config.py"]
     assert isinstance(elsewhere, FindRefsResponse)
     assert len(elsewhere.refs) == 0
-
-
-# ── Status ───────────────────────────────────────────────────────────
 
 
 def test_status_with_index(
@@ -463,7 +448,6 @@ def test_status_unknown_repo(running_daemon: DaemonServer, second_repo: str) -> 
     assert resp.indexed_refs == []
 
 
-# ── Index (the watch set) ───────────────────────────────────────
 #
 # `handle_watch` writes the watch set and nothing else, so these
 # drive it against the store directly.

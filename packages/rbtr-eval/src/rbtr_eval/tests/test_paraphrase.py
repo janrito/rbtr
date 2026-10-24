@@ -38,8 +38,6 @@ from rbtr_eval.paraphrase import (
 )
 from rbtr_eval.shared_schemas import IDENTITY_COLUMNS, QueryRow
 
-# ── _excluded_identifiers ────────────────────────────────────────────
-
 
 @pytest.mark.parametrize(
     ("name", "scope", "expected"),
@@ -60,9 +58,6 @@ def test_excluded_identifiers_derivation(name: str, scope: str, expected: set[st
     having no name to give away.
     """
     assert set(_excluded_identifiers(name, scope)) == expected
-
-
-# ── Agent: output_validator rejects excluded identifiers ─────────────
 
 
 def test_symbol_context_drops_the_empty_identifier() -> None:
@@ -194,9 +189,6 @@ def test_output_validator_accepts_clean_response(
     assert result.output.text == "say hello to a person by their name"
 
 
-# ── End-to-end: paraphrase_symbols ──────────────────────────────────
-
-
 @fixture
 @parametrize_with_cases("queries", cases=".cases_paraphrase")
 def paraphrase_result(
@@ -292,9 +284,6 @@ def test_paraphrase_symbols_deduplicates_across_provenances(
 
     assert call_count == 1
     assert result.height == 1
-
-
-# ── Report examples ──────────────────────────────────────────────────
 
 
 @pytest.fixture

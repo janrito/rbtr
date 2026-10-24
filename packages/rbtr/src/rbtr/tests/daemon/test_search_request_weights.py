@@ -8,15 +8,10 @@ from pydantic import ValidationError
 from rbtr.config import WeightTriple
 from rbtr.daemon.messages import SearchRequest
 
-# ── default ──────────────────────────────────────────────────────────
-
 
 def test_no_override_accepted() -> None:
     req = SearchRequest(repo_path="/r", query="q")
     assert req.weights is None
-
-
-# ── valid overrides ──────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize(
@@ -33,9 +28,6 @@ def test_valid_override_accepted(a: float, b: float, g: float) -> None:
     req = SearchRequest(repo_path="/r", query="q", weights=wt)
     assert req.weights is not None
     assert (req.weights.alpha, req.weights.beta, req.weights.gamma) == (a, b, g)
-
-
-# ── range / sum ──────────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize(

@@ -404,7 +404,7 @@ def _top_trial_spread(trials: list[TrialRow]) -> dy.DataFrame[TrialSpread]:
     """
     ranked = (
         pl.DataFrame(trials)
-        .sort("mrr", descending=True)
+        .sort("mrr", "trial", descending=[True, False])
         .group_by("kind", maintain_order=True)
         .head(10)
     )

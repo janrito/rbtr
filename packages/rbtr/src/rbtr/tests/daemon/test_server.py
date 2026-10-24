@@ -30,8 +30,6 @@ from rbtr.daemon.server import DaemonServer
 from rbtr.errors import DaemonBusyError, RbtrError
 from rbtr.tests.daemon.cases_server import StopScenario
 
-# ── Ping / shutdown ──────────────────────────────────────────────────
-
 
 @parametrize_with_cases("scenario", cases=".cases_server")
 def test_how_a_daemon_stops(
@@ -66,9 +64,6 @@ def test_multiple_requests(running_daemon: DaemonServer, fake_repo: str) -> None
         r2 = client.send(StatusRequest(repo_path=fake_repo))
     assert r1.kind == "status"
     assert r2.kind == "status"
-
-
-# ── Error handling ───────────────────────────────────────────────────
 
 
 def test_garbage_returns_error(running_daemon: DaemonServer) -> None:
@@ -164,9 +159,6 @@ def test_handler_exception_returns_error(running_daemon: DaemonServer) -> None:
     assert isinstance(resp, ErrorResponse)
     assert resp.code == ErrorCode.INTERNAL
     assert "handler broke" in resp.message
-
-
-# ── Client behaviour ────────────────────────────────────────────────
 
 
 def test_connection_refused(runtime_dir: Path) -> None:

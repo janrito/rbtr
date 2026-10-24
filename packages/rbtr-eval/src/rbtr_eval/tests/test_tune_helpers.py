@@ -36,8 +36,6 @@ from rbtr_eval.tune import (
     _verdict,
 )
 
-# ── Objective ────────────────────────────────────────────────────────────────
-
 
 @parametrize_with_cases(
     "candidates, queries, weights, expected_ranks, expected_mrr",
@@ -155,9 +153,6 @@ def test_a_target_absent_from_the_pool_lowers_the_ceiling(
     )
 
     assert _pool_recall(without_target, meta) == pytest.approx(0.0)
-
-
-# ── Invariant guards ─────────────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize(

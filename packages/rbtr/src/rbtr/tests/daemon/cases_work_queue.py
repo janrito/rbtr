@@ -11,8 +11,6 @@ from dataclasses import dataclass
 
 from pytest_cases import case
 
-# ── Scenario dataclasses ────────────────────────────────────────────
-
 
 @dataclass(frozen=True)
 class SeededSnapshot:
@@ -38,9 +36,6 @@ class NextJobScenario:
 
     snapshots: list[SeededSnapshot]
     expected_ref: str | None
-
-
-# ── next_job cases ──────────────────────────────────────────────────
 
 
 @case(tags=["next_job"])

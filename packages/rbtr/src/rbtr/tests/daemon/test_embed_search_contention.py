@@ -47,8 +47,6 @@ from rbtr.index.store import IndexStore
 from ..conftest import StubModel, make_commit
 from .conftest import serving
 
-# ── Concurrency-detecting stub model ──────────────────────────────────
-
 
 class ConcurrencyDetectingStubModel(StubModel):
     """StubModel that counts concurrent calls, and can be held mid-batch.
@@ -90,9 +88,6 @@ class ConcurrencyDetectingStubModel(StubModel):
         finally:
             with self._lock:
                 self._active -= 1
-
-
-# ── Fixtures ─────────────────────────────────────────────────────────
 
 
 @pytest.fixture
@@ -272,9 +267,6 @@ def commit_during_first_batch(
     (Path(fake_repo) / "later.py").write_bytes(b"x = 1\n")
     embed_held_at_first_batch.first_batch_released.set()
     return sha
-
-
-# ── Tests ────────────────────────────────────────────────────────────
 
 
 def test_search_works_during_embed(

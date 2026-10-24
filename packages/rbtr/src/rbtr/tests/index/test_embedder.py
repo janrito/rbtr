@@ -43,9 +43,6 @@ def embedder(abort: threading.Event) -> Iterator[Embedder]:
     instance.close()
 
 
-# ── Embedder.embed ───────────────────────────────────────────────────
-
-
 def test_embed_empty_returns_empty(embedder: Embedder) -> None:
     assert embedder.embed([]) == []
 
@@ -108,9 +105,6 @@ def test_related_code_outranks_unrelated(embedder: Embedder) -> None:
     assert _cosine(query, parsing) > _cosine(query, greeting)
 
 
-# ── embedding_text ───────────────────────────────────────────────────
-
-
 def test_embedding_text_prepends_name_to_content() -> None:
     """`embedding_text` is the name, a newline, then the content."""
     content = """\
@@ -118,9 +112,6 @@ def save_draft(pr: int) -> None:
     \"\"\"Persist draft to disk.\"\"\"
     pass"""
     assert embedding_text("save_draft", content) == f"save_draft\n{content}"
-
-
-# ── query embedding ──────────────────────────────────────────────
 
 
 def test_query_embedding_prepends_instruction(mocker: MockerFixture) -> None:
@@ -151,9 +142,6 @@ def test_query_embedding_prepends_instruction_to_variants(mocker: MockerFixture)
 
     embedder.embed.assert_called_once_with([f"{prefix}locate that"])
     assert vectors == [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
-
-
-# ── resolve_gguf_path validation ─────────────────────────────────────
 
 
 def test_resolve_invalid_format_raises() -> None:

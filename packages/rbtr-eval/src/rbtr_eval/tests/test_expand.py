@@ -24,9 +24,6 @@ if TYPE_CHECKING:
     from pydantic_ai.messages import ModelMessage
 
 
-# ── Models ───────────────────────────────────────────────────────────
-
-
 @pytest.fixture
 def expansion_model() -> FunctionModel:
     """LLM returning a fixed keyword/variant expansion (concept/code shape)."""
@@ -71,9 +68,6 @@ def raising_model() -> FunctionModel:
         raise ValueError(msg)
 
     return FunctionModel(_respond)
-
-
-# ── Query frames ─────────────────────────────────────────────────────
 
 
 @pytest.fixture
@@ -128,9 +122,6 @@ def mixed_queries() -> dy.DataFrame[QueryRow]:
             },
         ],
     ).pipe(QueryRow.validate, cast=True)
-
-
-# ── Tests ────────────────────────────────────────────────────────────
 
 
 @parametrize_with_cases(

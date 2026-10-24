@@ -23,8 +23,6 @@ from .cases_read import (
 )
 from .conftest import make_chunk, make_snap
 
-# ── get_chunks ──────────────────────────────────────────────────────
-
 
 @fixture
 @parametrize_with_cases("scenario", has_tag="get_chunks")
@@ -52,9 +50,6 @@ def test_get_chunks_returns_expected(
     assert sorted(c.name for c in chunks) == sorted(s.expected_names)
 
 
-# ── blob_is_current ────────────────────────────────────────────────────────
-
-
 @fixture
 @parametrize_with_cases("scenario", has_tag="blob_is_current")
 def blob_query(
@@ -75,9 +70,6 @@ def test_blob_is_current_matches(
     assert store.blob_is_current(s.query_blob, s.query_language, s.serial_map) == s.expected
 
 
-# ── Chunk upsert ────────────────────────────────────────────────────
-
-
 def test_upsert_replaces_content(store: IndexStore) -> None:
     """Adding a chunk with the same ID replaces the content."""
     c1 = make_chunk("fn1", content="def fn1(): return 1")
@@ -94,9 +86,6 @@ def test_upsert_replaces_content(store: IndexStore) -> None:
     chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="head"))
     assert len(chunks) == 1
     assert "return 2" in chunks[0].content
-
-
-# ── delete_chunks_for_blobs ─────────────────────────────────────────
 
 
 def test_delete_chunks_for_blobs_removes_target(store: IndexStore) -> None:
@@ -118,9 +107,6 @@ def test_delete_chunks_for_blobs_removes_target(store: IndexStore) -> None:
 
     assert store.blob_is_current("b1", "", {"": 1}) is False
     assert store.blob_is_current("b2", "", {"": 1}) is True
-
-
-# ── edges ───────────────────────────────────────────────────────
 
 
 def test_get_edges_returns_all(store: IndexStore) -> None:
@@ -173,9 +159,6 @@ def test_get_edges_filter_by_kind(store: IndexStore) -> None:
     assert edges["kind"].to_list() == [EdgeKind.IMPORTS.value]
 
 
-# ── inbound_refs ─────────────────────────────────────
-
-
 def test_inbound_refs_resolves_source(store: IndexStore) -> None:
     """Each inbound edge resolves to its source chunk plus the edge kind."""
     src = make_chunk(
@@ -214,9 +197,6 @@ def test_inbound_refs_resolves_source(store: IndexStore) -> None:
 def test_inbound_refs_empty_targets(store: IndexStore) -> None:
     """No target IDs returns an empty frame without touching the store."""
     assert store.inbound_refs([], at=SnapshotRef(repo_id=1, snapshot_sha="head")).is_empty()
-
-
-# ── Multi-repo isolation ────────────────────────────────────────────
 
 
 def test_get_chunks_isolated_per_repo(store: IndexStore) -> None:
@@ -276,9 +256,6 @@ def test_get_edges_isolated_per_repo(store: IndexStore) -> None:
     assert store.edges(within=[SnapshotRef(repo_id=2, snapshot_sha="head")])[
         "source_id"
     ].to_list() == ["x"]
-
-
-# ── Cross-repo content sharing ───────────────────────────────────────
 
 
 def test_shared_content_is_one_row_visible_to_both_repos(
@@ -488,9 +465,6 @@ def test_inbound_refs_to_shared_chunk_resolve_per_repo(
     assert [row["file_path"] for row in r2] == ["b.py"]
 
 
-# ── gc chunk split (dropped vs kept-because-shared) ──────────────────
-
-
 @fixture
 @parametrize_with_cases("scenario", cases=".cases_read", has_tag="gc_counts")
 def gc_count_query(
@@ -546,9 +520,6 @@ def test_gc_chunk_split_agrees_with_real_deletion(
     assert after is not None
     assert before[0] - after[0] == predicted_dropped
     assert store.count_orphan_chunks() == 0
-
-
-# ── forget_repo: metadata-only purge of a whole repo ─────────────────
 
 
 def test_forget_repo_removes_references_keeps_shared_chunk(
@@ -616,9 +587,6 @@ def test_forget_repo_purges_indexed_snapshots_incl_worktree_sha(
     assert store.get_repo_id("/r") is None
     assert store.has_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="headsha")) is False
     assert store.has_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="treesha")) is False
-
-
-# ── snapshot counts ──────────────────────────────────────────────────
 
 
 def test_an_indexed_snapshot_with_no_chunks_counts_zero(store: IndexStore) -> None:
