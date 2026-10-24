@@ -352,10 +352,12 @@ rbtr config
 ```bash
 rbtr daemon start     # start the daemon
 rbtr daemon stop      # stop it
-rbtr daemon status    # show state and build progress
+rbtr daemon status    # show daemon process and connection details
 ```
 
 Starts automatically on first `rbtr watch` or `rbtr search`.
+Use [`rbtr status`](#rbtr-status) for the index and current background job.
+A running daemon can still be indexing a snapshot or computing its embeddings.
 
 ### `rbtr gc`
 

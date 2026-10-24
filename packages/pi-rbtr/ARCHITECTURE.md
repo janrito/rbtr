@@ -98,12 +98,13 @@ pid check needs nothing new; it is worth revisiting if the
 
 ### Patient time limits
 
-A daemon that is indexing answers a search late, after the
-work in front of it, and asking again only adds to that
-queue. So a tool call waits 120 s for the daemon, and the
-CLI fallback 150 s, enough to outlast the client it starts.
+A request can wait for its execution resource and for native work to finish.
+The [core concurrency model](../rbtr/ARCHITECTURE.md#concurrency-model)
+defines those queues and shared controls. A tool call waits 120 s for the daemon,
+and the CLI fallback 150 s, enough to outlast the client it starts.
 An abort from the user ends any wait at once and is never
-retried.
+retried. The [core protocol](../rbtr/ARCHITECTURE.md#daemon-protocol)
+distinguishes a returned error from a local wait ending without a reply.
 
 A read whose ref rbtr is building, or will build without
 being asked, waits for that build to end, at most 30 s,

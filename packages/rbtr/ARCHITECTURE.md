@@ -45,13 +45,17 @@ identity, tokenisation). `config` sits just above the
 kernel; `git` and `errors` are foundations below. The
 layering is a DAG enforced by import-linter (run in
 `just lint`), so boundary drift fails the build instead
-of relying on convention.
+of relying on convention. The runtime binds RPC and indexing together;
+[import contracts](../../pyproject.toml) require their module independence
+and keep RPC below its runtime owner.
 
 ![The layers: cli, daemon, index, languages and domain, each importing
 only from those below it](docs/diagrams/components.png)
 
 Inside `index` the imports point one way too, and import-linter
-checks that as well. `Index` (`index.py`) is the index's API: the
+checks that as well. `Indexer` (`indexer.py`) uses that API for
+[background indexing](#daemon); `watcher.py` derives work from Git and stored
+intent. Neither imports daemon code. `Index` (`index.py`) is the index's API: the
 reads, and the sessions that write. It owns a `Store` (`store.py`),
 which holds the connection, the registry and every change to it, the
 attached files, the routing and the per-thread cursors, and which
@@ -61,8 +65,8 @@ snapshot a read means, and `search` takes an index and ranks what
 it returns. An index created with `writable=False` (the default)
 rejects `session`, `register`, `forget` and `compact`.
 
-![The index's code: callers use refs.py and Index; Index has a
-Store and creates WriteSessions](docs/diagrams/index-code.png)
+![Indexer and finite operations use Index; Index owns Store and creates
+finite write sessions](docs/diagrams/index-code.png)
 
 ### Chunk and symbol
 
@@ -689,7 +693,7 @@ poll_worktree → worktree_tree_sha = tree_A (≠ HEAD tree)
              → has_indexed(tree_A) = False
              → returns DirtyWorktree(tree_sha=tree_A)
 
-_find_next_job → BuildJob(refs=(tree_A,))
+Indexer.next_job → BuildJob(refs=(tree_A,))
 build_index(tree_A):
   list_files(tree_A) → walks tree object
   foo.py: dirty blob_sha → blob_is_current miss → extract
@@ -715,7 +719,7 @@ that; the [rules](#rules) cover the rest.
 State: HEAD=abc123, tree_A indexed. User commits → HEAD=def456.
 
 poll_watched → WatchedTarget(ref=HEAD, sha=def456)
-_find_next_job → BuildJob(refs=(def456,))  # watched refs first
+Indexer.next_job → BuildJob(refs=(def456,))  # watched refs first
 
 build_index(def456) completes.
 _drop_stale_worktree_shas → drops tree_A.
@@ -1585,319 +1589,288 @@ cannot.
 
 ## Daemon
 
-The daemon keeps the index current without blocking the
-CLI or editor. Single process, asyncio event loop:
+The daemon answers requests about code while keeping that code indexed as
+repositories change. These duties have different timescales. Reading a
+symbol might take milliseconds; rebuilding a repository or computing its
+embeddings can take much longer. Making every request wait for background
+work would turn an otherwise usable index into an unavailable one.
 
-![What the daemon runs: the REP loop, job worker, watcher,
-maintenance and relay on one event loop, with worker threads
-beside it](docs/diagrams/daemon-tasks.png)
+The design separates responsibility for answering a client from
+responsibility for keeping stored data current. RPC owns each accepted
+request until its reply has been attempted. Indexer decides what background
+work is due. Both use Index, the same synchronous storage API available to
+inline CLI and library workflows. Daemon connects these parts and owns their
+shared resources and lifetime. The separation lets transport and indexing
+policy change without making the database API a service, or making request
+handling responsible for background scheduling.
 
-Dispatch is not a task of its own: `serve()` *is* the REP loop, and
-the tasks below it are the work it spawns.
+![Separate client service and background policy share storage inside one
+application lifetime](docs/diagrams/daemon-tasks.png)
 
-Every handler is a coroutine that works in a thread, so the loop
-only receives, dispatches and replies. One shape, one error path:
-`_dispatch` awaits the coroutine and maps an `RbtrError` to its
-protocol code.
+A single event loop coordinates work whose progress depends on other work:
+waiting for a request, a resource or a result. Blocking Git, database and
+model operations run on executor threads so they leave that loop available.
+The distinction matters more than the number of tasks. A request waiting
+for the GPU must not consume the thread that could answer an unrelated
+status query. Sharing an executor avoids assigning permanent threads to
+components, although CPU, database and executor contention can still delay
+otherwise independent requests.
 
-- **`DaemonServer`** — ZMQ REQ/REP for request/response
-  and PUB for build-progress notifications. Owns one
-  `Embedder` instance shared between build (indexing)
-  and search (query embedding).
-- **`_job_worker`** — DB-polling async task. Queries
-  the database for un-indexed watched refs and dirty
-  worktrees (builds) and un-embedded chunks (embeds).
-  Priority is implicit in query order: builds before
-  embeds. Runs each job via `asyncio.to_thread`, one at a
-  time. Nothing is run twice because nothing is derived
-  twice: a built snapshot is in `indexed_snapshots`, an
-  embedded chunk has its vector. A job that raises is
-  logged and the worker goes on. An error outside a job,
-  such as one finding the next, ends the worker; the daemon
-  then logs it and stops, because a daemon that answers
-  reads but builds nothing hides the failure from everyone.
-- **`_watcher_loop`** — async task that calls
-  `watcher.pending_builds`, the one place the builds that are
-  due are derived. Sets `_wake` when any is. The embed worker
-  calls the same function between batches to decide whether to
-  stand aside.
-- **`_maintenance_loop`** — async task that deletes the files
-  compactions replaced and, when the worker has been idle long
-  enough, runs a [maintenance](#maintenance) pass. Like the
-  worker and the watcher, if it fails the daemon logs it and
-  stops.
-- **`_notification_relay`** — async task that receives
-  progress from worker threads via zmq inproc PULL and
-  forwards to the PUB socket.
-- **`DaemonClient`** — typed client; pydantic models over
-  ZMQ. A request is sent once and the reply waited for, up to
-  `wait_budget_s` (120 s by default; a caller sets its own). A late
-  reply arrives on the same socket — a REQ socket must be recreated
-  to *send* again, not to keep receiving. Silence means the daemon
-  is busy or gone, never that the message was lost in transit, so a
-  second copy of the request would only queue behind the first on a
-  daemon already behind. Every 5 s of waiting the client checks the
-  daemon's pid, which is how it tells the two apart: a daemon that
-  dies fails the request in seconds instead of at the end of the
-  budget. Process knowledge stays here, beside `start_daemon` and
-  `stop_daemon`; other clients wait on the socket alone.
+### Requests and background work
+
+A client's request and the indexing it may cause have different completion
+conditions. Saving a watch succeeds once the requested intent is stored;
+the resulting build may take much longer. Holding the request open until
+that build finished would couple client availability to the whole indexing
+pipeline. Instead, the reply confirms the saved watch, and subsequent
+notifications describe background progress.
+
+This also separates responsibility for delivery. A reply belongs to one
+requesting client, whereas progress can interest several subscribers,
+including clients that did not ask for the build. Request/reply traffic and
+published notifications therefore use separate channels. A disconnected
+client does not cancel work that has already started, and slow notification
+delivery does not determine what a status query reports.
+
+![Replies confirm individual requests; published progress describes shared
+background work](docs/diagrams/protocol.png)
+
+Background selection derives work from Git and stored data. A wake means
+“look again”, not “perform this queued job”. That keeps an interrupted build,
+a branch move and a restart on the same path: compare what should be indexed
+with what has completed, then select the outstanding work. Builds take
+priority over embedding so new source becomes readable before an older
+vector backlog is exhausted.
+
+### State and progress
+
+Stored data and live progress answer different questions. The databases say
+which snapshots and vectors are available. Live progress says what the
+background worker is currently trying to do. A build can be selected but
+still waiting for writer access, so an active job is not proof that its
+native computation has begun.
+
+The worker keeps one immutable snapshot of its current run. Run identity,
+start time and progress are replaced together, allowing a status reader on
+another thread to capture a coherent answer under a short lock. Holding
+that lock only for capture and replacement keeps status independent of
+long database operations. Updates are associated with their originating
+run, so a late report cannot overwrite a newer run's progress.
+
+State changes happen before output is published. A subscriber can be slow,
+absent or newly connected without becoming the source of truth for status.
+The producer nevertheless waits for its output callback and channel send
+to finish. That wait lets shutdown account for both native work and the
+output it can still produce before disposing of the transport.
+
+Indexer reports internal typed values rather than public wire messages.
+Daemon translates them for the notification channel. This boundary lets
+background indexing have a different output consumer while leaving the
+public protocol under the runtime's control. The protocol reference below
+defines the external messages.
 
 ### Watched refs
 
-`watched_refs(repo_id, ref)` is the durable record of
-**intent** — the refs the daemon keeps indexed. It is the
-single source the watcher derives builds from;
-`indexed_snapshots` remains the record of **completion**
-(see [Completion tracking](#completion-tracking)).
+Watched refs are durable intent; completed snapshots are durable results.
+Keeping these separate lets a watch exist before its first build and lets
+the system distinguish a moving branch from the commit it last finished.
+Symbolic refs are resolved again when polling; a bare SHA settles after its
+one snapshot has been built. Several refs pointing at the same repository
+snapshot produce one build target.
 
-- `rbtr watch` (no args) watches the default ref, `HEAD`;
-  `rbtr watch <refs…>` adds each as an independent watch
-  target; `rbtr unwatch <refs…>` removes them. `HEAD` cannot
-  be removed — rejected atomically before any delete.
-- Symbolic names are stored and re-resolved each poll, so a
-  moving ref (branch) tracks its tip; a bare SHA resolves to
-  itself and settles after one build.
-- `watcher.poll_watched` resolves every watched ref, skips
-  unresolvable ones, and returns a `WatchedTarget` for any
-  whose SHA is not in `indexed_snapshots`, de-duplicated by
-  `(repo, sha)`.
-- On startup, `_backfill_head_watches` seeds a `HEAD` watch
-  for every registered repo that lacks one, so every repo
-  tracks HEAD.
-- A build that raises publishes `index_error`, and the
-  daemon keeps its snapshot in memory as failed:
-  `pending_builds` skips it, so it is neither retried on
-  every poll nor reported again. A ref that moves to
-  another snapshot builds that one; a restarted daemon
-  tries the failed one again.
+Every registered repository tracks HEAD. Default watches are seeded during
+exclusive startup, and removing HEAD is rejected atomically. Other watches
+can be added or removed independently. Removing a watch or forgetting a
+missing checkout changes what should be retained; garbage collection later
+reclaims data that is no longer needed. Changes across repositories use
+separate transactions and can be repeated after interruption.
 
-`rbtr.index.watch` holds the three edits to that record:
-`unwatch_refs` for refs a caller names, `remove_stale_refs`
-for the ones git can no longer resolve, `forget_stale_repos`
-for repos whose checkout is gone. All three change what the
-index *tracks* and nothing it stores — the chunks they orphan
-are reclaimed by [garbage collection](#garbage-collection),
-which is why forgetting a repo reports no statistics.
-
-A pass covering several repos opens one write session per
-repo, since a session writes for one repo. Both operations are
-idempotent, so a pass interrupted part-way is finished by
-running it again.
+A failed build is suppressed in memory so the watcher does not retry the
+same failure on every poll. A ref moving to another snapshot makes new work
+eligible; restarting makes the failed snapshot eligible again. A failure
+in selection, watching or maintenance instead stops the application.
+Continuing to answer queries while the mechanism responsible for freshness
+has silently failed would give clients a misleadingly healthy service.
 
 ### Concurrency model
 
-**Single-writer guarantee:** DuckDB enforces one writer at
-a time. Every write takes `_write_sem`
-(`asyncio.Semaphore(1)`) under `asyncio.to_thread()`: a
-build, each embed batch, the watch-set write behind `index`
-and `forget`, and `gc`. The worker orders builds against
-embeds; the semaphore orders a handler's write against the
-worker's, and empties the field while `gc` compacts. Compaction
-copies a project's file and switches to the copy, so a batch
-committing to the old file during the copy would be lost. gc pays
-one batch for that.
+Independent execution does not mean unrestricted execution. Requests are
+separated by the resource they need, so a backlog of GPU searches or writes
+does not consume the capacity reserved for ordinary reads. The default is
+two read workers, one GPU worker and one writer worker. Those counts limit
+executing requests, not the number of threads or pending requests.
 
-![Two locks, and reads that take none: _write_sem orders the writers,
-_gpu_lock the users of the GPU](docs/diagrams/daemon-locks.png)
+Extra requests wait in memory. The queues are uncapped, so sustained excess
+arrivals increase both waiting time and retained memory. This favours
+accepting work over returning capacity errors; it establishes neither a
+latency guarantee nor a fixed memory bound.
 
-Two alternatives do not hold. An `RLock` in `Index`
-repeats what DuckDB already does, in the wrong place.
-DuckDB's optimistic concurrency hands the loser an error
-only a retry clears, and the winner holds its transaction
-for seconds: retry now and lose again, retry later and block
-the REP socket behind it.
+Foreground requests and background work share one GPU lock and one writer
+semaphore. Separate locks for the two sides would preserve apparent
+independence while allowing them to use the same resource concurrently.
+Waiting for either shared resource happens on the event loop before native
+submission, keeping those waits out of the executor.
 
-Reads use thread-local cursors (via `connection.cursor()`)
-and run concurrently with writes. `store.py` imports pyarrow
-eagerly because duckdb's [Multiple Python Threads
-guide][ddb-threads] requires the interop library to be imported
-before threading starts — it names pandas, and the Arrow path
-needs pyarrow the same way: registering a polars frame calls
-polars' `to_arrow`, which imports pyarrow, and the first
-registration is usually on a worker thread. On duckdb 1.5.5,
-without the import, a thread that registers a frame and then exits
-leaves the connection corrupt. Rebuilding the FTS index on a
-long-lived thread does not avoid this, and nor does closing the
-writer's cursor before it exits: the registration does the damage,
-not the writing. duckdb 1.5.6 does not show the fault with or
-without the import; the import stays because the guide asks for
-it.
+GPU ownership covers a whole foreground search, including query embedding,
+fusion and reranking. Background embedding releases the GPU after each
+inference batch, then acquires writer access to persist the result. A
+waiting search can therefore run between batches instead of waiting for
+the repository's entire embedding job. Status and ordinary symbol reads
+need neither resource.
 
-A compaction cuts off no read: reads already running finish
-on the old file (see [Index files](#index-files)).
+![Shared resource ownership permits reads during GPU work and searches
+between embedding batches](docs/diagrams/daemon-locks.png)
 
-[ddb-threads]: https://duckdb.org/docs/current/guides/python/multiple_threads
+The writer semaphore protects complete write workflows rather than
+individual database calls. Compaction illustrates why: it copies a project
+file and switches to the copy. A batch committing to the old file during
+that copy would be missing from the replacement. Locking each call
+separately would still leave the gap. Builds retain writer access through
+their phases; embedding retains it for one persistence batch. Collection,
+watch edits and maintenance use the same writer.
 
-**GPU model serialisation:** The daemon manages two GPU
-models: `Embedder` (embedding) and `Reranker`
-(cross-encoder reranking). Each wraps a `llama_cpp.Llama`
-instance via `GpuModelSlot` — a generic slot that handles
-lazy loading, idle unload, and `threading.Lock`-based thread
-safety. Metal is not thread-safe across concurrent Llama
-instances, so all GPU inference is serialised through a
-single `_gpu_lock` (`asyncio.Lock` on `DaemonServer`,
-passed to each model at construction).
+This application-level coordination is distinct from DuckDB's file and
+transaction rules. Reads use thread-local cursors and can overlap writes.
+A read already using a file finishes against it when compaction switches
+to a replacement. Cross-project reads also have their own query pool;
+[Index files](#index-files) explains the storage-level ownership.
 
-Code paths that acquire `_gpu_lock`:
-
-- **Search** — embedder `embed_single()` + batch
-  `embed()` for variants, then reranker `rerank()` on
-  fused candidates. Held for the entire search.
-- **Embed worker** — `_run_embed_async` → `embed` per
-  batch.
-- **Idle unload** — each model's `_idle_loop` →
-  `_do_unload`.
-
-Because the lock is asyncio-native, waiting is an
-`await` — the event loop stays responsive during
-contention. Without this, a `threading.Lock` would
-block the event loop thread, freezing ZMQ dispatch,
-notification relay, and the watcher loop.
-
-```text
-Event loop thread                    Worker thread (to_thread)
-─────────────────                    ─────────────────────────
-serve() loop
-  rep.recv()
-  await _dispatch(raw)  [async]
-    async with _gpu_lock:            ← held for full search
-      await to_thread(handle_search) ← embed + fuse + rerank
-
-_run_embed_async():
-  for batch:
-    async with _gpu_lock:            ← serialised
-      await to_thread(embed, batch)  ← off event loop
-    write to store
-
-_idle_loop() (per model):
-  if idle >= timeout:
-    async with _gpu_lock:            ← serialised
-      re-check idle, close model
-```
-
-Each model has its own idle timeout and unloads
-independently. The idle loop re-checks the idle timeout
-inside the lock to avoid a TOCTOU race: inference may
-have used the model between the outer check and lock
-acquisition.
-
-The embed worker runs one batch per `to_thread` call rather
-than the whole job, so a search waits for the batch in
-flight (2.3 s median, 4.2 s p90 on an M3 Pro) and not for
-the job.
-
-**Priority:** The worker queries the DB for un-indexed
-watched refs (HEAD is the default) then dirty worktrees
-(builds), then un-embedded chunks (embeds).
+Model handles need protection beyond scheduling inference. Idle unload
+takes the same GPU lock so it cannot dispose of a model still in use.
+Per-handle thread locks protect handle access, and a separate shared load
+lock serialises native model initialisation. Each lock covers the resource
+lifetime it actually protects.
 
 ### Standing aside
 
-An embed job that finds a build due returns. The next job
-re-derives its work list from `chunks.embedding` — 204 ms
-over a 105k-chunk index, against 1.1–2.3 s for a batch — so
-nothing needs carrying across the interruption.
+There is one background job runner. Even with independent foreground
+requests, a long embedding job could keep a newly due build waiting for
+every vector to finish. Embedding therefore checks for builds after each
+committed batch and ends its current run when one is due. Selection gives
+the build priority, then returns to the vectors still missing in storage.
 
-**A job may stand aside only between transactions.** An
-embed's is one batch. A build's is the whole snapshot:
-chunks and `file_snapshots` commit together, or a sibling
-checkout's clean-up, which prunes the project's unclaimed
-chunks, deletes chunks whose snapshot row is not yet committed.
-`WriteSession` refuses such a commit, so a build runs to
-completion, which its 4.0 s median affords.
+The database is the continuation: committed vectors remain available and
+unwritten vectors remain outstanding. There is no separate suspended-job
+state to reconcile after a crash. The embedding outcome distinguishes
+finishing a pass from standing aside or stopping, with stored counts showing
+the snapshot's actual completeness.
 
-Between batches the job asks `watcher.pending_builds`, and
-checks `_shutdown`. A stop also ends the batch in progress,
-since one batch of long chunks can outlast the 13 s
-`rbtr daemon stop` waits. Anything else arriving mid-job is served
-by a lock the job releases each batch — `_gpu_lock` for a
-search, `_write_sem` for a `gc` or a watch-set write — or by
-`_wake`, which the worker reads once the job returns.
-Reading `_wake` in place of the poll would not do: the
-watcher is on `busy_poll_interval` (30 s) during a job, and
-the event carries no content, so a woken job could not tell
-a build from any other cause.
-
-A run ends with `embed_ended`, carrying `finished`,
-`stood_aside` or `stopped` and the snapshot's counts, so a
-subscriber knows whether work on it is still due.
+A build retains writer access instead of yielding between phases. Cleanup
+in a competing checkout's build can remove chunks whose snapshot is not yet
+marked complete; allowing that cleanup into an unfinished build would break
+the completion boundary. Embedding has a safe yield point after each finite
+commit, whereas a build needs the wider protected workflow.
 
 ### Daemon startup
 
-The daemon is **single and global** per `data_dir`: `serve` takes
-DuckDB's exclusive lock (via `Index.from_config`) before
-binding its sockets, so a second `serve` racing it exits on the
-lock with `ExitCode.INDEX_LOCKED`. `start_daemon()` tolerates
-this rather than coordinating it: it treats any live daemon as
-ready, so concurrent callers converge on the winner and a losing
-spawn is terminated. The winner holds the lock through its whole
-startup and writes its status file last, seconds later under
-load, so a caller whose spawn exited with that code keeps waiting
-until `daemon_start_timeout`. The double-spawn is cheap, so no
-parent-side start lock is needed.
+One daemon serves a data directory. The writable Index takes DuckDB's
+process/file lock before the runtime binds sockets, so competing starts
+converge on one owner rather than coordinating ownership in their parent
+processes. A losing start can encounter the lock before the winner has
+published discovery. Clients therefore allow the winner time to become
+ready instead of treating that lock failure as immediate startup failure.
 
-The flip side is deciding a start *failed*. `start_daemon` keys
-that on the spawned child's exit, not on elapsed time: while the
-child is alive it keeps waiting, giving up only when the process
-exits without a live daemon having appeared. A backstop deadline
-(`daemon_start_timeout`) covers the rare child that wedges before
-binding. Keying on exit rather than a short timer means a slow
-cold start under load — open the store, backfill watches, bind
-sockets — isn't mistaken for failure and killed mid-startup.
+Construction performs synchronous writes to seed default HEAD watches.
+It is an exclusive startup operation: the caller constructs before sharing
+the writable Index, or holds its writer semaphore during construction,
+off a UI loop. This keeps initial watch intent established before serving
+without introducing asynchronous component initialisation.
+
+Readiness has a narrower meaning than a fully prepared index. The runtime
+checks required language plugins, binds its sockets and publishes process
+discovery before reporting ready. Models can still need loading and
+snapshots can still need building or embedding. Background selection makes
+an initial pass over stored intent without waiting for the first watcher
+poll.
+
+Discovery records the process identity and connection details, not work in
+progress. Process status consequently differs from a query of index state,
+and a snapshot-ready notification differs from both: it reports a completed
+build's counts, which can still show vectors awaiting computation.
 
 ### Stopping
 
-A stop ends the work in progress instead of waiting for it.
-`rbtr daemon stop` waits 13 s for the daemon to exit, and a
-build of a large repository takes minutes to hours. A build
-stops before its next file or phase. Its transaction rolls
-back, and the snapshot is built again when the daemon next
-starts, as after a crash. Nothing failed, so no `index_error`
-is published. Edge inference is a single computation, so a
-stop during it waits for it to finish. An embed job ends its
-batch in progress, as [Standing aside](#standing-aside)
-describes.
+Shutdown is an ownership problem before it is a cancellation problem.
+Cancelling an async wait does not stop the native function running behind
+it. Releasing a GPU lock, closing a model or switching a database file while
+that function continues would let the application dispose of resources
+still in use.
+
+Accepted client work therefore has a precise start boundary. Queued calls,
+resource waiters and executor submissions that no native thread has claimed
+can still be rejected with `shutting_down`. A native thread claims a call
+under the same short lock used by shutdown. Whichever side wins determines
+whether the call may run; submission to the executor alone is insufficient.
+Started calls retain their resources until native execution and the reply
+attempt finish.
+
+This produces two completion points. A shutdown reply confirms that
+foreground requests have been rejected or finished. Application shutdown
+also waits for background work and the output it can still produce.
+Notification transport remains available until those producers finish.
+Only afterwards can models and sockets be closed.
+
+Background work stops cooperatively at boundaries it can safely leave.
+An interrupted build transaction rolls back while earlier committed phases
+remain. An embedding run reports its stopped outcome, retaining committed
+batches. Maintenance already running finishes with writer access retained.
+Cooperative stopping is not an indexing failure.
+
+Every scheduled startup model load also remains owned until completion,
+even one still waiting for an executor thread or a companion load after
+another fails. Waiting can extend shutdown, but it prevents a load from
+creating a model after model cleanup has already run. A caller-supplied
+Index remains the caller's responsibility and stays open until serving
+has finished.
+
+Client wait budgets and process-exit checks measure different parts of this
+sequence. The Python client waits for its shutdown reply before starting
+its exit checks and possible SIGTERM fallback. Those checks are not an
+overall stop deadline; native work and model loading can delay final exit.
 
 ### Crash recovery
 
-**Indexing:** `WriteSession.cleanup`, at the end of the repo's
-next build or gc, deletes the rows of its snapshots never
-`mark_indexed`. A build of a snapshot a failed build left reuses its
-complete chunks and replaces its rows. On next startup the
-watcher re-derives any un-indexed watched ref (HEAD is
-one) and re-triggers the build; startup also runs
-`_backfill_head_watches` (a `WriteSession` write, like
-embed recovery). The watcher itself stays read-only.
+Recovery uses the same mismatch between intent and completion that drives
+normal indexing. Watched refs and working trees identify desired snapshots;
+completion records identify finished builds; missing vectors identify
+outstanding embedding. A restart selects work from those inputs rather
+than restoring a transient job queue.
 
-**Embedding:** On startup, the daemon scans indexed snapshots
-for un-embedded chunks and sets the wake event so the
-DB-polling worker picks up the work. This handles the case
-where the daemon crashed after indexing completed but before
-embedding finished. Recovery is idempotent because each embed
-job draws up its own work list: `unembedded_chunk_ids` names
-the chunks whose `embedding` is still NULL, so a job that died
-halfway leaves the rest outstanding and the next one resumes
-from there. It is the same mechanism a job uses when it
-stands aside for a build (see [Standing
-aside](#standing-aside)), and it costs 204 ms over a
-105k-chunk index.
+Only the active transaction rolls back on failure. Earlier committed build
+phases and embedding batches remain available for reuse. A later build or
+collection removes snapshot rows never marked complete, while a new
+embedding run reads the remaining missing vectors. Standing aside and
+crashing therefore resume through the same stored state.
 
-**Transactional writes:** `WriteSession` rolls back on
-exception. No partial state persists.
-
-**Index files:** a file a crash left half-built or half-retired
-is one the registry does not name, and the next writable open
-deletes it (see [Index files](#index-files)).
+Partially built or retired project files are reconciled against the registry
+on the next writable open, as described in [Index files](#index-files).
+Live progress, failed-build suppression and accepted client requests
+disappear with the process. Recovery of indexing does not imply replay of
+client requests; the [protocol](#daemon-protocol) explains why a client
+missing a reply must treat execution as uncertain.
 
 ### Daemon protocol
 
 Two ZMQ sockets, both bound in `runtime_dir`:
 
-- **REP** (`daemon.rpc`) — synchronous request/response.
+- **ROUTER** (`daemon.rpc`) — independently routed replies to REQ clients.
 - **PUB** (`daemon.pub`) — fan-out notifications.
 
 Messages are JSON, discriminated on a `kind` field. Every
 request has a `kind`; every response echoes it or returns
 `kind: "error"`.
+
+Each message has one JSON body frame. ROUTER keeps the complete
+return envelope through its empty delimiter, including any REQ
+correlation frame, and sends the reply with that envelope unchanged.
+Completion order may differ from receive order. Socket operations
+stay on the event loop. Mandatory non-blocking replies make an
+unreachable or non-reading peer a local delivery failure; a
+disconnect does not cancel its running handler. Other transport
+failures stop intake and use the [shutdown procedure](#stopping).
+A malformed body with a usable return envelope receives
+`invalid_request`; a message with no usable envelope is logged
+and discarded.
 
 Requests and responses are pydantic models (`messages.py`).
 The daemon writes a status file to `runtime_dir` on startup;
@@ -1922,21 +1895,24 @@ repos. Text renderers (CLI, TUI, LLM) derive output solely from the response mod
 never from external state like config. `watched` lists the repo's watch set (each
 `WatchedRef` carries the resolved sha and whether it is indexed yet).
 
-Five notification kinds go out on PUB: `progress` during a
-build, `ready` when a snapshot is indexed, `embed_ended`
-with the run's outcome and counts, `auto_rebuild` when the
-watcher starts a build nobody asked for, and `index_error`
-when one fails.
+PUB carries build/embedding progress and completion, automatic rebuilds,
+index errors and collection start/progress/end notifications. The
+[`Notification` union](src/rbtr/daemon/messages.py) defines the payloads.
+Snapshot `ready` reports indexed chunks, embedded chunks and edges; it
+establishes snapshot readiness for reads, while its counts can still show
+outstanding embedding work.
 
-![A request on REQ and its reply on REP, and notifications on PUB
-during a build](docs/diagrams/protocol.png)
+[Requests and background work](#requests-and-background-work) explains the
+separate completion and delivery responsibilities of replies and notifications.
 
 A concrete search exchange:
 
 ```json
 → {"kind": "search", "repo_path": "/path/to/repo", "query": "retry logic", "limit": 10}
 ← {"kind": "search", "results": [{"name": "retry_with_backoff", "kind": "function",
-    "file_paths": ["src/client.py"], "line_start": 12, "line_end": 30, "score": 0.87}],
+    "file_paths": ["src/client.py"], "line_start": 12, "line_end": 30,
+    "preview": {"text": "def retry_with_backoff(operation):", "clipped": true,
+                "total_lines": 19}, "score": 0.87}],
    "resolved": {"sha": "abc123…", "source": "head"}}
 ```
 
@@ -1954,11 +1930,10 @@ Error responses carry a `code` field:
 - `index_in_progress` — the daemon will index what the read
   needs without being asked; retry after the `ready`
   notification.
-- `repo_not_found` — the repo path isn't registered.
+- `repo_not_found` — the supplied path does not identify an available Git checkout.
 - `index_locked` — another process holds the index's write
   lock; retry once it has let go.
-- `daemon_busy` — the daemon is running but did not reply
-  within the client's wait; retry later.
+- `shutting_down` — the daemon rejected this call before its native work started.
 - `out_of_memory` — DuckDB needed more memory than
   `duckdb_memory_limit` allows; the CLI and pi add how to
   raise it.
@@ -1967,20 +1942,22 @@ Error responses carry a `code` field:
   caller can see how an argument was mis-shaped.
 - `internal` — unexpected server error.
 
-The two index errors are decided in different places. A
-handler that finds a ref unindexed raises
-`IndexNotBuiltError`, naming the missing snapshot and the
-ref the caller used. `_dispatch` then asks `_will_index()`,
-the daemon's one source of build awareness, so handlers
-need none. The daemon will index the snapshot when its
-running build is that commit of that repo, or when the repo
-watches that ref; the reply is then `index_in_progress`, and
-otherwise `index_not_built`. Any running build is not
-enough: one daemon serves every repo, and a build of
-another repo or commit never indexes what the read asked
-for, so the caller would wait for nothing. When no snapshot
-is named, the index's tables are missing, and any build
-creates them.
+The Python client's local `DaemonBusyError` uses `daemon_busy` for discovery,
+wait-budget or liveness failure. It is distinct from a returned error:
+once a request has been sent, a missing reply does not establish whether the
+operation ran. The client sends once and keeps receiving on the same REQ
+socket, checking process liveness at its configured interval until its reply
+budget expires. A budget failure does not cancel the daemon's native work.
+A new send requires a fresh REQ socket, but the client does not automatically
+resend an ambiguous request. Process checks belong to the Python client;
+other clients follow their own wait/abort policy.
+
+A missing-index exception names the snapshot/ref a read needed. After
+resource release, RPC calls the runtime's bound error mapper on the native
+executor. The mapper reads the Indexer's coherent run and stored watches to
+choose `index_in_progress` when that exact target will be built, otherwise
+`index_not_built`. An unrelated running build is not evidence that this
+request's target will become readable.
 
 **Schema generation.** `messages.py` is the source of
 truth. `rbtr schema-dump` produces JSON Schema.
@@ -2290,12 +2267,17 @@ would go stale silently.
 
 ### Daemon and interface
 
+The [daemon design](#daemon) explains the separation of client service,
+background policy and storage, the shared resource constraints, and why
+running work determines resource lifetime. [Index files](#index-files)
+covers the separate database ownership rules.
+
 **ZMQ for the daemon.** The transport needs
 request/response for queries and fan-out for build progress,
 over a local socket, with clients that come and go. HTTP gives
 the first and needs polling, SSE or websockets bolted on for
 the second, plus a port to allocate and defend. ZMQ has both
-patterns natively over IPC — REP for queries, PUB for
+patterns natively over IPC — ROUTER for queries, PUB for
 progress — and its SUB sockets reconnect on their own, which
 is what lets a pi session survive a daemon restart without
 re-discovering an endpoint (see
@@ -2366,10 +2348,22 @@ pytest-cases, e.g. `cases_edges.py`, `cases_fuse.py`).
 
 **Real infrastructure, not mocks.** Index tests create
 real `pygit2` repositories with deliberate data shapes.
-Daemon tests spin up real `DaemonServer` instances on
-IPC sockets in threads (`running_server`,
-`running_server_with_index`). Mocking the server would
-hide integration bugs at the ZMQ/DuckDB boundary.
+Daemon tests spin up real `Daemon` instances on
+IPC sockets in threads (`serving`, `running_daemon` in the
+[daemon fixtures](src/rbtr/tests/daemon/conftest.py)). These tests exercise
+observable replies, stored effects and notification delivery across the
+ZMQ/DuckDB boundary.
+
+Import contracts verify dependency direction and component independence.
+Runtime tests verify the facts those checks cannot:
+[contention tests](src/rbtr/tests/daemon/test_embed_search_contention.py)
+observe model-call overlap and stored writes;
+[lifecycle tests](src/rbtr/tests/daemon/test_server.py) cover failure and stop;
+[standalone indexing](src/rbtr/tests/index/test_indexer.py) leaves its borrowed
+Index usable after joining.
+[Progress regressions](src/rbtr/tests/daemon/test_progress.py) hold real
+notification delivery while querying actual status, establishing state
+correctness separately from publication timing.
 
 **Test location.** In-package: `src/rbtr/tests/`. The
 pi-rbtr tests live at `packages/pi-rbtr/tests/` with

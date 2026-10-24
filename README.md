@@ -88,10 +88,9 @@ integrates with it.
 
 **[`pi-rbtr`](packages/pi-rbtr/)** is a thin TypeScript
 extension that surfaces the same queries to an LLM as tools. It
-talks to the daemon over ZMQ — a REP socket for
-request/response, a PUB socket for progress, ready and error
-notifications — and falls back to running the CLI when no
-daemon is up.
+uses the daemon for queries and live indexing updates, and
+falls back to the CLI when no daemon is up. Contributor transport
+details are in [Daemon protocol](packages/rbtr/ARCHITECTURE.md#daemon-protocol).
 
 **Languages are separate distributions.** Core ships no
 grammars of its own. Each language is an `rbtr-lang-*` package
