@@ -29,7 +29,7 @@ from rbtr.daemon.messages import (
     WatchRequest,
     WatchSetResponse,
 )
-from rbtr.daemon.server import DaemonServer
+from rbtr.daemon.server import Daemon
 from rbtr.index.index import Index
 
 from .conftest import serving
@@ -99,7 +99,7 @@ def running_daemon(
     runtime_dir: Path,
     daemon_index: Index,
     stub_embedding_model: None,
-) -> Generator[DaemonServer]:
+) -> Generator[Daemon]:
     """A served daemon over the disk-backed *daemon_store*.
 
     `runtime_dir` comes from `tests/daemon/conftest.py` and lives
@@ -107,7 +107,7 @@ def running_daemon(
     103-char limit; `tmp_path` under xdist would exceed it).
     """
     with serving(
-        DaemonServer(
+        Daemon(
             runtime_dir,
             index=daemon_index,
             idle_poll_interval=60.0,
@@ -134,7 +134,7 @@ def _wait_for_build_start(client: DaemonClient, repo_path: Path, deadline_s: flo
 
 
 def test_search_returns_promptly_during_live_build(
-    running_daemon: DaemonServer,
+    running_daemon: Daemon,
     large_repo: tuple[Path, str],
     search_budget_s: float,
 ) -> None:
@@ -179,7 +179,7 @@ def test_search_returns_promptly_during_live_build(
 
 
 def test_status_returns_promptly_during_live_build(
-    running_daemon: DaemonServer,
+    running_daemon: Daemon,
     large_repo: tuple[Path, str],
     search_budget_s: float,
 ) -> None:

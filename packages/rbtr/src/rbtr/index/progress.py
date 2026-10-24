@@ -8,6 +8,20 @@ moves through the repos themselves.
 from __future__ import annotations
 
 from collections.abc import Callable
+from enum import StrEnum
+
+
+class EmbedOutcome(StrEnum):
+    """How an embed run ended.
+
+    `FINISHED` reached the end of its work list; the other two left
+    chunks unembedded, and the worker picks them up again later.
+    """
+
+    FINISHED = "finished"
+    STOOD_ASIDE = "stood_aside"
+    STOPPED = "stopped"
+
 
 type ProgressCallback = Callable[[str, int, int], None]
 """`(phase, done, total)` — called to report build/embed progress."""

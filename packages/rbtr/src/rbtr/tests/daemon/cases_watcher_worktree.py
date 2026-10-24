@@ -1,4 +1,4 @@
-"""Scenarios for `rbtr.daemon.watcher.poll_worktree`.
+"""Scenarios for `rbtr.index.watcher.poll_worktree`.
 
 Cases return a `WorktreeScenario` — pure declarative data
 describing a repo's working-tree state and the expected

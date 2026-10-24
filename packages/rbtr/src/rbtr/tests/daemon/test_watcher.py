@@ -1,4 +1,4 @@
-"""Behavioural tests for `rbtr.daemon.watcher.poll_watched` and `poll_worktree`.
+"""Behavioural tests for `rbtr.index.watcher.poll_watched` and `poll_worktree`.
 
 `poll_watched(store)` resolves each repo's `watched_refs` and
 returns those whose SHA is not recorded in `indexed_snapshots`.
@@ -19,9 +19,9 @@ import pygit2
 from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.config import config
-from rbtr.daemon.watcher import DirtyWorktree, WatchedTarget, poll_watched, poll_worktree
 from rbtr.git import normalise_repo_path, worktree_tree_sha
 from rbtr.index.index import Index
+from rbtr.index.watcher import DirtyWorktree, WatchedTarget, poll_watched, poll_worktree
 
 from .cases_watcher import WatcherScenario
 from .cases_watcher_worktree import WorktreeScenario

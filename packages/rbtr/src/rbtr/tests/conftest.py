@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import subprocess
 import sys
 import tempfile
+import threading
 from collections.abc import Generator
 from pathlib import Path
 
@@ -16,7 +18,9 @@ from pytest_mock import MockerFixture
 
 from rbtr.config import config
 from rbtr.git import normalise_repo_path
+from rbtr.index.embeddings import Embedder
 from rbtr.index.index import Index
+from rbtr.index.indexer import EmbeddingEnded, Indexer, IndexerOutput
 
 
 class StubModel:
@@ -320,6 +324,42 @@ def stub_embedding_model(mocker: MockerFixture) -> None:
     exercising concurrency, not embedding quality.
     """
     mocker.patch("rbtr.index.embeddings._load_model", return_value=StubModel())
+
+
+@pytest.fixture
+def indexer_outputs() -> list[IndexerOutput]:
+    return []
+
+
+@pytest.fixture
+def indexer(
+    index_for_indexer: Index,
+    indexer_outputs: list[IndexerOutput],
+    stub_embedding_model: None,
+) -> Generator[Indexer]:
+    """A standalone service over the caller's dataset, stopping after one embed run."""
+    stop = threading.Event()
+    gpu_lock = asyncio.Lock()
+    embedder = Embedder(gpu_lock=gpu_lock, abort=stop)
+
+    async def output(event: IndexerOutput) -> None:
+        indexer_outputs.append(event)
+        if isinstance(event, EmbeddingEnded):
+            service.request_shutdown()
+
+    service = Indexer(
+        index_for_indexer,
+        embedder=embedder,
+        gpu_lock=gpu_lock,
+        write_sem=asyncio.Semaphore(1),
+        stop=stop,
+        on_output=output,
+    )
+    try:
+        yield service
+    finally:
+        service.request_shutdown()
+        embedder.close()
 
 
 @pytest.fixture(autouse=True)

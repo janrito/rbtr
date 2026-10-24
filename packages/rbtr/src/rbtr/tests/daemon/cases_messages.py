@@ -19,7 +19,6 @@ from rbtr.daemon.messages import (
     ChangedSymbolsRequest,
     ChangedSymbolsResponse,
     EmbedEndedNotification,
-    EmbedOutcome,
     ErrorCode,
     ErrorResponse,
     FindRefsRequest,
@@ -58,6 +57,7 @@ from rbtr.daemon.messages import (
     response_adapter,
 )
 from rbtr.domain.models import GcMode
+from rbtr.index.progress import EmbedOutcome
 
 
 @dataclass(frozen=True)

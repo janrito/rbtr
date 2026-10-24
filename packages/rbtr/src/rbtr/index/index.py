@@ -82,17 +82,16 @@ _GET_CHUNKS_BY_ID_SQL = load_sql("get_chunks_by_id.sql")
 
 
 class Index:
-    """The code index: registry changes and every read.
+    """Synchronous storage access for reads, registry changes and write sessions.
 
-    Its `Store` attaches the registry (`index.duckdb`) and every
-    project's data file (`index/<uuid>.duckdb`) to one DuckDB instance.
-    Each read and write is routed to the file of the repo it concerns; a
-    read over several projects runs on each of their files at once and
-    merges the results.  Write operations live on `WriteSession`,
-    obtained via `session(repo)`.  Methods may be called from any thread.
+    Reads and registry methods use thread-local cursors and may run on different
+    threads. Calls block, so keep them off a UI loop. The caller coordinates
+    overlapping write workflows; Index methods do not acquire a shared writer
+    lock. Create and use each `WriteSession` on one thread.
 
-    An index is read-only unless opened with `writable=True`; `session`
-    and the registry changes then raise `RuntimeError`.
+    Read-only by default: registry writes and `session` require `writable=True`
+    or raise `RuntimeError`. The caller owns the handle and closes it after all
+    users finish.
     """
 
     def __init__(self, db_path: Path | str | None = None, *, writable: bool = False) -> None:
@@ -120,20 +119,18 @@ class Index:
             yield cur
 
     def session(self, repo: Repo) -> WriteSession:
-        """Create a `WriteSession` writing for *repo*, on its project's file.
+        """Return a transaction context manager for rows belonging to `repo`.
 
-        A DuckDB transaction writes one file, so a session is bound to
-        one project, and to the repo it writes for: its rows belong to
-        *repo*.  It holds this thread's cursor on the file.  In the
-        daemon, open one only while holding `_write_sem`.
-
-        Raises `RuntimeError` if the index was opened read-only.
+        Create and use it on the same thread. Entry begins a transaction; normal
+        exit flushes and commits, exceptional exit rolls back that transaction.
+        Writes must satisfy `WriteSession`'s completion rules. Raise `RuntimeError`
+        on a read-only Index.
         """
         self._store.require_writable()
         return WriteSession(self._store.data(repo), repo)
 
     def close(self) -> None:
-        """Delete retired files and close the database connection."""
+        """Delete retired files and close connections after all users have finished."""
         self._store.close()
 
     def retire_due(self) -> None:

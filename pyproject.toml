@@ -360,7 +360,18 @@ forbidden_modules = [
 name = "The index's code points one way"
 type = "layers"
 containers = ["rbtr.index"]
-layers = ["refs", "index", "store | writer", "db"]
+layers = ["indexer", "refs", "index", "store | writer", "db"]
+
+[[tool.importlinter.contracts]]
+name = "RPC and indexing are independent"
+type = "independence"
+modules = ["rbtr.daemon.rpc", "rbtr.index.indexer"]
+
+[[tool.importlinter.contracts]]
+name = "RPC does not import its runtime"
+type = "forbidden"
+source_modules = ["rbtr.daemon.rpc"]
+forbidden_modules = ["rbtr.daemon.server"]
 
 [[tool.importlinter.contracts]]
 name = "Only the index opens its store and sessions"

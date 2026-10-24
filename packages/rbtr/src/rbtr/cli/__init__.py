@@ -108,7 +108,7 @@ from rbtr.daemon.messages import (
     WatchSetResponse,
     protocol_json_schema,
 )
-from rbtr.daemon.server import DaemonServer
+from rbtr.daemon.server import Daemon
 from rbtr.daemon.status import DaemonStatusReport, uptime_seconds as _uptime_seconds
 from rbtr.domain.models import GcMode, Scope
 from rbtr.errors import ExitCode, IndexLockedError, IndexNotBuiltError, RbtrError
@@ -180,9 +180,7 @@ class DaemonServe(BaseModel):
             # in the log the parent points the user at.
             log.exception("daemon_store_open_failed")
             raise
-        server = DaemonServer(
-            config.runtime_dir, index, allow_missing_plugins=self.allow_missing_plugins
-        )
+        server = Daemon(config.runtime_dir, index, allow_missing_plugins=self.allow_missing_plugins)
         asyncio.run(server.serve())
 
 
@@ -257,7 +255,7 @@ class DaemonStatusCmd(BaseModel):
         )
 
 
-class Daemon(BaseModel):
+class DaemonCmd(BaseModel):
     """Manage the rbtr daemon."""
 
     start: CliSubCommand[DaemonStart]
@@ -1002,7 +1000,7 @@ class Rbtr(
 ):
     """rbtr — structural code index."""
 
-    daemon: CliSubCommand[Daemon]
+    daemon: CliSubCommand[DaemonCmd]
     watch: CliSubCommand[Watch]
     unwatch: CliSubCommand[Unwatch]
     forget: CliSubCommand[Forget]

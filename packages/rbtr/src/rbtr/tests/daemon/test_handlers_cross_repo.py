@@ -1,6 +1,6 @@
 """Cross-repo handlers end-to-end through the daemon RPC socket.
 
-Serves a real `DaemonServer` over two indexed repos to verify scope
+Serves a real `Daemon` over two indexed repos to verify scope
 behaviour and non-search isolation over the wire, not just via direct
 handler calls.
 """
@@ -24,7 +24,7 @@ from rbtr.daemon.messages import (
     StatusRequest,
     StatusResponse,
 )
-from rbtr.daemon.server import DaemonServer
+from rbtr.daemon.server import Daemon
 from rbtr.domain.models import FileSnapshot
 from rbtr.index.index import Index
 
@@ -67,10 +67,10 @@ def running_daemon(
     runtime_dir: Path,
     shared_symbol_index: Index,
     stub_embedding_model: None,
-) -> Generator[DaemonServer]:
+) -> Generator[Daemon]:
     """A served daemon over both repos (stub embedder: routing, not vectors)."""
     with serving(
-        DaemonServer(
+        Daemon(
             runtime_dir, index=shared_symbol_index, idle_poll_interval=60.0, busy_poll_interval=60.0
         )
     ) as server:
@@ -78,7 +78,7 @@ def running_daemon(
 
 
 def test_search_scope_all_merges_repos(
-    running_daemon: DaemonServer, fake_repo: str, second_repo: str
+    running_daemon: Daemon, fake_repo: str, second_repo: str
 ) -> None:
     """`scope=all` over the socket returns both repos, attributed."""
     with DaemonClient(running_daemon.runtime_dir) as client:
@@ -93,9 +93,7 @@ def test_search_scope_all_merges_repos(
     }
 
 
-def test_search_workspace_excludes_other_repo(
-    running_daemon: DaemonServer, second_repo: str
-) -> None:
+def test_search_workspace_excludes_other_repo(running_daemon: Daemon, second_repo: str) -> None:
     """A workspace search over the socket stays in the path's repo."""
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(SearchRequest(repo_path=second_repo, query="shared_fn"))
@@ -108,7 +106,7 @@ def test_search_workspace_excludes_other_repo(
 
 
 def test_status_scope_all_lists_both_repos(
-    running_daemon: DaemonServer, fake_repo: str, second_repo: str
+    running_daemon: Daemon, fake_repo: str, second_repo: str
 ) -> None:
     """`status --scope all` over the socket reports both repos."""
     with DaemonClient(running_daemon.runtime_dir) as client:
@@ -118,7 +116,7 @@ def test_status_scope_all_lists_both_repos(
     assert repo_paths == {fake_repo, second_repo}
 
 
-def test_status_workspace_single_repo(running_daemon: DaemonServer, fake_repo: str) -> None:
+def test_status_workspace_single_repo(running_daemon: Daemon, fake_repo: str) -> None:
     """Workspace status over the socket reports only the path's repo."""
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(StatusRequest(repo_path=fake_repo))
@@ -127,7 +125,7 @@ def test_status_workspace_single_repo(running_daemon: DaemonServer, fake_repo: s
     assert all(ref.repo_path == fake_repo for ref in resp.indexed_refs)
 
 
-def test_read_symbol_isolated_to_repo(running_daemon: DaemonServer, fake_repo: str) -> None:
+def test_read_symbol_isolated_to_repo(running_daemon: Daemon, fake_repo: str) -> None:
     """read_symbol for a colliding name returns only the path's repo."""
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(ReadSymbolRequest(repo_path=fake_repo, symbol="shared_fn"))

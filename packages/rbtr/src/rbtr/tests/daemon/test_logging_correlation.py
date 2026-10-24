@@ -2,22 +2,27 @@
 
 from __future__ import annotations
 
+import threading
 import time
+from collections.abc import Generator
 from pathlib import Path
 
+import pytest
 import structlog
+from pytest_mock import MockerFixture
 
 from rbtr.config import config
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import DaemonConfigRequest, StatusRequest, WatchRequest
-from rbtr.daemon.server import DaemonServer
+from rbtr.daemon.server import Daemon
 from rbtr.index.index import Index
+from rbtr.index.indexer import BuildJob, EmbedJob, Indexer
 
 from .conftest import serving
 
 
 def test_requests_carry_unique_log_contexts(
-    running_daemon: DaemonServer,
+    running_daemon: Daemon,
     fake_repo: str,
     fake_repo_subdir: str,
     log_output: structlog.testing.LogCapture,
@@ -36,7 +41,7 @@ def test_requests_carry_unique_log_contexts(
 
 
 def test_binding_is_scoped_to_the_request(
-    running_daemon: DaemonServer,
+    running_daemon: Daemon,
     fake_repo: str,
     log_output: structlog.testing.LogCapture,
 ) -> None:
@@ -56,7 +61,7 @@ def test_binding_is_scoped_to_the_request(
 
 
 def test_request_complete_carries_elapsed_ms(
-    running_daemon: DaemonServer,
+    running_daemon: Daemon,
     fake_repo: str,
     log_output: structlog.testing.LogCapture,
 ) -> None:
@@ -70,14 +75,14 @@ def test_request_complete_carries_elapsed_ms(
 
 
 def test_embed_job_logs_are_correlated(
-    running_daemon: DaemonServer,
+    running_daemon: Daemon,
     log_output: structlog.testing.LogCapture,
 ) -> None:
     """End-to-end: a background embed job tags its logs with job context.
 
     No bespoke daemon needed: `seeded_index` holds indexed-but-unembedded
-    chunks, so `_recover_pending_embeds` wakes the worker at
-    construction, and the default daemon's embedder is the stub.  The
+    chunks, so the worker's initial selection starts embedding,
+    and the default daemon's embedder is the stub.  The
     server runs in a thread in this process, so the autouse
     `LogCapture` sees the worker's events.
     """
@@ -98,10 +103,31 @@ def test_embed_job_logs_are_correlated(
     assert isinstance(entry["elapsed_ms"], float)
 
 
+@pytest.fixture
+def selection_released() -> Generator[threading.Event]:
+    released = threading.Event()
+    yield released
+    released.set()
+
+
+@pytest.fixture
+def held_selection(selection_released: threading.Event, mocker: MockerFixture) -> None:
+    select = Indexer.next_job
+
+    def next_job(service: Indexer) -> BuildJob | EmbedJob | None:
+        job = select(service)
+        assert selection_released.wait(20), "selection was not released"
+        return job
+
+    mocker.patch.object(Indexer, "next_job", next_job)
+
+
 def test_watched_ref_build_is_observable(
     runtime_dir: Path,
     registered_index: Index,
     log_output: structlog.testing.LogCapture,
+    held_selection: None,
+    selection_released: threading.Event,
 ) -> None:
     """A watched ref flows from detection to indexed, fully correlated.
 
@@ -113,13 +139,23 @@ def test_watched_ref_build_is_observable(
     # Its own server, not `running_daemon`: this test needs a watcher
     # fast enough to notice the stale ref, and the module's
     # `running_daemon` is the embed-job one.
-    server = DaemonServer(
+    server = Daemon(
         runtime_dir,
         index=registered_index,
         idle_poll_interval=0.05,
         busy_poll_interval=0.05,
     )
     with serving(server):
+        try:
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                if any(e["event"] == "watched_ref_stale" for e in log_output.entries):
+                    break
+                time.sleep(0.01)
+            else:
+                pytest.fail("watcher did not observe the held selection target")
+        finally:
+            selection_released.set()
         deadline = time.monotonic() + 10.0
         built: list[structlog.typing.EventDict] = []
         while time.monotonic() < deadline:

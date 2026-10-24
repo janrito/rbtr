@@ -15,10 +15,10 @@ import pygit2
 import pytest
 
 from rbtr.config import config
-from rbtr.daemon.server import DaemonServer
 from rbtr.domain.models import ChunkKind, FileSnapshot, GcMode, Repo
 from rbtr.errors import RbtrError
 from rbtr.git import normalise_repo_path, worktree_tree_sha
+from rbtr.index.build import drop_stale_worktree_shas
 from rbtr.index.gc import run_gc, run_gc_all
 from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
@@ -484,9 +484,7 @@ def test_post_build_cleanup_drops_a_stale_worktree_whose_object_is_gone(
     assert loose.exists(), "the tree should have been written as a loose object"
     loose.unlink()
 
-    DaemonServer._drop_stale_worktree_shas(  # the unit under test
-        gc.index, gc.registered, keep=current_sha
-    )
+    drop_stale_worktree_shas(gc.index, gc.registered, keep=current_sha)
 
     assert gc.index.has_indexed(at=gc.registered.at(stale_sha)) is False
     assert gc.index.has_indexed(at=gc.registered.at(current_sha)) is True

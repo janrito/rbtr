@@ -3,7 +3,7 @@
 All test data is exposed as fixtures.  The `seeded_index`
 fixture composes individual chunk/edge fixtures into the root
 `index`.  `running_server` and `running_server_with_index`
-start a real `DaemonServer` on an IPC socket through
+start a real `Daemon` on an IPC socket through
 `serve_daemon`, which owns startup and shutdown for every test
 that needs a live daemon.
 """
@@ -24,10 +24,12 @@ from pytest_mock import MockerFixture
 
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import Request, Response
-from rbtr.daemon.server import DaemonServer
-from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot, Repo
+from rbtr.daemon.server import Daemon
+from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot, IndexResult, Repo
+from rbtr.index.build import build_index
 from rbtr.index.embeddings import Embedder
 from rbtr.index.index import Index
+from rbtr.index.progress import ProgressCallback
 from rbtr.index.staging import TokenisedChunk
 
 from ..index.conftest import make_chunk
@@ -126,6 +128,32 @@ def held_watch(
         return original(path)
 
     mocker.patch.object(seeded_index, "register", side_effect=register)
+
+
+@pytest.fixture
+def held_build(
+    second_repo: str,
+    write_started: threading.Event,
+    write_released: threading.Event,
+    mocker: MockerFixture,
+) -> None:
+    def build(
+        repo_path: str,
+        snapshot_sha: str,
+        index: Index,
+        *,
+        on_progress: ProgressCallback,
+        stop: threading.Event,
+    ) -> IndexResult:
+        def report(phase: str, done: int, total: int) -> None:
+            on_progress(phase, done, total)
+            if repo_path == second_repo and phase == "edges":
+                write_started.set()
+                assert write_released.wait(20), "build was not released"
+
+        return build_index(repo_path, snapshot_sha, index, on_progress=report, stop=stop)
+
+    mocker.patch("rbtr.index.indexer.build_index", side_effect=build)
 
 
 @pytest.fixture
@@ -298,7 +326,7 @@ def changed_head(seeded_index: Index, fake_repo: str) -> str:
 
 
 @contextlib.contextmanager
-def serving(server: DaemonServer) -> Iterator[DaemonServer]:
+def serving(server: Daemon) -> Iterator[Daemon]:
     """Serve *server* on a thread for the duration of the block.
 
     Every daemon fixture goes through here, so starting one is a single
@@ -330,7 +358,7 @@ def running_daemon(
     runtime_dir: Path,
     seeded_index: Index,
     stub_embedding_model: None,
-) -> Generator[DaemonServer]:
+) -> Generator[Daemon]:
     """A served daemon over a seeded index.
 
     Override in a module that needs a different one — a bespoke store,
@@ -342,8 +370,6 @@ def running_daemon(
     real GGUF (and never touch the GPU).
     """
     with serving(
-        DaemonServer(
-            runtime_dir, index=seeded_index, idle_poll_interval=60.0, busy_poll_interval=60.0
-        )
+        Daemon(runtime_dir, index=seeded_index, idle_poll_interval=60.0, busy_poll_interval=60.0)
     ) as server:
         yield server

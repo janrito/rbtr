@@ -12,17 +12,35 @@ from __future__ import annotations
 
 import itertools
 import time
+from collections.abc import Sequence
 
 import structlog
 
 from rbtr.config import config
-from rbtr.domain.models import SnapshotRef
-from rbtr.index.embeddings import Embedder, embedding_text
+from rbtr.domain.models import Repo, SnapshotRef
+from rbtr.index.embeddings import Embedder, EmbedResult, embedding_text
 from rbtr.index.index import Index
 from rbtr.index.progress import ProgressCallback, _noop_progress
 from rbtr.logging import elapsed_ms
 
 log = structlog.get_logger(__name__)
+
+
+type EmbeddingBatch = Sequence[tuple[str, EmbedResult]]
+
+
+def write_embedding_batch(index: Index, repo: Repo, batch: EmbeddingBatch) -> None:
+    """Commit chunk IDs paired with their embedding results in one finite session.
+
+    The caller supplies writer ownership for repo's project. Vectors and
+    truncation flags stay associated with their chunk IDs through this API.
+    """
+    with index.session(repo) as session:
+        session.update_embeddings(
+            [chunk_id for chunk_id, _result in batch],
+            [result.vector for _chunk_id, result in batch],
+            truncated=[result.truncated for _chunk_id, result in batch],
+        )
 
 
 def embed_index(
@@ -59,12 +77,11 @@ def embed_index(
             except (RuntimeError, ValueError):
                 log.warning("embedding_batch_failed", exc_info=True)
                 continue
-            with index.session(at.repo) as session:
-                session.update_embeddings(
-                    [c.id for c in batch],
-                    [r.vector for r in results],
-                    truncated=[r.truncated for r in results],
-                )
+            write_embedding_batch(
+                index,
+                at.repo,
+                [(chunk.id, result) for chunk, result in zip(batch, results, strict=True)],
+            )
             done += len(batch)
             on_progress("embedding", done, outstanding)
 

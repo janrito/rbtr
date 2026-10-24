@@ -48,8 +48,8 @@ from rbtr.domain.models import (
     IndexStats,
     QueryKind,
     RefsByRepo,
-    SnapshotRef,
 )
+from rbtr.index.progress import EmbedOutcome
 
 
 class ErrorCode(StrEnum):
@@ -74,31 +74,6 @@ class HasRepoPath(Protocol):
     """Any message that carries a repository path."""
 
     repo_path: str
-
-
-class BuildJob(BaseModel):
-    """A build-index job, derived from the watch set or a dirty tree.
-
-    `refs` holds refs as named, not yet resolved to snapshots.
-    """
-
-    model_config = _STRICT
-    kind: Literal["build"] = "build"
-    repo_path: str
-    refs: tuple[str, ...]
-
-
-class EmbedJob(BaseModel):
-    """An embed job, derived from a snapshot's unembedded chunks: a repo's snapshot."""
-
-    model_config = _STRICT
-    kind: Literal["embed"] = "embed"
-    at: SnapshotRef
-
-    @property
-    def repo_path(self) -> str:
-        """The repo's path, which progress notifications report."""
-        return self.at.repo.repo_path
 
 
 def _decode_json_array(text: str) -> Any:
@@ -751,18 +726,6 @@ class AutoRebuildNotification(BaseModel):
     kind: Literal["auto_rebuild"] = "auto_rebuild"
     repo_path: str
     new_ref: str
-
-
-class EmbedOutcome(StrEnum):
-    """How an embed run ended.
-
-    `FINISHED` reached the end of its work list; the other two left
-    chunks unembedded, and the worker picks them up again later.
-    """
-
-    FINISHED = "finished"
-    STOOD_ASIDE = "stood_aside"
-    STOPPED = "stopped"
 
 
 class EmbedEndedNotification(BaseModel):

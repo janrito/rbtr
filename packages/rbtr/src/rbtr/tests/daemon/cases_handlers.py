@@ -13,7 +13,6 @@ import pygit2
 from pytest_cases import case
 
 from rbtr.daemon.messages import (
-    ActiveJob,
     ErrorCode,
     FindRefsRequest,
     IndexState,
@@ -23,64 +22,58 @@ from rbtr.daemon.messages import (
     StatusAllRequest,
     StatusRequest,
 )
+from rbtr.domain.models import SnapshotRef
 from rbtr.index.index import Index
+from rbtr.tests.conftest import make_commit
 
 
 @dataclass(frozen=True)
 class UnbuiltRefScenario:
     """The daemon's work when the read arrives, and the error it should get."""
 
-    active_build: ActiveJob | None
+    building: SnapshotRef | None
     watched: list[str]
     expected: ErrorCode
 
 
 @case(id="another_repo_building")
-def case_unbuilt_another_repo_building(second_repo: str, unindexed_ref: str) -> UnbuiltRefScenario:
+def case_unbuilt_another_repo_building(
+    second_repo: str, fake_repo: str, unindexed_ref: str, seeded_index: Index
+) -> UnbuiltRefScenario:
     """A build of the same commit in another repo indexes nothing here."""
+    other = pygit2.Repository(second_repo)
+    other.remotes.create("source", fake_repo).fetch(["refs/heads/unindexed:refs/heads/building"])
     return UnbuiltRefScenario(
-        active_build=ActiveJob(
-            repo_path=second_repo,
-            ref=unindexed_ref,
-            phase="parsing",
-            current=1,
-            total=2,
-            elapsed_seconds=0.0,
-        ),
+        building=seeded_index.register(second_repo).at(unindexed_ref),
         watched=[],
         expected=ErrorCode.INDEX_NOT_BUILT,
     )
 
 
 @case(id="another_commit_building")
-def case_unbuilt_another_commit_building(fake_repo: str) -> UnbuiltRefScenario:
+def case_unbuilt_another_commit_building(
+    fake_repo: str, seeded_index: Index, unindexed_ref: str
+) -> UnbuiltRefScenario:
     """A build of another commit in the same repo does not index this one."""
+    repo = pygit2.Repository(fake_repo)
+    sha = make_commit(repo, {"other.py": b"other = 1\n"}, ref="refs/heads/building")
     return UnbuiltRefScenario(
-        active_build=ActiveJob(
-            repo_path=fake_repo,
-            ref="f" * 40,
-            phase="parsing",
-            current=1,
-            total=2,
-            elapsed_seconds=0.0,
-        ),
+        building=seeded_index.repo(fake_repo).at(str(sha)),
         watched=[],
         expected=ErrorCode.INDEX_NOT_BUILT,
     )
 
 
 @case(id="this_commit_building")
-def case_unbuilt_this_commit_building(fake_repo: str, unindexed_ref: str) -> UnbuiltRefScenario:
+def case_unbuilt_this_commit_building(
+    fake_repo: str, unindexed_ref: str, seeded_index: Index
+) -> UnbuiltRefScenario:
     """The build running is the one the read waits for."""
+    pygit2.Repository(fake_repo).references.create(
+        "refs/heads/building", pygit2.Oid(hex=unindexed_ref)
+    )
     return UnbuiltRefScenario(
-        active_build=ActiveJob(
-            repo_path=fake_repo,
-            ref=unindexed_ref,
-            phase="parsing",
-            current=1,
-            total=2,
-            elapsed_seconds=0.0,
-        ),
+        building=seeded_index.repo(fake_repo).at(unindexed_ref),
         watched=[],
         expected=ErrorCode.INDEX_IN_PROGRESS,
     )
@@ -90,7 +83,7 @@ def case_unbuilt_this_commit_building(fake_repo: str, unindexed_ref: str) -> Unb
 def case_unbuilt_watched_not_yet_built(unindexed_ref: str) -> UnbuiltRefScenario:
     """A watched ref is the daemon's to index, even before its build starts."""
     return UnbuiltRefScenario(
-        active_build=None, watched=[unindexed_ref], expected=ErrorCode.INDEX_IN_PROGRESS
+        building=None, watched=[unindexed_ref], expected=ErrorCode.INDEX_IN_PROGRESS
     )
 
 

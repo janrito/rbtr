@@ -101,16 +101,6 @@ if TYPE_CHECKING:
 log = structlog.get_logger(__name__)
 
 
-def resolve_refs(repo_path: str, refs: list[str]) -> list[str]:
-    """Resolve symbolic refs to commit SHAs (build path).
-
-    Raises `RbtrError` if any ref cannot be resolved.
-    """
-    return [
-        resolve_ref(repo_path, ref, max_untracked_files=config.max_untracked_files) for ref in refs
-    ]
-
-
 def handle_search(
     request: SearchRequest,
     index: Index,

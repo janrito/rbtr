@@ -178,10 +178,11 @@ def start_daemon(*, allow_missing_plugins: bool = False) -> DaemonStatus:
 
 
 def stop_daemon(*, timeout: float = 10.0) -> None:
-    """Stop the running daemon gracefully.
+    """Request shutdown, then check process exit and fall back to SIGTERM.
 
-    Sends a `ShutdownRequest` first. If the daemon does not exit
-    within *timeout* seconds, falls back to SIGTERM.
+    The shutdown reply uses the client reply budget first. timeout applies
+    to the subsequent exit check; a further check follows SIGTERM. Native
+    drain can delay the reply, so timeout is not an overall stop deadline.
     """
     status = read_status(config.runtime_dir)
     if status is None:
@@ -228,12 +229,10 @@ def _exits_within(pid: int, timeout: float) -> bool:
 
 
 class DaemonClient:
-    """Sync ZMQ REQ client that waits for a busy daemon.
+    """Synchronous REQ client with a reply budget and process-liveness checks.
 
-    Reads the RPC endpoint from the status file on first `send()`.
-    *wait_budget_s* is how long a caller will wait for any one
-    reply; *liveness_interval_s* is how often, while waiting, the
-    daemon's process is checked for still being there.
+    The first `send` reads discovery. `wait_budget_s` sets the reply-wait
+    budget; `liveness_interval_s` sets the process-check interval while waiting.
     """
 
     def __init__(
@@ -278,20 +277,12 @@ class DaemonClient:
         return sock
 
     def send(self, request: Request) -> Response:
-        """Send a request and wait for the daemon's reply.
+        """Send once and return the typed reply, including returned errors.
 
-        The request is sent once.  A reply that has not arrived
-        within `liveness_interval_s` is waited for again, until
-        `wait_budget_s` is spent or the daemon's process is gone;
-        either raises `DaemonBusyError`.
-
-        Sending again would be wrong on both counts a slow reply
-        allows.  The daemon is serving the request — a second copy
-        makes it do the work twice and lands behind the first — or
-        the daemon has died, and no copy of the request will be
-        answered by a process that is not there.  Over IPC a reply
-        cannot simply be lost, which is the case a re-send exists
-        for.
+        Receive waits continue on the same socket between liveness checks.
+        Discovery failure, exhausted reply budget or process loss raises
+        `DaemonBusyError`. Once sent, a request may execute even if waiting
+        fails; this method neither cancels native work nor resends it.
         """
         sock = self._sock or self._connect()
         sock.send(request.model_dump_json().encode())

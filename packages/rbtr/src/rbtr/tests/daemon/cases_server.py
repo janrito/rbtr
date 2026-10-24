@@ -6,12 +6,13 @@ stopping shows: the errors `serve()` raises and the errors it logs.
 
 from __future__ import annotations
 
+import asyncio
 import errno
 import threading
-import time
-from collections.abc import Callable, Generator
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable, Coroutine, Generator
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import pygit2
@@ -36,11 +37,14 @@ from rbtr.daemon.messages import (
     WatchRequest,
     response_adapter,
 )
-from rbtr.daemon.server import DaemonServer
+from rbtr.daemon.server import Daemon
+from rbtr.daemon.status import remove_status
 from rbtr.domain.models import Chunk
-from rbtr.git import FileEntry
-from rbtr.index import build
+from rbtr.git import FileEntry, normalise_repo_path
+from rbtr.index import build, maintenance
 from rbtr.index.index import Index
+from rbtr.index.indexer import Indexer
+from rbtr.index.progress import RepoProgressCallback
 from rbtr.tests.conftest import StubModel
 
 
@@ -52,7 +56,7 @@ class StopScenario:
     `logged` the events it logs at error level.
     """
 
-    server: DaemonServer
+    server: Daemon
     stop: Callable[[], None]
     raised: list[str]
     logged: list[str]
@@ -81,7 +85,7 @@ def message_multiple_bodies(rpc_peer: zmq.Socket[bytes]) -> MalformedMessage:
 
 def case_shutdown_request(runtime_dir: Path) -> StopScenario:
     """A shutdown request is answered, and the daemon stops cleanly."""
-    server = DaemonServer(runtime_dir, index=None, idle_poll_interval=60.0, busy_poll_interval=60.0)
+    server = Daemon(runtime_dir, index=None, idle_poll_interval=60.0, busy_poll_interval=60.0)
 
     def stop() -> None:
         with DaemonClient(runtime_dir) as client:
@@ -129,7 +133,7 @@ def case_shutdown_during_warmup(
         mocker.patch("rbtr.index.embeddings._load_model", side_effect=lambda _abort: load_model())
     else:
         mocker.patch("rbtr.index.reranker._load_model", side_effect=load_model)
-    server = DaemonServer(runtime_dir, index=empty_index, idle_poll_interval=60.0)
+    server = Daemon(runtime_dir, index=empty_index, idle_poll_interval=60.0)
 
     def interval() -> float:
         if fail.is_set():
@@ -138,7 +142,7 @@ def case_shutdown_during_warmup(
         return 0.01
 
     if fails:
-        mocker.patch.object(server, "_next_poll_interval", side_effect=interval)
+        mocker.patch.object(Indexer, "poll_interval", side_effect=interval)
 
     def stop() -> None:
         try:
@@ -162,30 +166,87 @@ def case_shutdown_during_warmup(
 
 
 def case_shutdown_during_build(
-    runtime_dir: Path, git_repo: pygit2.Repository, index: Index, mocker: MockerFixture
+    runtime_dir: Path,
+    git_repo: pygit2.Repository,
+    index: Index,
+    write_started: threading.Event,
+    write_released: threading.Event,
+    mocker: MockerFixture,
 ) -> StopScenario:
     """A shutdown during a build ends it after the file in hand, as a stop
     rather than a failure: no error is published or logged."""
-    index.register(git_repo.workdir)
-    server = DaemonServer(
-        runtime_dir, index=index, idle_poll_interval=60.0, busy_poll_interval=60.0
-    )
+    repo_path = normalise_repo_path(git_repo.workdir)
+    index.register(repo_path)
+    server = Daemon(runtime_dir, index=index, idle_poll_interval=60.0, busy_poll_interval=60.0)
     extract = build.extract_file
 
-    def slow_extract(entry: FileEntry, language: str) -> list[Chunk]:
-        time.sleep(3)  # five files: a build longer than the test waits
+    def held_extract(entry: FileEntry, language: str) -> list[Chunk]:
+        write_started.set()
+        assert write_released.wait(20), "file extraction was not released"
         return extract(entry, language)
 
-    mocker.patch.object(build, "extract_file", side_effect=slow_extract)
+    mocker.patch.object(build, "extract_file", side_effect=held_extract)
 
     def stop() -> None:
-        with DaemonClient(runtime_dir) as client:
-            client.send(WatchRequest(repo_path=git_repo.workdir, refs=["HEAD"]))
-            while server._active_build is None:
-                time.sleep(0.05)
-            client.send(ShutdownRequest())
+        try:
+            assert write_started.wait(10), "initial build did not start"
+            server.request_shutdown()
+        finally:
+            write_released.set()
 
     return StopScenario(server=server, stop=stop, raised=[], logged=[])
+
+
+def case_shutdown_during_maintenance(
+    runtime_dir: Path,
+    empty_index: Index,
+    write_started: threading.Event,
+    write_released: threading.Event,
+    monkeypatch: pytest.MonkeyPatch,
+    mocker: MockerFixture,
+) -> Generator[StopScenario]:
+    """Native maintenance and its output finish before transport disposal."""
+    monkeypatch.setattr(config, "embed", False)
+    monkeypatch.setattr(config, "reranker_model", None)
+    monkeypatch.setattr(config, "maintenance_idle_s", 0)
+    server = Daemon(runtime_dir, empty_index, idle_poll_interval=0.01)
+    removed = mocker.patch("rbtr.daemon.server.remove_status", wraps=remove_status)
+    cleanup_seen: list[bool] = []
+    loop_seen: Future[asyncio.AbstractEventLoop] = Future()
+    submit = asyncio.run_coroutine_threadsafe
+
+    def capture[Result](
+        coroutine: Coroutine[None, None, Result], loop: asyncio.AbstractEventLoop
+    ) -> Future[Result]:
+        if not loop_seen.done():
+            loop_seen.set_result(loop)
+        return submit(coroutine, loop)
+
+    def work(index: Index, *, now: datetime, on_progress: RepoProgressCallback) -> None:
+        write_started.set()
+        assert write_released.wait(20), "maintenance was not released"
+        maintenance.run_maintenance(index, now=now, on_progress=on_progress)
+        cleanup_seen.append(removed.called)
+
+    async def advance() -> None:
+        # Give shutdown continuations loop turns while the native pass is held.
+        for _ in range(4):
+            await asyncio.sleep(0)
+
+    mocker.patch.object(asyncio, "run_coroutine_threadsafe", side_effect=capture)
+    mocker.patch("rbtr.index.indexer.run_maintenance", side_effect=work)
+
+    def stop() -> None:
+        try:
+            assert write_started.wait(10), "maintenance did not start"
+            with DaemonClient(runtime_dir) as client:
+                assert isinstance(client.send(ShutdownRequest()), OkResponse)
+            submit(advance(), loop_seen.result(timeout=10)).result(timeout=10)
+        finally:
+            write_released.set()
+
+    yield StopScenario(server=server, stop=stop, raised=[], logged=[])
+    assert cleanup_seen == [False], "transport was disposed before maintenance finished"
 
 
 def case_job_worker_fails(
@@ -193,10 +254,10 @@ def case_job_worker_fails(
 ) -> StopScenario:
     """An error the job worker does not expect stops the daemon, logged,
     rather than leaving it answering reads with nothing being built."""
-    server = DaemonServer(
+    server = Daemon(
         runtime_dir, index=empty_index, idle_poll_interval=60.0, busy_poll_interval=60.0
     )
-    mocker.patch.object(server, "_find_next_job", side_effect=RuntimeError("unexpected"))
+    mocker.patch.object(Indexer, "next_job", side_effect=RuntimeError("unexpected"))
 
     def stop() -> None:
         # A watch wakes the worker, which looks for its next job.
@@ -209,10 +270,20 @@ def case_job_worker_fails(
 def case_rejected_watch_does_not_wake_worker(
     runtime_dir: Path, empty_index: Index, mocker: MockerFixture
 ) -> StopScenario:
-    server = DaemonServer(runtime_dir, empty_index, idle_poll_interval=60.0)
-    mocker.patch.object(server, "_find_next_job", side_effect=RuntimeError("unexpected"))
+    server = Daemon(runtime_dir, empty_index, idle_poll_interval=60.0)
+    initial_selection = threading.Event()
+    select = Indexer.next_job
+
+    def next_job(service: Indexer) -> None:
+        if initial_selection.is_set():
+            raise RuntimeError("unexpected")
+        assert select(service) is None
+        initial_selection.set()
+
+    mocker.patch.object(Indexer, "next_job", next_job)
 
     def stop() -> None:
+        assert initial_selection.wait(10), "initial empty selection did not finish"
         with DaemonClient(runtime_dir) as client:
             response = client.send(WatchRequest(repo_path=str(runtime_dir), refs=["HEAD"]))
             assert isinstance(response, ErrorResponse)
@@ -222,11 +293,15 @@ def case_rejected_watch_does_not_wake_worker(
     return StopScenario(server=server, stop=stop, raised=[], logged=[])
 
 
-def case_watcher_fails(runtime_dir: Path, mocker: MockerFixture) -> StopScenario:
+def case_watcher_fails(
+    runtime_dir: Path, empty_index: Index, mocker: MockerFixture
+) -> StopScenario:
     """An error the watcher does not expect stops the daemon, logged,
     rather than leaving it answering reads with nothing being watched."""
-    server = DaemonServer(runtime_dir, index=None, idle_poll_interval=60.0, busy_poll_interval=60.0)
-    mocker.patch.object(server, "_next_poll_interval", side_effect=RuntimeError("unexpected"))
+    server = Daemon(
+        runtime_dir, index=empty_index, idle_poll_interval=60.0, busy_poll_interval=60.0
+    )
+    mocker.patch.object(Indexer, "poll_interval", side_effect=RuntimeError("unexpected"))
     return StopScenario(
         server=server, stop=lambda: None, raised=["unexpected"], logged=["task_failed"]
     )
@@ -245,7 +320,7 @@ def case_stop_with_running_and_queued_rpc(
     rpc_peer: zmq.Socket[bytes],
     mocker: MockerFixture,
 ) -> StopScenario:
-    server = DaemonServer(runtime_dir, seeded_index, idle_poll_interval=60)
+    server = Daemon(runtime_dir, seeded_index, idle_poll_interval=60)
     fail = threading.Event()
 
     def interval() -> float:
@@ -255,7 +330,7 @@ def case_stop_with_running_and_queued_rpc(
         return 0.01
 
     if fails:
-        mocker.patch.object(server, "_next_poll_interval", side_effect=interval)
+        mocker.patch.object(Indexer, "poll_interval", side_effect=interval)
 
     def stop() -> None:
         with ThreadPoolExecutor(max_workers=1) as clients:
@@ -302,7 +377,7 @@ def case_stop_with_running_and_queued_rpc(
 
 
 def case_reply_transport_fails(runtime_dir: Path, mocker: MockerFixture) -> StopScenario:
-    server = DaemonServer(runtime_dir, idle_poll_interval=60)
+    server = Daemon(runtime_dir, idle_poll_interval=60)
     error = zmq.ZMQError(errno.EIO)
     mocker.patch.object(zmq.asyncio.Socket, "send_multipart", side_effect=error)
 

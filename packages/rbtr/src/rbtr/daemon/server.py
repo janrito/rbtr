@@ -1,37 +1,25 @@
-"""Daemon RPC and notification sockets.
-
-ROUTER returns each RPC result to its requesting client. PUB broadcasts
-index progress and readiness notifications to subscribed clients.
-"""
+"""Run the application that answers requests and keeps watched code indexed."""
 
 from __future__ import annotations
 
 import asyncio
 import atexit
 import contextlib
-import itertools
 import os
 import signal
 import threading
 import time
-from collections.abc import Callable
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
-from enum import Enum, auto
 from functools import partial
 from pathlib import Path
-from typing import Any
-from uuid import uuid4
+from typing import assert_never
 
-import duckdb
 import structlog
 import zmq
 import zmq.asyncio
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from rbtr import get_version
 from rbtr.config import config
-from rbtr.daemon import watcher
 from rbtr.daemon.handlers import (
     handle_changed_symbols,
     handle_daemon_config,
@@ -50,15 +38,11 @@ from rbtr.daemon.handlers import (
     handle_unwatch_stale,
     handle_unwatch_stale_all,
     handle_watch,
-    resolve_refs,
 )
 from rbtr.daemon.messages import (
     ActiveJob,
     AutoRebuildNotification,
-    BuildJob,
     EmbedEndedNotification,
-    EmbedJob,
-    EmbedOutcome,
     ErrorCode,
     ErrorResponse,
     GcAllRequest,
@@ -66,68 +50,33 @@ from rbtr.daemon.messages import (
     GcProgressNotification,
     GcRequest,
     GcStartedNotification,
-    HasRepoPath,
     IndexErrorNotification,
-    OkResponse,
+    Notification,
     ProgressNotification,
     ReadyNotification,
-    Request,
     Response,
-    ShutdownRequest,
-    WatchRequest,
-    notification_adapter,
-    request_adapter,
 )
+from rbtr.daemon.rpc import RPC, Handler, RpcResource
 from rbtr.daemon.status import remove_status, write_status
-from rbtr.domain.models import Chunk, Repo
-from rbtr.errors import BuildStopped, IndexNotBuiltError, MissingSnapshot, RbtrError
-from rbtr.git import HEAD_REF, non_commit_shas, normalise_repo_path
-from rbtr.index.build import build_index
-from rbtr.index.embeddings import Embedder, embedding_text
+from rbtr.errors import IndexNotBuiltError, MissingSnapshot
+from rbtr.index import watcher
+from rbtr.index.embeddings import Embedder
 from rbtr.index.index import Index
-from rbtr.index.maintenance import run_maintenance
-from rbtr.index.progress import ProgressCallback
+from rbtr.index.indexer import (
+    BuildJob,
+    BuildReady,
+    CollectionPhase,
+    CollectionProgress,
+    EmbeddingEnded,
+    Indexer,
+    IndexerOutput,
+    IndexingError,
+    RunningJob,
+)
 from rbtr.index.reranker import Reranker
 from rbtr.languages.manager import get_manager
-from rbtr.logging import elapsed_ms
 
 log = structlog.get_logger(__name__)
-
-
-type RequestHandler = Callable[[Any], Response]
-
-
-class _RpcResource(Enum):
-    READ = auto()
-    GPU = auto()
-    WRITE = auto()
-
-
-class _RpcPhase(Enum):
-    QUEUED = auto()
-    RUNNING = auto()
-    REJECTED = auto()
-
-
-@dataclass(frozen=True)
-class _Handler:
-    resource: _RpcResource
-    call: RequestHandler
-
-
-@dataclass(eq=False)
-class _RpcCall:
-    request: Request
-    handler: _Handler
-    envelope: list[bytes]
-    phase: _RpcPhase = _RpcPhase.QUEUED
-
-
-@dataclass(frozen=True)
-class _RpcQueue:
-    capacity: int
-    resource: contextlib.AbstractAsyncContextManager[None]
-    pending: asyncio.Queue[_RpcCall | None] = field(default_factory=asyncio.Queue)
 
 
 def _notify(sock: zmq.Socket, notification: BaseModel) -> None:
@@ -135,36 +84,17 @@ def _notify(sock: zmq.Socket, notification: BaseModel) -> None:
     sock.send(notification.model_dump_json().encode())
 
 
-def _format_validation_error(exc: ValidationError) -> str:
-    """Render a pydantic `ValidationError` as concise per-field feedback.
+class Daemon:
+    """Serve code requests and background indexing for a caller-owned Index.
 
-    Each line names the offending field, what was wrong, and the value
-    actually received — enough for a caller (human or model) to see how
-    an argument was mis-shaped and resend it correctly, for any field,
-    not just one hand-picked failure mode.
+    Construction synchronously seeds HEAD watches. Give it exclusive writable
+    access, before concurrent use or while holding the writer semaphore, off a
+    UI loop. With `index=None`, only configuration and shutdown are available.
+
+    Use `serve` once on one event loop. Stop through `request_shutdown` rather
+    than cancellation, then await serving before closing the supplied Index.
+    Daemon owns its models and transport and closes them during teardown.
     """
-    lines: list[str] = []
-    for err in exc.errors():
-        loc = ".".join(str(part) for part in err["loc"]) or "(root)"
-        received = repr(err.get("input"))
-        if len(received) > 120:
-            received = f"{received[:117]}..."
-        lines.append(f"  - {loc}: {err['msg']} (received: {received})")
-    body = "\n".join(lines) or "  - (no detail)"
-    return f"Invalid request arguments:\n{body}"
-
-
-def _progress_callback(push: zmq.Socket, path: str) -> ProgressCallback:
-    """Return a progress callback that sends `ProgressNotification`s."""
-
-    def on_progress(phase: str, done: int, total: int) -> None:
-        _notify(push, ProgressNotification(repo_path=path, phase=phase, current=done, total=total))
-
-    return on_progress
-
-
-class DaemonServer:
-    """Serve RPC results and publish index notifications."""
 
     def __init__(
         self,
@@ -175,54 +105,27 @@ class DaemonServer:
         busy_poll_interval: float | None = None,
         allow_missing_plugins: bool = False,
     ) -> None:
-        # Defaults come from the central pydantic Config so there is
-        # exactly one source of truth per knob. Callers (currently
-        # only tests) may override either interval explicitly.
-        idle_poll_interval = (
-            idle_poll_interval if idle_poll_interval is not None else config.idle_poll_interval
-        )
-        busy_poll_interval = (
-            busy_poll_interval if busy_poll_interval is not None else config.busy_poll_interval
-        )
+        """Prepare runtime paths and centrally configured model handles.
+
+        `runtime_dir` holds discovery and sockets; poll intervals override config.
+        `allow_missing_plugins` permits serving data with unavailable language
+        plugins; otherwise serving rejects it before readiness.
+        """
         self.runtime_dir = runtime_dir
         self.rpc_addr = f"ipc://{runtime_dir / 'daemon.rpc'}"
         self.pub_addr = f"ipc://{runtime_dir / 'daemon.pub'}"
-        self._shutdown = False
-        self._pub_socket: zmq.asyncio.Socket | None = None
         self._zmq_ctx = zmq.asyncio.Context()
         self._zmq_shadow: zmq.Context = zmq.Context.shadow(self._zmq_ctx)
-        self._handlers: dict[str, _Handler] = {
-            "daemon_config": _Handler(_RpcResource.READ, handle_daemon_config),
-        }
-        self._rpc_lock = threading.Lock()
-        self._rpc_calls: set[_RpcCall] = set()
-        self._rpc_waiting: set[asyncio.Task[None]] = set()
-        self._idle_poll_interval = idle_poll_interval
-        self._busy_poll_interval = busy_poll_interval
+        handlers = {"daemon_config": Handler(RpcResource.READ, handle_daemon_config)}
         self._allow_missing_plugins = allow_missing_plugins
         self._index = index
         self._ready = threading.Event()
-        # The loop `serve()` runs on, so `request_shutdown` can reach it
-        # from another thread.  None until then.
-        self._loop: asyncio.AbstractEventLoop | None = None
         self._embedder: Embedder | None = None
         self._reranker: Reranker | None = None
 
-        # Job worker state — event loop thread only.
-        self._wake = asyncio.Event()
         self._write_sem = asyncio.Semaphore(1)
-        self._active_build: ActiveJob | None = None
-        self._active_embed: ActiveJob | None = None
-        self._started_at: float | None = None
-        # When the worker last finished a job (or the daemon started),
-        # which maintenance measures idleness from.
-        self._idle_since = time.monotonic()
-        # Snapshots whose build raised: not built again until their ref
-        # moves to another snapshot or the daemon restarts.
-        self._failed_builds: set[watcher.FailedBuild] = set()
+        self._indexer: Indexer | None = None
         self._warmup = config.warmup
-        # Whether this daemon embeds: a daemon-wide setting, fixed at start.
-        self._embed = config.embed
         # Serialises all GPU inference (search + embed batches
         # + idle-unload) so Metal is never driven concurrently.
         self._gpu_lock = asyncio.Lock()
@@ -232,14 +135,9 @@ class DaemonServer:
         # Set on shutdown, so an embedding batch in progress ends at once
         # and a build ends before its next file.
         self._stopping = threading.Event()
-        self._rpc_queues = {
-            _RpcResource.READ: _RpcQueue(config.max_concurrent_reads, contextlib.nullcontext()),
-            _RpcResource.GPU: _RpcQueue(1, self._gpu_lock),
-            _RpcResource.WRITE: _RpcQueue(1, self._write_sem),
-        }
 
         if index is not None:
-            if self._embed:
+            if config.embed:
                 self._embedder = Embedder(
                     idle_timeout=config.embed_idle_timeout,
                     gpu_lock=self._gpu_lock,
@@ -252,13 +150,27 @@ class DaemonServer:
                     gpu_lock=self._gpu_lock,
                     load_lock=self._gpu_load_lock,
                 )
-            self._register_index_handlers(index)
-            self._backfill_head_watches(index)
-            if self._embed:
-                self._recover_pending_embeds(index)
-
-    def _register_atexit(self) -> None:
-        atexit.register(self._cleanup)
+            self._indexer = Indexer(
+                index,
+                embedder=self._embedder,
+                gpu_lock=self._gpu_lock,
+                write_sem=self._write_sem,
+                stop=self._stopping,
+                on_output=self._publish_index_output,
+                idle_poll_interval=idle_poll_interval,
+                busy_poll_interval=busy_poll_interval,
+            )
+            handlers.update(self._index_handlers(index))
+        self._rpc = RPC(
+            self._zmq_ctx,
+            self.rpc_addr,
+            handlers=handlers,
+            gpu_lock=self._gpu_lock,
+            write_sem=self._write_sem,
+            index_error=self._index_error,
+            on_shutdown=self.request_shutdown,
+            on_failure=self._stop_when_it_fails,
+        )
 
     def _cleanup(self) -> None:
         remove_status(self.runtime_dir)
@@ -275,66 +187,54 @@ class DaemonServer:
             except Exception:
                 log.exception("reranker_cleanup_failed")
 
-    def _register_index_handlers(self, index: Index) -> None:
-        self._handlers.update(
-            {
-                "search": _Handler(
-                    _RpcResource.GPU,
-                    partial(
-                        handle_search, index=index, embedder=self._embedder, reranker=self._reranker
-                    ),
+    def _index_handlers(self, index: Index) -> dict[str, Handler]:
+        """Bind operations over `index` to their request kinds and resource classes."""
+        return {
+            "search": Handler(
+                RpcResource.GPU,
+                partial(
+                    handle_search, index=index, embedder=self._embedder, reranker=self._reranker
                 ),
-                "search_all": _Handler(
-                    _RpcResource.GPU,
-                    partial(
-                        handle_search_all,
-                        index=index,
-                        embedder=self._embedder,
-                        reranker=self._reranker,
-                    ),
+            ),
+            "search_all": Handler(
+                RpcResource.GPU,
+                partial(
+                    handle_search_all,
+                    index=index,
+                    embedder=self._embedder,
+                    reranker=self._reranker,
                 ),
-                "read_symbol": _Handler(
-                    _RpcResource.READ, partial(handle_read_symbol, index=index)
-                ),
-                "list_symbols": _Handler(
-                    _RpcResource.READ, partial(handle_list_symbols, index=index)
-                ),
-                "find_refs": _Handler(_RpcResource.READ, partial(handle_find_refs, index=index)),
-                "changed_symbols": _Handler(
-                    _RpcResource.READ, partial(handle_changed_symbols, index=index)
-                ),
-                "status": _Handler(
-                    _RpcResource.READ,
-                    partial(handle_status, index=index, snapshot_status=self._snapshot_status),
-                ),
-                "status_all": _Handler(
-                    _RpcResource.READ,
-                    partial(handle_status_all, index=index, snapshot_status=self._snapshot_status),
-                ),
-                "gc": _Handler(_RpcResource.WRITE, partial(self._collect, index=index)),
-                "gc_all": _Handler(_RpcResource.WRITE, partial(self._collect, index=index)),
-                "unwatch": _Handler(_RpcResource.WRITE, partial(handle_unwatch, index=index)),
-                "unwatch_stale": _Handler(
-                    _RpcResource.WRITE, partial(handle_unwatch_stale, index=index)
-                ),
-                "unwatch_stale_all": _Handler(
-                    _RpcResource.WRITE, partial(handle_unwatch_stale_all, index=index)
-                ),
-                "forget": _Handler(_RpcResource.WRITE, partial(handle_forget, index=index)),
-                "forget_stale": _Handler(
-                    _RpcResource.WRITE, partial(handle_forget_stale, index=index)
-                ),
-                "watch": _Handler(_RpcResource.WRITE, partial(handle_watch, index=index)),
-            }
-        )
+            ),
+            "read_symbol": Handler(RpcResource.READ, partial(handle_read_symbol, index=index)),
+            "list_symbols": Handler(RpcResource.READ, partial(handle_list_symbols, index=index)),
+            "find_refs": Handler(RpcResource.READ, partial(handle_find_refs, index=index)),
+            "changed_symbols": Handler(
+                RpcResource.READ, partial(handle_changed_symbols, index=index)
+            ),
+            "status": Handler(
+                RpcResource.READ,
+                partial(handle_status, index=index, snapshot_status=self._snapshot_status),
+            ),
+            "status_all": Handler(
+                RpcResource.READ,
+                partial(handle_status_all, index=index, snapshot_status=self._snapshot_status),
+            ),
+            "gc": Handler(RpcResource.WRITE, partial(self._collect, index=index)),
+            "gc_all": Handler(RpcResource.WRITE, partial(self._collect, index=index)),
+            "unwatch": Handler(RpcResource.WRITE, partial(handle_unwatch, index=index)),
+            "unwatch_stale": Handler(RpcResource.WRITE, partial(handle_unwatch_stale, index=index)),
+            "unwatch_stale_all": Handler(
+                RpcResource.WRITE, partial(handle_unwatch_stale_all, index=index)
+            ),
+            "forget": Handler(RpcResource.WRITE, partial(handle_forget, index=index)),
+            "forget_stale": Handler(RpcResource.WRITE, partial(handle_forget_stale, index=index)),
+            "watch": Handler(
+                RpcResource.WRITE, partial(handle_watch, index=index), self._watch_result
+            ),
+        }
 
     def _collect(self, request: GcRequest | GcAllRequest, index: Index) -> Response:
-        """Run gc on this worker thread, publishing its start, progress and end.
-
-        A ZMQ socket belongs to the thread that made it, so this opens
-        and closes its own PUSH rather than borrowing the loop thread's
-        `_notify_push`, the same rule the build and embed workers follow.
-        """
+        """Run foreground collection with a thread-owned notification socket."""
         push = self._zmq_shadow.socket(zmq.PUSH)
         push.connect("inproc://progress")
         _notify(push, GcStartedNotification())
@@ -355,223 +255,11 @@ class DaemonServer:
             _notify(push, GcEndedNotification())
             push.close()
 
-    def _backfill_head_watches(self, index: Index) -> None:
-        """Seed a `"HEAD"` watch for every registered repo (idempotent).
-
-        Ensures HEAD tracking for repos registered before the
-        `watched_refs` table existed; new repos get their HEAD row
-        through the `index` request path.
-        """
-        repos = index.repos()
-        if not repos:
-            return
-        for repo in repos:
-            with index.session(repo) as ws:
-                ws.add_watched_refs([HEAD_REF])
-        log.info("head_watch_backfill", repos=len(repos))
-
-    def _recover_pending_embeds(self, index: Index) -> None:
-        """Check for indexed commits with un-embedded chunks and wake the worker.
-
-        Handles the case where the daemon crashed after indexing
-        but before embedding completed.  Sets `_wake` so the
-        DB-polling worker picks up the work.
-        """
-        for ref, counts in index.chunk_counts_by_snapshot().items():
-            if not counts.is_fully_embedded:
-                log.info(
-                    "recovering_embed",
-                    repo_id=ref.repo.repo_id,
-                    sha=ref.snapshot_sha[:12],
-                    chunks=counts.unembedded,
-                )
-                self._wake.set()
-                return
-
-    def _run_build(self, job: BuildJob) -> None:
-        """Run a build job.  Called from `to_thread`.
-
-        Owns the inproc PUSH socket it reports progress on for the
-        duration of the job.
-        """
-        index = self._index
-        if index is None:
-            return
-        push = self._zmq_shadow.socket(zmq.PUSH)
-        push.connect("inproc://progress")
-        try:
-            self._build_refs(job, index, push)
-        except BuildStopped:
-            log.info("build_stopped_shutdown", repo=job.repo_path)
-        except Exception as exc:
-            _notify(push, IndexErrorNotification(repo_path=job.repo_path, message=str(exc)))
-            raise
-        finally:
-            push.close()
-
-    def _build_refs(self, job: BuildJob, index: Index, push: zmq.Socket) -> None:
-        """Index each of the job's refs, reporting on *push*."""
-        repo = index.register(job.repo_path)
-
-        try:
-            resolved = resolve_refs(job.repo_path, list(job.refs))
-        except RbtrError as exc:
-            _notify(push, IndexErrorNotification(repo_path=job.repo_path, message=str(exc)))
-            return
-
-        for sha in resolved:
-            result = build_index(
-                job.repo_path,
-                sha,
-                index,
-                on_progress=_progress_callback(push, job.repo_path),
-                stop=self._stopping,
-            )
-            counts = index.chunk_counts_for_snapshot(at=repo.at(sha))
-            _notify(
-                push,
-                ReadyNotification(
-                    repo_path=job.repo_path,
-                    ref=sha,
-                    chunks=counts.total,
-                    embedded=counts.embedded,
-                    edges=result.stats.total_edges,
-                    elapsed=round(result.stats.elapsed_seconds, 2),
-                ),
-            )
-            # Clean up stale worktree tree SHAs.  After a
-            # worktree build, old tree SHAs from previous edits
-            # linger in indexed_snapshots.  After a commit build,
-            # the old worktree was built against the previous
-            # HEAD's tree.  Either way, drop any tree-type SHA
-            # that isn't the one we just built.
-            self._drop_stale_worktree_shas(index, repo, keep=sha)
-
-    @staticmethod
-    def _drop_stale_worktree_shas(index: Index, repo: Repo, *, keep: str) -> None:
-        """Drop old worktree tree SHAs from `indexed_snapshots`.
-
-        After a build (commit or worktree), drops every indexed SHA
-        that is not a commit and is not *keep*, so stale worktree rows
-        do not accumulate between GC runs. The gate is "not a commit"
-        rather than "is a tree", so a row whose object `git gc` has
-        already pruned is dropped too.
-
-        Called from `_build_refs` inside the worker thread's
-        `WriteSession` scope.
-        """
-        indexed = [s.snapshot_sha for s in index.indexed_snapshots(repo)]
-        stale = [sha for sha in non_commit_shas(repo.repo_path, indexed) if sha != keep]
-        if not stale:
-            return
-        with index.session(repo) as ws:
-            for sha in stale:
-                ws.drop_snapshot(snapshot_sha=sha)
-                log.info("dropped_stale_worktree_sha", sha=sha[:12])
-
-    async def _run_embed_async(self, job: EmbedJob) -> None:
-        """Async embed runner — acquires `_gpu_lock` per-batch.
-
-        Releasing the lock between batches bounds how long a
-        concurrent search waits for the GPU to one batch.
-        """
-        index = self._index
-        embedder = self._embedder
-        if index is None or embedder is None:
-            return
-
-        pending = await asyncio.to_thread(index.unembedded_chunk_ids, at=job.at)
-        if not pending:
-            return
-        outstanding = len(pending)
-        outcome = EmbedOutcome.FINISHED
-
-        push = self._zmq_shadow.socket(zmq.PUSH)
-        push.connect("inproc://progress")
-        on_progress = _progress_callback(push, job.repo_path)
-        on_progress("loading_model", 0, 0)
-        done = 0
-        t0 = time.perf_counter()
-
-        try:
-            for page_ids in itertools.batched(pending, config.embedding_page_size, strict=False):
-                page = await asyncio.to_thread(index.chunks_by_id, list(page_ids), at=job.at)
-                for batch in itertools.batched(page, config.embedding_batch_size, strict=False):
-                    texts = [embedding_text(c.name, c.content) for c in batch]
-                    try:
-                        async with self._gpu_lock:
-                            results = await asyncio.to_thread(embedder.embed, texts)
-                    except (RuntimeError, ValueError):
-                        # A shutdown aborts the batch in progress: no failure.
-                        if self._shutdown:
-                            outcome = EmbedOutcome.STOPPED
-                            log.info("embedding_stopped_shutdown", done=done, total=outstanding)
-                            return
-                        log.warning("embedding_batch_failed", exc_info=True)
-                        continue
-                    # Under `_write_sem` like every other write: gc
-                    # compacts a project by copying its file and switching
-                    # to the copy, so a batch that commits to the old file
-                    # during the copy is lost.  gc waits one batch.
-                    async with self._write_sem:
-                        await asyncio.to_thread(
-                            self._write_embed_batch,
-                            index,
-                            job.at.repo,
-                            batch,
-                            [r.vector for r in results],
-                            [r.truncated for r in results],
-                        )
-                    done += len(batch)
-                    on_progress("embedding", done, outstanding)
-                    if self._shutdown:
-                        outcome = EmbedOutcome.STOPPED
-                        log.info("embedding_stopped_shutdown", done=done, total=outstanding)
-                        return
-                    # Stand aside for a build: it wants the worker, which
-                    # runs one job at a time, so only returning frees it.
-                    if await asyncio.to_thread(
-                        watcher.pending_builds, index, frozenset(self._failed_builds)
-                    ):
-                        outcome = EmbedOutcome.STOOD_ASIDE
-                        log.info("embedding_preempted", done=done, total=outstanding)
-                        return
-        finally:
-            if done == 0 and outcome is not EmbedOutcome.STOPPED:
-                # Every batch was rejected by the model.  Without this the
-                # run reports an end with nothing embedded and no reason,
-                # and the worker picks the same job up again.
-                log.warning("embedding_made_no_progress", total=outstanding)
-            final = await asyncio.to_thread(index.chunk_counts_for_snapshot, at=job.at)
-            _notify(
-                push,
-                EmbedEndedNotification(
-                    repo_path=job.repo_path,
-                    ref=job.at.snapshot_sha,
-                    chunks=final.total,
-                    embedded=final.embedded,
-                    outcome=outcome,
-                ),
-            )
-            push.close()
-        log.info("embedded_chunks", done=done, total=outstanding, elapsed_ms=elapsed_ms(t0))
-
-    @staticmethod
-    def _write_embed_batch(
-        index: Index,
-        repo: Repo,
-        batch: tuple[Chunk, ...],
-        vectors: list[list[float]],
-        truncated: list[bool] | None = None,
-    ) -> None:
-        """Write one embedding batch in its own session on *repo*'s file."""
-        with index.session(repo) as session:
-            session.update_embeddings([c.id for c in batch], vectors, truncated=truncated)
-
     def wait_ready(self, timeout: float = 5.0) -> bool:
-        """Block until the server is accepting requests.
+        """Wait up to `timeout` seconds for bound sockets and published discovery.
 
-        Returns True if ready, False if timed out.
+        Return `True` when ready, else `False`. Call outside the serving loop.
+        Model loading and indexing may still be pending.
         """
         return self._ready.wait(timeout=timeout)
 
@@ -583,7 +271,8 @@ class DaemonServer:
         index's tables were missing, and any build creates them.  Called
         from `to_thread`: it reads the store.
         """
-        active = self._active_build
+        run = self._indexer.snapshot() if self._indexer is not None else None
+        active = run.work if run is not None and isinstance(run.work, BuildJob) else None
         if missing is None:
             return active is not None
         # A snapshot was named, so a handler read the store: it is open.
@@ -592,7 +281,7 @@ class DaemonServer:
             return False
         building_it = (
             active is not None
-            and active.ref == missing.snapshot_sha
+            and missing.snapshot_sha in active.refs
             and active.repo_path == missing.repo_path
         )
         if building_it:
@@ -604,161 +293,45 @@ class DaemonServer:
         self,
         path: str | None,
     ) -> tuple[ActiveJob | None, ActiveJob | None]:
-        """Return `(active_build, active_embed)`.
-
-        Only returns jobs whose `path` matches, so a repo's status
-        doesn't show activity from unrelated repos; `None` matches any.
-        """
-        active_build: ActiveJob | None = None
-        if self._active_build is not None and self._started_at is not None:
-            job = self._active_build.model_copy(
-                update={"elapsed_seconds": time.monotonic() - self._started_at}
-            )
-            if path in (None, job.repo_path):
-                active_build = job
-        active_embed: ActiveJob | None = None
-        if self._active_embed is not None and self._started_at is not None:
-            job = self._active_embed.model_copy(
-                update={"elapsed_seconds": time.monotonic() - self._started_at}
-            )
-            if path in (None, job.repo_path):
-                active_embed = job
-        return active_build, active_embed
+        """Return detached build/embed status from one run, filtered by repository."""
+        run = self._indexer.snapshot() if self._indexer is not None else None
+        if run is None or path not in (None, run.work.repo_path):
+            return None, None
+        active = ActiveJob(
+            repo_path=run.work.repo_path,
+            ref="" if isinstance(run.work, BuildJob) else run.work.at.snapshot_sha,
+            phase=run.phase,
+            current=run.current,
+            total=run.total,
+            elapsed_seconds=time.monotonic() - run.started_at,
+        )
+        return (active, None) if isinstance(run.work, BuildJob) else (None, active)
 
     def request_shutdown(self) -> None:
-        """Ask the daemon to stop.  Safe to call from any thread.
+        """Request stop without waiting; safe to call repeatedly from any thread."""
+        self._rpc.request_shutdown()
+        self._stopping.set()
+        if self._indexer is not None:
+            self._indexer.wake()
 
-        `_shutdown` is a plain bool, which the RPC loop reads every
-        100 ms.  Waking the worker is the part that needs care: an
-        `asyncio.Event` may only be touched from the loop thread, so the
-        wake is scheduled on the loop that `serve()` recorded.
-        """
-        with self._rpc_lock:
-            self._shutdown = True
-            self._stopping.set()
-        loop = self._loop
-        if loop is None or loop.is_closed():
-            # Not serving: nothing is waiting on the event, and setting
-            # it here keeps a worker started later from blocking.
-            self._wake.set()
-            return
-        loop.call_soon_threadsafe(self._wake.set)
+    def _watch_result(self, response: Response) -> None:
+        """Wake selection for a returned successful watch response, on the loop."""
+        if not isinstance(response, ErrorResponse) and self._indexer is not None:
+            self._indexer.wake()
 
-    def _find_next_job(self) -> BuildJob | EmbedJob | None:
-        """Query the DB for the next piece of work.
+    def _index_error(self, error: IndexNotBuiltError) -> ErrorResponse:
+        """Map a missing target to an in-progress or not-built response, off the loop."""
+        if self._will_index(error.missing):
+            return ErrorResponse(
+                code=ErrorCode.INDEX_IN_PROGRESS,
+                message="Index is building. Try again shortly.",
+            )
+        return ErrorResponse(code=ErrorCode(error.error_code), message=str(error))
 
-        Priority: builds before embeds, and `pending_builds` decides
-        which build.  Among embeds the most recently indexed snapshot
-        wins, whichever repo holds it, so a build just finished is
-        embedded before an older backlog elsewhere.
-
-        The worker runs one job at a time and clears the active job
-        before asking again, so there is nothing in flight to skip.
-
-        Walks every repo's watched refs and worktree with git, and reads
-        the embedding column for every indexed snapshot.  That is slow
-        enough that `_job_worker` runs it in a thread.
-        """
-        index = self._index
-        if index is None:
-            return None
-
-        for target in watcher.pending_builds(index, frozenset(self._failed_builds)):
-            return BuildJob(repo_path=target.repo_path, refs=(target.snapshot_sha,))
-
-        if not self._embed:
-            return None
-
-        # Embeds: indexed snapshots with un-embedded chunks, newest first.
-        for ref, counts in index.chunk_counts_by_snapshot().items():
-            if counts.is_fully_embedded:
-                continue
-            return EmbedJob(at=ref)
-
-        return None
-
-    def _set_active(self, job: BuildJob | EmbedJob) -> None:
-        """Mark a job as active.  Event loop thread only."""
-        self._started_at = time.monotonic()
-        match job:
-            case BuildJob():
-                self._active_build = ActiveJob(
-                    repo_path=job.repo_path,
-                    ref="",
-                    phase="starting",
-                    current=0,
-                    total=0,
-                    elapsed_seconds=0.0,
-                )
-            case EmbedJob():
-                self._active_embed = ActiveJob(
-                    repo_path=job.repo_path,
-                    ref=job.at.snapshot_sha,
-                    phase="embedding",
-                    current=0,
-                    total=0,
-                    elapsed_seconds=0.0,
-                )
-
-    def _clear_active(self) -> None:
-        """Clear active-job tracking.  Event loop thread only."""
-        self._active_build = None
-        self._active_embed = None
-        self._started_at = None
-        self._idle_since = time.monotonic()
-
-    async def _job_worker(self) -> None:
-        """Async task that polls the DB for work and runs jobs.
-
-        Waits on `_wake`, then finds and runs each job via
-        `asyncio.to_thread` — the search for work is itself too slow to
-        sit on the loop.  Builds before embeds (query ordering).  After a
-        build completes, the worker re-checks for embed work before
-        sleeping.
-
-        Embed jobs use `_run_embed_async` which acquires
-        `_gpu_lock` per-batch, keeping search responsive.
-        Build jobs use the existing monolithic `to_thread` path.
-        """
-        while not self._shutdown:
-            await self._wake.wait()
-            self._wake.clear()
-            while not self._shutdown:
-                # Off the loop: `_find_next_job` walks git per repo and
-                # reads the embedding column.  Safe in a thread because
-                # it only reads, and every store read goes through a
-                # cursor of the reading thread's own (`Index`'s
-                # class docstring).
-                job = await asyncio.to_thread(self._find_next_job)
-                if job is None:
-                    break
-                self._set_active(job)
-                job_ctx: dict[str, str] = {
-                    "job_id": uuid4().hex[:8],
-                    "repo": job.repo_path,
-                    "job_kind": "build" if isinstance(job, BuildJob) else "embed",
-                }
-                if isinstance(job, EmbedJob):
-                    job_ctx["ref"] = job.at.snapshot_sha
-                else:
-                    job_ctx["ref"] = job.refs[0][:12]
-                # Bound for the job's lifetime; `to_thread` copies the
-                # context, so build/embed logs in worker threads carry it.
-                with structlog.contextvars.bound_contextvars(**job_ctx):
-                    try:
-                        if isinstance(job, EmbedJob):
-                            await self._run_embed_async(job)
-                        else:
-                            async with self._write_sem:
-                                await asyncio.to_thread(self._run_build, job)
-                    except Exception:
-                        log.exception("job_failed", job=str(job))
-                        if isinstance(job, BuildJob):
-                            self._failed_builds.update(
-                                watcher.FailedBuild(job.repo_path, sha) for sha in job.refs
-                            )
-                    finally:
-                        self._clear_active()
+    def _stop_when_it_fails(self, task: asyncio.Task[None]) -> None:
+        if not task.cancelled() and (exc := task.exception()) is not None:
+            log.error("task_failed", task=task.get_name(), exc_info=exc)
+            self.request_shutdown()
 
     def _install_signal_handlers(self) -> None:
         """Register signal handlers via the running event loop.
@@ -774,21 +347,23 @@ class DaemonServer:
             loop.add_signal_handler(sig, self.request_shutdown)
 
     async def serve(self) -> None:
-        # Refuse to serve when the index holds languages this process
-        # can't load: rebuilding them would re-extract raw chunks and
-        # churn embeddings. Raises before we announce readiness, so the
-        # caller sees the daemon fail to start. Once, at boot -- never
-        # per build. `--allow-missing-plugins` overrides.
+        """Serve until stop, then finish owned work and dispose of owned resources.
+
+        Return after native work, output, scheduled warmups and cleanup finish;
+        a shutdown-request reply can precede this completion.
+
+        Preflight, transport and background-operation failures reach the caller.
+        Scheduled warmup errors are suppressed. Individual request/job errors
+        use their response/output paths.
+        """
+        # Refuse before readiness if rebuilding would lose unavailable language data.
         if self._index is not None:
             get_manager().require_languages_loaded(
                 self._index.distinct_chunk_languages(),
                 allow_missing=self._allow_missing_plugins,
             )
-        self._loop = asyncio.get_running_loop()
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
-        self._register_atexit()
-
-        # Start idle-unload monitors for GPU models.
+        atexit.register(self._cleanup)
         if self._embedder is not None:
             self._embedder.start_idle_monitor()
         if self._reranker is not None:
@@ -796,28 +371,18 @@ class DaemonServer:
         self._install_signal_handlers()
 
         ctx = self._zmq_ctx
-        router: zmq.asyncio.Socket = ctx.socket(zmq.ROUTER)
-        router.setsockopt(zmq.ROUTER_MANDATORY, 1)
-        router.setsockopt(zmq.LINGER, 0)
         pub: zmq.asyncio.Socket = ctx.socket(zmq.PUB)
-        self._pub_socket = pub
-
-        # inproc PULL receives notifications from worker threads and the
-        # event-loop PUSH socket, then forwards to PUB.
         progress_pull: zmq.asyncio.Socket = ctx.socket(zmq.PULL)
         progress_pull.bind("inproc://progress")
-
-        # Sync PUSH for event-loop-thread sends (watcher, recovery).
-        self._notify_push: zmq.Socket = self._zmq_shadow.socket(zmq.PUSH)
+        self._notify_push: zmq.asyncio.Socket = ctx.socket(zmq.PUSH)
         self._notify_push.connect("inproc://progress")
         warmup_tasks: list[asyncio.Task[None]] = []
+        index_tasks: list[asyncio.Task[None]] = []
+        relay_task: asyncio.Task[None] | None = None
 
-        try:
-            router.bind(self.rpc_addr)
-            pub.bind(self.pub_addr)
-
-            # Write status file only after sockets are bound so clients
-            # never see a file with stale endpoints.
+        def ready() -> None:
+            nonlocal relay_task
+            # RPC and PUB have both bound before publishing discovery.
             write_status(
                 self.runtime_dir,
                 pid=os.getpid(),
@@ -827,7 +392,6 @@ class DaemonServer:
             )
             log.info("daemon_listening", rpc=self.rpc_addr, pub=self.pub_addr)
             self._ready.set()
-
             if self._warmup:
                 if self._embedder is not None:
                     warmup_tasks.append(
@@ -838,396 +402,91 @@ class DaemonServer:
                         asyncio.create_task(asyncio.to_thread(self._reranker.warmup))
                     )
             relay_task = asyncio.create_task(self._notification_relay(progress_pull, pub))
-            worker_task = asyncio.create_task(self._job_worker(), name="job_worker")
-            watcher_task = asyncio.create_task(self._watcher_loop(), name="watcher")
-            maintenance_task = asyncio.create_task(self._maintenance_loop(), name="maintenance")
-
-            def stop_when_it_fails(task: asyncio.Task[None]) -> None:
-                # A daemon that answers reads but builds or watches nothing
-                # hides the failure: log it now, and stop, so `serve()`
-                # raises it.
-                if not task.cancelled() and (exc := task.exception()) is not None:
-                    log.error("task_failed", task=task.get_name(), exc_info=exc)
-                    self.request_shutdown()
-
-            worker_task.add_done_callback(stop_when_it_fails)
-            watcher_task.add_done_callback(stop_when_it_fails)
-            maintenance_task.add_done_callback(stop_when_it_fails)
-            rpc_workers = [
-                asyncio.create_task(
-                    self._rpc_worker(router, resource), name=f"rpc_{resource.name.lower()}_{i}"
+            if self._indexer is not None:
+                index_tasks.extend(
+                    [
+                        asyncio.create_task(self._indexer.run(), name="job_worker"),
+                        asyncio.create_task(self._indexer.watch(), name="watcher"),
+                        asyncio.create_task(self._indexer.maintain(), name="maintenance"),
+                    ]
                 )
-                for resource, rpc_queue in self._rpc_queues.items()
-                for i in range(rpc_queue.capacity)
-            ]
-            for task in rpc_workers:
-                task.add_done_callback(stop_when_it_fails)
-            shutdown_envelope: list[bytes] | None = None
+            for task in index_tasks:
+                task.add_done_callback(self._stop_when_it_fails)
+
+        try:
+            pub.bind(self.pub_addr)
+            await self._rpc.serve(ready)
+        finally:
+            self.request_shutdown()
             try:
-                while not self._shutdown:
-                    if not await router.poll(timeout=100):
-                        continue
-                    frames = await router.recv_multipart()
-                    try:
-                        delimiter = frames.index(b"")
-                    except ValueError:
-                        log.warning("rpc_invalid_envelope")
-                        continue
-                    envelope = frames[: delimiter + 1]
-                    if delimiter == 0:
-                        log.warning("rpc_invalid_envelope")
-                        continue
-                    if len(frames) != delimiter + 2:
-                        await self._reply(
-                            router,
-                            envelope,
-                            ErrorResponse(
-                                code=ErrorCode.INVALID_REQUEST, message="Expected one request body."
-                            ),
-                        )
-                        continue
-                    try:
-                        request = request_adapter.validate_json(frames[-1])
-                    except ValidationError as exc:
-                        await self._reply(
-                            router,
-                            envelope,
-                            ErrorResponse(
-                                code=ErrorCode.INVALID_REQUEST,
-                                message=_format_validation_error(exc),
-                            ),
-                        )
-                        continue
-                    if isinstance(request, ShutdownRequest):
-                        shutdown_envelope = envelope
-                        self.request_shutdown()
-                        break
-                    handler = self._handlers.get(request.kind)
-                    if handler is None:
-                        await self._reply(
-                            router,
-                            envelope,
-                            ErrorResponse(
-                                code=ErrorCode.INVALID_REQUEST,
-                                message=f"No handler for kind: {request.kind}",
-                            ),
-                        )
-                        continue
-                    call = _RpcCall(request, handler, envelope)
-                    with self._rpc_lock:
-                        self._rpc_calls.add(call)
-                    self._rpc_queues[handler.resource].pending.put_nowait(call)
+                await asyncio.gather(*index_tasks, return_exceptions=True)
+                for task in index_tasks:
+                    if not task.cancelled():
+                        task.result()
             finally:
-                self.request_shutdown()
-                try:
-                    await self._finish_rpcs(router, rpc_workers)
-                    if shutdown_envelope is not None:
-                        await self._reply(router, shutdown_envelope, OkResponse())
-                finally:
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await worker_task
-                    watcher_task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await watcher_task
-                    maintenance_task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await maintenance_task
+                if relay_task is not None:
                     relay_task.cancel()
                     with contextlib.suppress(asyncio.CancelledError):
                         await relay_task
-        finally:
-            # Cancelling a to_thread await does not join its native loader.
-            # Finish every scheduled warmup before disposing its model slot.
-            for wt in warmup_tasks:
-                with contextlib.suppress(Exception, asyncio.CancelledError):
-                    await wt
-            self._cleanup()
-            self._loop = None
-            self._pub_socket = None
-            self._notify_push.close()
-            progress_pull.close()
-            router.close()
-            pub.close()
-            ctx.term()
-            log.info("daemon_stopped")
+                # Scheduled native warmups finish even if their executor await is queued.
+                for task in warmup_tasks:
+                    with contextlib.suppress(Exception, asyncio.CancelledError):
+                        await task
+                self._cleanup()
+                self._notify_push.close()
+                progress_pull.close()
+                self._rpc.close()
+                pub.close()
+                ctx.term()
+                log.info("daemon_stopped")
+
+    async def _publish_index_output(self, output: IndexerOutput) -> None:
+        """Project typed indexing output onto the existing notification protocol."""
+        notification: Notification
+        match output:
+            case RunningJob():
+                notification = ProgressNotification(
+                    repo_path=output.work.repo_path,
+                    phase=output.phase,
+                    current=output.current,
+                    total=output.total,
+                )
+            case BuildReady():
+                notification = ReadyNotification(
+                    repo_path=output.at.repo.repo_path,
+                    ref=output.at.snapshot_sha,
+                    chunks=output.counts.total,
+                    embedded=output.counts.embedded,
+                    edges=output.result.stats.total_edges,
+                    elapsed=round(output.result.stats.elapsed_seconds, 2),
+                )
+            case EmbeddingEnded():
+                notification = EmbedEndedNotification(
+                    repo_path=output.at.repo.repo_path,
+                    ref=output.at.snapshot_sha,
+                    chunks=output.counts.total,
+                    embedded=output.counts.embedded,
+                    outcome=output.outcome,
+                )
+            case IndexingError():
+                notification = IndexErrorNotification(
+                    repo_path=output.repo_path, message=output.message
+                )
+            case watcher.WatchedTarget() | watcher.DirtyWorktree():
+                notification = AutoRebuildNotification(
+                    repo_path=output.repo_path, new_ref=output.snapshot_sha
+                )
+            case CollectionPhase.STARTED:
+                notification = GcStartedNotification()
+            case CollectionPhase.ENDED:
+                notification = GcEndedNotification()
+            case CollectionProgress():
+                notification = GcProgressNotification(current=output.current, total=output.total)
+            case _:
+                assert_never(output)
+        await self._notify_push.send(notification.model_dump_json().encode())
 
     async def _notification_relay(self, pull: zmq.asyncio.Socket, pub: zmq.asyncio.Socket) -> None:
-        """Receive notifications from inproc PULL and forward to PUB.
-
-        Also updates active-job progress fields so status queries
-        reflect the latest state.
-        """
+        """Forward notifications from inproc PULL to PUB."""
         while True:
-            raw = await pull.recv()
-            # Update active-job progress from ProgressNotification.
-            self._update_active_from_notification(raw)
-            await pub.send(raw)
-
-    def _update_active_from_notification(self, raw: bytes) -> None:
-        """Carry a progress notification's figures into the active job.
-
-        Validated through the protocol's own adapter, so a change to
-        `ProgressNotification` reaches this rather than silently landing
-        in a default.
-        """
-        try:
-            notification = notification_adapter.validate_json(raw)
-        except ValidationError:
-            log.warning("unparseable_notification", exc_info=True)
-            return
-        if not isinstance(notification, ProgressNotification):
-            return
-        progress = {
-            "phase": notification.phase,
-            "current": notification.current,
-            "total": notification.total,
-        }
-        if self._active_build is not None:
-            self._active_build = self._active_build.model_copy(update=progress)
-        if self._active_embed is not None:
-            self._active_embed = self._active_embed.model_copy(update=progress)
-
-    def _next_poll_interval(self) -> float:
-        """Pick the watcher poll interval based on worker state.
-
-        While a job is active, slow the watcher down so a long
-        embed phase doesn't flood the queue with duplicates for
-        the same stale SHA. Other repos are still detected on the
-        busy cadence — no repo is starved.
-        """
-        if self._active_build is not None or self._active_embed is not None:
-            return self._busy_poll_interval
-        return self._idle_poll_interval
-
-    async def _watcher_loop(self) -> None:
-        """Async task that polls watched refs and dirty worktrees for index work."""
-        while not self._shutdown:
-            await asyncio.sleep(self._next_poll_interval())
-            if self._shutdown:
-                break
-            if self._index is None:
-                continue
-            with structlog.contextvars.bound_contextvars(watch_cycle=uuid4().hex[:8]):
-                for target in await asyncio.to_thread(
-                    watcher.pending_builds, self._index, frozenset(self._failed_builds)
-                ):
-                    match target:
-                        case watcher.WatchedTarget():
-                            log.info(
-                                "watched_ref_stale",
-                                repo=target.repo_path,
-                                ref=target.ref,
-                                sha=target.snapshot_sha[:12],
-                            )
-                        case watcher.DirtyWorktree():
-                            log.info(
-                                "dirty_worktree",
-                                repo=target.repo_path,
-                                tree=target.snapshot_sha[:12],
-                            )
-                    _notify(
-                        self._notify_push,
-                        AutoRebuildNotification(
-                            repo_path=target.repo_path, new_ref=target.snapshot_sha
-                        ),
-                    )
-                    self._wake.set()
-
-    async def _maintenance_loop(self) -> None:
-        """Async task that deletes retired files and runs maintenance when idle.
-
-        Every idle poll it deletes the project files compactions replaced
-        once their delay has passed.  When the worker has had no job for
-        `maintenance_idle_s`, and the last pass is `maintenance_interval_s`
-        old, it runs a maintenance pass.  Both write, so both hold
-        `_write_sem`; a build or embed arriving meanwhile waits for them.
-        """
-        last_pass: float | None = None
-        while not self._shutdown:
-            await asyncio.sleep(self._idle_poll_interval)
-            index = self._index
-            if self._shutdown or index is None:
-                continue
-            async with self._write_sem:
-                await asyncio.to_thread(index.retire_due)
-            now = time.monotonic()
-            idle = self._active_build is None and self._active_embed is None
-            due = last_pass is None or now - last_pass >= config.maintenance_interval_s
-            if idle and due and now - self._idle_since >= config.maintenance_idle_s:
-                async with self._write_sem:
-                    await asyncio.to_thread(self._maintain, index)
-                last_pass = time.monotonic()
-
-    def _maintain(self, index: Index) -> None:
-        """Run a maintenance pass on this worker thread, published as a gc.
-
-        Maintenance is a collection, so it publishes gc's start, progress
-        and end, which clients already show; its own PUSH for the reason
-        `_collect` gives.
-        """
-        push = self._zmq_shadow.socket(zmq.PUSH)
-        push.connect("inproc://progress")
-        log.info("maintenance_started")
-        _notify(push, GcStartedNotification())
-        try:
-            run_maintenance(
-                index,
-                now=datetime.now(UTC),
-                on_progress=lambda _repo_path, done, total: _notify(
-                    push, GcProgressNotification(current=done, total=total)
-                ),
-            )
-        finally:
-            _notify(push, GcEndedNotification())
-            push.close()
-
-    async def _reply(
-        self, router: zmq.asyncio.Socket, envelope: list[bytes], response: Response
-    ) -> None:
-        try:
-            # PyZMQ sockets stay on their owning event loop. A missing or
-            # non-reading peer must not hold a worker or shutdown open.
-            await router.send_multipart(
-                [*envelope, response.model_dump_json().encode()], flags=zmq.DONTWAIT
-            )
-        except zmq.ZMQError as exc:
-            if exc.errno not in (zmq.EHOSTUNREACH, zmq.EAGAIN):
-                raise
-            log.warning("rpc_reply_unavailable", errno=exc.errno)
-
-    async def _rpc_worker(self, router: zmq.asyncio.Socket, resource: _RpcResource) -> None:
-        queue = self._rpc_queues[resource].pending
-        while True:
-            call = await queue.get()
-            try:
-                if call is None:
-                    return
-                response = await self._dispatch(call)
-                if call.phase is not _RpcPhase.REJECTED:
-                    if self._shutdown and call.phase is not _RpcPhase.RUNNING:
-                        response = ErrorResponse(
-                            code=ErrorCode.SHUTTING_DOWN, message="Daemon is shutting down."
-                        )
-                    await self._reply(router, call.envelope, response)
-            finally:
-                queue.task_done()
-                if call is not None:
-                    with self._rpc_lock:
-                        self._rpc_calls.discard(call)
-
-    async def _finish_rpcs(
-        self, router: zmq.asyncio.Socket, workers: list[asyncio.Task[None]]
-    ) -> None:
-        with self._rpc_lock:
-            queued = [call for call in self._rpc_calls if call.phase is not _RpcPhase.RUNNING]
-            for call in queued:
-                call.phase = _RpcPhase.REJECTED
-        try:
-            for call in queued:
-                await self._reply(
-                    router,
-                    call.envelope,
-                    ErrorResponse(code=ErrorCode.SHUTTING_DOWN, message="Daemon is shutting down."),
-                )
-        finally:
-            # Only tasks still acquiring a resource are cancellable. Tasks
-            # awaiting an executor job must finish its native start check.
-            for task in self._rpc_waiting:
-                task.cancel()
-            for rpc_queue in self._rpc_queues.values():
-                queue = rpc_queue.pending
-                while not queue.empty():
-                    queue.get_nowait()
-                    queue.task_done()
-                for _ in range(rpc_queue.capacity):
-                    queue.put_nowait(None)
-            results = await asyncio.gather(*workers, return_exceptions=True)
-            for rpc_queue in self._rpc_queues.values():
-                queue = rpc_queue.pending
-                while not queue.empty():
-                    queue.get_nowait()
-                    queue.task_done()
-            with self._rpc_lock:
-                self._rpc_calls.difference_update(queued)
-        for result in results:
-            if isinstance(result, BaseException) and not isinstance(result, asyncio.CancelledError):
-                raise result
-
-    def _invoke(self, call: _RpcCall) -> Response:
-        # Claim native execution atomically with request_shutdown. An
-        # executor submission is still queued until this check succeeds.
-        with self._rpc_lock:
-            if self._shutdown or call.phase is _RpcPhase.REJECTED:
-                return ErrorResponse(
-                    code=ErrorCode.SHUTTING_DOWN, message="Daemon is shutting down."
-                )
-            call.phase = _RpcPhase.RUNNING
-        request = call.request
-        if isinstance(request, HasRepoPath) and request.repo_path is not None:
-            try:
-                request.repo_path = normalise_repo_path(request.repo_path)
-            except RbtrError as exc:
-                # A bad repo_path (e.g. a client whose cwd is not a git
-                # repo) must not take the whole daemon down: reply with an
-                # error so the surviving daemon keeps serving other repos.
-                log.warning("request_rejected", kind=request.kind, error=str(exc))
-                return ErrorResponse(code=ErrorCode.REPO_NOT_FOUND, message=str(exc))
-            structlog.contextvars.bind_contextvars(repo=request.repo_path)
-        return call.handler.call(request)
-
-    async def _dispatch(self, call: _RpcCall) -> Response:
-        request = call.request
-        # Bind correlation context for this request. All keys reset on
-        # exit, so no state leaks to the next request.
-        req_ctx: dict[str, str] = {"request_id": uuid4().hex[:8], "kind": request.kind}
-        if isinstance(request, HasRepoPath):
-            req_ctx["repo"] = request.repo_path
-        task = asyncio.current_task()
-        if task is None:
-            msg = "RPC dispatch requires an asyncio task"
-            raise RuntimeError(msg)
-        with structlog.contextvars.bound_contextvars(**req_ctx):
-            t0 = time.perf_counter()
-            try:
-                self._rpc_waiting.add(task)
-                try:
-                    async with self._rpc_queues[call.handler.resource].resource:
-                        self._rpc_waiting.discard(task)
-                        with self._rpc_lock:
-                            if self._shutdown:
-                                return ErrorResponse(
-                                    code=ErrorCode.SHUTTING_DOWN, message="Daemon is shutting down."
-                                )
-                        result = await asyncio.to_thread(self._invoke, call)
-                finally:
-                    self._rpc_waiting.discard(task)
-                    # to_thread copies context; carry the canonical path back
-                    # into this request's loop-side completion/error logs.
-                    if isinstance(request, HasRepoPath):
-                        structlog.contextvars.bind_contextvars(repo=request.repo_path)
-                if isinstance(request, WatchRequest) and not isinstance(result, ErrorResponse):
-                    self._wake.set()
-            except IndexNotBuiltError as exc:
-                # A ref/symbol that isn't indexed yet: if the daemon will
-                # index it unasked, it will become queryable soon, so say so
-                # rather than tell the caller to start an index that is
-                # already coming. This is the daemon's single source of
-                # build-awareness; handlers stay build-agnostic.
-                if await asyncio.to_thread(self._will_index, exc.missing):
-                    return ErrorResponse(
-                        code=ErrorCode.INDEX_IN_PROGRESS,
-                        message="Index is building. Try again shortly.",
-                    )
-                log.warning("handler_error", error=str(exc), elapsed_ms=elapsed_ms(t0))
-                return ErrorResponse(code=ErrorCode(exc.error_code), message=str(exc))
-            except RbtrError as exc:
-                log.warning("handler_error", error=str(exc), elapsed_ms=elapsed_ms(t0))
-                return ErrorResponse(code=ErrorCode(exc.error_code), message=str(exc))
-            except duckdb.OutOfMemoryException as exc:
-                log.warning("handler_error", error=str(exc), elapsed_ms=elapsed_ms(t0))
-                return ErrorResponse(code=ErrorCode.OUT_OF_MEMORY, message=str(exc))
-            except Exception as exc:
-                log.exception("handler_error", elapsed_ms=elapsed_ms(t0))
-                return ErrorResponse(code=ErrorCode.INTERNAL, message=str(exc))
-            log.info("request_complete", elapsed_ms=elapsed_ms(t0))
-            return result
+            await pub.send(await pull.recv())

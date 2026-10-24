@@ -36,7 +36,7 @@ from rbtr.domain.models import (
 )
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.errors import BuildStopped
-from rbtr.git import changed_files, list_files, normalise_repo_path
+from rbtr.git import changed_files, list_files, non_commit_shas, normalise_repo_path
 from rbtr.index.index import Index
 from rbtr.index.progress import ProgressCallback, _noop_progress
 from rbtr.index.staging import TokenisedChunk
@@ -48,6 +48,18 @@ from rbtr.languages.plaintext import PLAINTEXT
 from rbtr.rbtrignore import load_ignore
 
 log = structlog.get_logger(__name__)
+
+
+def drop_stale_worktree_shas(index: Index, repo: Repo, *, keep: str) -> None:
+    """Drop other worktree snapshots of repo, retaining keep in finite sessions."""
+    indexed = [s.snapshot_sha for s in index.indexed_snapshots(repo)]
+    stale = [sha for sha in non_commit_shas(repo.repo_path, indexed) if sha != keep]
+    if not stale:
+        return
+    with index.session(repo) as ws:
+        for sha in stale:
+            ws.drop_snapshot(snapshot_sha=sha)
+            log.info("dropped_stale_worktree_sha", sha=sha[:12])
 
 
 @dataclass(frozen=True)

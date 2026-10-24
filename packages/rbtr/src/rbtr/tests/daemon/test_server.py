@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
-from dataclasses import replace
 from pathlib import Path
 
 import duckdb
@@ -17,6 +16,7 @@ import pytest
 import structlog
 import zmq
 from pytest_cases import parametrize_with_cases
+from pytest_mock import MockerFixture
 
 from rbtr.config import config
 from rbtr.daemon.client import DaemonClient
@@ -29,14 +29,13 @@ from rbtr.daemon.messages import (
     GcProgressNotification,
     GcStartedNotification,
     OkResponse,
-    Response,
     ShutdownRequest,
     StatusRequest,
     StatusResponse,
     notification_adapter,
     response_adapter,
 )
-from rbtr.daemon.server import DaemonServer
+from rbtr.daemon.server import Daemon
 from rbtr.domain.models import GcMode
 from rbtr.errors import DaemonBusyError, RbtrError
 from rbtr.index.index import Index
@@ -75,7 +74,7 @@ def test_how_a_daemon_stops(
     assert [e["event"] for e in log_output.entries if e["log_level"] == "error"] == scenario.logged
 
 
-def test_multiple_requests(running_daemon: DaemonServer, fake_repo: str) -> None:
+def test_multiple_requests(running_daemon: Daemon, fake_repo: str) -> None:
     with DaemonClient(running_daemon.runtime_dir) as client:
         r1 = client.send(StatusRequest(repo_path=fake_repo))
         r2 = client.send(StatusRequest(repo_path=fake_repo))
@@ -83,7 +82,7 @@ def test_multiple_requests(running_daemon: DaemonServer, fake_repo: str) -> None
     assert r2.kind == "status"
 
 
-def test_gc_publishes_its_start_progress_and_end(running_daemon: DaemonServer) -> None:
+def test_gc_publishes_its_start_progress_and_end(running_daemon: Daemon) -> None:
     """A gc over every repo publishes one `gc_progress` per repo, between its start and end."""
     sub: zmq.Socket[bytes] = zmq.Context.instance().socket(zmq.SUB)
     sub.connect(running_daemon.pub_addr)
@@ -118,7 +117,7 @@ def test_an_idle_daemon_runs_maintenance(
     """
     monkeypatch.setattr(config, "maintenance_idle_s", 0.0)
     gone = seeded_index.register(str(tmp_path / "gone"))
-    server = DaemonServer(
+    server = Daemon(
         runtime_dir, index=seeded_index, idle_poll_interval=1.0, busy_poll_interval=60.0
     )
     sub: zmq.Socket[bytes] = zmq.Context.instance().socket(zmq.SUB)
@@ -143,7 +142,7 @@ def test_an_idle_daemon_runs_maintenance(
 
 @parametrize_with_cases("message", cases=".cases_server", prefix="message_")
 def test_garbage_returns_error(
-    message: MalformedMessage, running_daemon: DaemonServer, fake_repo: str
+    message: MalformedMessage, running_daemon: Daemon, fake_repo: str
 ) -> None:
     message.client.send_multipart(message.frames)
     frames = message.client.recv_multipart()
@@ -160,7 +159,7 @@ def test_garbage_returns_error(
 
 
 def test_message_without_return_envelope_does_not_stop_service(
-    running_daemon: DaemonServer, fake_repo: str, rpc_peer: zmq.Socket[bytes]
+    running_daemon: Daemon, fake_repo: str, rpc_peer: zmq.Socket[bytes]
 ) -> None:
     rpc_peer.send(b"no-delimiter")
     rpc_peer.send_multipart(
@@ -171,7 +170,7 @@ def test_message_without_return_envelope_does_not_stop_service(
     assert response_adapter.validate_json(frames[-1]).kind == "status"
 
 
-def test_malformed_argument_returns_field_feedback(running_daemon: DaemonServer) -> None:
+def test_malformed_argument_returns_field_feedback(running_daemon: Daemon) -> None:
     """A structurally-invalid argument is rejected with per-field detail.
 
     The error names the offending field and echoes the received value,
@@ -194,7 +193,7 @@ def test_malformed_argument_returns_field_feedback(running_daemon: DaemonServer)
     ctx.term()
 
 
-def test_json_encoded_list_is_decoded_then_validated(running_daemon: DaemonServer) -> None:
+def test_json_encoded_list_is_decoded_then_validated(running_daemon: Daemon) -> None:
     """A JSON-encoded list arg is decoded, then validated by pydantic.
 
     The unwrap only decodes; it does not type-check. A decoded list of
@@ -217,7 +216,7 @@ def test_json_encoded_list_is_decoded_then_validated(running_daemon: DaemonServe
 
 
 def test_non_git_repo_path_returns_error_and_daemon_survives(
-    running_daemon: DaemonServer, fake_repo: str, tmp_path: Path
+    running_daemon: Daemon, fake_repo: str, tmp_path: Path
 ) -> None:
     """A request with a non-git repo_path must not crash the daemon.
 
@@ -246,15 +245,9 @@ def test_non_git_repo_path_returns_error_and_daemon_survives(
     ],
 )
 def test_handler_exception_returns_error(
-    running_daemon: DaemonServer, error: type[Exception], code: ErrorCode
+    running_daemon: Daemon, error: type[Exception], code: ErrorCode, mocker: MockerFixture
 ) -> None:
-    def bad_handler(_request: DaemonConfigRequest) -> Response:
-        msg = "handler broke"
-        raise error(msg)
-
-    running_daemon._handlers["daemon_config"] = replace(
-        running_daemon._handlers["daemon_config"], call=bad_handler
-    )
+    mocker.patch("rbtr.daemon.handlers.get_version", side_effect=error("handler broke"))
 
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(DaemonConfigRequest())
@@ -268,19 +261,14 @@ def test_connection_refused(runtime_dir: Path) -> None:
         client.send(ShutdownRequest())
 
 
-def test_send_or_raise_on_success(running_daemon: DaemonServer) -> None:
+def test_send_or_raise_on_success(running_daemon: Daemon) -> None:
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send_or_raise(ShutdownRequest())
     assert isinstance(resp, OkResponse)
 
 
-def test_send_or_raise_on_error(running_daemon: DaemonServer) -> None:
-    def fail(_request: DaemonConfigRequest) -> ErrorResponse:
-        return ErrorResponse(code=ErrorCode.INTERNAL, message="boom")
-
-    running_daemon._handlers["daemon_config"] = replace(
-        running_daemon._handlers["daemon_config"], call=fail
-    )
+def test_send_or_raise_on_error(running_daemon: Daemon, mocker: MockerFixture) -> None:
+    mocker.patch("rbtr.daemon.handlers.get_version", side_effect=ValueError("boom"))
 
     with (
         DaemonClient(running_daemon.runtime_dir) as client,
@@ -289,7 +277,7 @@ def test_send_or_raise_on_error(running_daemon: DaemonServer) -> None:
         client.send_or_raise(DaemonConfigRequest())
 
 
-def test_send_or_raise_as_narrows_response(running_daemon: DaemonServer) -> None:
+def test_send_or_raise_as_narrows_response(running_daemon: Daemon) -> None:
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send_or_raise_as(OkResponse, ShutdownRequest())
     # mypy would reject a .foo on resp if narrowing didn't work.
@@ -297,7 +285,7 @@ def test_send_or_raise_as_narrows_response(running_daemon: DaemonServer) -> None
 
 
 def test_send_or_raise_as_rejects_mismatched_response(
-    running_daemon: DaemonServer,
+    running_daemon: Daemon,
 ) -> None:
     with (
         DaemonClient(running_daemon.runtime_dir) as client,

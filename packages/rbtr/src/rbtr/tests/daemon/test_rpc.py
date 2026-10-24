@@ -16,7 +16,7 @@ from pytest_cases import parametrize_with_cases
 from pytest_mock import MockerFixture
 
 from rbtr.config import config
-from rbtr.daemon import server as daemon_server
+from rbtr.daemon import rpc as daemon_rpc
 from rbtr.daemon.messages import (
     DaemonConfigRequest,
     ErrorCode,
@@ -32,7 +32,7 @@ from rbtr.daemon.messages import (
     WatchRequest,
     response_adapter,
 )
-from rbtr.daemon.server import DaemonServer
+from rbtr.daemon.server import Daemon
 from rbtr.index.index import Index
 
 from .conftest import serving
@@ -47,21 +47,21 @@ def index(isolated_db: Path) -> Generator[Index]:
 
 
 def test_config_replies_while_repository_discovery_is_running(
-    running_daemon: DaemonServer,
+    running_daemon: Daemon,
     fake_repo: str,
     rpc_send: Callable[[Request], Response],
     mocker: MockerFixture,
 ) -> None:
     started = threading.Event()
     released = threading.Event()
-    normalise = daemon_server.normalise_repo_path
+    normalise = daemon_rpc.normalise_repo_path
 
     def normalise_repo_path(path: str) -> str:
         started.set()
         assert released.wait(20), "repository discovery was not released"
         return normalise(path)
 
-    mocker.patch.object(daemon_server, "normalise_repo_path", side_effect=normalise_repo_path)
+    mocker.patch.object(daemon_rpc, "normalise_repo_path", side_effect=normalise_repo_path)
     with ThreadPoolExecutor(max_workers=2) as clients:
         scoped = clients.submit(rpc_send, StatusRequest(repo_path=fake_repo))
         try:
@@ -79,7 +79,7 @@ def test_reads_finish_while_gpu_and_writer_requests_wait(
     read_request: Request,
     held_query: None,
     held_watch: None,
-    running_daemon: DaemonServer,
+    running_daemon: Daemon,
     fake_repo: str,
     query_started: threading.Event,
     query_released: threading.Event,
@@ -158,7 +158,7 @@ def test_read_capacity_queues_without_rejecting(
 
     mocker.patch.object(seeded_index, "disk_size_bytes", side_effect=disk_size_bytes)
     with (
-        serving(DaemonServer(runtime_dir, seeded_index, idle_poll_interval=60)),
+        serving(Daemon(runtime_dir, seeded_index, idle_poll_interval=60)),
         ThreadPoolExecutor(max_workers=limit) as clients,
     ):
         reads = [clients.submit(rpc_send, StatusRequest(repo_path=fake_repo)) for _ in range(limit)]
@@ -192,7 +192,7 @@ def test_read_capacity_queues_without_rejecting(
 def test_shutdown_errors_resource_waiters_before_running_work_finishes(
     held_query: None,
     held_watch: None,
-    running_daemon: DaemonServer,
+    running_daemon: Daemon,
     seeded_index: Index,
     fake_repo: str,
     daemon_commit: str,
@@ -251,12 +251,12 @@ def test_shutdown_removes_work_waiting_in_the_executor(
     monkeypatch.setattr(config, "reranker_model", "")
     monkeypatch.setattr(config, "warmup", False)
     released = threading.Event()
-    discovery = mocker.spy(daemon_server, "normalise_repo_path")
+    discovery = mocker.spy(daemon_rpc, "normalise_repo_path")
 
     async def scenario() -> None:
         loop = asyncio.get_running_loop()
         occupied = asyncio.Event()
-        server = DaemonServer(runtime_dir, seeded_index, idle_poll_interval=60)
+        server = Daemon(runtime_dir, seeded_index, idle_poll_interval=60)
         with (
             ThreadPoolExecutor(max_workers=1) as executor,
             ThreadPoolExecutor(max_workers=2) as clients,
@@ -309,7 +309,7 @@ def test_shutdown_removes_work_waiting_in_the_executor(
 def test_read_overlapping_registry_changes_returns_a_result_or_domain_error(
     mutation: ForgetRequest | GcRequest,
     held_query: None,
-    running_daemon: DaemonServer,
+    running_daemon: Daemon,
     seeded_index: Index,
     fake_repo: str,
     query_started: threading.Event,
@@ -338,7 +338,7 @@ def test_read_overlapping_registry_changes_returns_a_result_or_domain_error(
 
 def test_disconnected_search_finishes_without_blocking_other_clients(
     held_query: None,
-    running_daemon: DaemonServer,
+    running_daemon: Daemon,
     fake_repo: str,
     query_started: threading.Event,
     query_released: threading.Event,

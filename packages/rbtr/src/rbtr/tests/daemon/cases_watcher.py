@@ -1,4 +1,4 @@
-"""Scenarios for `rbtr.daemon.watcher.poll_watched`.
+"""Scenarios for `rbtr.index.watcher.poll_watched`.
 
 Cases return a `WatcherScenario` — pure declarative data
 describing which repos exist, what each watches, their indexed
