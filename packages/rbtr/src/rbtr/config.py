@@ -267,6 +267,11 @@ usable cores, at most one per 128 MiB of `duckdb_memory_limit`, and at least one
         description="Seconds before unloading the embedding model when idle.  \
 Set to 0 to keep the model loaded.  Only used by the daemon.",
     )
+    max_concurrent_reads: int = Field(
+        default=2,
+        ge=1,
+        description="Concurrent daemon RPCs needing neither GPU nor write ownership. Excess requests wait in memory.",
+    )
     idle_poll_interval: float = Field(
         default=5.0,
         description="Seconds between watcher polls while the build queue is idle.  \

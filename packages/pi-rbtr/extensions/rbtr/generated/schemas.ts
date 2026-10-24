@@ -173,6 +173,7 @@ export const PROTOCOL_DEFS = {
       "repo_not_found",
       "index_locked",
       "daemon_busy",
+      "shutting_down",
       "out_of_memory",
       "internal",
     ],

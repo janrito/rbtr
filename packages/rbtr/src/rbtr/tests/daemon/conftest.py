@@ -14,18 +14,126 @@ import asyncio
 import contextlib
 import tempfile
 import threading
-from collections.abc import Generator, Iterator
+from collections.abc import Callable, Generator, Iterator
 from pathlib import Path
 
 import pygit2
 import pytest
+import zmq
+from pytest_mock import MockerFixture
 
+from rbtr.daemon.client import DaemonClient
+from rbtr.daemon.messages import Request, Response
 from rbtr.daemon.server import DaemonServer
-from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot
+from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot, Repo
+from rbtr.index.embeddings import Embedder
 from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
 
 from ..index.conftest import make_chunk
+
+
+@pytest.fixture
+def rpc_peer(runtime_dir: Path) -> Generator[zmq.Socket[bytes]]:
+    with zmq.Context() as context, context.socket(zmq.DEALER) as peer:
+        peer.setsockopt(zmq.LINGER, 0)
+        peer.setsockopt(zmq.RCVTIMEO, 5000)
+        peer.connect(f"ipc://{runtime_dir / 'daemon.rpc'}")
+        yield peer
+
+
+@pytest.fixture
+def request_peer(runtime_dir: Path) -> Generator[zmq.Socket[bytes]]:
+    with zmq.Context() as context, context.socket(zmq.REQ) as peer:
+        peer.setsockopt(zmq.LINGER, 0)
+        peer.setsockopt(zmq.RCVTIMEO, 5000)
+        peer.connect(f"ipc://{runtime_dir / 'daemon.rpc'}")
+        yield peer
+
+
+@pytest.fixture
+def correlated_request_peer(request_peer: zmq.Socket[bytes]) -> zmq.Socket[bytes]:
+    request_peer.setsockopt(zmq.REQ_CORRELATE, 1)
+    return request_peer
+
+
+@pytest.fixture
+def rpc_send(runtime_dir: Path) -> Callable[[Request], Response]:
+    def send(message: Request) -> Response:
+        with DaemonClient(runtime_dir, wait_budget_s=15) as client:
+            return client.send(message)
+
+    return send
+
+
+@pytest.fixture
+def query_started() -> threading.Event:
+    return threading.Event()
+
+
+@pytest.fixture
+def query_released() -> Generator[threading.Event]:
+    released = threading.Event()
+    yield released
+    released.set()
+
+
+@pytest.fixture
+def held_query(
+    query_started: threading.Event,
+    query_released: threading.Event,
+    stub_embedding_model: None,
+    mocker: MockerFixture,
+) -> None:
+    original = Embedder.embed_single
+
+    def embed_single(embedder: Embedder, text: str) -> list[float]:
+        query_started.set()
+        if not query_released.wait(timeout=20):
+            msg = "query was not released"
+            raise TimeoutError(msg)
+        return original(embedder, text)
+
+    mocker.patch.object(Embedder, "embed_single", embed_single)
+
+
+@pytest.fixture
+def write_started() -> threading.Event:
+    return threading.Event()
+
+
+@pytest.fixture
+def write_released() -> Generator[threading.Event]:
+    released = threading.Event()
+    yield released
+    released.set()
+
+
+@pytest.fixture
+def held_watch(
+    seeded_index: Index,
+    write_started: threading.Event,
+    write_released: threading.Event,
+    mocker: MockerFixture,
+) -> None:
+    original = seeded_index.register
+
+    def register(path: str) -> Repo:
+        write_started.set()
+        if not write_released.wait(20):
+            msg = "watch write was not released"
+            raise TimeoutError(msg)
+        return original(path)
+
+    mocker.patch.object(seeded_index, "register", side_effect=register)
+
+
+@pytest.fixture
+def fake_repo_subdir(fake_repo: str) -> str:
+    """A directory inside `fake_repo`."""
+    path = Path(fake_repo) / "sub"
+    path.mkdir()
+    return str(path)
 
 
 @pytest.fixture

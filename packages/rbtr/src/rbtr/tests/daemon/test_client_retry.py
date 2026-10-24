@@ -8,12 +8,12 @@ sleeps for 150 ms.
 
 from __future__ import annotations
 
-import asyncio
 import os
 import subprocess
 import sys
 import time
 from collections.abc import Generator
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -88,13 +88,13 @@ def test_a_late_reply_is_waited_for_not_asked_for_again(
     """
     calls = 0
 
-    async def slow(_request: object) -> StatusResponse:
+    def slow(_request: StatusRequest) -> StatusResponse:
         nonlocal calls
         calls += 1
-        await asyncio.sleep(0.15)
+        time.sleep(0.15)
         return StatusResponse(state=IndexState.NO_INDEX)
 
-    running_daemon._handlers["status"] = slow
+    running_daemon._handlers["status"] = replace(running_daemon._handlers["status"], call=slow)
 
     with DaemonClient(
         running_daemon.runtime_dir,

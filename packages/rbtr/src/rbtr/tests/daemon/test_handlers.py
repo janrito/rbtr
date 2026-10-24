@@ -411,14 +411,6 @@ def test_status_with_index(
     assert any(w.ref == "HEAD" and w.indexed for w in resp.watched)
 
 
-@pytest.fixture
-def fake_repo_subdir(fake_repo: str) -> str:
-    """A directory inside `fake_repo`."""
-    path = Path(fake_repo) / "sub"
-    path.mkdir()
-    return str(path)
-
-
 @parametrize_with_cases("scenario", prefix="case_status_")
 def test_status_names_the_repository_it_reports_on(
     running_daemon: DaemonServer, scenario: StatusRootScenario

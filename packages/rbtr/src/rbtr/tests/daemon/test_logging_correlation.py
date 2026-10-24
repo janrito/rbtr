@@ -1,97 +1,67 @@
-"""Request and job correlation: the daemon binds correlation keys into
-the logging context so a request or background job can be followed
-across modules.
-
-Asserts on the autouse `log_output` (`LogCapture`), which includes
-`merge_contextvars`, so contextvar binds surface on captured events.
-"""
+"""Request and job correlation through real daemon operations."""
 
 from __future__ import annotations
 
-import asyncio
 import time
 from pathlib import Path
 
-import pytest
 import structlog
 
-from rbtr.daemon.messages import OkResponse, StatusRequest
+from rbtr.config import config
+from rbtr.daemon.client import DaemonClient
+from rbtr.daemon.messages import DaemonConfigRequest, StatusRequest, WatchRequest
 from rbtr.daemon.server import DaemonServer
 from rbtr.index.index import Index
 
 from .conftest import serving
 
 
-@pytest.fixture
-def server(runtime_dir: Path, seeded_index: Index) -> DaemonServer:
-    """A daemon server over the seeded store (no event loop running)."""
-    return DaemonServer(runtime_dir, seeded_index)
+def test_requests_carry_unique_log_contexts(
+    running_daemon: DaemonServer,
+    fake_repo: str,
+    fake_repo_subdir: str,
+    log_output: structlog.testing.LogCapture,
+) -> None:
+    with DaemonClient(running_daemon.runtime_dir) as client:
+        client.send(WatchRequest(repo_path=fake_repo, refs=["HEAD"]))
+        client.send(WatchRequest(repo_path=fake_repo_subdir, refs=["HEAD"]))
+
+    written = [e for e in log_output.entries if e["event"] == "watched_refs_added"]
+    assert len(written) == 2
+    assert all(e["kind"] == "watch" and e["repo"] == fake_repo for e in written)
+    assert written[0]["request_id"] != written[1]["request_id"]
+    completed = [e for e in log_output.entries if e["event"] == "request_complete"]
+    assert len(completed) == 2
+    assert all(e["repo"] == fake_repo for e in completed)
 
 
-def _dispatch_status(server: DaemonServer, repo_path: str) -> None:
-    raw = StatusRequest(repo_path=repo_path).model_dump_json().encode()
-    asyncio.run(server._dispatch(raw))
-
-
-def test_dispatch_binds_a_unique_context_per_request(
-    server: DaemonServer,
+def test_binding_is_scoped_to_the_request(
+    running_daemon: DaemonServer,
     fake_repo: str,
     log_output: structlog.testing.LogCapture,
 ) -> None:
-    async def handler(_req: object) -> OkResponse:
-        structlog.get_logger("t").info("handler_ran")
-        return OkResponse()
+    with DaemonClient(running_daemon.runtime_dir) as client:
+        for _ in range(config.max_concurrent_reads):
+            client.send(StatusRequest(repo_path=fake_repo))
+        for _ in range(config.max_concurrent_reads):
+            client.send(DaemonConfigRequest())
 
-    server._handlers["status"] = handler
-    _dispatch_status(server, fake_repo)
-    _dispatch_status(server, fake_repo)
-
-    ran = [e for e in log_output.entries if e["event"] == "handler_ran"]
-    assert len(ran) == 2
-    assert all("request_id" in e for e in ran)
-    assert all(e["kind"] == "status" for e in ran)
-    assert all(e["repo"] for e in ran)
-    assert ran[0]["request_id"] != ran[1]["request_id"]
-
-
-def test_binding_survives_to_thread(
-    server: DaemonServer,
-    fake_repo: str,
-    log_output: structlog.testing.LogCapture,
-) -> None:
-    def in_thread() -> OkResponse:
-        structlog.get_logger("t").info("in_thread")
-        return OkResponse()
-
-    async def handler(_req: object) -> OkResponse:
-        return await asyncio.to_thread(in_thread)
-
-    server._handlers["status"] = handler
-    _dispatch_status(server, fake_repo)
-
-    threaded = [e for e in log_output.entries if e["event"] == "in_thread"]
-    assert len(threaded) == 1
-    assert "request_id" in threaded[0]
-
-
-def test_binding_is_scoped_to_the_request(server: DaemonServer, fake_repo: str) -> None:
-    # FileSnapshot the context *inside the same task* as the dispatch: a
-    # scoped (`bound_contextvars`) binding is gone once `_dispatch`
-    # returns; an unscoped `bind_contextvars` would leak it here.
-    async def dispatch_then_snapshot() -> dict[str, object]:
-        raw = StatusRequest(repo_path=fake_repo).model_dump_json().encode()
-        await server._dispatch(raw)
-        return dict(structlog.contextvars.get_contextvars())
-
-    assert asyncio.run(dispatch_then_snapshot()) == {}
+    configured = [
+        e
+        for e in log_output.entries
+        if e["event"] == "request_complete" and e["kind"] == "daemon_config"
+    ]
+    assert len(configured) == config.max_concurrent_reads
+    assert all("repo" not in e for e in configured)
 
 
 def test_request_complete_carries_elapsed_ms(
-    server: DaemonServer,
+    running_daemon: DaemonServer,
     fake_repo: str,
     log_output: structlog.testing.LogCapture,
 ) -> None:
-    _dispatch_status(server, fake_repo)
+    with DaemonClient(running_daemon.runtime_dir) as client:
+        client.send(StatusRequest(repo_path=fake_repo))
 
     done = [e for e in log_output.entries if e["event"] == "request_complete"]
     assert len(done) == 1

@@ -61,6 +61,7 @@ class ErrorCode(StrEnum):
     REPO_NOT_FOUND = "repo_not_found"
     INDEX_LOCKED = "index_locked"
     DAEMON_BUSY = "daemon_busy"
+    SHUTTING_DOWN = "shutting_down"
     OUT_OF_MEMORY = "out_of_memory"
     INTERNAL = "internal"
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import duckdb
@@ -20,6 +21,7 @@ from pytest_cases import parametrize_with_cases
 from rbtr.config import config
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import (
+    DaemonConfigRequest,
     ErrorCode,
     ErrorResponse,
     GcAllRequest,
@@ -38,7 +40,7 @@ from rbtr.daemon.server import DaemonServer
 from rbtr.domain.models import GcMode
 from rbtr.errors import DaemonBusyError, RbtrError
 from rbtr.index.index import Index
-from rbtr.tests.daemon.cases_server import StopScenario
+from rbtr.tests.daemon.cases_server import MalformedMessage, StopScenario
 
 from .conftest import serving
 
@@ -58,13 +60,16 @@ def test_how_a_daemon_stops(
 
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
-    assert scenario.server.wait_ready(), "daemon did not start within timeout"
-    scenario.stop()
-    thread.join(timeout=10)
-    if thread.is_alive():
-        scenario.server.request_shutdown()
-        thread.join(timeout=30)
-        pytest.fail("the daemon did not stop")
+    try:
+        assert scenario.server.wait_ready(), "daemon did not start within timeout"
+        scenario.stop()
+        thread.join(timeout=10)
+        assert not thread.is_alive(), "the daemon did not stop"
+    finally:
+        if thread.is_alive():
+            scenario.server.request_shutdown()
+            thread.join(timeout=30)
+            assert not thread.is_alive(), "the daemon did not stop"
 
     assert [str(exc) for exc in raised] == scenario.raised
     assert [e["event"] for e in log_output.entries if e["log_level"] == "error"] == scenario.logged
@@ -136,18 +141,34 @@ def test_an_idle_daemon_runs_maintenance(
     assert gone in seeded_index.missing_since()
 
 
-def test_garbage_returns_error(running_daemon: DaemonServer) -> None:
-    ctx = zmq.Context()
-    sock = ctx.socket(zmq.REQ)
-    sock.setsockopt(zmq.RCVTIMEO, 5000)
-    sock.connect(f"ipc://{running_daemon.runtime_dir / 'daemon.rpc'}")
-    sock.send(b"not json")
-    raw = sock.recv()
-    resp = response_adapter.validate_json(raw)
-    assert isinstance(resp, ErrorResponse)
-    assert resp.code == ErrorCode.INVALID_REQUEST
-    sock.close()
-    ctx.term()
+@parametrize_with_cases("message", cases=".cases_server", prefix="message_")
+def test_garbage_returns_error(
+    message: MalformedMessage, running_daemon: DaemonServer, fake_repo: str
+) -> None:
+    message.client.send_multipart(message.frames)
+    frames = message.client.recv_multipart()
+    assert frames[:-1] == message.reply_prefix
+    response = response_adapter.validate_json(frames[-1])
+    assert isinstance(response, ErrorResponse)
+    assert response.code is ErrorCode.INVALID_REQUEST
+    message.client.send_multipart(
+        [*message.reply_prefix, StatusRequest(repo_path=fake_repo).model_dump_json().encode()]
+    )
+    frames = message.client.recv_multipart()
+    assert frames[:-1] == message.reply_prefix
+    assert response_adapter.validate_json(frames[-1]).kind == "status"
+
+
+def test_message_without_return_envelope_does_not_stop_service(
+    running_daemon: DaemonServer, fake_repo: str, rpc_peer: zmq.Socket[bytes]
+) -> None:
+    rpc_peer.send(b"no-delimiter")
+    rpc_peer.send_multipart(
+        [b"return-hop", b"", StatusRequest(repo_path=fake_repo).model_dump_json().encode()]
+    )
+    frames = rpc_peer.recv_multipart()
+    assert frames[:-1] == [b"return-hop", b""]
+    assert response_adapter.validate_json(frames[-1]).kind == "status"
 
 
 def test_malformed_argument_returns_field_feedback(running_daemon: DaemonServer) -> None:
@@ -227,14 +248,16 @@ def test_non_git_repo_path_returns_error_and_daemon_survives(
 def test_handler_exception_returns_error(
     running_daemon: DaemonServer, error: type[Exception], code: ErrorCode
 ) -> None:
-    async def bad_handler(_request: object) -> Response:
+    def bad_handler(_request: DaemonConfigRequest) -> Response:
         msg = "handler broke"
         raise error(msg)
 
-    running_daemon._handlers["shutdown"] = bad_handler
+    running_daemon._handlers["daemon_config"] = replace(
+        running_daemon._handlers["daemon_config"], call=bad_handler
+    )
 
     with DaemonClient(running_daemon.runtime_dir) as client:
-        resp = client.send(ShutdownRequest())
+        resp = client.send(DaemonConfigRequest())
     assert isinstance(resp, ErrorResponse)
     assert resp.code == code
     assert "handler broke" in resp.message
@@ -252,16 +275,18 @@ def test_send_or_raise_on_success(running_daemon: DaemonServer) -> None:
 
 
 def test_send_or_raise_on_error(running_daemon: DaemonServer) -> None:
-    async def fail(_request: object) -> ErrorResponse:
+    def fail(_request: DaemonConfigRequest) -> ErrorResponse:
         return ErrorResponse(code=ErrorCode.INTERNAL, message="boom")
 
-    running_daemon._handlers["shutdown"] = fail
+    running_daemon._handlers["daemon_config"] = replace(
+        running_daemon._handlers["daemon_config"], call=fail
+    )
 
     with (
         DaemonClient(running_daemon.runtime_dir) as client,
         pytest.raises(RbtrError, match="boom"),
     ):
-        client.send_or_raise(ShutdownRequest())
+        client.send_or_raise(DaemonConfigRequest())
 
 
 def test_send_or_raise_as_narrows_response(running_daemon: DaemonServer) -> None:

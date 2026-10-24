@@ -1,27 +1,7 @@
-"""ZMQ daemon server.
+"""Daemon RPC and notification sockets.
 
-Binds two sockets in `runtime_dir`:
-
-- **REP** (`daemon.rpc`) — synchronous request/response.
-  Receives a `Request` (discriminated on `kind`), dispatches
-  to the matching handler, returns a `Response`.
-- **PUB** (`daemon.pub`) — fan-out notifications.
-  Broadcasts `Notification` messages (index progress,
-  ready, auto-rebuild) to any connected SUB clients (pi-rbtr
-  extension, CLI listeners).
-
-The server uses an asyncio.TaskGroup with named tasks:
-RPC loop, job worker, watcher, notification relay, and
-idle monitor.  Worker threads send progress via zmq
-inproc PUSH; an async PULL task receives and forwards
-to PUB.
-
-Lifecycle::
-
-    server = DaemonServer(Path.home() / ".rbtr")
-    asyncio.run(server.serve())       # blocks until shutdown
-    # or from another thread:
-    server.request_shutdown()         # schedules the stop on the loop
+ROUTER returns each RPC result to its requesting client. PUB broadcasts
+index progress and readiness notifications to subscribed clients.
 """
 
 from __future__ import annotations
@@ -34,8 +14,11 @@ import os
 import signal
 import threading
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from enum import Enum, auto
+from functools import partial
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -88,8 +71,10 @@ from rbtr.daemon.messages import (
     OkResponse,
     ProgressNotification,
     ReadyNotification,
+    Request,
     Response,
     ShutdownRequest,
+    WatchRequest,
     notification_adapter,
     request_adapter,
 )
@@ -109,7 +94,40 @@ from rbtr.logging import elapsed_ms
 log = structlog.get_logger(__name__)
 
 
-type RequestHandler = Callable[[Any], Awaitable[Response]]
+type RequestHandler = Callable[[Any], Response]
+
+
+class _RpcResource(Enum):
+    READ = auto()
+    GPU = auto()
+    WRITE = auto()
+
+
+class _RpcPhase(Enum):
+    QUEUED = auto()
+    RUNNING = auto()
+    REJECTED = auto()
+
+
+@dataclass(frozen=True)
+class _Handler:
+    resource: _RpcResource
+    call: RequestHandler
+
+
+@dataclass(eq=False)
+class _RpcCall:
+    request: Request
+    handler: _Handler
+    envelope: list[bytes]
+    phase: _RpcPhase = _RpcPhase.QUEUED
+
+
+@dataclass(frozen=True)
+class _RpcQueue:
+    capacity: int
+    resource: contextlib.AbstractAsyncContextManager[None]
+    pending: asyncio.Queue[_RpcCall | None] = field(default_factory=asyncio.Queue)
 
 
 def _notify(sock: zmq.Socket, notification: BaseModel) -> None:
@@ -146,7 +164,7 @@ def _progress_callback(push: zmq.Socket, path: str) -> ProgressCallback:
 
 
 class DaemonServer:
-    """ZMQ daemon server managing REP and PUB sockets."""
+    """Serve RPC results and publish index notifications."""
 
     def __init__(
         self,
@@ -173,10 +191,12 @@ class DaemonServer:
         self._pub_socket: zmq.asyncio.Socket | None = None
         self._zmq_ctx = zmq.asyncio.Context()
         self._zmq_shadow: zmq.Context = zmq.Context.shadow(self._zmq_ctx)
-        self._handlers: dict[str, RequestHandler] = {
-            "shutdown": self._handle_shutdown,
-            "daemon_config": lambda req: asyncio.to_thread(handle_daemon_config, req),
+        self._handlers: dict[str, _Handler] = {
+            "daemon_config": _Handler(_RpcResource.READ, handle_daemon_config),
         }
+        self._rpc_lock = threading.Lock()
+        self._rpc_calls: set[_RpcCall] = set()
+        self._rpc_waiting: set[asyncio.Task[None]] = set()
         self._idle_poll_interval = idle_poll_interval
         self._busy_poll_interval = busy_poll_interval
         self._allow_missing_plugins = allow_missing_plugins
@@ -212,6 +232,11 @@ class DaemonServer:
         # Set on shutdown, so an embedding batch in progress ends at once
         # and a build ends before its next file.
         self._stopping = threading.Event()
+        self._rpc_queues = {
+            _RpcResource.READ: _RpcQueue(config.max_concurrent_reads, contextlib.nullcontext()),
+            _RpcResource.GPU: _RpcQueue(1, self._gpu_lock),
+            _RpcResource.WRITE: _RpcQueue(1, self._write_sem),
+        }
 
         if index is not None:
             if self._embed:
@@ -251,102 +276,55 @@ class DaemonServer:
                 log.exception("reranker_cleanup_failed")
 
     def _register_index_handlers(self, index: Index) -> None:
-        emb = self._embedder
-        rnk = self._reranker
-
-        async def _async_search(req: Any) -> Response:
-            async with self._gpu_lock:
-                return await asyncio.to_thread(
-                    handle_search,
-                    req,
-                    index,
-                    embedder=emb,
-                    reranker=rnk,
-                )
-
-        async def _async_search_all(req: Any) -> Response:
-            async with self._gpu_lock:
-                return await asyncio.to_thread(
-                    handle_search_all,
-                    req,
-                    index,
-                    embedder=emb,
-                    reranker=rnk,
-                )
-
-        async def _async_gc(req: Any) -> Response:
-            # Serialise gc against builds/embeds on `_write_sem` so no
-            # writer runs during the copy-and-swap (its writes would be
-            # lost when the swap replaces the file). Run off the event
-            # loop. Compaction is on (`allow_compact`): the rewrite is
-            # lock-free (read-copy-update), so concurrent searches keep
-            # reading and rebind to the new file on their next call.
-            async with self._write_sem:
-                return await asyncio.to_thread(self._collect, req, index)
-
-        async def _async_forget(req: Any) -> Response:
-            # Writes, so it takes `_write_sem` and runs in a thread:
-            # `WriteSession` may only be opened off the event loop and
-            # serialised against the build/embed worker.
-            async with self._write_sem:
-                return await asyncio.to_thread(handle_forget, req, index)
-
-        async def _async_unwatch(req: Any) -> Response:
-            # Writes the watch set: same treatment as forget.
-            async with self._write_sem:
-                return await asyncio.to_thread(handle_unwatch, req, index)
-
-        async def _async_forget_stale(req: Any) -> Response:
-            async with self._write_sem:
-                return await asyncio.to_thread(handle_forget_stale, req, index)
-
-        async def _async_unwatch_stale(req: Any) -> Response:
-            async with self._write_sem:
-                return await asyncio.to_thread(handle_unwatch_stale, req, index)
-
-        async def _async_unwatch_stale_all(req: Any) -> Response:
-            async with self._write_sem:
-                return await asyncio.to_thread(handle_unwatch_stale_all, req, index)
-
-        async def _async_watch(req: Any) -> Response:
-            # Writes the watch set, so same treatment as forget.  `_wake`
-            # is set out here because an `asyncio.Event` may only be set
-            # from the loop thread and the write ran in a worker.
-            async with self._write_sem:
-                response = await asyncio.to_thread(handle_watch, req, index)
-            self._wake.set()
-            return response
-
         self._handlers.update(
             {
-                "search": _async_search,
-                "search_all": _async_search_all,
-                "read_symbol": lambda req: asyncio.to_thread(handle_read_symbol, req, index),
-                "list_symbols": lambda req: asyncio.to_thread(handle_list_symbols, req, index),
-                "find_refs": lambda req: asyncio.to_thread(handle_find_refs, req, index),
-                "changed_symbols": lambda req: asyncio.to_thread(
-                    handle_changed_symbols, req, index
+                "search": _Handler(
+                    _RpcResource.GPU,
+                    partial(
+                        handle_search, index=index, embedder=self._embedder, reranker=self._reranker
+                    ),
                 ),
-                "status": lambda req: asyncio.to_thread(
-                    handle_status,
-                    req,
-                    index,
-                    self._snapshot_status,
+                "search_all": _Handler(
+                    _RpcResource.GPU,
+                    partial(
+                        handle_search_all,
+                        index=index,
+                        embedder=self._embedder,
+                        reranker=self._reranker,
+                    ),
                 ),
-                "status_all": lambda req: asyncio.to_thread(
-                    handle_status_all,
-                    req,
-                    index,
-                    self._snapshot_status,
+                "read_symbol": _Handler(
+                    _RpcResource.READ, partial(handle_read_symbol, index=index)
                 ),
-                "gc": _async_gc,
-                "gc_all": _async_gc,
-                "unwatch": _async_unwatch,
-                "unwatch_stale": _async_unwatch_stale,
-                "unwatch_stale_all": _async_unwatch_stale_all,
-                "forget": _async_forget,
-                "forget_stale": _async_forget_stale,
-                "watch": _async_watch,
+                "list_symbols": _Handler(
+                    _RpcResource.READ, partial(handle_list_symbols, index=index)
+                ),
+                "find_refs": _Handler(_RpcResource.READ, partial(handle_find_refs, index=index)),
+                "changed_symbols": _Handler(
+                    _RpcResource.READ, partial(handle_changed_symbols, index=index)
+                ),
+                "status": _Handler(
+                    _RpcResource.READ,
+                    partial(handle_status, index=index, snapshot_status=self._snapshot_status),
+                ),
+                "status_all": _Handler(
+                    _RpcResource.READ,
+                    partial(handle_status_all, index=index, snapshot_status=self._snapshot_status),
+                ),
+                "gc": _Handler(_RpcResource.WRITE, partial(self._collect, index=index)),
+                "gc_all": _Handler(_RpcResource.WRITE, partial(self._collect, index=index)),
+                "unwatch": _Handler(_RpcResource.WRITE, partial(handle_unwatch, index=index)),
+                "unwatch_stale": _Handler(
+                    _RpcResource.WRITE, partial(handle_unwatch_stale, index=index)
+                ),
+                "unwatch_stale_all": _Handler(
+                    _RpcResource.WRITE, partial(handle_unwatch_stale_all, index=index)
+                ),
+                "forget": _Handler(_RpcResource.WRITE, partial(handle_forget, index=index)),
+                "forget_stale": _Handler(
+                    _RpcResource.WRITE, partial(handle_forget_stale, index=index)
+                ),
+                "watch": _Handler(_RpcResource.WRITE, partial(handle_watch, index=index)),
             }
         )
 
@@ -655,8 +633,9 @@ class DaemonServer:
         `asyncio.Event` may only be touched from the loop thread, so the
         wake is scheduled on the loop that `serve()` recorded.
         """
-        self._shutdown = True
-        self._stopping.set()
+        with self._rpc_lock:
+            self._shutdown = True
+            self._stopping.set()
         loop = self._loop
         if loop is None or loop.is_closed():
             # Not serving: nothing is waiting on the event, and setting
@@ -817,7 +796,9 @@ class DaemonServer:
         self._install_signal_handlers()
 
         ctx = self._zmq_ctx
-        rep: zmq.asyncio.Socket = ctx.socket(zmq.REP)
+        router: zmq.asyncio.Socket = ctx.socket(zmq.ROUTER)
+        router.setsockopt(zmq.ROUTER_MANDATORY, 1)
+        router.setsockopt(zmq.LINGER, 0)
         pub: zmq.asyncio.Socket = ctx.socket(zmq.PUB)
         self._pub_socket = pub
 
@@ -829,9 +810,10 @@ class DaemonServer:
         # Sync PUSH for event-loop-thread sends (watcher, recovery).
         self._notify_push: zmq.Socket = self._zmq_shadow.socket(zmq.PUSH)
         self._notify_push.connect("inproc://progress")
+        warmup_tasks: list[asyncio.Task[None]] = []
 
         try:
-            rep.bind(self.rpc_addr)
+            router.bind(self.rpc_addr)
             pub.bind(self.pub_addr)
 
             # Write status file only after sockets are bound so clients
@@ -846,7 +828,6 @@ class DaemonServer:
             log.info("daemon_listening", rpc=self.rpc_addr, pub=self.pub_addr)
             self._ready.set()
 
-            warmup_tasks: list[asyncio.Task[None]] = []
             if self._warmup:
                 if self._embedder is not None:
                     warmup_tasks.append(
@@ -872,41 +853,100 @@ class DaemonServer:
             worker_task.add_done_callback(stop_when_it_fails)
             watcher_task.add_done_callback(stop_when_it_fails)
             maintenance_task.add_done_callback(stop_when_it_fails)
+            rpc_workers = [
+                asyncio.create_task(
+                    self._rpc_worker(router, resource), name=f"rpc_{resource.name.lower()}_{i}"
+                )
+                for resource, rpc_queue in self._rpc_queues.items()
+                for i in range(rpc_queue.capacity)
+            ]
+            for task in rpc_workers:
+                task.add_done_callback(stop_when_it_fails)
+            shutdown_envelope: list[bytes] | None = None
             try:
                 while not self._shutdown:
-                    if await rep.poll(timeout=100):
-                        raw = await rep.recv()
-                        response = await self._dispatch(raw)
-                        await rep.send(response.model_dump_json().encode())
+                    if not await router.poll(timeout=100):
+                        continue
+                    frames = await router.recv_multipart()
+                    try:
+                        delimiter = frames.index(b"")
+                    except ValueError:
+                        log.warning("rpc_invalid_envelope")
+                        continue
+                    envelope = frames[: delimiter + 1]
+                    if delimiter == 0:
+                        log.warning("rpc_invalid_envelope")
+                        continue
+                    if len(frames) != delimiter + 2:
+                        await self._reply(
+                            router,
+                            envelope,
+                            ErrorResponse(
+                                code=ErrorCode.INVALID_REQUEST, message="Expected one request body."
+                            ),
+                        )
+                        continue
+                    try:
+                        request = request_adapter.validate_json(frames[-1])
+                    except ValidationError as exc:
+                        await self._reply(
+                            router,
+                            envelope,
+                            ErrorResponse(
+                                code=ErrorCode.INVALID_REQUEST,
+                                message=_format_validation_error(exc),
+                            ),
+                        )
+                        continue
+                    if isinstance(request, ShutdownRequest):
+                        shutdown_envelope = envelope
+                        self.request_shutdown()
+                        break
+                    handler = self._handlers.get(request.kind)
+                    if handler is None:
+                        await self._reply(
+                            router,
+                            envelope,
+                            ErrorResponse(
+                                code=ErrorCode.INVALID_REQUEST,
+                                message=f"No handler for kind: {request.kind}",
+                            ),
+                        )
+                        continue
+                    call = _RpcCall(request, handler, envelope)
+                    with self._rpc_lock:
+                        self._rpc_calls.add(call)
+                    self._rpc_queues[handler.resource].pending.put_nowait(call)
             finally:
-                # Ensure worker sees shutdown.
-                self._shutdown = True
-                self._wake.set()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await worker_task
-                watcher_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await watcher_task
-                maintenance_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await maintenance_task
-                relay_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await relay_task
-                for wt in warmup_tasks:
-                    wt.cancel()
-                    # suppress CancelledError (a BaseException, not caught
-                    # by Exception) from the cancel above, plus any warmup
-                    # error — neither matters once we are shutting down.
-                    with contextlib.suppress(Exception, asyncio.CancelledError):
-                        await wt
+                self.request_shutdown()
+                try:
+                    await self._finish_rpcs(router, rpc_workers)
+                    if shutdown_envelope is not None:
+                        await self._reply(router, shutdown_envelope, OkResponse())
+                finally:
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await worker_task
+                    watcher_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await watcher_task
+                    maintenance_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await maintenance_task
+                    relay_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await relay_task
         finally:
+            # Cancelling a to_thread await does not join its native loader.
+            # Finish every scheduled warmup before disposing its model slot.
+            for wt in warmup_tasks:
+                with contextlib.suppress(Exception, asyncio.CancelledError):
+                    await wt
             self._cleanup()
             self._loop = None
             self._pub_socket = None
             self._notify_push.close()
             progress_pull.close()
-            rep.close()
+            router.close()
             pub.close()
             ctx.term()
             log.info("daemon_stopped")
@@ -1041,14 +1081,88 @@ class DaemonServer:
             _notify(push, GcEndedNotification())
             push.close()
 
-    async def _dispatch(self, raw: bytes) -> Response:
+    async def _reply(
+        self, router: zmq.asyncio.Socket, envelope: list[bytes], response: Response
+    ) -> None:
         try:
-            request = request_adapter.validate_json(raw)
-        except ValidationError as exc:
-            return ErrorResponse(
-                code=ErrorCode.INVALID_REQUEST,
-                message=_format_validation_error(exc),
+            # PyZMQ sockets stay on their owning event loop. A missing or
+            # non-reading peer must not hold a worker or shutdown open.
+            await router.send_multipart(
+                [*envelope, response.model_dump_json().encode()], flags=zmq.DONTWAIT
             )
+        except zmq.ZMQError as exc:
+            if exc.errno not in (zmq.EHOSTUNREACH, zmq.EAGAIN):
+                raise
+            log.warning("rpc_reply_unavailable", errno=exc.errno)
+
+    async def _rpc_worker(self, router: zmq.asyncio.Socket, resource: _RpcResource) -> None:
+        queue = self._rpc_queues[resource].pending
+        while True:
+            call = await queue.get()
+            try:
+                if call is None:
+                    return
+                response = await self._dispatch(call)
+                if call.phase is not _RpcPhase.REJECTED:
+                    if self._shutdown and call.phase is not _RpcPhase.RUNNING:
+                        response = ErrorResponse(
+                            code=ErrorCode.SHUTTING_DOWN, message="Daemon is shutting down."
+                        )
+                    await self._reply(router, call.envelope, response)
+            finally:
+                queue.task_done()
+                if call is not None:
+                    with self._rpc_lock:
+                        self._rpc_calls.discard(call)
+
+    async def _finish_rpcs(
+        self, router: zmq.asyncio.Socket, workers: list[asyncio.Task[None]]
+    ) -> None:
+        with self._rpc_lock:
+            queued = [call for call in self._rpc_calls if call.phase is not _RpcPhase.RUNNING]
+            for call in queued:
+                call.phase = _RpcPhase.REJECTED
+        try:
+            for call in queued:
+                await self._reply(
+                    router,
+                    call.envelope,
+                    ErrorResponse(code=ErrorCode.SHUTTING_DOWN, message="Daemon is shutting down."),
+                )
+        finally:
+            # Only tasks still acquiring a resource are cancellable. Tasks
+            # awaiting an executor job must finish its native start check.
+            for task in self._rpc_waiting:
+                task.cancel()
+            for rpc_queue in self._rpc_queues.values():
+                queue = rpc_queue.pending
+                while not queue.empty():
+                    queue.get_nowait()
+                    queue.task_done()
+                for _ in range(rpc_queue.capacity):
+                    queue.put_nowait(None)
+            results = await asyncio.gather(*workers, return_exceptions=True)
+            for rpc_queue in self._rpc_queues.values():
+                queue = rpc_queue.pending
+                while not queue.empty():
+                    queue.get_nowait()
+                    queue.task_done()
+            with self._rpc_lock:
+                self._rpc_calls.difference_update(queued)
+        for result in results:
+            if isinstance(result, BaseException) and not isinstance(result, asyncio.CancelledError):
+                raise result
+
+    def _invoke(self, call: _RpcCall) -> Response:
+        # Claim native execution atomically with request_shutdown. An
+        # executor submission is still queued until this check succeeds.
+        with self._rpc_lock:
+            if self._shutdown or call.phase is _RpcPhase.REJECTED:
+                return ErrorResponse(
+                    code=ErrorCode.SHUTTING_DOWN, message="Daemon is shutting down."
+                )
+            call.phase = _RpcPhase.RUNNING
+        request = call.request
         if isinstance(request, HasRepoPath) and request.repo_path is not None:
             try:
                 request.repo_path = normalise_repo_path(request.repo_path)
@@ -1058,26 +1172,46 @@ class DaemonServer:
                 # error so the surviving daemon keeps serving other repos.
                 log.warning("request_rejected", kind=request.kind, error=str(exc))
                 return ErrorResponse(code=ErrorCode.REPO_NOT_FOUND, message=str(exc))
-        # Bind correlation context for this request.  All keys reset on
+            structlog.contextvars.bind_contextvars(repo=request.repo_path)
+        return call.handler.call(request)
+
+    async def _dispatch(self, call: _RpcCall) -> Response:
+        request = call.request
+        # Bind correlation context for this request. All keys reset on
         # exit, so no state leaks to the next request.
         req_ctx: dict[str, str] = {"request_id": uuid4().hex[:8], "kind": request.kind}
         if isinstance(request, HasRepoPath):
             req_ctx["repo"] = request.repo_path
+        task = asyncio.current_task()
+        if task is None:
+            msg = "RPC dispatch requires an asyncio task"
+            raise RuntimeError(msg)
         with structlog.contextvars.bound_contextvars(**req_ctx):
-            handler = self._handlers.get(request.kind)
-            if handler is None:
-                return ErrorResponse(
-                    code=ErrorCode.INVALID_REQUEST,
-                    message=f"No handler for kind: {request.kind}",
-                )
             t0 = time.perf_counter()
             try:
-                result = await handler(request)
+                self._rpc_waiting.add(task)
+                try:
+                    async with self._rpc_queues[call.handler.resource].resource:
+                        self._rpc_waiting.discard(task)
+                        with self._rpc_lock:
+                            if self._shutdown:
+                                return ErrorResponse(
+                                    code=ErrorCode.SHUTTING_DOWN, message="Daemon is shutting down."
+                                )
+                        result = await asyncio.to_thread(self._invoke, call)
+                finally:
+                    self._rpc_waiting.discard(task)
+                    # to_thread copies context; carry the canonical path back
+                    # into this request's loop-side completion/error logs.
+                    if isinstance(request, HasRepoPath):
+                        structlog.contextvars.bind_contextvars(repo=request.repo_path)
+                if isinstance(request, WatchRequest) and not isinstance(result, ErrorResponse):
+                    self._wake.set()
             except IndexNotBuiltError as exc:
                 # A ref/symbol that isn't indexed yet: if the daemon will
                 # index it unasked, it will become queryable soon, so say so
                 # rather than tell the caller to start an index that is
-                # already coming.  This is the daemon's single source of
+                # already coming. This is the daemon's single source of
                 # build-awareness; handlers stay build-agnostic.
                 if await asyncio.to_thread(self._will_index, exc.missing):
                     return ErrorResponse(
@@ -1097,7 +1231,3 @@ class DaemonServer:
                 return ErrorResponse(code=ErrorCode.INTERNAL, message=str(exc))
             log.info("request_complete", elapsed_ms=elapsed_ms(t0))
             return result
-
-    async def _handle_shutdown(self, _request: ShutdownRequest) -> OkResponse:
-        self.request_shutdown()
-        return OkResponse()
