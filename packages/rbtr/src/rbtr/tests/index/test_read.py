@@ -248,9 +248,8 @@ def test_shared_content_is_one_row_visible_to_both_repos(
     assert [c.id for c in index.chunks(at=repo1.at("head"))] == [shared_chunk.id]
     assert [c.id for c in index.chunks(at=repo2.at("head"))] == [shared_chunk.id]
     with index.reader(repo1) as cur:
-        row = cur.execute("SELECT count(*) FROM chunks").fetchone()
-    assert row is not None
-    assert row[0] == 1
+        rows = cur.sql("SELECT count(*) FROM chunks").fetchall()
+    assert rows == [(1,)]
 
 
 def test_shared_chunk_embedded_once_across_repos(
@@ -479,16 +478,14 @@ def test_gc_chunk_split_agrees_with_real_deletion(
     predicted_dropped = index.count_gc_chunk_split(drop, s.drop_shas).dropped
 
     with index.reader(drop) as cur:
-        before = cur.execute("SELECT count(*) FROM chunks").fetchone()
+        ((before,),) = cur.sql("SELECT count(*) FROM chunks").fetchall()
     with index.session(drop) as ws:
         for sha in s.drop_shas:
             ws.drop_snapshot(snapshot_sha=sha)
     with index.reader(drop) as cur:
-        after = cur.execute("SELECT count(*) FROM chunks").fetchone()
+        ((after,),) = cur.sql("SELECT count(*) FROM chunks").fetchall()
 
-    assert before is not None
-    assert after is not None
-    assert before[0] - after[0] == predicted_dropped
+    assert before - after == predicted_dropped
     assert index.count_orphan_chunks() == 0
 
 
@@ -509,12 +506,12 @@ def test_forget_removes_references_keeps_shared_chunk(
     assert index.repos() == [repo2]
     gone = {"repo_id": repo1.repo_id}
     with index.reader(repo2) as cur:
-        watched = cur.execute("SELECT count(*) FROM watched_refs WHERE repo_id = $repo_id", gone)
-        assert watched.fetchone() == (0,)
-        indexed = cur.execute(
-            "SELECT count(*) FROM indexed_snapshots WHERE repo_id = $repo_id", gone
+        watched = cur.sql("SELECT count(*) FROM watched_refs WHERE repo_id = $repo_id", params=gone)
+        assert watched.fetchall() == [(0,)]
+        indexed = cur.sql(
+            "SELECT count(*) FROM indexed_snapshots WHERE repo_id = $repo_id", params=gone
         )
-        assert indexed.fetchone() == (0,)
+        assert indexed.fetchall() == [(0,)]
     # Repo 2 is untouched and the shared chunk is still visible to it.
     assert index.has_indexed(at=repo2.at("head")) is True
     assert len(index.chunks(at=repo2.at("head"))) > 0

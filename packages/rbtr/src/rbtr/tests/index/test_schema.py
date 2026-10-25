@@ -43,10 +43,10 @@ def test_registry_and_project_file_hold_their_tables(tmp_path: Path) -> None:
     index.close()
     query = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
     with duckdb.connect(str(tmp_path / "index.duckdb"), read_only=True) as con:
-        registry = {row[0] for row in con.execute(query).fetchall()}
+        registry = {row[0] for row in con.sql(query).fetchall()}
     (project_file,) = index_dir_of(tmp_path / "index.duckdb").glob("*.duckdb")
     with duckdb.connect(str(project_file), read_only=True) as con:
-        data = {row[0] for row in con.execute(query).fetchall()}
+        data = {row[0] for row in con.sql(query).fetchall()}
     assert {"meta", "projects", "repos"} <= registry
     assert {"meta", "file_snapshots", "chunks", "edges", "indexed_snapshots"} <= data
     assert "repos" not in data
@@ -160,7 +160,7 @@ def test_embedding_meta_stored_after_change(
     if not scenario.expected_meta_stored:
         return
     with index.reader(index.repo("/repo")) as cur:
-        rows = cur.execute(
+        rows = cur.sql(
             "SELECT key, value FROM meta WHERE key IN ('embedding_model', 'embedding_version')"
         ).fetchall()
     stored = {str(r[0]): str(r[1]) for r in rows}
@@ -289,7 +289,7 @@ def test_checkouts_of_one_repository_share_a_project_file(
         files = {}
         for repo in (main, worktree, elsewhere):
             with index.reader(repo) as cur:
-                files[repo] = cur.execute("SELECT current_database()").fetchone()
+                files[repo] = cur.sql("SELECT current_database()").fetchall()
         assert files[main] == files[worktree]
         assert files[elsewhere] != files[main]
         projects = Path(str(index.db_path)).parent / "index"
@@ -341,9 +341,9 @@ def test_forgetting_a_projects_last_checkout_deletes_its_file(tmp_path: Path) ->
         ws.mark_indexed(snapshot_sha="head")
     query = "SELECT path FROM duckdb_databases() WHERE database_name = current_database()"
     with index.reader(kept) as cur:
-        kept_file = Path(cur.execute(query).fetchall()[0][0]).name
+        kept_file = Path(cur.sql(query).fetchall()[0][0]).name
     with index.reader(forgotten) as cur:
-        forgotten_file = Path(cur.execute(query).fetchall()[0][0]).name
+        forgotten_file = Path(cur.sql(query).fetchall()[0][0]).name
 
     index.forget(forgotten)
 
