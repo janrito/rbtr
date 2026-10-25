@@ -1168,7 +1168,7 @@ writing a claim in the same session, which is what lets one
 re-extraction re-chunk a blob for every checkout sharing it.
 
 **Compaction.** Deleting rows does not shrink a DuckDB file — the
-freed space is kept inside it for reuse, so a file only ever grows.
+freed space is kept inside it for reuse, so a file never shrinks.
 To hand that space back, `gc` finishes by rewriting each project
 file it collected: `Index.compact` switches the project to a
 fresh copy, search index included (see
@@ -1531,8 +1531,8 @@ scores at `0.0` (graceful fallback).
 
 When expansion produces variants, the original query
 vector and all variant vectors are evaluated in a
-single DuckDB scan. The vectors are loaded into a
-cursor-scoped register (`SELECT $vectors`) and joined
+single DuckDB scan. The vectors are registered as the
+cursor-scoped view `_qvecs` and joined
 via `CROSS JOIN` + `MAX(cosine_similarity)` so each
 chunk is scored against the closest matching vector.
 This avoids N separate table scans — benchmarked at
@@ -1540,13 +1540,20 @@ This avoids N separate table scans — benchmarked at
 
 ### FTS index lifecycle
 
-DuckDB's FTS extension persists its inverted index to disk.
-The persisted index survives connection close + reopen and
-is queryable immediately. It does **not** auto-update after
-INSERT or DELETE.
+Lexical search uses DuckDB's FTS extension, scoring with BM25F
+over `name_tokens` and `content_tokens`. An FTS index is ordinary
+tables and SQL macros (`match_bm25`) that the extension writes
+into the file. It persists across close and reopen, and does
+**not** update after `INSERT` or `DELETE`.
 
 Each project file has its own FTS index, made with the file over
 its still empty `chunks` table, so every file has one.
+
+**IDF is neutralised.** After each build every term's document
+frequency is set to 1 (`neutralise_fts_idf.sql`), so a score
+depends on term frequency and document length only. In code a
+term common across chunks is often the one asked for — `config`,
+`model` — and IDF would suppress it.
 
 **Write path** (build, GC): a [write session](#write-path) that
 modified chunks rebuilds its file's FTS index after it commits
@@ -1556,15 +1563,10 @@ index is left with its IDF in place. Making a file and this are
 the only paths that write FTS DDL; a compaction copies the index
 with the rest of the file.
 
-**Read path** (search): queries the existing persisted
-index. Never rebuilds.
-
-DuckDB's MVCC ensures readers see a consistent snapshot
-during a concurrent rebuild — they block briefly on the DDL
-and then execute against the fresh index. A stale index
-(built before the latest inserts) is acceptable during a
-build; it still returns results for previously-indexed
-chunks.
+**Read path** (search): queries the persisted index and never
+rebuilds. A search running during a rebuild reads the previous
+index until the rebuild commits, so a build in progress still
+returns results for the chunks indexed before it.
 
 `incremental = 1`, the extension's trigger-maintained index, does
 not replace the rebuild. It rejects the chunk upsert's
