@@ -113,7 +113,7 @@ class Store:
         self._projects_dir.mkdir(exist_ok=True)
         # An in-memory instance spills to `.tmp` in the working directory
         # unless told otherwise; this is where a file database would.
-        self._con.execute(f"SET temp_directory = {_quote(f'{path}.tmp')}")
+        self._con.execute("SET temp_directory = ?", [f"{path}.tmp"])
         self._attach_registry()
         # Enforce the schema version *while holding the registry* (and
         # thus DuckDB's exclusive lock), so no second process can open
@@ -143,7 +143,7 @@ class Store:
         this process does.
         """
         try:
-            self._con.execute(f"ATTACH {_quote(target)} AS {alias}")
+            self._con.execute(f"ATTACH ? AS {alias}", [target])
         except (duckdb.IOException, duckdb.ResourceInUseException) as exc:
             message = str(exc).lower()
             if "lock" not in message and "file handle conflict" not in message:
@@ -633,17 +633,6 @@ class Store:
 def _alias(file: str) -> str:
     """The name a project file is attached under: `p_` and its uuid."""
     return f"p_{file.removesuffix('.duckdb')}"
-
-
-def _quote(text: str) -> str:
-    """*text* as a SQL string literal.
-
-    DuckDB parses an `ATTACH` path or a `SET` value as a literal and takes
-    neither as a bound parameter, so the value is interpolated: every
-    single quote in it is doubled to keep the literal unbreakable.
-    """
-    escaped = text.replace("'", "''")
-    return f"'{escaped}'"
 
 
 def _delete(path: Path) -> None:

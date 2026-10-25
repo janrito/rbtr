@@ -180,6 +180,19 @@ def _seed_one_chunk(path: Path) -> None:
     seed.close()
 
 
+def test_an_index_under_a_path_with_a_quote_opens_and_reopens(tmp_path: Path) -> None:
+    """A single quote in the index's path reaches DuckDB intact."""
+    path = tmp_path / "o'brien" / "index.duckdb"
+    _seed_one_chunk(path)
+
+    index = Index(path, writable=True)
+    try:
+        [repo] = index.repos()
+        assert len(index.chunks(at=repo.at("head"))) == 1
+    finally:
+        index.close()
+
+
 def test_reading_a_db_rbtr_never_built_says_it_is_not_built(tmp_path: Path) -> None:
     """A read-only open of a DB with no index in it is `IndexNotBuiltError`.
 
