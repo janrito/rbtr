@@ -57,7 +57,7 @@ class IndexNotBuiltError(RbtrError):
 
     def __init__(
         self,
-        message: str = "FTS index not built. Run `rbtr watch` first.",
+        message: str,
         *,
         missing: MissingSnapshot | None = None,
     ) -> None:
