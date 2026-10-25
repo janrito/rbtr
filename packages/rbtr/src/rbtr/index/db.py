@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 
 import duckdb
 import polars as pl
@@ -27,12 +27,20 @@ def registered_views(
     """*cur* with *frames* registered as temp views for the block.
 
     Registering on the cursor keeps the views private to it, so threads
-    reading at once never see each other's.
+    reading at once never see each other's.  The views are dropped when
+    the block exits.  When the block raises inside a transaction, the
+    block's exception propagates and the owner's rollback drops them.
     """
     for name, frame in frames.items():
         cur.register(name, frame)
     try:
         yield cur
-    finally:
-        for name in frames:
-            cur.unregister(name)
+    except BaseException:
+        # A failed statement aborts the transaction, which then refuses
+        # `unregister`; the rollback drops the views instead.
+        with suppress(duckdb.TransactionException):
+            for name in frames:
+                cur.unregister(name)
+        raise
+    for name in frames:
+        cur.unregister(name)

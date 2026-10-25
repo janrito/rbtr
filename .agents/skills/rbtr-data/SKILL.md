@@ -152,7 +152,8 @@ pay a per-row or per-call tax this avoids.
 The lifecycle is always register → execute → unregister, but
 don't hand-write it. Use the `_registered_views` context
 manager: it registers each frame, yields the cursor, and drops
-the views on exit — even if the query raises, so a failed query
+the views on exit. When the query raises inside a transaction,
+the transaction's rollback drops them instead, so a failed query
 can't leak a view onto the cursor:
 
 ```python

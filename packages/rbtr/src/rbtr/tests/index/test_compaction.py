@@ -46,39 +46,40 @@ class ChurnedIndex:
 def churned_index(fake_repo: str, isolated_db: Path) -> Generator[ChurnedIndex]:
     """A file-backed store over `fake_repo`, churned to leave free space.
 
-    All churn is claimed by the repo's single HEAD commit, so a default
-    gc drops nothing and only compaction can change the file size.
-    Re-seeding the same chunks across several committed, checkpointed
-    passes leaves stale row versions in the file — the bloat a
-    re-indexed store accumulates.
+    One pass seeds many chunks; a later pass deletes most of them and
+    their snapshots.  Deleted rows leave free space a rewrite reclaims;
+    DuckDB reuses the space of replaced rows, so re-seeding the same
+    chunks would leave none.  What is left is claimed by the repo's
+    single HEAD commit, so a default gc drops nothing and only
+    compaction can change the file size.
     """
     head = head_sha(fake_repo)
-    # 800 chunks across 3 passes inflates the file past DuckDB's block
-    # granularity; a rewrite then shrinks it. Reopen the store per pass
-    # so each pass's stale row-versions are consolidated onto disk (as
-    # across daemon restarts), accumulating the bloat a rewrite reclaims.
-    for pass_no in range(3):
-        index = Index.from_config(writable=True)
-        repo = index.register(fake_repo)
-        with index.session(repo) as ws:
-            snaps = []
-            for i in range(800):
-                content = (
-                    f"def calculate_retry_backoff_{i}_v{pass_no}(attempt): return 2 ** attempt"
+    # Deleting 720 of 800 chunks frees about 2.6 MB a rewrite reclaims.
+    index = Index.from_config(writable=True)
+    repo = index.register(fake_repo)
+    with index.session(repo) as ws:
+        for i in range(800):
+            ws.add_chunk(
+                make_chunk(
+                    f"chunk-{i}",
+                    name=f"calculate_retry_backoff_{i}",
+                    content=f"def calculate_retry_backoff_{i}(attempt): return 2 ** attempt",
+                    blob=f"blob-{i}",
+                    path=f"m{i}.py",
                 )
-                ws.add_chunk(
-                    make_chunk(
-                        f"chunk-{i}",
-                        name=f"calculate_retry_backoff_{i}",
-                        content=content,
-                        blob=f"blob-{i}",
-                        path=f"m{i}.py",
-                    )
-                )
-                snaps.append(make_snap(head, f"m{i}.py", f"blob-{i}"))
-            ws.insert_snapshots(snaps)
-            ws.mark_indexed(snapshot_sha=head)
-        index.close()
+            )
+        ws.insert_snapshots([make_snap(head, f"m{i}.py", f"blob-{i}") for i in range(800)])
+        ws.mark_indexed(snapshot_sha=head)
+    index.close()
+    # Reopen so the delete is checkpointed in a separate pass, as across
+    # daemon restarts.
+    index = Index.from_config(writable=True)
+    with index.session(repo) as ws:
+        ws.delete_chunks_for_blobs({f"blob-{i}" for i in range(80, 800)}, "")
+        ws.replace_snapshots(
+            [make_snap(head, f"m{i}.py", f"blob-{i}") for i in range(80)], snapshot_sha=head
+        )
+    index.close()
     index = Index.from_config(writable=True)
     yield ChurnedIndex(
         index=index,
@@ -122,9 +123,7 @@ def test_gc_reports_size_change_when_compacting(churned_index: ChurnedIndex) -> 
         allow_compact=True,
     )
     assert response.size_before_bytes > 0
-    # Block rounding can round the byte delta to zero at this scale, so the
-    # reclaim is not strictly less; it is never larger.
-    assert response.size_after_bytes <= response.size_before_bytes
+    assert response.size_after_bytes < response.size_before_bytes
 
 
 def test_disk_size_bytes_reports_the_footprint(churned_index: ChurnedIndex) -> None:

@@ -1055,6 +1055,11 @@ half-read result would break every later call on that thread. A
 relation has no `fetchone()`, so a read through one cannot be
 left half-read; it costs about 60 µs more per statement.
 
+A statement that fails inside a transaction aborts it, and an
+aborted transaction refuses `unregister`. `registered_views`
+therefore lets the statement's exception propagate and leaves
+the views to the owner's rollback.
+
 ### Completion tracking
 
 `indexed_snapshots` records which `(repo, snapshot)` pairs are
@@ -1559,6 +1564,14 @@ and then execute against the fresh index. A stale index
 build; it still returns results for previously-indexed
 chunks.
 
+`incremental = 1`, the extension's trigger-maintained index, does
+not replace the rebuild. It rejects the chunk upsert's
+`ON CONFLICT DO UPDATE` ("not yet supported with REFERENCING NEW
+TABLE AS triggers"), leaves rows changed by `UPDATE` unindexed, and
+increments `dict.df` on insert, which undoes the neutralised IDF.
+Revisit if the extension supports upserts and stops maintaining
+`df`.
+
 ## Storage models vs API DTOs
 
 The read commands (`search`, `read-symbol`, `list-symbols`,
@@ -1743,7 +1756,11 @@ This application-level coordination is distinct from DuckDB's file and
 transaction rules. Reads use thread-local cursors and can overlap writes.
 A read already using a file finishes against it when compaction switches
 to a replacement. Cross-project reads also have their own query pool;
-[Index files](#index-files) explains the storage-level ownership.
+[Index files](#index-files) explains the storage-level ownership. A DuckDB
+connection busy with one thread's call refuses another thread's call
+rather than waiting, so the store's root connection runs `ATTACH` and
+`DETACH` only under the writer semaphore, and other threads only take
+cursors from it, which a busy connection still allows.
 
 Model handles need protection beyond scheduling inference. Idle unload
 takes the same GPU lock so it cannot dispose of a model still in use.
@@ -2137,7 +2154,11 @@ Revisit if the index ever needs concurrent writers.
 
 **One data file per project, named by a registry.** Deleting rows
 never shrinks a DuckDB file, so reclaiming space means writing the
-live data into a new file and using that one instead. Renaming a
+live data into a new file and using that one instead. DuckDB
+reuses the freed space for later writes but returns none to the
+operating system: a file of 60,000 chunks at about 22 MB was
+still 16.0 MB after 90% of them were deleted, and a copy wrote it
+as 1.8 MB. Renaming a
 compacted copy over the open index loses writes after a crash: a
 connection adopted after the rename goes on writing its WAL under
 the copy's old name, which the next open does not look for, and a
@@ -2246,13 +2267,21 @@ about 100 MiB at that size. Threads default to half the usable
 cores, capped at one per 128 MiB of the limit, just above DuckDB's
 documented minimum per thread; the thread count barely moved the
 footprint, and half the cores was faster than either a quarter or
-all of them.
+all of them. DuckDB also starts an asynchronous I/O pool of
+four threads per core, at most 256. rbtr leaves it at its default:
+capping it at `duckdb_threads` changed neither the test suite's
+time nor memory, only the number of idle threads (49 to 10).
+Revisit if rbtr reads files over a network.
 
 ### Search
 
 **Exact cosine over approximate NN.** Exact recall
 outweighs marginal latency. Revisit when query latency is
-measured as a bottleneck.
+measured as a bottleneck. DuckDB's `NEAREST` join returns
+the same top 50 more slowly: on a 23,542-chunk file the current
+query took 0.68 s, an exact `NEAREST` join 1.50 s and `APPROX
+NEAREST` 1.30 s. Revisit if DuckDB gains a vector index the join
+uses.
 
 **Client-supplied query expansion over static rules.**
 Query expansion (synonym keywords and variant phrasings)

@@ -144,7 +144,7 @@ class Store:
         """
         try:
             self._con.execute(f"ATTACH {_quote(target)} AS {alias}")
-        except (duckdb.IOException, duckdb.BinderException) as exc:
+        except (duckdb.IOException, duckdb.ResourceInUseException) as exc:
             message = str(exc).lower()
             if "lock" not in message and "file handle conflict" not in message:
                 raise
