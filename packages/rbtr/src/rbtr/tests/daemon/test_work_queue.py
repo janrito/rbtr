@@ -26,7 +26,7 @@ from rbtr.index.indexer import BuildJob, EmbeddingEnded, EmbedJob, Indexer, Inde
 from ..conftest import make_commit
 from ..index.conftest import make_chunk
 from .cases_work_queue import NextJobScenario
-from .conftest import serving
+from .conftest import serving, subscribed
 
 
 @fixture
@@ -163,10 +163,9 @@ def test_a_build_that_fails_is_reported_once_and_not_retried(
     server = Daemon(
         runtime_dir, index=seeded_index, idle_poll_interval=0.05, busy_poll_interval=0.05
     )
-    sub: zmq.Socket[bytes] = zmq.Context.instance().socket(zmq.SUB)
     errors: list[IndexErrorNotification] = []
 
-    def receive_for(seconds: float, *, until_error: bool) -> None:
+    def receive_for(sub: zmq.Socket[bytes], seconds: float, *, until_error: bool) -> None:
         deadline = time.monotonic() + seconds
         while (remaining := deadline - time.monotonic()) > 0:
             if not sub.poll(int(remaining * 1000)):
@@ -177,14 +176,10 @@ def test_a_build_that_fails_is_reported_once_and_not_retried(
                 if until_error:
                     return
 
-    with serving(server):
-        sub.connect(server.pub_addr)
-        sub.subscribe(b"")
-        time.sleep(0.5)  # the subscription reaches the daemon
+    with serving(server), subscribed(server, fake_repo) as sub:
         with DaemonClient(server.runtime_dir) as client:
             client.send(WatchRequest(repo_path=fake_repo, refs=["broken"]))
-        receive_for(10.0, until_error=True)
-        receive_for(1.0, until_error=False)  # twenty polls
-    sub.close()
+        receive_for(sub, 30.0, until_error=True)
+        receive_for(sub, 1.0, until_error=False)  # twenty polls
 
     assert len(errors) == 1
