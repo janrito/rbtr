@@ -88,9 +88,19 @@ def test_chunks_cannot_be_committed_without_a_claim(index: Index) -> None:
         lambda index, repo: index.compact(repo),
         lambda index, repo: index.compact_all(),
         lambda index, repo: index.compact_grown(1.0),
+        lambda index, repo: index.rebuild_fts(),
         lambda index, repo: index.set_missing_since(repo, None),
     ],
-    ids=["session", "register", "forget", "compact", "compact_all", "compact_grown", "missing"],
+    ids=[
+        "session",
+        "register",
+        "forget",
+        "compact",
+        "compact_all",
+        "compact_grown",
+        "rebuild_fts",
+        "missing",
+    ],
 )
 def test_a_read_only_index_refuses_every_write(
     tmp_path: Path, write: Callable[[Index, Repo], object]

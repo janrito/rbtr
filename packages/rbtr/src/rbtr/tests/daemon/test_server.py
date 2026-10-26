@@ -106,6 +106,8 @@ def test_gc_publishes_its_start_progress_and_end(running_daemon: Daemon) -> None
 def test_an_idle_daemon_runs_maintenance(
     runtime_dir: Path,
     seeded_index: Index,
+    fake_repo: str,
+    daemon_commit: str,
     stub_embedding_model: None,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -113,10 +115,14 @@ def test_an_idle_daemon_runs_maintenance(
     """A daemon idle for `maintenance_idle_s` runs a pass, published as a gc.
 
     The pass records the registered checkout whose path is gone as missing,
-    which starts its grace period, and collects the live repo.
+    which starts its grace period, collects the live repo, and rebuilds the
+    FTS index no write changed.
     """
     monkeypatch.setattr(config, "maintenance_idle_s", 0.0)
     gone = seeded_index.register(str(tmp_path / "gone"))
+    live = seeded_index.repo(fake_repo)
+    with seeded_index.reader(live) as cur:
+        cur.execute("PRAGMA drop_fts_index('chunks')")
     server = Daemon(
         runtime_dir, index=seeded_index, idle_poll_interval=1.0, busy_poll_interval=60.0
     )
@@ -138,6 +144,7 @@ def test_an_idle_daemon_runs_maintenance(
         GcEndedNotification(),
     ]
     assert gone in seeded_index.missing_since()
+    assert len(seeded_index.fulltext_matches("load_config", within=[live.at(daemon_commit)])) > 0
 
 
 @parametrize_with_cases("message", cases=".cases_server", prefix="message_")

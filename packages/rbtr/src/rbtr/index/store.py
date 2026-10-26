@@ -424,6 +424,16 @@ class Store:
             self._compact_project(project_id)
         return len(grown)
 
+    def rebuild_fts(self) -> int:
+        """Rebuild every project file's FTS index; return how many were rebuilt.
+
+        A rebuild writes the index in the loaded FTS extension's format.
+        """
+        self.require_writable()
+        for file in self._file_of.values():
+            build_fts(self._cursor_for(_alias(file)))
+        return len(self._file_of)
+
     def missing_since(self) -> dict[Repo, datetime]:
         """When each repo whose path was found gone was first found so."""
         rows = self._registry().sql(_LIST_MISSING_REPOS_SQL).fetchall()
