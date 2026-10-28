@@ -32,14 +32,14 @@ from rbtr.domain.models import (
     FileOutcome,
     FileSnapshot,
     IndexResult,
-    SnapshotRef,
+    Repo,
 )
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.errors import BuildStopped
-from rbtr.git import changed_files, list_files, normalise_repo_path
+from rbtr.git import changed_files, list_files, non_commit_shas, normalise_repo_path
+from rbtr.index.index import Index
 from rbtr.index.progress import ProgressCallback, _noop_progress
 from rbtr.index.staging import TokenisedChunk
-from rbtr.index.store import IndexStore
 from rbtr.languages.chunks import detect_prose_format, host_presence_chunk
 from rbtr.languages.edges import build_resolution_map, infer_import_edges
 from rbtr.languages.extract import extract_file
@@ -50,7 +50,16 @@ from rbtr.rbtrignore import load_ignore
 log = structlog.get_logger(__name__)
 
 
-# ── Build phases ─────────────────────────────────────────────────────
+def drop_stale_worktree_shas(index: Index, repo: Repo, *, keep: str) -> None:
+    """Drop other worktree snapshots of repo, retaining keep in finite sessions."""
+    indexed = [s.snapshot_sha for s in index.indexed_snapshots(repo)]
+    stale = [sha for sha in non_commit_shas(repo.repo_path, indexed) if sha != keep]
+    if not stale:
+        return
+    with index.session(repo) as ws:
+        for sha in stale:
+            ws.drop_snapshot(snapshot_sha=sha)
+            log.info("dropped_stale_worktree_sha", sha=sha[:12])
 
 
 @dataclass(frozen=True)
@@ -114,10 +123,10 @@ class _Extracted:
 
 def _extract_and_store_chunks(
     *,
-    store: IndexStore,
+    index: Index,
     repo_path: str,
     snapshot_sha: str,
-    repo_id: int,
+    repo: Repo,
     base_sha: str | None = None,
     on_progress: ProgressCallback = _noop_progress,
     stop: threading.Event | None = None,
@@ -126,8 +135,6 @@ def _extract_and_store_chunks(
 
     When *base_sha* is provided, only files that changed between
     *base_sha* and *snapshot_sha* are extracted.
-
-    Opens its own session with an explicit sweep.
     """
     mgr = get_manager()
     # Each chunk is stamped with its OWN language's extraction serial, not
@@ -161,8 +168,7 @@ def _extract_and_store_chunks(
     }
     manifests: dict[str, str] = {}
 
-    with store.session() as session:
-        session.sweep()
+    with index.session(repo) as session:
         # Stream files from git.  Content is only held during
         # extraction, then released by the iterator.
         for entry in list_files(
@@ -183,7 +189,7 @@ def _extract_and_store_chunks(
             # file was extracted as, so a row without one has no chunks.
             detected_lang = mgr.detect_language(entry.path) or ""
             if not detected_lang:
-                detected_lang = store.get_snapshot_language(entry.path, repo_id=repo_id)
+                detected_lang = session.get_snapshot_language(entry.path)
 
             # A file contributes no chunks when it is unchanged since the
             # base snapshot, or when the gate finds its blob already
@@ -210,7 +216,7 @@ def _extract_and_store_chunks(
                 serial = reg.extraction_serial if reg else 1
 
                 # Blob dedup gate.
-                if store.blob_is_current(entry.blob_sha, detected_lang, dedup_serials):
+                if session.blob_is_current(entry.blob_sha, detected_lang, dedup_serials):
                     result.stats.record(FileOutcome.SKIPPED_CURRENT)
                 else:
                     try:
@@ -237,9 +243,7 @@ def _extract_and_store_chunks(
 
             on_progress("parsing", result.stats.total_files, result.stats.total_files)
 
-        session.replace_snapshots(
-            snapshots, at=SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha)
-        )
+        session.replace_snapshots(snapshots, snapshot_sha=snapshot_sha)
 
     # Every outcome that occurred, by name, so a run's file count is
     # accounted for in the log line that reports it.
@@ -254,12 +258,12 @@ def _extract_and_store_chunks(
 
 def _infer_and_store_edges(
     *,
-    store: IndexStore,
+    index: Index,
     chunks: list[Chunk],
     repo_files: set[str],
     manifests: dict[str, str],
     snapshot_sha: str,
-    repo_id: int,
+    repo: Repo,
     on_progress: ProgressCallback,
 ) -> int:
     """Infer cross-file edges and write them. Returns edge count."""
@@ -269,21 +273,21 @@ def _infer_and_store_edges(
     edges: list[Edge] = []
     edges.extend(infer_import_edges(chunks, repo_files, resolution_map))
 
-    with store.session() as session:
-        session.replace_edges(edges, at=SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha))
+    with index.session(repo) as session:
+        session.replace_edges(edges, snapshot_sha=snapshot_sha)
 
     log.info("inferred_edges", edges=len(edges))
     return len(edges)
 
 
 def _mark_indexed_and_cleanup(
-    *, store: IndexStore, repo_id: int, snapshot_sha: str, on_progress: ProgressCallback
+    *, index: Index, repo: Repo, snapshot_sha: str, on_progress: ProgressCallback
 ) -> None:
     """Mark the commit indexed and remove orphaned data."""
     on_progress("finalising", 0, 0)
-    with store.session() as session:
-        session.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha))
-        cleaned = session.cleanup(repo_id)
+    with index.session(repo) as session:
+        session.mark_indexed(snapshot_sha=snapshot_sha)
+        cleaned = session.cleanup()
         if cleaned.file_snapshots or cleaned.edges or cleaned.chunks:
             log.info(
                 "cleanup",
@@ -293,13 +297,10 @@ def _mark_indexed_and_cleanup(
             )
 
 
-# ── Public API ───────────────────────────────────────────────────────
-
-
 def build_index(
     repo_path: str,
     snapshot_sha: str,
-    store: IndexStore,
+    index: Index,
     *,
     base_sha: str | None = None,
     on_progress: ProgressCallback = _noop_progress,
@@ -314,10 +315,11 @@ def build_index(
 
     *repo_path* may be any path inside the repository; it is resolved
     to the root and registered if not already known, since indexing a
-    path is what puts a repo in the index.  The `repo_id` comes from
+    path is what puts a repo in the index.  The repo comes from
     that lookup rather than from the caller, so it always matches the
     path being built.  A linked worktree resolves to its own
-    directory, and so is built as a repo of its own.
+    directory, and so is built as a repo of its own, in its main
+    checkout's project.
 
     When *base_sha* is provided, only files that changed between
     *base_sha* and *snapshot_sha* are considered for extraction.
@@ -333,15 +335,14 @@ def build_index(
     # crash part-way through leaves an unused repos row rather than
     # indexed rows that nothing can find.
     repo_path = normalise_repo_path(repo_path)
-    with store.session() as session:
-        repo_id = session.register_repo(repo_path)
+    repo = index.register(repo_path)
 
     # Phase 1: extract chunks from git, write to DB.
     extracted = _extract_and_store_chunks(
-        store=store,
+        index=index,
         repo_path=repo_path,
         snapshot_sha=snapshot_sha,
-        repo_id=repo_id,
+        repo=repo,
         base_sha=base_sha,
         on_progress=on_progress,
         stop=stop,
@@ -352,16 +353,16 @@ def build_index(
     # Fetch committed chunks for edge inference.
     # Lightweight: skips content_tokens/name_tokens (~37% smaller).
     result = extracted.result
-    all_chunks = store.get_chunks(at=SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha))
+    all_chunks = index.chunks(at=repo.at(snapshot_sha))
 
     # Phase 2: infer cross-file edges.
     result.stats.total_edges = _infer_and_store_edges(
-        store=store,
+        index=index,
         chunks=all_chunks,
         repo_files=extracted.repo_files,
         manifests=extracted.manifests,
         snapshot_sha=snapshot_sha,
-        repo_id=repo_id,
+        repo=repo,
         on_progress=on_progress,
     )
     if stop is not None and stop.is_set():
@@ -369,7 +370,7 @@ def build_index(
 
     # Phase 3: mark complete and remove orphaned data.
     _mark_indexed_and_cleanup(
-        store=store, repo_id=repo_id, snapshot_sha=snapshot_sha, on_progress=on_progress
+        index=index, repo=repo, snapshot_sha=snapshot_sha, on_progress=on_progress
     )
 
     result.stats.total_chunks = len(all_chunks)

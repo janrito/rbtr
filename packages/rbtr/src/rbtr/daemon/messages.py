@@ -43,15 +43,13 @@ from rbtr.daemon.dto import (
 from rbtr.daemon.status import DaemonStatusReport
 from rbtr.domain.models import (
     ChangeKind,
+    EveryRepoGcMode,
     GcMode,
     IndexStats,
     QueryKind,
     RefsByRepo,
-    Scope,
-    SnapshotRef,
 )
-
-# ── Error codes ──────────────────────────────────────────────────────
+from rbtr.index.progress import EmbedOutcome
 
 
 class ErrorCode(StrEnum):
@@ -63,10 +61,10 @@ class ErrorCode(StrEnum):
     REPO_NOT_FOUND = "repo_not_found"
     INDEX_LOCKED = "index_locked"
     DAEMON_BUSY = "daemon_busy"
+    SHUTTING_DOWN = "shutting_down"
+    OUT_OF_MEMORY = "out_of_memory"
     INTERNAL = "internal"
 
-
-# ── Base ─────────────────────────────────────────────────────────────
 
 _STRICT = ConfigDict(extra="forbid")
 
@@ -76,35 +74,6 @@ class HasRepoPath(Protocol):
     """Any message that carries a repository path."""
 
     repo_path: str
-
-
-# ── Job types (what the worker runs) ─────────────────────────────────
-
-
-class BuildJob(BaseModel):
-    """A build-index job, derived from the watch set or a dirty tree.
-
-    `refs` holds refs as named, not yet resolved to snapshots.
-    """
-
-    model_config = _STRICT
-    kind: Literal["build"] = "build"
-    repo_path: str
-    refs: tuple[str, ...]
-
-
-class EmbedJob(BaseModel):
-    """An embed job, derived from a snapshot's unembedded chunks.
-
-    `at` names the snapshot to embed; `repo_path` is what the
-    progress notifications report, and the snapshot does not carry
-    it.
-    """
-
-    model_config = _STRICT
-    kind: Literal["embed"] = "embed"
-    repo_path: str
-    at: SnapshotRef
 
 
 def _decode_json_array(text: str) -> Any:
@@ -186,9 +155,6 @@ RepoRelativePaths = Annotated[
 ]
 
 
-# ── Requests (client → server) ──────────────────────────────────────
-
-
 class ShutdownRequest(BaseModel):
     model_config = _STRICT
     kind: Literal["shutdown"] = "shutdown"
@@ -207,8 +173,8 @@ class WatchRequest(BaseModel):
     refs: RefList = ["HEAD"]
 
 
-class SearchRequest(BaseModel):
-    """Search the code index.
+class SearchQuery(BaseModel):
+    """What a search looks for and how it ranks, in one repo or in all.
 
     `weights` overrides the per-`QueryKind` fusion weights for
     the duration of the call.  When `None`, per-kind defaults
@@ -216,18 +182,14 @@ class SearchRequest(BaseModel):
     """
 
     model_config = _STRICT
-    kind: Literal["search"] = "search"
-    repo_path: str
     query: str
     limit: int = 10
-    ref: str | None = None
     weights: WeightTriple | None = None
     reranker_pool: int | None = None
     reranker_blend_weight: float | None = None
     keywords: OptStrList = None
     variants: OptStrList = None
     explain: bool = False
-    scope: Scope = Scope.WORKSPACE
     query_kind: str | None = Field(
         default=None,
         description=(
@@ -258,6 +220,20 @@ class SearchRequest(BaseModel):
         if v is None:
             return None
         return list(dict.fromkeys(v))[: config.max_expansion_keywords]
+
+
+class SearchRequest(SearchQuery):
+    """Search the repo at `repo_path`, at `ref` or its latest indexed snapshot."""
+
+    kind: Literal["search"] = "search"
+    repo_path: str
+    ref: str | None = None
+
+
+class SearchAllRequest(SearchQuery):
+    """Search every indexed repo, each at its latest indexed snapshot."""
+
+    kind: Literal["search_all"] = "search_all"
 
 
 class ReadSymbolRequest(BaseModel):
@@ -296,10 +272,18 @@ class ChangedSymbolsRequest(BaseModel):
 
 
 class StatusRequest(BaseModel):
+    """Report the index for the repo at `repo_path`."""
+
     model_config = _STRICT
     kind: Literal["status"] = "status"
     repo_path: str
-    scope: Scope = Scope.WORKSPACE
+
+
+class StatusAllRequest(BaseModel):
+    """Report the index for every indexed repo."""
+
+    model_config = _STRICT
+    kind: Literal["status_all"] = "status_all"
 
 
 class DaemonConfigRequest(BaseModel):
@@ -314,19 +298,30 @@ class DaemonConfigRequest(BaseModel):
 
 
 class GcRequest(BaseModel):
-    """Reclaim index storage, in one repo or across every indexed one.
+    """Reclaim index storage in the repo at `repo_path`.
 
     `mode` is the set kept; `refs` carries it for `GcMode.KEEP`.
-    Under `Scope.ALL` only the retentions each repo can answer in its
-    own terms apply, and `repo_path` is not read.
     """
 
     model_config = _STRICT
     kind: Literal["gc"] = "gc"
     repo_path: str
-    scope: Scope = Scope.WORKSPACE
     mode: GcMode
     refs: list[str] = []
+    dry_run: bool = False
+    compact: bool = True  # rewrite the index to reclaim freed disk space
+
+
+class GcAllRequest(BaseModel):
+    """Reclaim index storage across every indexed repo.
+
+    Only the retentions each repo states in its own terms apply: its
+    HEAD and watch set.
+    """
+
+    model_config = _STRICT
+    kind: Literal["gc_all"] = "gc_all"
+    mode: EveryRepoGcMode
     dry_run: bool = False
     compact: bool = True  # rewrite the index to reclaim freed disk space
 
@@ -347,17 +342,26 @@ class UnwatchRequest(BaseModel):
 
 
 class UnwatchStaleRequest(BaseModel):
-    """Stop watching the refs git can no longer resolve.
+    """Stop watching the refs git can no longer resolve in the repo at `repo_path`.
 
-    Covers the repo at `repo_path`, or every registered repo under
-    `Scope.ALL`. Which refs those are is found here, never named by
-    the caller. `dry_run` reports without writing.
+    Which refs those are is found here, never named by the caller.
+    `dry_run` reports without writing.
     """
 
     model_config = _STRICT
     kind: Literal["unwatch_stale"] = "unwatch_stale"
     repo_path: str
-    scope: Scope = Scope.WORKSPACE
+    dry_run: bool = False
+
+
+class UnwatchStaleAllRequest(BaseModel):
+    """Stop watching the refs git can no longer resolve, in every indexed repo.
+
+    `dry_run` reports without writing.
+    """
+
+    model_config = _STRICT
+    kind: Literal["unwatch_stale_all"] = "unwatch_stale_all"
     dry_run: bool = False
 
 
@@ -392,24 +396,25 @@ Request = Annotated[
     ShutdownRequest
     | WatchRequest
     | SearchRequest
+    | SearchAllRequest
     | ReadSymbolRequest
     | ListSymbolsRequest
     | FindRefsRequest
     | ChangedSymbolsRequest
     | StatusRequest
+    | StatusAllRequest
     | DaemonConfigRequest
     | GcRequest
+    | GcAllRequest
     | UnwatchRequest
     | UnwatchStaleRequest
+    | UnwatchStaleAllRequest
     | ForgetRequest
     | ForgetStaleRequest,
     Field(discriminator="kind"),
 ]
 
 request_adapter: TypeAdapter[Request] = TypeAdapter(Request)
-
-
-# ── Responses (server → client) ─────────────────────────────────────
 
 
 class ErrorResponse(BaseModel):
@@ -561,22 +566,47 @@ class WatchedRef(BaseModel):
     repo_path: str | None = None
 
 
-class StatusResponse(BaseModel):
-    """Index status for one repository, or every one under `Scope.ALL`.
+class IndexState(StrEnum):
+    """What the index holds for a status request.
 
-    `repo_path` is the repository's root, normalised, under workspace
-    scope, whether or not anything of it is indexed; a caller in a
+    `NO_INDEX`         — no index file, or it holds no repository.
+    `REPO_NOT_INDEXED` — the index holds other repositories, but not an
+                         indexed snapshot of this one; for every
+                         repository, none has one.
+    `REF_NOT_INDEXED`  — this repository has indexed snapshots, but not
+                         the one a read without a ref uses, so reads
+                         fall back to the latest indexed commit
+                         (`RefSource.LATEST_INDEXED`).
+    `INDEXED`          — reads find the snapshot they ask for.
+    """
+
+    NO_INDEX = "no_index"
+    REPO_NOT_INDEXED = "repo_not_indexed"
+    REF_NOT_INDEXED = "ref_not_indexed"
+    INDEXED = "indexed"
+
+
+class StatusResponse(BaseModel):
+    """Index status for one repository (`StatusRequest`), or every one
+    (`StatusAllRequest`).
+
+    `repo_path` is the repository's root, normalised, for one
+    repository, whether or not anything of it is indexed; a caller in a
     subdirectory learns from it what its paths are relative to. It is
-    `None` under `Scope.ALL`.
+    `None` for every repository.
     """
 
     model_config = _STRICT
     kind: Literal["status"] = "status"
+    state: IndexState
     repo_path: str | None = None
     db_path: str | None = None
     db_size_bytes: int | None = None  # whole index file on disk, a global figure
     indexed_refs: list[IndexedRef] = []
     watched: list[WatchedRef] = []
+    # Repo path -> untracked files, for repos over `max_untracked_files`,
+    # whose untracked files the working-tree index leaves out.
+    untracked_not_indexed: dict[str, int] = {}
     active_build: ActiveJob | None = None
     active_embed: ActiveJob | None = None
 
@@ -604,7 +634,7 @@ class GcResponse(BaseModel):
     snapshots_dropped: int
     file_snapshots_dropped: int
     edges_dropped: int
-    chunks_freed: int  # chunks actually removed from the global pool
+    chunks_freed: int  # chunks actually removed from the projects' files
     size_before_bytes: int = 0  # on-disk footprint before the run
     size_after_bytes: int = 0  # on-disk footprint after the run
     elapsed_seconds: float
@@ -671,9 +701,6 @@ Response = Annotated[
 response_adapter: TypeAdapter[Response] = TypeAdapter(Response)
 
 
-# ── Notifications (server → PUB) ────────────────────────────────────
-
-
 class ProgressNotification(BaseModel):
     model_config = _STRICT
     kind: Literal["progress"] = "progress"
@@ -701,18 +728,6 @@ class AutoRebuildNotification(BaseModel):
     new_ref: str
 
 
-class EmbedOutcome(StrEnum):
-    """How an embed run ended.
-
-    `FINISHED` reached the end of its work list; the other two left
-    chunks unembedded, and the worker picks them up again later.
-    """
-
-    FINISHED = "finished"
-    STOOD_ASIDE = "stood_aside"
-    STOPPED = "stopped"
-
-
 class EmbedEndedNotification(BaseModel):
     """An embed run ended, however it ended.
 
@@ -737,12 +752,38 @@ class IndexErrorNotification(BaseModel):
     message: str
 
 
+class GcStartedNotification(BaseModel):
+    """gc started."""
+
+    model_config = _STRICT
+    kind: Literal["gc_started"] = "gc_started"
+
+
+class GcProgressNotification(BaseModel):
+    """gc has collected *current* of the *total* repos it covers."""
+
+    model_config = _STRICT
+    kind: Literal["gc_progress"] = "gc_progress"
+    current: int
+    total: int
+
+
+class GcEndedNotification(BaseModel):
+    """gc ended, however it ended."""
+
+    model_config = _STRICT
+    kind: Literal["gc_ended"] = "gc_ended"
+
+
 Notification = Annotated[
     ProgressNotification
     | ReadyNotification
     | EmbedEndedNotification
     | AutoRebuildNotification
-    | IndexErrorNotification,
+    | IndexErrorNotification
+    | GcStartedNotification
+    | GcProgressNotification
+    | GcEndedNotification,
     Field(discriminator="kind"),
 ]
 

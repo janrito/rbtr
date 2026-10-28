@@ -28,11 +28,10 @@ repo_edges AS (
 )
 
 SELECT
-  r.path,
+  s.repo_id,
   COALESCE(rc.chunks, 0) AS chunks,
   COALESCE(rc.locations, 0) AS locations,
   COALESCE(re.edges, 0) AS edges
-FROM repos AS r
-LEFT JOIN repo_chunks AS rc ON r.id = rc.repo_id
-LEFT JOIN repo_edges AS re ON r.id = re.repo_id
-ORDER BY r.path
+FROM (SELECT DISTINCT repo_id FROM _snapshot_refs) AS s
+LEFT JOIN repo_chunks AS rc ON s.repo_id = rc.repo_id
+LEFT JOIN repo_edges AS re ON s.repo_id = re.repo_id

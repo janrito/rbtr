@@ -1,6 +1,6 @@
-"""Tiered name resolution for match_by_name.
+"""Tiered name resolution for name_matches.
 
-match_by_name resolves a user-supplied symbol name to chunks.
+name_matches resolves a user-supplied symbol name to chunks.
 It should prefer exact matches, falling back through tiers:
 exact → case-insensitive exact → prefix → substring.
 Only the best tier that has matches should be returned.
@@ -11,15 +11,15 @@ from __future__ import annotations
 import pytest
 
 from rbtr.domain.models import ChunkKind, SnapshotRef
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 
-from .conftest import make_chunk, seed_store
+from .conftest import make_chunk, seed_index
 
 COMMIT = "head"
 
 
 @pytest.fixture
-def name_store(store: IndexStore, head_ref: SnapshotRef) -> IndexStore:
+def name_index(index: Index, head_ref: SnapshotRef) -> Index:
     """Store with chunks that create name ambiguity.
 
     - `Chunk` (class) in models.py
@@ -28,8 +28,8 @@ def name_store(store: IndexStore, head_ref: SnapshotRef) -> IndexStore:
     - `fuse_scores` (function) in search.py
     - `fuse` (function) in fuse.py — prefix collision
     """
-    seed_store(
-        store,
+    seed_index(
+        index,
         [
             make_chunk(
                 "c_chunk_class",
@@ -64,7 +64,7 @@ def name_store(store: IndexStore, head_ref: SnapshotRef) -> IndexStore:
         ],
         head_ref,
     )
-    return store
+    return index
 
 
 @pytest.mark.parametrize(
@@ -92,10 +92,25 @@ def name_store(store: IndexStore, head_ref: SnapshotRef) -> IndexStore:
         "substring-unk",
     ],
 )
-def test_match_by_name_tiering(
-    name_store: IndexStore,
+def test_name_matches_tiering(
+    name_index: Index,
     pattern: str,
     expected_names: set[str],
 ) -> None:
-    results = name_store.match_by_name(pattern, at=SnapshotRef(repo_id=1, snapshot_sha=COMMIT))
-    assert {c.name for c in results} == expected_names
+    [repo] = name_index.repos()
+    assert set(name_index.name_matches(pattern, within=[repo.at(COMMIT)])["name"]) == expected_names
+
+
+def test_name_matches_across_projects_keep_the_best_tier(
+    name_index: Index, head_ref: SnapshotRef
+) -> None:
+    """Each project's file returns its own best tier; the search keeps the best of those.
+
+    The other project holds only a prefix match, which its file returns as
+    its best; the first project's case-insensitive exact match outranks it.
+    """
+    other = name_index.register("/other").at(COMMIT)
+    seed_index(name_index, [make_chunk("c_chunk_size", name="chunk_size", path="size.py")], other)
+
+    within = [head_ref, other]
+    assert set(name_index.name_matches("chunk", within=within)["name"]) == {"Chunk"}

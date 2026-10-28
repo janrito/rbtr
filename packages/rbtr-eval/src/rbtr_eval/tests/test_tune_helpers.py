@@ -16,15 +16,17 @@ import polars as pl
 import pytest
 from pytest_cases import parametrize_with_cases
 
-from rbtr_eval.queries import with_query_kind
+from rbtr_eval.queries import query_kind
 from rbtr_eval.shared_schemas import QueryMeta, QueryRow
 from rbtr_eval.tune import (
     DetailedOutcome,
-    ImpactComparison,
+    ImpactBreakdown,
+    ImpactOverall,
     ScoredCandidate,
     TrialRow,
     TuneReport,
     Verdict,
+    _impact_breakdowns,
     _mean_mrr,
     _paired_delta_se,
     _pool_recall,
@@ -237,7 +239,7 @@ def test_query_kind_follows_text_not_provenance(
     regardless of how the query was generated, and the kind tracks the
     text's shape (concept / identifier / code), not the provenance.
     """
-    tagged = with_query_kind(query_kind_rows)
+    tagged = query_kind_rows.with_columns(query_kind())
     by_text = dict(zip(tagged["text"], tagged["query_kind"], strict=True))
 
     # Provenance-independence: same text under body and docstring agrees.
@@ -396,13 +398,10 @@ def two_kind_report() -> dy.DataFrame[TuneReport]:
 
 
 @pytest.fixture
-def rollup_impact() -> dy.DataFrame[ImpactComparison]:
-    """A single all-dimensions rollup row, the shape the report renders."""
+def impact_overall() -> dy.DataFrame[ImpactOverall]:
+    """The impact over every query."""
     return pl.DataFrame(
         {
-            "slug": ["__all__"],
-            "language": ["__all__"],
-            "provenance": ["__all__"],
             "baseline_mrr": [0.4],
             "best_mrr": [0.45],
             "delta": [0.05],
@@ -410,12 +409,12 @@ def rollup_impact() -> dy.DataFrame[ImpactComparison]:
             "best_ndcg_at_10": [0.55],
             "delta_ndcg_at_10": [0.05],
         }
-    ).pipe(ImpactComparison.validate, cast=True)
+    ).pipe(ImpactOverall.validate, cast=True)
 
 
 def test_result_table_reports_every_kind_against_its_error(
     two_kind_report: dy.DataFrame[TuneReport],
-    rollup_impact: dy.DataFrame[ImpactComparison],
+    impact_overall: dy.DataFrame[ImpactOverall],
     flat_objective_trials: list[TrialRow],
 ) -> None:
     """Every kind reaches the Result table, with the error it must clear.
@@ -428,8 +427,9 @@ def test_result_table_reports_every_kind_against_its_error(
     """
     rendered = _render_tuning_report(
         two_kind_report,
-        flat_objective_trials,
-        rollup_impact,
+        _top_trial_spread(flat_objective_trials),
+        impact_overall,
+        ImpactBreakdown.create_empty(),
         pl.DataFrame({"slug": ["r"], "n_queries": [50]}),
     )
 
@@ -495,3 +495,39 @@ def test_toml_snippet_comments_out_a_withheld_kind(
     assert parsed["search_weights"] == {"concept": {"alpha": 0.5, "beta": 0.3, "gamma": 0.2}}
     assert "# [search_weights.identifier]" in snippet
     assert "# gamma = 0.75" in snippet
+
+
+@pytest.fixture
+def baseline_by_repo() -> dy.DataFrame[DetailedOutcome]:
+    """Two queries' ranks under the current weights: repo `a` at 1, repo `b` missed."""
+    return pl.DataFrame(
+        {
+            "query_idx": [0, 1],
+            "slug": ["a", "b"],
+            "language": ["python", "python"],
+            "provenance": ["docstring", "docstring"],
+            "rank": [1, None],
+        }
+    ).pipe(DetailedOutcome.validate, cast=True)
+
+
+@pytest.fixture
+def best_by_repo(baseline_by_repo: dy.DataFrame[DetailedOutcome]) -> dy.DataFrame[DetailedOutcome]:
+    """The same queries under the best weights: repo `a` falls to 2, repo `b` rises to 1."""
+    return baseline_by_repo.with_columns(rank=pl.Series([2, 1], dtype=pl.UInt8)).pipe(
+        DetailedOutcome.validate, cast=True
+    )
+
+
+def test_impact_compares_the_weights_per_dimension_value(
+    baseline_by_repo: dy.DataFrame[DetailedOutcome], best_by_repo: dy.DataFrame[DetailedOutcome]
+) -> None:
+    """Each repo's MRR under both weight sets, and the change between them."""
+    by_repo = _impact_breakdowns(baseline_by_repo, best_by_repo).filter(
+        pl.col("dimension") == "slug"
+    )
+
+    assert by_repo.select("value", "baseline_mrr", "best_mrr", "delta").rows() == [
+        ("a", 1.0, 0.5, -0.5),
+        ("b", 0.0, 1.0, 1.0),
+    ]

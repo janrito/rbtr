@@ -37,9 +37,8 @@ from pydantic_ai.settings import ModelSettings
 
 from rbtr.cli.output import ProgressCallback, progress_reporter
 from rbtr.domain.models import QueryKind
-from rbtr.index.classify import classify_query
 from rbtr_eval.formatting import heading_label, md_table
-from rbtr_eval.queries import load_all_queries
+from rbtr_eval.queries import load_all_queries, query_kind
 from rbtr_eval.shared_schemas import ExpansionRow, QueryRow
 
 log = logging.getLogger(__name__)
@@ -48,18 +47,12 @@ log = logging.getLogger(__name__)
 _MIN_YIELD = 0.5
 
 
-# ── Deps ─────────────────────────────────────────────────────────────
-
-
 @dataclass
 class ExpansionContext:
     """Per-query data passed as pydantic-ai deps."""
 
     kind: QueryKind
     query: str
-
-
-# ── Agent output ─────────────────────────────────────────────────────
 
 
 class ExpansionResult(BaseModel):
@@ -85,8 +78,6 @@ class ExpansionResult(BaseModel):
             raise ValueError(msg)
         return cleaned
 
-
-# ── Agent ────────────────────────────────────────────────────────────
 
 expand_agent: Agent[ExpansionContext, ExpansionResult] = Agent(
     output_type=ExpansionResult,
@@ -194,9 +185,6 @@ def _check_expansion(ctx: RunContext[ExpansionContext], data: ExpansionResult) -
     return data
 
 
-# ── Expansion ────────────────────────────────────────────────────────
-
-
 async def _expand_one(
     results: list[dict[str, str | int | list[str]]],
     completed: list[int],
@@ -276,12 +264,7 @@ def expand_queries(
     query may end up with no variants if the model returns
     none.
     """
-    # Classify all queries in polars.
-    classified = queries.with_columns(
-        pl.col("text")
-        .map_elements(lambda q: classify_query(q).value, return_dtype=pl.String)
-        .alias("query_kind"),
-    )
+    classified = queries.with_columns(query_kind())
 
     total = classified.height
     log.info("Expanding %d queries", total)
@@ -325,9 +308,6 @@ def expand_queries(
     return ExpansionRow.create_empty()
 
 
-# ── CLI subcommand ───────────────────────────────────────────────────
-
-
 class ExpandCmd(BaseModel):
     """Generate LLM-produced keywords and variants for eval queries."""
 
@@ -339,6 +319,8 @@ class ExpandCmd(BaseModel):
     )
     concurrency: int = Field(10, description="Max concurrent LLM requests.")
     report: Path = Field(description="Output path for EXPANSION.md report.")
+    examples_per_kind: int = Field(5, description="Example expansions shown per query kind.")
+    seed: int = Field(42, description="Deterministic-sampling seed for examples.")
 
     def cli_cmd(self) -> None:
         queries = load_all_queries(self.per_repo_dir, self.concept_dir)
@@ -365,38 +347,114 @@ class ExpandCmd(BaseModel):
 
         self.report.parent.mkdir(parents=True, exist_ok=True)
         self.report.write_text(
-            _render_expansion_report(result, queries, self.model),
+            _render_expansion_report(
+                _expansion_counts(result),
+                _expansion_examples(
+                    result, queries, per_kind=self.examples_per_kind, seed=self.seed
+                ),
+                self.model,
+            ),
             encoding="utf-8",
         )
 
 
-# ── Report ───────────────────────────────────────────────────────────
+class ExpansionCount(dy.Schema):
+    """Expansions per repo, provenance and query kind.
+
+    `expanded` counts the queries that got at least one keyword;
+    `keywords` and `variants` count the terms generated.  Every figure
+    the report shows is a sum of these, or a ratio of two sums.
+    """
+
+    slug = dy.String(primary_key=True)
+    provenance = dy.String(primary_key=True)
+    query_kind = dy.String(primary_key=True)
+    n = dy.UInt32(min=1)
+    expanded = dy.UInt32(min=0)
+    keywords = dy.UInt32(min=0)
+    variants = dy.UInt32(min=0)
+
+
+class ExpansionExample(dy.Schema):
+    """An expanded query shown in the report, with the text it was expanded from.
+
+    `language` and `text` are null when the query is missing from the
+    query set.
+    """
+
+    query_kind = dy.String()
+    name = dy.String()
+    slug = dy.String()
+    language = dy.String(nullable=True)
+    text = dy.String(nullable=True)
+    keywords = dy.List(dy.String())
+    variants = dy.List(dy.String())
+
+
+def _expansion_counts(expansions: dy.DataFrame[ExpansionRow]) -> dy.DataFrame[ExpansionCount]:
+    """How many queries share each repo, provenance and query kind, and their terms."""
+    return (
+        expansions.group_by("slug", "provenance", "query_kind")
+        .agg(
+            pl.len().alias("n"),
+            (pl.col("keywords").list.len() > 0).sum().alias("expanded"),
+            pl.col("keywords").list.len().sum().alias("keywords"),
+            pl.col("variants").list.len().sum().alias("variants"),
+        )
+        .sort("slug", "provenance", "query_kind")
+        .pipe(ExpansionCount.validate, cast=True)
+    )
+
+
+def _expansion_examples(
+    expansions: dy.DataFrame[ExpansionRow],
+    queries: dy.DataFrame[QueryRow],
+    *,
+    per_kind: int,
+    seed: int,
+) -> dy.DataFrame[ExpansionExample]:
+    """Up to *per_kind* expanded queries per kind, joined to the text they were expanded from.
+
+    Unique by name so no symbol repeats (many GitHub workflows share the
+    name `on`).  *queries* supplies the text and language, which
+    `ExpansionRow` does not carry.
+    """
+    return (
+        expansions.filter(pl.col("keywords").list.len() > 0)
+        .join(
+            queries.select(*ExpansionRow.primary_key(), "text", "language"),
+            on=ExpansionRow.primary_key(),
+            how="left",
+            maintain_order="left",
+        )
+        .unique(subset=["query_kind", "name"], keep="first", maintain_order=True)
+        .sort(pl.col("query_kind").cast(pl.Enum([k.value for k in QueryKind])), maintain_order=True)
+        .group_by("query_kind", maintain_order=True)
+        .map_groups(lambda g: g.sample(min(per_kind, g.height), seed=seed))
+        .pipe(ExpansionExample.validate, cast=True)
+    )
 
 
 def _render_expansion_report(
-    expansions: dy.DataFrame[ExpansionRow],
-    queries: dy.DataFrame[QueryRow],
+    counts: dy.DataFrame[ExpansionCount],
+    examples: dy.DataFrame[ExpansionExample],
     model: str,
 ) -> str:
-    """Render EXPANSION.md from expansion parquet data.
+    """Render EXPANSION.md.
 
-    *queries* supplies the original query `text` and `language`
-    (not carried on `ExpansionRow`) so examples can show the
-    full query — e.g. the code fragment the model actually
-    expanded — rather than just the symbol name.
+    Each table sums *counts* over the columns it does not show.  The
+    examples show the query text, the fragment the model expanded,
+    rather than the symbol name.
     """
-    total = expansions.height
-    expanded = expansions.filter(
-        pl.col("keywords").list.len() > 0,
-    ).join(
-        queries.select(*ExpansionRow.primary_key(), "text", "language"),
-        on=ExpansionRow.primary_key(),
-        how="left",
-    )
-    n_expanded = expanded.height
+    total = int(counts["n"].sum())
+    n_expanded = int(counts["expanded"].sum())
+    rates = [
+        pl.col("n").sum().alias("total"),
+        pl.col("expanded").sum(),
+    ]
+    rate = pl.format("{}%", pl.col("expanded") * 100 // pl.col("total")).alias("rate")
 
-    # Summary table.
-    summary = pl.DataFrame(
+    summary_table = pl.DataFrame(
         {
             "field": ["model", "total queries", "expanded"],
             "value": [
@@ -406,81 +464,42 @@ def _render_expansion_report(
             ],
         },
     )
-
-    # Per-kind breakdown.
-    kind_df = (
-        expansions.group_by("query_kind")
+    kind_table = (
+        counts.group_by("query_kind")
         .agg(
-            pl.len().alias("n"),
-            pl.col("keywords").list.len().mean().round(1).alias("avg_keywords"),
-            pl.col("variants").list.len().mean().round(1).alias("avg_variants"),
+            pl.col("n").sum(),
+            (pl.col("keywords").sum() / pl.col("n").sum()).round(1).alias("avg_keywords"),
+            (pl.col("variants").sum() / pl.col("n").sum()).round(1).alias("avg_variants"),
         )
         .sort("query_kind")
     )
-
-    # Per-repo breakdown.
-    repo_df = (
-        expansions.group_by("slug")
-        .agg(
-            pl.len().alias("total"),
-            (pl.col("keywords").list.len() > 0).sum().alias("expanded"),
-        )
-        .with_columns(
-            pl.format(
-                "{}%",
-                pl.col("expanded") * 100 // pl.col("total"),
-            ).alias("rate"),
-        )
-        .sort("slug")
+    repo_table = counts.group_by("slug").agg(*rates).with_columns(rate).sort("slug")
+    provenance_table = (
+        counts.group_by("provenance").agg(*rates).with_columns(rate).sort("provenance")
     )
-
-    # Per-provenance breakdown.
-    prov_df = (
-        expansions.group_by("provenance")
-        .agg(
-            pl.len().alias("total"),
-            (pl.col("keywords").list.len() > 0).sum().alias("expanded"),
-        )
-        .with_columns(
-            pl.format(
-                "{}%",
-                pl.col("expanded") * 100 // pl.col("total"),
-            ).alias("rate"),
-        )
-        .sort("provenance")
-    )
-
-    # Sampled examples: up to 5 per kind. Show the actual query
-    # text (the fragment the model expanded), not the name.
-    examples: list[dict[str, str]] = []
-    for kind in QueryKind:
-        # Unique by name so the sample never repeats a symbol
-        # (e.g. many GitHub workflows share the name `on`).
-        subset = expanded.filter(pl.col("query_kind") == kind.value).unique(
-            subset="name", keep="first"
-        )
-        if subset.height > 0:
-            sample = subset.sample(min(5, subset.height), seed=42)
-            for row in sample.iter_rows(named=True):
-                examples.append(
-                    {
-                        "kind": row["query_kind"],
-                        "name": row["name"],
-                        "heading": heading_label(row["name"]),
-                        "slug": row["slug"],
-                        "language": row["language"] or "",
-                        "query": row["text"] or row["name"],
-                        "keywords": ", ".join(row["keywords"]),
-                        "variants": ", ".join(row["variants"]) if row["variants"] else "—",
-                    },
-                )
+    example_records = examples.select(
+        pl.col("query_kind").alias("kind"),
+        "name",
+        pl.col("name").map_elements(heading_label, return_dtype=pl.String).alias("heading"),
+        "slug",
+        pl.col("language").fill_null(""),
+        pl.when(pl.col("text").fill_null("") == "")
+        .then(pl.col("name"))
+        .otherwise(pl.col("text"))
+        .alias("query"),
+        pl.col("keywords").list.join(", "),
+        pl.when(pl.col("variants").list.len() > 0)
+        .then(pl.col("variants").list.join(", "))
+        .otherwise(pl.lit("—"))
+        .alias("variants"),
+    ).to_dicts()
 
     template = resources.files("rbtr_eval.templates").joinpath("expansion.md.j2").read_text()
     return minijinja.Environment().render_str(
         template,
-        summary_table=md_table(summary),
-        kind_table=md_table(kind_df),
-        repo_table=md_table(repo_df),
-        provenance_table=md_table(prov_df),
-        examples=examples,
+        summary_table=md_table(summary_table),
+        kind_table=md_table(kind_table),
+        repo_table=md_table(repo_table),
+        provenance_table=md_table(provenance_table),
+        examples=example_records,
     )

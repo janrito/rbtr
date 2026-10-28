@@ -88,10 +88,9 @@ integrates with it.
 
 **[`pi-rbtr`](packages/pi-rbtr/)** is a thin TypeScript
 extension that surfaces the same queries to an LLM as tools. It
-talks to the daemon over ZMQ — a REP socket for
-request/response, a PUB socket for progress, ready and error
-notifications — and falls back to running the CLI when no
-daemon is up.
+uses the daemon for queries and live indexing updates, and
+falls back to the CLI when no daemon is up. Contributor transport
+details are in [Daemon protocol](packages/rbtr/ARCHITECTURE.md#daemon-protocol).
 
 **Languages are separate distributions.** Core ships no
 grammars of its own. Each language is an `rbtr-lang-*` package
@@ -110,14 +109,15 @@ shipped with the CLI.
 
 ## Documentation
 
-| Document                                                   | What's in it                                                                                                                          |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| [`rbtr` README](packages/rbtr/README.md)                   | CLI reference, configuration, output modes, and how to write a language plugin                                                        |
-| [`rbtr` ARCHITECTURE](packages/rbtr/ARCHITECTURE.md)       | Indexing pipeline, data model, daemon, search fusion, garbage collection, design rationale                                            |
-| [`pi-rbtr` README](packages/pi-rbtr/README.md)             | The agent tools, slash commands, index notes, and extension settings                                                                  |
-| [`pi-rbtr` ARCHITECTURE](packages/pi-rbtr/ARCHITECTURE.md) | How a session works: startup, the daemon transport and CLI fallback, the footer, the tools and index notes, and the choices behind it |
-| [`rbtr-eval` README](packages/rbtr-eval/README.md)         | Benchmark and tuning pipeline, and what the measurements found                                                                        |
-| [`demo` README](demo/README.md)                            | Recording the terminal demos above with VHS                                                                                           |
+| Document                                                       | What's in it                                                                                                                          |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| [`rbtr` README](packages/rbtr/README.md)                       | CLI reference, configuration, output modes, and how to write a language plugin                                                        |
+| [`rbtr` ARCHITECTURE](packages/rbtr/ARCHITECTURE.md)           | Indexing pipeline, data model, daemon, search fusion, garbage collection, design rationale                                            |
+| [`pi-rbtr` README](packages/pi-rbtr/README.md)                 | The agent tools, slash commands, index notes, and extension settings                                                                  |
+| [`pi-rbtr` ARCHITECTURE](packages/pi-rbtr/ARCHITECTURE.md)     | How a session works: startup, the daemon transport and CLI fallback, the footer, the tools and index notes, and the choices behind it |
+| [`rbtr-eval` README](packages/rbtr-eval/README.md)             | Benchmark and tuning pipeline, and what the measurements found                                                                        |
+| [`rbtr-eval` ARCHITECTURE](packages/rbtr-eval/ARCHITECTURE.md) | How a stage splits its I/O, statistics and rendering, and the choices behind it                                                       |
+| [`demo` README](demo/README.md)                                | Recording the terminal demos above with VHS                                                                                           |
 
 ### Languages
 
@@ -182,7 +182,7 @@ data handling, testing, and language-plugin authoring.
 | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `rbtr: cannot run` in pi's footer, or `rbtr daemon start/restart failed` | Run `rbtr daemon status`; if it's down, `rbtr daemon start`. If `rbtr daemon status` itself fails, rbtr isn't installed where pi looks: `uv tool install rbtr`, or set `command` in `rbtr-index.json`. Concurrent sessions converge on one daemon, so this is usually transient — a busy index reports "temporarily unavailable" and retries. |
 | `Index database is locked by another process`                            | The running daemon holds the index lock; route commands through it (`rbtr daemon status`). Only `rbtr daemon stop` a genuinely stale daemon — never kill a healthy one.                                                                                                                                                                       |
-| `No index found` for a repo that should be indexed                       | Run `rbtr watch` (or `/rbtr-index` in pi); confirm with `rbtr status`.                                                                                                                                                                                                                                                                        |
+| `this repo is not indexed` for a repo that should be indexed             | Run `rbtr watch` (or `/rbtr-index` in pi); confirm with `rbtr status`.                                                                                                                                                                                                                                                                        |
 | The daemon refuses to start, naming languages it cannot load             | The index holds chunks from a plugin this install is missing. Install it, or start with `rbtr watch --allow-missing-plugins` to proceed without it.                                                                                                                                                                                           |
 
 `rbtr config` prints the resolved paths (including the daemon

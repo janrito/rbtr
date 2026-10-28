@@ -1,4 +1,4 @@
-"""Tests for `IndexStore.changed_symbols` — symbol-level diffing.
+"""Tests for `Index.changed_symbols` — symbol-level diffing.
 
 The diff is computed entirely in SQL; these cases pin its
 classification of added/modified/removed symbols with exact-set
@@ -14,8 +14,8 @@ from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.domain.models import ChangeKind, Chunk, SnapshotRange
 from rbtr.index.build import build_index
+from rbtr.index.index import Index
 from rbtr.index.results import ChangedSymbolRow, changed_to_symbols
-from rbtr.index.store import IndexStore
 
 from ..conftest import make_commit
 from .asserts import assert_changes, assert_no_duplicate_changes
@@ -27,11 +27,11 @@ from .cases_diff import DiffScenario
 def diff_result(
     scenario: DiffScenario,
     diff_repo: pygit2.Repository,
-    store: IndexStore,
+    index: Index,
 ) -> tuple[DiffScenario, dy.DataFrame[ChangedSymbolRow], list[tuple[Chunk, ChangeKind]]]:
     base_oid = make_commit(diff_repo, scenario.base_files)
     base_sha = str(base_oid)
-    build_index(diff_repo.workdir, base_sha, store)
+    build_index(diff_repo.workdir, base_sha, index)
 
     if scenario.same_as_base:
         head_sha = base_sha
@@ -43,10 +43,11 @@ def diff_result(
             head_sha = str(commit_obj.tree_id)
         else:
             head_sha = str(head_oid)
-        build_index(diff_repo.workdir, head_sha, store, base_sha=base_sha)
+        build_index(diff_repo.workdir, head_sha, index, base_sha=base_sha)
 
-    frame = store.changed_symbols(
-        between=SnapshotRange(repo_id=1, base_sha=base_sha, head_sha=head_sha),
+    [repo] = index.repos()
+    frame = index.changed_symbols(
+        between=SnapshotRange(repo=repo, base_sha=base_sha, head_sha=head_sha),
         file_paths=scenario.file_paths,
     )
     return scenario, frame, changed_to_symbols(frame)

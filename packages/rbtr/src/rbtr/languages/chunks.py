@@ -21,8 +21,6 @@ from rbtr.languages.plaintext import PLAINTEXT
 if TYPE_CHECKING:
     from tree_sitter import Node
 
-# ── Spans ────────────────────────────────────────────────
-
 
 def last_line(node: Node) -> int:
     """The 1-based number of the last line *node* occupies.
@@ -42,8 +40,6 @@ def last_line(node: Node) -> int:
     return end_row + 1
 
 
-# ── Prose format detection ─────────────────────────────────────────
-
 _RST_UNDERLINE = re.compile(r"^[=\-~^\"'+#*]{3,}$", re.MULTILINE)
 _RST_DIRECTIVE = re.compile(r"^\.\.\s+\w+::", re.MULTILINE)
 _RST_ROLE = re.compile(r":\w+:`[^`]+`")
@@ -54,7 +50,7 @@ _MD_FENCED = re.compile(r"^```", re.MULTILINE)
 def detect_prose_format(content: str) -> str | None:
     """Detect RST or Markdown from content heuristics.
 
-    Checks the first 2KB for distinctive signals. Returns
+    Checks the first 2 KiB for distinctive signals. Returns
     `"rst"`, `"markdown"`, or `None` (neither detected).
     """
     sample = content[:2048]
@@ -69,9 +65,6 @@ def detect_prose_format(content: str) -> str | None:
     if rst_signals > md_signals:
         return "rst"
     return "markdown"
-
-
-# ── Fallback: raw line-based chunks ──────────────────────────────────
 
 
 def _raw_chunks(file_path: str, blob_sha: str, content: str) -> Iterator[Chunk]:

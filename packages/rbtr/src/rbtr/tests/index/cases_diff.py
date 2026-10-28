@@ -1,4 +1,4 @@
-"""Scenarios for `IndexStore.changed_symbols`.
+"""Scenarios for `Index.changed_symbols`.
 
 Each case returns a `DiffScenario`: the file set of a *base*
 commit, the file set of a *head* commit, and the exact symbols

@@ -1,4 +1,4 @@
-"""Behavioural tests for `rbtr.daemon.watcher.poll_watched` and `poll_worktree`.
+"""Behavioural tests for `rbtr.index.watcher.poll_watched` and `poll_worktree`.
 
 `poll_watched(store)` resolves each repo's `watched_refs` and
 returns those whose SHA is not recorded in `indexed_snapshots`.
@@ -18,10 +18,10 @@ from pathlib import Path
 import pygit2
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.daemon.watcher import DirtyWorktree, WatchedTarget, poll_watched, poll_worktree
-from rbtr.domain.models import SnapshotRef
+from rbtr.config import config
 from rbtr.git import normalise_repo_path, worktree_tree_sha
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
+from rbtr.index.watcher import DirtyWorktree, WatchedTarget, poll_watched, poll_worktree
 
 from .cases_watcher import WatcherScenario
 from .cases_watcher_worktree import WorktreeScenario
@@ -77,27 +77,25 @@ def built_repos(
 
 
 @fixture
-def seeded_store(
+def seeded_index(
     scenario: WatcherScenario,
     built_repos: dict[str, BuiltRepo],
-    store: IndexStore,
-) -> IndexStore:
+    index: Index,
+) -> Index:
     """Register every repo, apply recorded marks, and seed watched refs."""
     for spec in scenario.repos:
         if not spec.register:
             continue
         built = built_repos[spec.name]
-        with store.session() as ws:
-            repo_id = ws.register_repo(built.path)
+        repo = index.register(built.path)
+        with index.session(repo) as ws:
             marked_index = scenario.indexed_at.get(spec.name)
             if marked_index is not None:
-                ws.mark_indexed(
-                    at=SnapshotRef(repo_id=repo_id, snapshot_sha=built.shas[marked_index])
-                )
+                ws.mark_indexed(snapshot_sha=built.shas[marked_index])
             symbolic = scenario.watched.get(spec.name, [])
             bare = [built.shas[i] for i in scenario.watched_sha_at.get(spec.name, [])]
-            ws.add_watched_refs(repo_id, [*symbolic, *bare])
-    return store
+            ws.add_watched_refs([*symbolic, *bare])
+    return index
 
 
 @fixture
@@ -115,10 +113,10 @@ def expected_targets(
 
 
 def test_poll_watched(
-    seeded_store: IndexStore,
+    seeded_index: Index,
     expected_targets: list[WatchedTarget],
 ) -> None:
-    assert poll_watched(seeded_store) == expected_targets
+    assert poll_watched(seeded_index) == expected_targets
 
 
 @fixture
@@ -157,31 +155,31 @@ def wt_repo(
 
 
 @fixture
-def wt_store(
+def wt_index(
     wt_scenario: WorktreeScenario,
     wt_repo: str,
-    store: IndexStore,
-) -> IndexStore:
+    index: Index,
+) -> Index:
     """Store with the repo registered and optionally tree-SHA-indexed."""
-    with store.session() as ws:
-        repo_id = ws.register_repo(wt_repo)
+    repo = index.register(wt_repo)
+    with index.session(repo) as ws:
         # Mark HEAD indexed (so poll() doesn't interfere).
         if wt_scenario.repo_exists:
             head_sha = pygit2.Repository(wt_repo).head.target
-            ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=str(head_sha)))
+            ws.mark_indexed(snapshot_sha=str(head_sha))
         if wt_scenario.tree_sha_indexed:
-            tree_sha = worktree_tree_sha(wt_repo)
+            tree_sha = worktree_tree_sha(wt_repo, max_untracked_files=config.max_untracked_files)
             if tree_sha is not None:
-                ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tree_sha))
-    return store
+                ws.mark_indexed(snapshot_sha=tree_sha)
+    return index
 
 
 def test_poll_worktree(
     wt_scenario: WorktreeScenario,
-    wt_store: IndexStore,
+    wt_index: Index,
     wt_repo: str,
 ) -> None:
-    result = poll_worktree(wt_store)
+    result = poll_worktree(wt_index)
 
     if wt_scenario.expected_dirty:
         assert len(result) == 1
@@ -191,32 +189,32 @@ def test_poll_worktree(
         # tree_sha should be a valid 40-char hex SHA.
         assert len(dirty.snapshot_sha) == 40
         # And it should match the current worktree_tree_sha.
-        assert dirty.snapshot_sha == worktree_tree_sha(wt_repo)
+        assert dirty.snapshot_sha == worktree_tree_sha(
+            wt_repo, max_untracked_files=config.max_untracked_files
+        )
     else:
         assert result == []
 
 
 def test_poll_watched_never_forgets_a_vanished_repo(
-    fake_repo: str, daemon_commit: str, store: IndexStore
+    fake_repo: str, daemon_commit: str, index: Index
 ) -> None:
     """A repo whose checkout has vanished yields no build target and is
     **not** purged. Forgetting is always an explicit action — the daemon
     must never auto-reclaim, since the path may be transiently absent (an
     unmounted volume)."""
-    with store.session() as ws:
-        repo_id = ws.register_repo(fake_repo)
-        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=daemon_commit))
-        ws.add_watched_refs(repo_id, ["HEAD"])
-    registered_before = store.list_repos()
+    repo = index.register(fake_repo)
+    with index.session(repo) as ws:
+        ws.mark_indexed(snapshot_sha=daemon_commit)
+        ws.add_watched_refs(["HEAD"])
+    registered_before = index.repos()
 
     shutil.rmtree(fake_repo)  # the checkout disappears
-    targets = poll_watched(store)
+    targets = poll_watched(index)
 
     assert targets == []  # vanished repo yields no build
-    assert store.list_repos() == registered_before  # still registered — not purged
-    assert (
-        store.has_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=daemon_commit)) is True
-    )  # its data is intact
+    assert index.repos() == registered_before  # still registered — not purged
+    assert index.has_indexed(at=repo.at(daemon_commit)) is True  # its data is intact
 
 
 def test_rbtrs_own_data_inside_a_repo_leaves_it_clean(
@@ -225,10 +223,9 @@ def test_rbtrs_own_data_inside_a_repo_leaves_it_clean(
     """rbtr's data directory inside a watched repository (`isolated_db`'s,
     under the repository's root) is no change to it, so writing the index
     there does not make the repository due for another build."""
-    store = IndexStore.from_config(writable=True)
+    index = Index.from_config(writable=True)
     try:
-        with store.session() as ws:
-            ws.register_repo(normalise_repo_path(git_repo.workdir))
-        assert poll_worktree(store) == []
+        index.register(normalise_repo_path(git_repo.workdir))
+        assert poll_worktree(index) == []
     finally:
-        store.close()
+        index.close()

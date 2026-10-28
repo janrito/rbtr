@@ -12,24 +12,41 @@ from __future__ import annotations
 
 import itertools
 import time
+from collections.abc import Sequence
 
 import structlog
 
 from rbtr.config import config
-from rbtr.domain.models import SnapshotRef
-from rbtr.index.embeddings import Embedder, embedding_text
+from rbtr.domain.models import Repo, SnapshotRef
+from rbtr.index.embeddings import Embedder, EmbedResult, embedding_text
+from rbtr.index.index import Index
 from rbtr.index.progress import ProgressCallback, _noop_progress
-from rbtr.index.store import IndexStore
 from rbtr.logging import elapsed_ms
 
 log = structlog.get_logger(__name__)
 
 
+type EmbeddingBatch = Sequence[tuple[str, EmbedResult]]
+
+
+def write_embedding_batch(index: Index, repo: Repo, batch: EmbeddingBatch) -> None:
+    """Commit chunk IDs paired with their embedding results in one finite session.
+
+    The caller supplies writer ownership for repo's project. Vectors and
+    truncation flags stay associated with their chunk IDs through this API.
+    """
+    with index.session(repo) as session:
+        session.update_embeddings(
+            [chunk_id for chunk_id, _result in batch],
+            [result.vector for _chunk_id, result in batch],
+            truncated=[result.truncated for _chunk_id, result in batch],
+        )
+
+
 def embed_index(
-    store: IndexStore,
-    snapshot_sha: str,
+    index: Index,
     *,
-    repo_id: int,
+    at: SnapshotRef,
     embedder: Embedder,
     on_progress: ProgressCallback = _noop_progress,
 ) -> int:
@@ -41,8 +58,7 @@ def embed_index(
 
     Returns the number of chunks that were embedded.
     """
-    ref = SnapshotRef(repo_id=repo_id, snapshot_sha=snapshot_sha)
-    pending = store.unembedded_chunk_ids(at=ref)
+    pending = index.unembedded_chunk_ids(at=at)
     if not pending:
         return 0
 
@@ -53,7 +69,7 @@ def embed_index(
     t0 = time.perf_counter()
 
     for page_ids in itertools.batched(pending, config.embedding_page_size, strict=False):
-        page = store.get_chunks_by_id(list(page_ids), at=ref)
+        page = index.chunks_by_id(list(page_ids), at=at)
         for batch in itertools.batched(page, config.embedding_batch_size, strict=False):
             texts = [embedding_text(c.name, c.content) for c in batch]
             try:
@@ -61,12 +77,11 @@ def embed_index(
             except (RuntimeError, ValueError):
                 log.warning("embedding_batch_failed", exc_info=True)
                 continue
-            with store.session() as session:
-                session.update_embeddings(
-                    [c.id for c in batch],
-                    [r.vector for r in results],
-                    truncated=[r.truncated for r in results],
-                )
+            write_embedding_batch(
+                index,
+                at.repo,
+                [(chunk.id, result) for chunk, result in zip(batch, results, strict=True)],
+            )
             done += len(batch)
             on_progress("embedding", done, outstanding)
 

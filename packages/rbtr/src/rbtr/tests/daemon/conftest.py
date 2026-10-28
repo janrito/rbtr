@@ -1,9 +1,9 @@
 """Shared fixtures for daemon tests.
 
-All test data is exposed as fixtures.  The `seeded_store`
+All test data is exposed as fixtures.  The `seeded_index`
 fixture composes individual chunk/edge fixtures into the root
-`store`.  `running_server` and `running_server_with_index`
-start a real `DaemonServer` on an IPC socket through
+`index`.  `running_server` and `running_server_with_index`
+start a real `Daemon` on an IPC socket through
 `serve_daemon`, which owns startup and shutdown for every test
 that needs a live daemon.
 """
@@ -14,18 +14,154 @@ import asyncio
 import contextlib
 import tempfile
 import threading
-from collections.abc import Generator, Iterator
+from collections.abc import Callable, Generator, Iterator
 from pathlib import Path
 
 import pygit2
 import pytest
+import zmq
+from pytest_mock import MockerFixture
 
-from rbtr.daemon.server import DaemonServer
-from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot, SnapshotRef
+from rbtr.daemon.client import DaemonClient
+from rbtr.daemon.messages import Request, Response
+from rbtr.daemon.server import Daemon
+from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot, IndexResult, Repo
+from rbtr.index.build import build_index
+from rbtr.index.embeddings import Embedder
+from rbtr.index.index import Index
+from rbtr.index.progress import ProgressCallback
 from rbtr.index.staging import TokenisedChunk
-from rbtr.index.store import IndexStore
 
 from ..index.conftest import make_chunk
+
+
+@pytest.fixture
+def rpc_peer(runtime_dir: Path) -> Generator[zmq.Socket[bytes]]:
+    with zmq.Context() as context, context.socket(zmq.DEALER) as peer:
+        peer.setsockopt(zmq.LINGER, 0)
+        peer.setsockopt(zmq.RCVTIMEO, 5000)
+        peer.connect(f"ipc://{runtime_dir / 'daemon.rpc'}")
+        yield peer
+
+
+@pytest.fixture
+def request_peer(runtime_dir: Path) -> Generator[zmq.Socket[bytes]]:
+    with zmq.Context() as context, context.socket(zmq.REQ) as peer:
+        peer.setsockopt(zmq.LINGER, 0)
+        peer.setsockopt(zmq.RCVTIMEO, 5000)
+        peer.connect(f"ipc://{runtime_dir / 'daemon.rpc'}")
+        yield peer
+
+
+@pytest.fixture
+def correlated_request_peer(request_peer: zmq.Socket[bytes]) -> zmq.Socket[bytes]:
+    request_peer.setsockopt(zmq.REQ_CORRELATE, 1)
+    return request_peer
+
+
+@pytest.fixture
+def rpc_send(runtime_dir: Path) -> Callable[[Request], Response]:
+    def send(message: Request) -> Response:
+        with DaemonClient(runtime_dir, wait_budget_s=15) as client:
+            return client.send(message)
+
+    return send
+
+
+@pytest.fixture
+def query_started() -> threading.Event:
+    return threading.Event()
+
+
+@pytest.fixture
+def query_released() -> Generator[threading.Event]:
+    released = threading.Event()
+    yield released
+    released.set()
+
+
+@pytest.fixture
+def held_query(
+    query_started: threading.Event,
+    query_released: threading.Event,
+    stub_embedding_model: None,
+    mocker: MockerFixture,
+) -> None:
+    original = Embedder.embed_single
+
+    def embed_single(embedder: Embedder, text: str) -> list[float]:
+        query_started.set()
+        if not query_released.wait(timeout=20):
+            msg = "query was not released"
+            raise TimeoutError(msg)
+        return original(embedder, text)
+
+    mocker.patch.object(Embedder, "embed_single", embed_single)
+
+
+@pytest.fixture
+def write_started() -> threading.Event:
+    return threading.Event()
+
+
+@pytest.fixture
+def write_released() -> Generator[threading.Event]:
+    released = threading.Event()
+    yield released
+    released.set()
+
+
+@pytest.fixture
+def held_watch(
+    seeded_index: Index,
+    write_started: threading.Event,
+    write_released: threading.Event,
+    mocker: MockerFixture,
+) -> None:
+    original = seeded_index.register
+
+    def register(path: str) -> Repo:
+        write_started.set()
+        if not write_released.wait(20):
+            msg = "watch write was not released"
+            raise TimeoutError(msg)
+        return original(path)
+
+    mocker.patch.object(seeded_index, "register", side_effect=register)
+
+
+@pytest.fixture
+def held_build(
+    second_repo: str,
+    write_started: threading.Event,
+    write_released: threading.Event,
+    mocker: MockerFixture,
+) -> None:
+    def build(
+        repo_path: str,
+        snapshot_sha: str,
+        index: Index,
+        *,
+        on_progress: ProgressCallback,
+        stop: threading.Event,
+    ) -> IndexResult:
+        def report(phase: str, done: int, total: int) -> None:
+            on_progress(phase, done, total)
+            if repo_path == second_repo and phase == "edges":
+                write_started.set()
+                assert write_released.wait(20), "build was not released"
+
+        return build_index(repo_path, snapshot_sha, index, on_progress=report, stop=stop)
+
+    mocker.patch("rbtr.index.indexer.build_index", side_effect=build)
+
+
+@pytest.fixture
+def fake_repo_subdir(fake_repo: str) -> str:
+    """A directory inside `fake_repo`."""
+    path = Path(fake_repo) / "sub"
+    path.mkdir()
+    return str(path)
 
 
 @pytest.fixture
@@ -102,25 +238,37 @@ def runtime_dir() -> Path:
 
 
 @pytest.fixture
-def unindexed_store(fake_repo: str, store: IndexStore) -> IndexStore:
+def registered_index(fake_repo: str, index: Index) -> Index:
     """Real repo registered, HEAD not indexed (a stale watched ref)."""
-    with store.session() as ws:
-        ws.register_repo(fake_repo)
-    return store
+    index.register(fake_repo)
+    return index
 
 
 @pytest.fixture
-def seeded_store(
+def empty_index() -> Generator[Index]:
+    """An in-memory writable `Index` no other fixture fills.
+
+    A test fed by cases sets up every case's fixtures for each case, and
+    `seeded_index` fills `index`; a case that needs an empty index asks
+    for this one.
+    """
+    index = Index(writable=True)
+    yield index
+    index.close()
+
+
+@pytest.fixture
+def seeded_index(
     fake_repo: str,
     daemon_commit: str,
     daemon_chunks: list[TokenisedChunk],
     daemon_edges: list[Edge],
-    store: IndexStore,
-) -> IndexStore:
+    index: Index,
+) -> Index:
     """The root store pre-loaded with daemon test data for one repo."""
     chunks = daemon_chunks
-    with store.session() as ws:
-        repo_id = ws.register_repo(fake_repo)
+    repo = index.register(fake_repo)
+    with index.session(repo) as ws:
         for c in chunks:
             ws.add_chunk(c)
         ws.insert_snapshots(
@@ -128,24 +276,23 @@ def seeded_store(
                 FileSnapshot(snapshot_sha=daemon_commit, file_path=c.file_path, blob_sha=c.blob_sha)
                 for c in chunks
             ],
-            repo_id=repo_id,
         )
-        ws.insert_edges(daemon_edges, at=SnapshotRef(repo_id=repo_id, snapshot_sha=daemon_commit))
-        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=daemon_commit))
-    return store
+        ws.insert_edges(daemon_edges, snapshot_sha=daemon_commit)
+        ws.mark_indexed(snapshot_sha=daemon_commit)
+    return index
 
 
 @pytest.fixture
-def changed_head(seeded_store: IndexStore, fake_repo: str) -> str:
-    """Add a second indexed commit to `seeded_store`; return its SHA.
+def changed_head(seeded_index: Index, fake_repo: str) -> str:
+    """Add a second indexed commit to `seeded_index`; return its SHA.
 
     Diffs against the base commit (`daemon_commit`): `load_config` is
     modified and a new `helper` is added. The head SHA is synthetic —
     the diff is keyed on the stored snapshots, not on git tree content.
     """
     head = "f" * 40
-    repo_id = seeded_store.resolve_repo(fake_repo)
-    with seeded_store.session() as ws:
+    repo = seeded_index.repo(fake_repo)
+    with seeded_index.session(repo) as ws:
         ws.add_chunk(
             make_chunk(
                 "fn_config_v2",
@@ -173,14 +320,13 @@ def changed_head(seeded_store: IndexStore, fake_repo: str) -> str:
                 ),
                 FileSnapshot(snapshot_sha=head, file_path="src/app.py", blob_sha="blob_app"),
             ],
-            repo_id=repo_id,
         )
-        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=head))
+        ws.mark_indexed(snapshot_sha=head)
     return head
 
 
 @contextlib.contextmanager
-def serving(server: DaemonServer) -> Iterator[DaemonServer]:
+def serving(server: Daemon) -> Iterator[Daemon]:
     """Serve *server* on a thread for the duration of the block.
 
     Every daemon fixture goes through here, so starting one is a single
@@ -210,9 +356,9 @@ def serving(server: DaemonServer) -> Iterator[DaemonServer]:
 @pytest.fixture
 def running_daemon(
     runtime_dir: Path,
-    seeded_store: IndexStore,
+    seeded_index: Index,
     stub_embedding_model: None,
-) -> Generator[DaemonServer]:
+) -> Generator[Daemon]:
     """A served daemon over a seeded index.
 
     Override in a module that needs a different one — a bespoke store,
@@ -224,8 +370,6 @@ def running_daemon(
     real GGUF (and never touch the GPU).
     """
     with serving(
-        DaemonServer(
-            runtime_dir, store=seeded_store, idle_poll_interval=60.0, busy_poll_interval=60.0
-        )
+        Daemon(runtime_dir, index=seeded_index, idle_poll_interval=60.0, busy_poll_interval=60.0)
     ) as server:
         yield server

@@ -15,6 +15,7 @@ Public surface
 - `is_binary`           — null-byte heuristic
 - `read_head`           — tolerant HEAD read for polling
 - `worktree_tree_sha`   — working-tree identity (tree SHA or None)
+- `untracked_file_count` — how many untracked files git lists
 - `non_commit_shas`     — which indexed shas are not commits
 - `resolve_ref`         — unified ref → SHA resolution
 - `list_files`          — file listing (git tree or working tree)
@@ -35,6 +36,7 @@ from typing import TYPE_CHECKING
 import pathspec
 import pygit2
 import structlog
+from pygit2.enums import FileStatus
 
 from rbtr.errors import RbtrError
 
@@ -54,9 +56,6 @@ log = structlog.get_logger(__name__)
 _HEX_SHA_LEN = 40
 
 
-# ── Data types ───────────────────────────────────────────────────────
-
-
 @dataclass(frozen=True)
 class FileEntry:
     """A file in the git tree with its decoded content.
@@ -70,9 +69,6 @@ class FileEntry:
     path: str
     blob_sha: str
     content: bytes
-
-
-# ── Internal helpers ─────────────────────────────────────────────────
 
 
 def _open_repo(path: str) -> pygit2.Repository:
@@ -158,9 +154,6 @@ def _diff_paths(diff: pygit2.Diff) -> set[str]:
     return paths
 
 
-# ── Path filtering ───────────────────────────────────────────────────
-
-
 def is_binary(data: bytes, sample_size: int = 8192) -> bool:
     """Heuristic binary detection.
 
@@ -168,9 +161,6 @@ def is_binary(data: bytes, sample_size: int = 8192) -> bool:
     *sample_size* bytes of *data*.
     """
     return b"\x00" in data[:sample_size]
-
-
-# ── Public API ───────────────────────────────────────────────────────
 
 
 def normalise_repo_path(path: str) -> str:
@@ -191,6 +181,22 @@ def normalise_repo_path(path: str) -> str:
     return workdir.rstrip("/")
 
 
+def common_dir(repo_path: str) -> str | None:
+    """The git directory shared by *repo_path* and its linked worktrees.
+
+    A main checkout's own `.git` directory, or the one a linked worktree
+    points to through its `commondir` file. `None` when *repo_path* is not
+    inside a git repository, as for a checkout that has been deleted.
+    """
+    discovered = pygit2.discover_repository(repo_path)
+    if discovered is None:
+        return None
+    git_dir = Path(discovered)
+    link = git_dir / "commondir"
+    shared = git_dir / link.read_text().strip() if link.exists() else git_dir
+    return str(shared.resolve())
+
+
 def read_head(repo_path: str) -> str | None:
     """Return the current HEAD SHA for the repo at *repo_path*.
 
@@ -207,13 +213,30 @@ def read_head(repo_path: str) -> str | None:
         return None
 
 
-def worktree_tree_sha(repo_path: str) -> str | None:
+def untracked_file_count(repo_path: str) -> int:
+    """How many untracked files git lists in the working tree, ignored ones aside.
+
+    Zero when the repo is unreadable.
+    """
+    try:
+        status = _open_repo(repo_path).status(untracked_files="all", ignored=False)
+    except (RbtrError, pygit2.GitError):
+        return 0
+    return sum(1 for flags in status.values() if flags & FileStatus.WT_NEW)
+
+
+def worktree_tree_sha(repo_path: str, *, max_untracked_files: int) -> str | None:
     """Return a tree SHA representing the current working-tree state.
 
     Computes a git tree object that includes all committed files
     plus any working-tree modifications (staged, unstaged, and
     untracked).  The tree SHA is content-addressed: same file
     contents produce the same SHA, and any edit changes it.
+
+    Untracked files are included while git lists at most
+    *max_untracked_files* of them; past that, none are, and the
+    snapshot holds the tracked changes only.  A repository nested in
+    the working tree is left out.
 
     Returns `None` when the working tree is clean (the tree SHA
     would equal HEAD's tree SHA) or when the repo is unreadable.
@@ -227,13 +250,27 @@ def worktree_tree_sha(repo_path: str) -> str | None:
     """
     try:
         repo = _open_repo(repo_path)
-        if not repo.status(untracked_files="normal", ignored=False):
-            return None
-        if repo.head_is_unborn:
+        status = repo.status(untracked_files="all", ignored=False)
+        untracked = sum(1 for flags in status.values() if flags & FileStatus.WT_NEW)
+        include_untracked = untracked <= max_untracked_files
+        changes = {
+            path: flags
+            for path, flags in status.items()
+            # git lists a nested repository as one `dir/` entry, which it cannot stage.
+            if not path.endswith("/") and (include_untracked or not flags & FileStatus.WT_NEW)
+        }
+        if not changes or repo.head_is_unborn:
             return None
         head_tree = str(repo.head.peel(pygit2.Tree).id)
         repo.index.read()
-        repo.index.add_all()
+        # One path at a time: `add_all` compares changed files through a
+        # memory map, and a file that shrinks meanwhile kills the process
+        # with SIGBUS.  Staging a path reads the file instead.
+        for path, flags in changes.items():
+            if flags & FileStatus.WT_DELETED:
+                repo.index.remove(path)
+            elif flags != FileStatus.INDEX_DELETED:  # a staged deletion is already in the index
+                repo.index.add(path)
         tree_sha = str(repo.index.write_tree())
         repo.index.read()  # reset in-memory index; on-disk staging untouched
     # pygit2 raises OSError for a working-tree file it cannot read, or one
@@ -283,13 +320,14 @@ def _is_commit_sha(repo: pygit2.Repository, sha: str) -> bool:
         return obj is not None and obj.type == pygit2.GIT_OBJECT_COMMIT
 
 
-def resolve_ref(repo_path: str, ref: str) -> str:
+def resolve_ref(repo_path: str, ref: str, *, max_untracked_files: int) -> str:
     """Resolve *ref* to a commit or tree SHA.
 
     Handles several ref kinds:
 
     - `"worktree"` — computes the working-tree tree SHA via
-      `worktree_tree_sha`.  Raises `RbtrError` when clean.
+      `worktree_tree_sha` with *max_untracked_files*.  Raises
+      `RbtrError` when clean.
     - Raw 40-char hex SHA — returned as-is.  This preserves
       backward compatibility with callers that pass stored
       SHAs (commit or tree) without needing repo access.
@@ -297,7 +335,7 @@ def resolve_ref(repo_path: str, ref: str) -> str:
       `_resolve_commit`.
     """
     if ref == WORKTREE_REF:
-        sha = worktree_tree_sha(repo_path)
+        sha = worktree_tree_sha(repo_path, max_untracked_files=max_untracked_files)
         if sha is None:
             msg = "Working tree is clean — no worktree ref to resolve"
             raise RbtrError(msg)

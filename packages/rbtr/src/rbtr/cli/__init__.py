@@ -26,6 +26,7 @@ import threading
 from enum import StrEnum
 from typing import Annotated, Self
 
+import duckdb
 import structlog
 from pydantic import BaseModel, BeforeValidator, Field, ValidationError, model_validator
 from pydantic_settings import (
@@ -60,12 +61,16 @@ from rbtr.daemon.handlers import (
     handle_forget,
     handle_forget_stale,
     handle_gc,
+    handle_gc_all,
     handle_list_symbols,
     handle_read_symbol,
     handle_search,
+    handle_search_all,
     handle_status,
+    handle_status_all,
     handle_unwatch,
     handle_unwatch_stale,
+    handle_unwatch_stale_all,
 )
 from rbtr.daemon.messages import (
     ChangedSymbolsRequest,
@@ -79,36 +84,40 @@ from rbtr.daemon.messages import (
     ForgetRequest,
     ForgetResponse,
     ForgetStaleRequest,
+    GcAllRequest,
     GcRequest,
     GcResponse,
+    IndexState,
     ListSymbolsRequest,
     ListSymbolsResponse,
     OkResponse,
     ReadSymbolRequest,
     ReadSymbolResponse,
-    Scope,
+    SearchAllRequest,
     SearchRequest,
     SearchResponse,
+    StatusAllRequest,
     StatusRequest,
     StatusResponse,
     UnwatchRequest,
     UnwatchResponse,
+    UnwatchStaleAllRequest,
     UnwatchStaleRequest,
     WatchRequest,
     WatchResponse,
     WatchSetResponse,
     protocol_json_schema,
 )
-from rbtr.daemon.server import DaemonServer
+from rbtr.daemon.server import Daemon
 from rbtr.daemon.status import DaemonStatusReport, uptime_seconds as _uptime_seconds
-from rbtr.domain.models import GcMode
+from rbtr.domain.models import GcMode, Scope
 from rbtr.errors import ExitCode, IndexLockedError, IndexNotBuiltError, RbtrError
 from rbtr.git import HEAD_REF, normalise_repo_path, resolve_ref
 from rbtr.index.build import build_index
 from rbtr.index.embed import embed_index
 from rbtr.index.embeddings import Embedder
+from rbtr.index.index import Index
 from rbtr.index.reranker import Reranker
-from rbtr.index.store import IndexStore
 from rbtr.languages.manager import get_manager
 from rbtr.logging import configure_logging
 
@@ -144,9 +153,6 @@ class KeptSet(StrEnum):
 KeepField = Annotated[KeptSet, BeforeValidator(_normalise_choice)]
 
 
-# ── Internal server entry point ───────────────────────────────────────
-
-
 class DaemonServe(BaseModel):
     """Internal: run the daemon server (spawned by `daemon start`)."""
 
@@ -163,7 +169,7 @@ class DaemonServe(BaseModel):
         config.runtime_dir.mkdir(parents=True, exist_ok=True)
         print_banner()
         try:
-            store = IndexStore.from_config(writable=True)
+            index = Index.from_config(writable=True)
         except IndexLockedError:
             # Another process holds the index; the store logged it.  The
             # code tells `start_daemon` to wait for that process's daemon.
@@ -174,13 +180,8 @@ class DaemonServe(BaseModel):
             # in the log the parent points the user at.
             log.exception("daemon_store_open_failed")
             raise
-        server = DaemonServer(
-            config.runtime_dir, store, allow_missing_plugins=self.allow_missing_plugins
-        )
+        server = Daemon(config.runtime_dir, index, allow_missing_plugins=self.allow_missing_plugins)
         asyncio.run(server.serve())
-
-
-# ── Daemon subcommands ───────────────────────────────────────────────
 
 
 class DaemonStart(BaseModel):
@@ -254,7 +255,7 @@ class DaemonStatusCmd(BaseModel):
         )
 
 
-class Daemon(BaseModel):
+class DaemonCmd(BaseModel):
     """Manage the rbtr daemon."""
 
     start: CliSubCommand[DaemonStart]
@@ -265,9 +266,6 @@ class Daemon(BaseModel):
     def cli_cmd(self) -> None:
         # config.json_output is already set by root Rbtr.cli_cmd()
         CliApp.run_subcommand(self)
-
-
-# ── Watch subcommand ─────────────────────────────────────────────────
 
 
 class Watch(BaseModel):
@@ -292,12 +290,18 @@ class Watch(BaseModel):
         # Validate every ref (raises on a bad ref); the daemon stores
         # symbolic names so moving refs track their tip.
         for r in self.refs:
-            resolve_ref(resolved_repo, r)
+            resolve_ref(resolved_repo, r, max_untracked_files=config.max_untracked_files)
 
         request = WatchRequest(repo_path=resolved_repo, refs=self.refs)
 
         if not self.daemon:
-            self._run_inline(resolved_repo, [resolve_ref(resolved_repo, r) for r in self.refs])
+            self._run_inline(
+                resolved_repo,
+                [
+                    resolve_ref(resolved_repo, r, max_untracked_files=config.max_untracked_files)
+                    for r in self.refs
+                ],
+            )
             return
 
         # Try daemon first
@@ -317,7 +321,15 @@ class Watch(BaseModel):
             # this failure reads as a mystery.  `_run_inline` opens the
             # store as its first act, so the lock surfaces immediately.
             try:
-                self._run_inline(resolved_repo, [resolve_ref(resolved_repo, r) for r in self.refs])
+                self._run_inline(
+                    resolved_repo,
+                    [
+                        resolve_ref(
+                            resolved_repo, r, max_untracked_files=config.max_untracked_files
+                        )
+                        for r in self.refs
+                    ],
+                )
             except IndexLockedError as locked:
                 message = f"{locked} Inline indexing needs that same lock, so it was not attempted."
                 fail(ErrorResponse(code=ErrorCode(locked.error_code), message=message))
@@ -349,15 +361,14 @@ class Watch(BaseModel):
         resolved_refs: list[str],
     ) -> None:
         """Run indexing inline (blocking)."""
-        store = IndexStore.from_config(writable=True)
+        index = Index.from_config(writable=True)
         # Refuse to rebuild languages whose plugin isn't loaded -- that
         # would re-extract raw chunks and churn embeddings -- unless the
         # caller overrides with --allow-missing-plugins.
         get_manager().require_languages_loaded(
-            store.distinct_chunk_languages(), allow_missing=self.allow_missing_plugins
+            index.distinct_chunk_languages(), allow_missing=self.allow_missing_plugins
         )
-        with store.session() as ws:
-            repo_id = ws.register_repo(resolved_repo)
+        repo = index.register(resolved_repo)
 
         with progress_reporter("Parsing files", "Embedding") as (on_parse, on_embed):
 
@@ -371,14 +382,14 @@ class Watch(BaseModel):
             result = build_index(
                 resolved_repo,
                 resolved_refs[0],
-                store,
+                index,
                 on_progress=on_progress,
             )
             for ref in resolved_refs[1:]:
                 result = build_index(
                     resolved_repo,
                     ref,
-                    store,
+                    index,
                     on_progress=on_progress,
                 )
 
@@ -387,9 +398,8 @@ class Watch(BaseModel):
                 embedder = Embedder(idle_timeout=config.embed_idle_timeout)
                 for ref in resolved_refs:
                     embedded = embed_index(
-                        store,
-                        ref,
-                        repo_id=repo_id,
+                        index,
+                        at=repo.at(ref),
                         embedder=embedder,
                         on_progress=on_progress,
                     )
@@ -402,9 +412,6 @@ class Watch(BaseModel):
                 errors=result.errors,
             )
         )
-
-
-# ── Read subcommands (daemon-first, fallback) ───────────────────────
 
 
 class Unwatch(BaseModel):
@@ -443,23 +450,30 @@ class Unwatch(BaseModel):
         return self
 
     def cli_cmd(self) -> None:
-        repo_path = normalise_repo_path(self.repo_path)
-        request: UnwatchRequest | UnwatchStaleRequest = (
-            UnwatchStaleRequest(repo_path=repo_path, scope=self.scope, dry_run=self.dry_run)
-            if self.stale
-            else UnwatchRequest(repo_path=repo_path, refs=self.refs, dry_run=self.dry_run)
-        )
+        request: UnwatchRequest | UnwatchStaleRequest | UnwatchStaleAllRequest
+        if self.scope is Scope.ALL:
+            request = UnwatchStaleAllRequest(dry_run=self.dry_run)
+        elif self.stale:
+            request = UnwatchStaleRequest(
+                repo_path=normalise_repo_path(self.repo_path), dry_run=self.dry_run
+            )
+        else:
+            request = UnwatchRequest(
+                repo_path=normalise_repo_path(self.repo_path), refs=self.refs, dry_run=self.dry_run
+            )
         resp = try_daemon(request) if self.daemon else None
         if resp is None:
-            store = IndexStore.from_config(writable=True)
+            index = Index.from_config(writable=True)
             try:
-                resp = (
-                    handle_unwatch_stale(request, store)
-                    if isinstance(request, UnwatchStaleRequest)
-                    else handle_unwatch(request, store)
-                )
+                match request:
+                    case UnwatchStaleAllRequest():
+                        resp = handle_unwatch_stale_all(request, index)
+                    case UnwatchStaleRequest():
+                        resp = handle_unwatch_stale(request, index)
+                    case UnwatchRequest():
+                        resp = handle_unwatch(request, index)
             finally:
-                store.close()
+                index.close()
         match resp:
             case UnwatchResponse():
                 emit(resp)
@@ -506,15 +520,15 @@ class Forget(BaseModel):
         )
         resp = try_daemon(request) if self.daemon else None
         if resp is None:
-            store = IndexStore.from_config(writable=True)
+            index = Index.from_config(writable=True)
             try:
                 resp = (
-                    handle_forget_stale(request, store)
+                    handle_forget_stale(request, index)
                     if isinstance(request, ForgetStaleRequest)
-                    else handle_forget(request, store)
+                    else handle_forget(request, index)
                 )
             finally:
-                store.close()
+                index.close()
         match resp:
             case ForgetResponse():
                 emit(resp)
@@ -564,22 +578,39 @@ class Search(BaseModel):
         description="Search scope: workspace (this repo) or all (every indexed repo).",
     )
 
+    @model_validator(mode="after")
+    def _check_ref(self) -> Self:
+        """A ref is one repo's: every repo is searched at its latest snapshot."""
+        if self.scope is Scope.ALL and self.ref is not None:
+            msg = "--ref names one repo's snapshot; --scope all searches each repo's latest"
+            raise ValueError(msg)
+        return self
+
     def cli_cmd(self) -> None:
-        resolved_repo = normalise_repo_path(self.repo_path)
         weights = None
         if self.alpha is not None and self.beta is not None and self.gamma is not None:
             weights = WeightTriple(alpha=self.alpha, beta=self.beta, gamma=self.gamma)
-        request = SearchRequest(
-            repo_path=resolved_repo,
-            query=self.query,
-            limit=self.limit,
-            ref=self.ref,
-            weights=weights,
-            query_kind=self.query_kind,
-            keywords=self.keywords,
-            variants=self.variants,
-            scope=self.scope,
-        )
+        request: SearchRequest | SearchAllRequest
+        if self.scope is Scope.ALL:
+            request = SearchAllRequest(
+                query=self.query,
+                limit=self.limit,
+                weights=weights,
+                query_kind=self.query_kind,
+                keywords=self.keywords,
+                variants=self.variants,
+            )
+        else:
+            request = SearchRequest(
+                repo_path=normalise_repo_path(self.repo_path),
+                ref=self.ref,
+                query=self.query,
+                limit=self.limit,
+                weights=weights,
+                query_kind=self.query_kind,
+                keywords=self.keywords,
+                variants=self.variants,
+            )
 
         match try_daemon(request):
             case SearchResponse() as resp:
@@ -587,18 +618,21 @@ class Search(BaseModel):
             case ErrorResponse() as err:
                 fail(err)
             case None:
-                store = IndexStore.from_config()
+                index = Index.from_config()
 
                 gpu_load_lock = threading.Lock()
                 embedder = Embedder(load_lock=gpu_load_lock) if config.embed else None
                 reranker = Reranker(load_lock=gpu_load_lock) if config.reranker_model else None
                 try:
-                    resp = handle_search(
-                        request,
-                        store,
-                        embedder=embedder,
-                        reranker=reranker,
-                    )
+                    match request:
+                        case SearchAllRequest():
+                            resp = handle_search_all(
+                                request, index, embedder=embedder, reranker=reranker
+                            )
+                        case SearchRequest():
+                            resp = handle_search(
+                                request, index, embedder=embedder, reranker=reranker
+                            )
                     emit(resp)
                 except RbtrError as exc:
                     fail(exc)
@@ -638,10 +672,10 @@ class ReadSymbol(BaseModel):
             case ErrorResponse() as err:
                 fail(err)
             case None:
-                store = IndexStore.from_config()
+                index = Index.from_config()
 
                 try:
-                    emit(handle_read_symbol(request, store))
+                    emit(handle_read_symbol(request, index))
                 except RbtrError as exc:
                     fail(exc)
             case resp:
@@ -671,10 +705,10 @@ class ListSymbols(BaseModel):
             case ErrorResponse() as err:
                 fail(err)
             case None:
-                store = IndexStore.from_config()
+                index = Index.from_config()
 
                 try:
-                    emit(handle_list_symbols(request, store))
+                    emit(handle_list_symbols(request, index))
                 except RbtrError as exc:
                     fail(exc)
             case resp:
@@ -708,10 +742,10 @@ class FindRefs(BaseModel):
             case ErrorResponse() as err:
                 fail(err)
             case None:
-                store = IndexStore.from_config()
+                index = Index.from_config()
 
                 try:
-                    emit(handle_find_refs(request, store))
+                    emit(handle_find_refs(request, index))
                 except RbtrError as exc:
                     fail(exc)
             case resp:
@@ -743,10 +777,10 @@ class ChangedSymbols(BaseModel):
             case ErrorResponse() as err:
                 fail(err)
             case None:
-                store = IndexStore.from_config()
+                index = Index.from_config()
 
                 try:
-                    emit(handle_changed_symbols(request, store))
+                    emit(handle_changed_symbols(request, index))
                 except RbtrError as exc:
                     fail(exc)
             case resp:
@@ -763,8 +797,11 @@ class Status(BaseModel):
     )
 
     def cli_cmd(self) -> None:
-        resolved_repo = normalise_repo_path(self.repo_path)
-        request = StatusRequest(repo_path=resolved_repo, scope=self.scope)
+        request = (
+            StatusAllRequest()
+            if self.scope is Scope.ALL
+            else StatusRequest(repo_path=normalise_repo_path(self.repo_path))
+        )
 
         match try_daemon(request):
             case StatusResponse() as resp:
@@ -772,22 +809,28 @@ class Status(BaseModel):
             case ErrorResponse() as err:
                 fail(err)
             case None:
+                print_err("[yellow]![/]  rbtr is not running")
                 db = config.db_path
                 # No index yet: the reply still names the repository.
                 empty = StatusResponse(
-                    repo_path=resolved_repo if self.scope == Scope.WORKSPACE else None
+                    state=IndexState.NO_INDEX,
+                    repo_path=request.repo_path if isinstance(request, StatusRequest) else None,
                 )
                 if not db.exists():
                     emit(empty)
                     return
                 try:
-                    store = IndexStore(db)
+                    index = Index(db)
                 except IndexNotBuiltError:
                     emit(empty)  # the file exists, the index does not
                     return
 
                 try:
-                    emit(handle_status(request, store))
+                    match request:
+                        case StatusAllRequest():
+                            emit(handle_status_all(request, index))
+                        case StatusRequest():
+                            emit(handle_status(request, index))
                 except RbtrError as exc:
                     fail(exc)
             case resp:
@@ -864,13 +907,19 @@ class Gc(BaseModel):
         return self
 
     def cli_cmd(self) -> None:
-        request = GcRequest(
-            repo_path=normalise_repo_path(self.repo_path),
-            scope=self.scope,
-            mode=self.mode,
-            refs=self.keep_refs,
-            dry_run=self.dry_run,
-            compact=self.compact,
+        request = (
+            # `_check_retention` has refused every mode but the two `GcAllRequest` takes.
+            GcAllRequest.model_validate(
+                {"mode": self.mode, "dry_run": self.dry_run, "compact": self.compact}
+            )
+            if self.scope is Scope.ALL
+            else GcRequest(
+                repo_path=normalise_repo_path(self.repo_path),
+                mode=self.mode,
+                refs=self.keep_refs,
+                dry_run=self.dry_run,
+                compact=self.compact,
+            )
         )
 
         match try_daemon(request):
@@ -881,30 +930,34 @@ class Gc(BaseModel):
             case None:
                 # No daemon: this process holds DuckDB's exclusive lock, so
                 # compaction's connection swap is safe here (allow_compact).
-                store = IndexStore.from_config(writable=True)
+                index = Index.from_config(writable=True)
 
                 try:
-                    self._run_inline(request, store)
+                    self._run_inline(request, index)
                 except RbtrError as exc:
                     fail(exc)
             case resp:
                 fail(ErrorResponse(code=ErrorCode.INTERNAL, message=f"unexpected response: {resp}"))
 
     @staticmethod
-    def _run_inline(request: GcRequest, store: IndexStore) -> None:
+    def _run_inline(request: GcRequest | GcAllRequest, index: Index) -> None:
         """Collect in this process, reporting progress on stderr.
 
         A pass over many repos says nothing until it finishes; the bar
         goes to stderr, leaving stdout to the response.
         """
-        with progress_reporter("Collecting repos") as (on_repo,):
-            response = handle_gc(
-                request,
-                store,
-                allow_compact=True,
-                on_progress=lambda _repo_path, done, total: on_repo(done, total),
-            )
-        emit(response)
+        match request:
+            case GcRequest():
+                emit(handle_gc(request, index, allow_compact=True))
+            case GcAllRequest():
+                with progress_reporter("Collecting repos") as (on_repo,):
+                    response = handle_gc_all(
+                        request,
+                        index,
+                        allow_compact=True,
+                        on_progress=lambda _repo_path, done, total: on_repo(done, total),
+                    )
+                emit(response)
 
 
 class SchemaDump(BaseModel):
@@ -939,9 +992,6 @@ class ConfigCmd(BaseModel):
                 fail(ErrorResponse(code=ErrorCode.INTERNAL, message=f"unexpected response: {resp}"))
 
 
-# ── Root command ─────────────────────────────────────────────────────
-
-
 class Rbtr(
     Config,
     cli_prog_name="rbtr",
@@ -950,7 +1000,7 @@ class Rbtr(
 ):
     """rbtr — structural code index."""
 
-    daemon: CliSubCommand[Daemon]
+    daemon: CliSubCommand[DaemonCmd]
     watch: CliSubCommand[Watch]
     unwatch: CliSubCommand[Unwatch]
     forget: CliSubCommand[Forget]
@@ -1000,5 +1050,7 @@ def main() -> None:
         CliApp.run(Rbtr, cli_settings_source=cli_source)
     except RbtrError as exc:
         fail(exc, ExitCode.ERROR)
+    except duckdb.OutOfMemoryException as exc:
+        fail(ErrorResponse(code=ErrorCode.OUT_OF_MEMORY, message=str(exc)), ExitCode.ERROR)
     except ValidationError as exc:
         reject_arguments(exc)

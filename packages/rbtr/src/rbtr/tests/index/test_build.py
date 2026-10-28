@@ -11,11 +11,11 @@ import pygit2
 import pytest
 from pytest_mock import MockerFixture
 
-from rbtr.domain.models import ChunkKind, EdgeKind, FileSnapshot, IndexResult, SnapshotRef
+from rbtr.domain.models import ChunkKind, EdgeKind, FileSnapshot, IndexResult
 from rbtr.errors import BuildStopped
 from rbtr.index.build import build_index
+from rbtr.index.index import Index
 from rbtr.index.search import search
-from rbtr.index.store import IndexStore
 from rbtr.languages.manager import get_manager
 from rbtr.languages.treesitter import _get_query
 
@@ -23,7 +23,7 @@ from rbtr.languages.treesitter import _get_query
 @pytest.fixture(scope="module")
 def built_index(
     tmp_path_factory: pytest.TempPathFactory,
-) -> Generator[tuple[IndexStore, IndexResult, str]]:
+) -> Generator[tuple[Index, IndexResult, str]]:
     """Pre-built index over the standard git_repo shape.
 
     Module-scoped: built once, shared read-only by tests that
@@ -39,22 +39,22 @@ def built_index(
         "README.md": b"# My Project\n\nThis project uses `helper` and `User` for things.\n\n## Setup\n\nRun `format_name` to clean strings.\n",
     }
     repo_root = tmp / "repo"
-    index = repo.index
+    git_index = repo.index
     for path, content in files.items():
         full = repo_root / path
         full.parent.mkdir(parents=True, exist_ok=True)
         full.write_bytes(content)
-        index.add(path)
-    index.write()
-    tree_oid = index.write_tree()
+        git_index.add(path)
+    git_index.write()
+    tree_oid = git_index.write_tree()
     sig = pygit2.Signature("Test", "test@test.com")
     repo.create_commit("HEAD", sig, sig, "Initial commit", tree_oid, [])
     sha = str(repo.head.target)
 
-    store = IndexStore(writable=True)
-    result = build_index(repo.workdir, sha, store)
-    yield store, result, sha
-    store.close()
+    index = Index(writable=True)
+    result = build_index(repo.workdir, sha, index)
+    yield index, result, sha
+    index.close()
 
 
 @pytest.fixture
@@ -83,21 +83,21 @@ def run() -> Widget:
     return Widget()
 ''',
     }
-    index = repo.index
+    git_index = repo.index
     for path, content in files.items():
         full = tmp_path / path
         full.parent.mkdir(parents=True, exist_ok=True)
         full.write_bytes(content)
-        index.add(path)
-    index.write()
-    tree_oid = index.write_tree()
+        git_index.add(path)
+    git_index.write()
+    tree_oid = git_index.write_tree()
     sig = pygit2.Signature("Test", "test@test.com")
     repo.create_commit("HEAD", sig, sig, "Initial commit", tree_oid, [])
     return repo
 
 
 def test_build_index_resolves_monorepo_absolute_import(
-    store: IndexStore, monorepo_repo: pygit2.Repository
+    index: Index, monorepo_repo: pygit2.Repository
 ) -> None:
     """An absolute import across packages/*/src yields a retrievable edge.
 
@@ -105,23 +105,24 @@ def test_build_index_resolves_monorepo_absolute_import(
     query edges by target_id.
     """
     sha = str(monorepo_repo.head.target)
-    build_index(monorepo_repo.workdir, sha, store)
+    build_index(monorepo_repo.workdir, sha, index)
+    [repo] = index.repos()
     widget = next(
         c
-        for c in store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=sha))
+        for c in index.chunks(at=repo.at(sha))
         if c.name == "Widget"
         and c.kind == ChunkKind.CLASS
         and c.file_path == "packages/core/src/core/models.py"
     )
 
-    edges = store.edges(within=[SnapshotRef(repo_id=1, snapshot_sha=sha)], target_id=widget.id)
+    edges = index.edges(within=[repo.at(sha)], target_id=widget.id)
     assert EdgeKind.IMPORTS.value in edges["kind"].to_list(), (
         "absolute import across packages/*/src produced no inbound edge"
     )
 
 
 def test_build_index_registers_the_repo(
-    git_repo: pygit2.Repository, repo_path: str, store: IndexStore, snapshot_sha: str
+    git_repo: pygit2.Repository, repo_path: str, index: Index, snapshot_sha: str
 ) -> None:
     """A build registers its repo — indexing a path is what makes it known.
 
@@ -129,16 +130,16 @@ def test_build_index_registers_the_repo(
     row itself; without one, every per-repo table it writes would carry an
     id no enumeration (gc, watcher, forget) could ever reach.
     """
-    assert store.list_repos() == []
+    assert index.repos() == []
 
-    build_index(git_repo.workdir, snapshot_sha, store)
+    build_index(git_repo.workdir, snapshot_sha, index)
 
-    assert [r.repo_path for r in store.list_repos()] == [repo_path]
+    assert [r.repo_path for r in index.repos()] == [repo_path]
 
 
 @pytest.mark.parametrize("suffix", ["", "/", "/src"])
 def test_build_index_identifies_one_repo_from_any_path_inside_it(
-    repo_path: str, store: IndexStore, snapshot_sha: str, suffix: str
+    repo_path: str, index: Index, snapshot_sha: str, suffix: str
 ) -> None:
     """Any path inside a checkout resolves to a single repo row.
 
@@ -147,15 +148,15 @@ def test_build_index_identifies_one_repo_from_any_path_inside_it(
     second repo for the same checkout — splitting its index in two, each
     half invisible to the other.
     """
-    build_index(repo_path + suffix, snapshot_sha, store)
+    build_index(repo_path + suffix, snapshot_sha, index)
 
-    assert [r.repo_path for r in store.list_repos()] == [repo_path]
+    assert [r.repo_path for r in index.repos()] == [repo_path]
 
 
 def test_build_index_creates_chunks(
-    built_index: tuple[IndexStore, IndexResult, str],
+    built_index: tuple[Index, IndexResult, str],
 ) -> None:
-    _store, result, _sha = built_index
+    _index, result, _sha = built_index
     assert isinstance(result, IndexResult)
     assert result.stats.total_files > 0
     assert result.stats.total_chunks > 0
@@ -163,10 +164,11 @@ def test_build_index_creates_chunks(
 
 
 def test_build_index_creates_snapshots(
-    built_index: tuple[IndexStore, IndexResult, str],
+    built_index: tuple[Index, IndexResult, str],
 ) -> None:
-    store, _result, sha = built_index
-    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=sha))
+    index, _result, sha = built_index
+    [repo] = index.repos()
+    chunks = index.chunks(at=repo.at(sha))
     assert len(chunks) > 0
     file_paths = {c.file_path for c in chunks}
     assert "src/models.py" in file_paths
@@ -174,10 +176,11 @@ def test_build_index_creates_snapshots(
 
 
 def test_build_index_extracts_symbols(
-    built_index: tuple[IndexStore, IndexResult, str],
+    built_index: tuple[Index, IndexResult, str],
 ) -> None:
-    store, _result, sha = built_index
-    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=sha))
+    index, _result, sha = built_index
+    [repo] = index.repos()
+    chunks = index.chunks(at=repo.at(sha))
     names = {c.name for c in chunks}
     assert "User" in names
     assert "Order" in names
@@ -186,40 +189,43 @@ def test_build_index_extracts_symbols(
 
 
 def test_build_index_creates_edges(
-    built_index: tuple[IndexStore, IndexResult, str],
+    built_index: tuple[Index, IndexResult, str],
 ) -> None:
-    store, _result, sha = built_index
-    edges = store.edges(within=[SnapshotRef(repo_id=1, snapshot_sha=sha)])
+    index, _result, sha = built_index
+    [repo] = index.repos()
+    edges = index.edges(within=[repo.at(sha)])
     assert len(edges) > 0
     assert EdgeKind.IMPORTS.value in edges["kind"].to_list()
 
 
 def test_build_index_markdown_chunking(
-    built_index: tuple[IndexStore, IndexResult, str],
+    built_index: tuple[Index, IndexResult, str],
 ) -> None:
-    store, _result, sha = built_index
-    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=sha), file_path="README.md")
+    index, _result, sha = built_index
+    [repo] = index.repos()
+    chunks = index.chunks(at=repo.at(sha), file_path="README.md")
     assert len(chunks) > 0
     kinds = {c.kind for c in chunks}
     assert ChunkKind.DOC_SECTION in kinds
 
 
 def test_build_index_fts_available(
-    built_index: tuple[IndexStore, IndexResult, str],
+    built_index: tuple[Index, IndexResult, str],
 ) -> None:
-    store, _result, sha = built_index
-    results = store.fulltext_matches("helper", within=[SnapshotRef(repo_id=1, snapshot_sha=sha)])
+    index, _result, sha = built_index
+    [repo] = index.repos()
+    results = index.fulltext_matches("helper", within=[repo.at(sha)])
     assert len(results) > 0
 
 
 def test_build_index_progress_callback(
-    git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str
+    git_repo: pygit2.Repository, index: Index, snapshot_sha: str
 ) -> None:
     calls = []
     build_index(
         git_repo.workdir,
         snapshot_sha,
-        store,
+        index,
         on_progress=lambda p, d, t: calls.append((p, d, t)),
     )
 
@@ -230,36 +236,20 @@ def test_build_index_progress_callback(
 
 
 def test_build_index_cache_hit(
-    git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str
+    git_repo: pygit2.Repository, index: Index, snapshot_sha: str
 ) -> None:
     """Second build should hit the cache for all files."""
-    build_index(git_repo.workdir, snapshot_sha, store)
-    r2 = build_index(git_repo.workdir, snapshot_sha, store)
+    build_index(git_repo.workdir, snapshot_sha, index)
+    r2 = build_index(git_repo.workdir, snapshot_sha, index)
 
     assert r2.stats.skipped_files == r2.stats.total_files
     assert r2.stats.parsed_files == 0
 
 
-@pytest.fixture
-def linked_worktree(
-    git_repo: pygit2.Repository, tmp_path_factory: pytest.TempPathFactory
-) -> pygit2.Repository:
-    """A linked git worktree of `git_repo` at the same HEAD commit.
-
-    Models a second checkout of one repository: a distinct workdir over
-    the *same* object store, so identical content yields identical blob
-    SHAs — the real-world worktree/clone case the content-addressed
-    store deduplicates.
-    """
-    path = tmp_path_factory.mktemp("linked") / "checkout"
-    git_repo.add_worktree("checkout", str(path))
-    return pygit2.Repository(pygit2.discover_repository(str(path)))
-
-
 def test_build_dedups_across_linked_worktrees(
     git_repo: pygit2.Repository,
     linked_worktree: pygit2.Repository,
-    store: IndexStore,
+    index: Index,
     snapshot_sha: str,
 ) -> None:
     """Indexing two real checkouts of one repo reuses chunks and edges.
@@ -270,15 +260,12 @@ def test_build_dedups_across_linked_worktrees(
     have the same edges inferred (from the shared chunks read back via
     snapshots) even though extraction was skipped.
     """
-    build_index(git_repo.workdir, snapshot_sha, store)
-    wt = build_index(linked_worktree.workdir, snapshot_sha, store)
+    build_index(git_repo.workdir, snapshot_sha, index)
+    wt = build_index(linked_worktree.workdir, snapshot_sha, index)
 
-    ids_1 = sorted(
-        c.id for c in store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha))
-    )
-    ids_2 = sorted(
-        c.id for c in store.get_chunks(at=SnapshotRef(repo_id=2, snapshot_sha=snapshot_sha))
-    )
+    repo1, repo2 = index.repos()
+    ids_1 = sorted(c.id for c in index.chunks(at=repo1.at(snapshot_sha)))
+    ids_2 = sorted(c.id for c in index.chunks(at=repo2.at(snapshot_sha)))
     assert ids_1
     assert ids_1 == ids_2
 
@@ -288,16 +275,8 @@ def test_build_dedups_across_linked_worktrees(
 
     # Edges inferred for repo 2 from the shared chunks, matching repo 1.
     columns = ["source_id", "target_id", "kind"]
-    edges_1 = set(
-        store.edges(within=[SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha)])
-        .select(columns)
-        .iter_rows()
-    )
-    edges_2 = set(
-        store.edges(within=[SnapshotRef(repo_id=2, snapshot_sha=snapshot_sha)])
-        .select(columns)
-        .iter_rows()
-    )
+    edges_1 = set(index.edges(within=[repo1.at(snapshot_sha)]).select(columns).iter_rows())
+    edges_2 = set(index.edges(within=[repo2.at(snapshot_sha)]).select(columns).iter_rows())
     assert edges_1
     assert edges_1 == edges_2
 
@@ -328,7 +307,7 @@ def test_build_dedups_shared_files_across_divergent_worktrees(
     git_repo: pygit2.Repository,
     linked_worktree: pygit2.Repository,
     divergent_sha: str,
-    store: IndexStore,
+    index: Index,
     snapshot_sha: str,
 ) -> None:
     """Worktrees on different branches dedup shared files; diverged file differs.
@@ -339,58 +318,44 @@ def test_build_dedups_shared_files_across_divergent_worktrees(
     disjoint chunk set per checkout, with neither repo seeing the
     other's version.
     """
-    build_index(git_repo.workdir, snapshot_sha, store)
-    build_index(linked_worktree.workdir, divergent_sha, store)
+    build_index(git_repo.workdir, snapshot_sha, index)
+    build_index(linked_worktree.workdir, divergent_sha, index)
 
     # Unchanged file: same chunk ids in both checkouts (deduped).
+    repo1, repo2 = index.repos()
     models_1 = sorted(
-        c.id
-        for c in store.get_chunks(
-            at=SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha), file_path="src/models.py"
-        )
+        c.id for c in index.chunks(at=repo1.at(snapshot_sha), file_path="src/models.py")
     )
     models_2 = sorted(
-        c.id
-        for c in store.get_chunks(
-            at=SnapshotRef(repo_id=2, snapshot_sha=divergent_sha), file_path="src/models.py"
-        )
+        c.id for c in index.chunks(at=repo2.at(divergent_sha), file_path="src/models.py")
     )
     assert models_1
     assert models_1 == models_2
 
     # Diverged file: disjoint chunk sets, neither repo sees the other's.
-    utils_1 = {
-        c.id
-        for c in store.get_chunks(
-            at=SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha), file_path="src/utils.py"
-        )
-    }
-    utils_2 = {
-        c.id
-        for c in store.get_chunks(
-            at=SnapshotRef(repo_id=2, snapshot_sha=divergent_sha), file_path="src/utils.py"
-        )
-    }
+    utils_1 = {c.id for c in index.chunks(at=repo1.at(snapshot_sha), file_path="src/utils.py")}
+    utils_2 = {c.id for c in index.chunks(at=repo2.at(divergent_sha), file_path="src/utils.py")}
     assert utils_1
     assert utils_2
     assert utils_1.isdisjoint(utils_2)
 
 
 def test_build_index_idempotent_edges(
-    git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str
+    git_repo: pygit2.Repository, index: Index, snapshot_sha: str
 ) -> None:
     """Re-building should not duplicate edges."""
-    build_index(git_repo.workdir, snapshot_sha, store)
-    e1 = store.edges(within=[SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha)])
+    build_index(git_repo.workdir, snapshot_sha, index)
+    [repo] = index.repos()
+    e1 = index.edges(within=[repo.at(snapshot_sha)])
 
-    build_index(git_repo.workdir, snapshot_sha, store)
-    e2 = store.edges(within=[SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha)])
+    build_index(git_repo.workdir, snapshot_sha, index)
+    e2 = index.edges(within=[repo.at(snapshot_sha)])
 
     assert len(e1) == len(e2)
 
 
 def test_build_index_replaces_snapshots_for_same_ref(
-    git_repo: pygit2.Repository, store: IndexStore, tmp_path: Path
+    git_repo: pygit2.Repository, index: Index, tmp_path: Path
 ) -> None:
     """Re-indexing the same ref removes files deleted since older reviews."""
     head = git_repo.head.peel(pygit2.Commit)
@@ -399,42 +364,38 @@ def test_build_index_replaces_snapshots_for_same_ref(
     git_repo.checkout_head(strategy=pygit2.GIT_CHECKOUT_FORCE)  # type: ignore[no-untyped-call]  # pygit2 untyped
 
     # First index pass includes src/main.py.
-    build_index(git_repo.workdir, "review-head", store)
-    before_paths = {
-        c.file_path for c in store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="review-head"))
-    }
+    build_index(git_repo.workdir, "review-head", index)
+    [repo] = index.repos()
+    before_paths = {c.file_path for c in index.chunks(at=repo.at("review-head"))}
     assert "src/main.py" in before_paths
 
     # Delete src/main.py and commit on the same ref name.
     main_path = tmp_path / "src" / "main.py"
     main_path.unlink()
-    index = git_repo.index
-    index.remove("src/main.py")
-    index.write()
-    tree_oid = index.write_tree()
+    git_index = git_repo.index
+    git_index.remove("src/main.py")
+    git_index.write()
+    tree_oid = git_index.write_tree()
     sig = pygit2.Signature("Test", "test@test.com")
     parent = git_repo.get(git_repo.head.target)
     assert parent is not None
     git_repo.create_commit("HEAD", sig, sig, "Remove main", tree_oid, [parent.id])
 
     # Second pass at the same ref should not leak deleted-file chunks.
-    build_index(git_repo.workdir, "review-head", store)
-    after_paths = {
-        c.file_path for c in store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="review-head"))
-    }
+    build_index(git_repo.workdir, "review-head", index)
+    after_paths = {c.file_path for c in index.chunks(at=repo.at("review-head"))}
     assert "src/main.py" not in after_paths
     assert "src/utils.py" in after_paths
 
 
 def test_build_index_metadata_round_trip(
-    git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str
+    git_repo: pygit2.Repository, index: Index, snapshot_sha: str
 ) -> None:
     """Import metadata should survive store round-trip."""
-    build_index(git_repo.workdir, snapshot_sha, store)
+    build_index(git_repo.workdir, snapshot_sha, index)
 
-    chunks = store.get_chunks(
-        at=SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha), file_path="src/main.py"
-    )
+    [repo] = index.repos()
+    chunks = index.chunks(at=repo.at(snapshot_sha), file_path="src/main.py")
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     assert len(imports) > 0
 
@@ -444,71 +405,138 @@ def test_build_index_metadata_round_trip(
 
 
 def test_build_index_marks_commit_indexed(
-    git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str
+    git_repo: pygit2.Repository, repo_path: str, index: Index, snapshot_sha: str
 ) -> None:
     """Successful build_index records a completion row."""
-    assert store.has_indexed(at=SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha)) is False
-    build_index(git_repo.workdir, snapshot_sha, store)
-    assert store.has_indexed(at=SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha)) is True
+    repo = index.register(repo_path)
+    assert index.has_indexed(at=repo.at(snapshot_sha)) is False
+    build_index(git_repo.workdir, snapshot_sha, index)
+    assert index.has_indexed(at=repo.at(snapshot_sha)) is True
 
 
 def test_build_index_sweeps_residue_from_crashed_builds(
-    git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str
+    git_repo: pygit2.Repository, repo_path: str, index: Index, snapshot_sha: str
 ) -> None:
     """A successful build cleans up dangling snapshots/edges from prior crashes."""
     # Simulate residue: a snapshot for a commit that never finished.
-    with store.session() as ws:
+    repo = index.register(repo_path)
+    with index.session(repo) as ws:
         ws.insert_snapshots(
             [
                 FileSnapshot(
                     snapshot_sha="crashed_sha", file_path="leftover.py", blob_sha="leftover_blob"
                 )
             ],
-            repo_id=1,
         )
-    assert store.has_indexed(at=SnapshotRef(repo_id=1, snapshot_sha="crashed_sha")) is False
+    assert index.has_indexed(at=repo.at("crashed_sha")) is False
 
-    build_index(git_repo.workdir, snapshot_sha, store)
+    build_index(git_repo.workdir, snapshot_sha, index)
 
     # The legit commit is indexed; the crashed residue is gone.
-    assert store.has_indexed(at=SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha)) is True
-    assert store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha="crashed_sha")) == []
+    assert index.has_indexed(at=repo.at(snapshot_sha)) is True
+    assert index.chunks(at=repo.at("crashed_sha")) == []
 
 
 def test_a_stopped_build_leaves_its_snapshot_for_the_next_build(
-    git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str
+    git_repo: pygit2.Repository, index: Index, snapshot_sha: str
 ) -> None:
     """A build asked to stop ends after the file in hand and keeps nothing of
     the snapshot; the next build indexes it in full."""
     stop = threading.Event()
-    at = SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha)
     with pytest.raises(BuildStopped):
         build_index(
-            git_repo.workdir, snapshot_sha, store, stop=stop, on_progress=lambda *_: stop.set()
+            git_repo.workdir, snapshot_sha, index, stop=stop, on_progress=lambda *_: stop.set()
         )
-    assert not store.has_indexed(at=at)
-    assert store.get_chunks(at=at) == []
+    [repo] = index.repos()
+    at = repo.at(snapshot_sha)
+    assert not index.has_indexed(at=at)
+    assert index.chunks(at=at) == []
 
-    build_index(git_repo.workdir, snapshot_sha, store)
+    build_index(git_repo.workdir, snapshot_sha, index)
 
-    uninterrupted = IndexStore(writable=True)
+    uninterrupted = Index(writable=True)
     build_index(git_repo.workdir, snapshot_sha, uninterrupted)
-    assert store.has_indexed(at=at)
-    assert len(store.get_chunks(at=at)) == len(uninterrupted.get_chunks(at=at))
+    assert index.has_indexed(at=at)
+    assert len(index.chunks(at=at)) == len(uninterrupted.chunks(at=at))
 
 
-def test_build_index_empty_repo(tmp_path: Path, store: IndexStore) -> None:
+@pytest.mark.parametrize("built_before", [True, False], ids=["later_build", "first_build"])
+def test_a_build_that_failed_after_extracting_is_rebuilt_in_full(
+    git_repo: pygit2.Repository,
+    index: Index,
+    two_commits: tuple[str, str],
+    mocker: MockerFixture,
+    built_before: bool,
+) -> None:
+    """A build that dies after its chunks commit leaves them claimed only by
+    an unfinished snapshot.  The next build reuses them, replaces the
+    snapshot's rows and marks it indexed, whether or not the repo was
+    built before, and ends as a build that never failed."""
+    base_sha, head_sha = two_commits
+    shas = [base_sha, head_sha] if built_before else [head_sha]
+    for sha in shas[:-1]:
+        build_index(git_repo.workdir, sha, index)
+    crash = mocker.patch(
+        "rbtr.index.build._infer_and_store_edges", side_effect=RuntimeError("crash")
+    )
+    with pytest.raises(RuntimeError, match="crash"):
+        build_index(git_repo.workdir, head_sha, index)
+    mocker.stop(crash)
+
+    build_index(git_repo.workdir, head_sha, index)
+
+    uninterrupted = Index(writable=True)
+    for sha in shas:
+        build_index(git_repo.workdir, sha, uninterrupted)
+    [repo] = index.repos()
+    at = repo.at(head_sha)
+    assert {c.name for c in index.chunks(at=at)} == {c.name for c in uninterrupted.chunks(at=at)}
+
+
+def test_a_checkouts_failed_build_leaves_its_sibling_whole(
+    git_repo: pygit2.Repository,
+    linked_worktree: pygit2.Repository,
+    index: Index,
+    snapshot_sha: str,
+    mocker: MockerFixture,
+) -> None:
+    """A build's clean-up clears only its own repo's residue.  A sibling
+    checkout built meanwhile reuses the failed build's chunks and is whole;
+    the failed checkout is whole once it builds again."""
+    crash = mocker.patch(
+        "rbtr.index.build._infer_and_store_edges", side_effect=RuntimeError("crash")
+    )
+    with pytest.raises(RuntimeError, match="crash"):
+        build_index(git_repo.workdir, snapshot_sha, index)
+    mocker.stop(crash)
+
+    build_index(linked_worktree.workdir, snapshot_sha, index)
+    main, worktree = index.repos()
+    assert index.count_file_snapshots(at=main.at(snapshot_sha)) > 0, "the residue stays"
+    build_index(git_repo.workdir, snapshot_sha, index)
+
+    uninterrupted = Index(writable=True)
+    build_index(git_repo.workdir, snapshot_sha, uninterrupted)
+    [alone] = uninterrupted.repos()
+    expected = {c.name for c in uninterrupted.chunks(at=alone.at(snapshot_sha))}
+    for repo in (main, worktree):
+        assert index.has_indexed(at=repo.at(snapshot_sha))
+        assert {c.name for c in index.chunks(at=repo.at(snapshot_sha))} == expected
+    assert index.count_orphan_chunks() == 0
+
+
+def test_build_index_empty_repo(tmp_path: Path, index: Index) -> None:
     """Index an empty repo (no files)."""
     repo = pygit2.init_repository(str(tmp_path / "empty"), bare=False, initial_head="main")
 
-    index = repo.index
-    index.write()
-    tree_oid = index.write_tree()
+    git_index = repo.index
+    git_index.write()
+    tree_oid = git_index.write_tree()
     sig = pygit2.Signature("Test", "test@test.com")
     repo.create_commit("HEAD", sig, sig, "Empty", tree_oid, [])
 
     sha = str(repo.head.target)
-    result = build_index(repo.workdir, sha, store)
+    result = build_index(repo.workdir, sha, index)
 
     assert result.stats.total_files == 0
     assert result.stats.total_chunks == 0
@@ -530,11 +558,11 @@ def test_query_cache_produces_identical_chunks(tmp_path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(f"def unique_func_{i}():\n    return {i}\n")
 
-    index = repo.index
+    git_index = repo.index
     for i in range(10):
-        index.add(f"mod_{i}.py")
-    index.write()
-    tree_oid = index.write_tree()
+        git_index.add(f"mod_{i}.py")
+    git_index.write()
+    tree_oid = git_index.write_tree()
     sig = pygit2.Signature("Test", "test@test.com")
     repo.create_commit("HEAD", sig, sig, "init", tree_oid, [])
 
@@ -544,16 +572,18 @@ def test_query_cache_produces_identical_chunks(tmp_path: Path) -> None:
 
     _get_query.cache_clear()
 
-    store1 = IndexStore(writable=True)
-    store2 = IndexStore(writable=True)
+    index1 = Index(writable=True)
+    index2 = Index(writable=True)
     try:
-        build_index(repo.workdir, sha, store1)
-        chunks1 = {c.name for c in store1.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=sha))}
+        build_index(repo.workdir, sha, index1)
+        [cold] = index1.repos()
+        chunks1 = {c.name for c in index1.chunks(at=cold.at(sha))}
 
         # Second build — queries are now cached.
         _get_query.cache_clear()
-        build_index(repo.workdir, sha, store2)
-        chunks2 = {c.name for c in store2.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=sha))}
+        build_index(repo.workdir, sha, index2)
+        [warm] = index2.repos()
+        chunks2 = {c.name for c in index2.chunks(at=warm.at(sha))}
 
         # All 10 functions must be present in both.
         for i in range(10):
@@ -562,24 +592,23 @@ def test_query_cache_produces_identical_chunks(tmp_path: Path) -> None:
 
         assert chunks1 == chunks2
     finally:
-        store1.close()
-        store2.close()
+        index1.close()
+        index2.close()
 
 
 def test_build_rebuilds_fts_at_commit(
-    git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str
+    git_repo: pygit2.Repository, index: Index, snapshot_sha: str
 ) -> None:
     """FTS is rebuilt at the end of build_index, not on first search."""
-    build_index(git_repo.workdir, snapshot_sha, store)
+    build_index(git_repo.workdir, snapshot_sha, index)
 
     # The FTS query finds results — the build rebuilt the index.
-    results = store.fulltext_matches(
-        "helper", within=[SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha)]
-    )
+    [repo] = index.repos()
+    results = index.fulltext_matches("helper", within=[repo.at(snapshot_sha)])
     assert len(results) > 0
 
 
-def test_build_index_unknown_language(tmp_path: Path, store: IndexStore) -> None:
+def test_build_index_unknown_language(tmp_path: Path, index: Index) -> None:
     """Files with unknown extensions should get plaintext chunking."""
     repo = pygit2.init_repository(str(tmp_path / "unknown"), bare=False, initial_head="main")
 
@@ -588,23 +617,24 @@ line1
 line2
 line3
 """)
-    index = repo.index
-    index.add("data.xyz")
-    index.write()
-    tree_oid = index.write_tree()
+    git_index = repo.index
+    git_index.add("data.xyz")
+    git_index.write()
+    tree_oid = git_index.write_tree()
     sig = pygit2.Signature("Test", "test@test.com")
     repo.create_commit("HEAD", sig, sig, "Add unknown file", tree_oid, [])
 
     sha = str(repo.head.target)
-    result = build_index(repo.workdir, sha, store)
+    result = build_index(repo.workdir, sha, index)
 
     assert result.stats.total_files == 1
-    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=sha))
+    [registered] = index.repos()
+    chunks = index.chunks(at=registered.at(sha))
     assert len(chunks) > 0
     assert all(c.kind == ChunkKind.RAW_CHUNK for c in chunks)
 
 
-def test_build_index_prose_txt_detected(tmp_path: Path, store: IndexStore) -> None:
+def test_build_index_prose_txt_detected(tmp_path: Path, index: Index) -> None:
     """A .txt file with Markdown/RST content gets DOC_SECTION chunks."""
     repo = pygit2.init_repository(str(tmp_path / "prose"), bare=False, initial_head="main")
 
@@ -617,23 +647,24 @@ Version 1.0
 
 Initial release.
 """)
-    index = repo.index
-    index.add("CHANGES.txt")
-    index.write()
-    tree_oid = index.write_tree()
+    git_index = repo.index
+    git_index.add("CHANGES.txt")
+    git_index.write()
+    tree_oid = git_index.write_tree()
     sig = pygit2.Signature("Test", "test@test.com")
     repo.create_commit("HEAD", sig, sig, "Add changelog", tree_oid, [])
 
     sha = str(repo.head.target)
-    build_index(repo.workdir, sha, store)
+    build_index(repo.workdir, sha, index)
 
-    chunks = store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=sha))
+    [registered] = index.repos()
+    chunks = index.chunks(at=registered.at(sha))
     assert len(chunks) > 0
     assert any(c.language == "rst" for c in chunks)
     assert any(c.kind == ChunkKind.DOC_SECTION for c in chunks)
 
 
-def test_build_index_prose_blob_dedup(tmp_path: Path, store: IndexStore) -> None:
+def test_build_index_prose_blob_dedup(tmp_path: Path, index: Index) -> None:
     """Prose-detected blobs are deduped on rebuild (blob_is_current prose fallback)."""
     repo = pygit2.init_repository(str(tmp_path / "prose_dedup"), bare=False, initial_head="main")
 
@@ -642,37 +673,37 @@ def test_build_index_prose_blob_dedup(tmp_path: Path, store: IndexStore) -> None
 
 Description here.
 """)
-    index = repo.index
-    index.add("README")
-    index.write()
-    tree_oid = index.write_tree()
+    git_index = repo.index
+    git_index.add("README")
+    git_index.write()
+    tree_oid = git_index.write_tree()
     sig = pygit2.Signature("Test", "test@test.com")
     repo.create_commit("HEAD", sig, sig, "init", tree_oid, [])
 
     sha = str(repo.head.target)
-    build_index(repo.workdir, sha, store)
-    r2 = build_index(repo.workdir, sha, store)
+    build_index(repo.workdir, sha, index)
+    r2 = build_index(repo.workdir, sha, index)
 
     assert r2.stats.skipped_files == r2.stats.total_files
     assert r2.stats.parsed_files == 0
 
 
 def test_build_index_serial_gated_reextraction(
-    tmp_path: Path, store: IndexStore, mocker: MockerFixture
+    tmp_path: Path, index: Index, mocker: MockerFixture
 ) -> None:
     """Bumping `extraction_serial` forces re-extraction."""
     repo = pygit2.init_repository(str(tmp_path / "ver"), bare=False, initial_head="main")
 
     (tmp_path / "ver" / "doc.md").write_text("# Hello\n\nWorld.\n")
-    index = repo.index
-    index.add("doc.md")
-    index.write()
-    tree_oid = index.write_tree()
+    git_index = repo.index
+    git_index.add("doc.md")
+    git_index.write()
+    tree_oid = git_index.write_tree()
     sig = pygit2.Signature("Test", "test@test.com")
     repo.create_commit("HEAD", sig, sig, "init", tree_oid, [])
 
     sha = str(repo.head.target)
-    r1 = build_index(repo.workdir, sha, store)
+    r1 = build_index(repo.workdir, sha, index)
     assert r1.stats.parsed_files >= 1
 
     # Bump the markdown registration's serial.
@@ -684,7 +715,7 @@ def test_build_index_serial_gated_reextraction(
         mgr, "get_registration", side_effect=lambda lid: bumped if lid == "markdown" else orig_reg
     )
 
-    r2 = build_index(repo.workdir, sha, store)
+    r2 = build_index(repo.workdir, sha, index)
     assert r2.stats.parsed_files >= 1, "serial bump should force re-extraction"
 
 
@@ -706,26 +737,24 @@ def multilang_repo(tmp_path: Path) -> pygit2.Repository:
     )
     repo = pygit2.init_repository(str(tmp_path / "docs"), bare=False, initial_head="main")
     (tmp_path / "docs" / "api.md").write_text(content)
-    index = repo.index
-    index.add("api.md")
-    index.write()
-    tree_oid = index.write_tree()
+    git_index = repo.index
+    git_index.add("api.md")
+    git_index.write()
+    tree_oid = git_index.write_tree()
     sig = pygit2.Signature("Test", "test@test.com")
     repo.create_commit("HEAD", sig, sig, "init", tree_oid, [])
     return repo
 
 
-def test_build_index_dedups_multilang_file(
-    multilang_repo: pygit2.Repository, store: IndexStore
-) -> None:
+def test_build_index_dedups_multilang_file(multilang_repo: pygit2.Repository, index: Index) -> None:
     """A multi-language file is skipped on rebuild, not re-parsed every build.
 
     Also guards per-language serials: a delegated chunk stamped with the
     wrong (host) serial would miss the serial-map gate and re-extract here.
     """
     sha = str(multilang_repo.head.target)
-    build_index(multilang_repo.workdir, sha, store)
-    rebuild = build_index(multilang_repo.workdir, sha, store)
+    build_index(multilang_repo.workdir, sha, index)
+    rebuild = build_index(multilang_repo.workdir, sha, index)
 
     assert rebuild.stats.skipped_files == rebuild.stats.total_files
     assert rebuild.stats.parsed_files == 0
@@ -733,14 +762,14 @@ def test_build_index_dedups_multilang_file(
 
 @pytest.mark.parametrize("plugin", ["python", "markdown"])
 def test_build_index_reextracts_on_contributor_bump(
-    multilang_repo: pygit2.Repository, store: IndexStore, mocker: MockerFixture, plugin: str
+    multilang_repo: pygit2.Repository, index: Index, mocker: MockerFixture, plugin: str
 ) -> None:
     """Bumping any contributor — the embedded language or the host — re-extracts.
 
     Confirms the serial map gates on every language in the file, not just one.
     """
     sha = str(multilang_repo.head.target)
-    build_index(multilang_repo.workdir, sha, store)
+    build_index(multilang_repo.workdir, sha, index)
 
     mgr = get_manager()
     target = mgr.get_registration(plugin)
@@ -753,11 +782,11 @@ def test_build_index_reextracts_on_contributor_bump(
         side_effect=lambda lid: bumped if lid == plugin else originals.get(lid),
     )
 
-    rebuild = build_index(multilang_repo.workdir, sha, store)
+    rebuild = build_index(multilang_repo.workdir, sha, index)
     assert rebuild.stats.parsed_files >= 1
 
 
-def test_build_index_dedups_empty_file(tmp_path: Path, store: IndexStore) -> None:
+def test_build_index_dedups_empty_file(tmp_path: Path, index: Index) -> None:
     """An empty file is skipped on rebuild, not re-parsed every time.
 
     An empty `__init__.py` produces no definition chunks; the host-presence
@@ -766,23 +795,23 @@ def test_build_index_dedups_empty_file(tmp_path: Path, store: IndexStore) -> Non
     repo = pygit2.init_repository(str(tmp_path / "empty"), bare=False, initial_head="main")
     (tmp_path / "empty" / "pkg").mkdir(parents=True)
     (tmp_path / "empty" / "pkg" / "__init__.py").write_text("")
-    index = repo.index
-    index.add("pkg/__init__.py")
-    index.write()
-    tree_oid = index.write_tree()
+    git_index = repo.index
+    git_index.add("pkg/__init__.py")
+    git_index.write()
+    tree_oid = git_index.write_tree()
     sig = pygit2.Signature("Test", "test@test.com")
     repo.create_commit("HEAD", sig, sig, "init", tree_oid, [])
     sha = str(repo.head.target)
 
-    build_index(repo.workdir, sha, store)
-    r2 = build_index(repo.workdir, sha, store)
+    build_index(repo.workdir, sha, index)
+    r2 = build_index(repo.workdir, sha, index)
 
     assert r2.stats.skipped_files == r2.stats.total_files
     assert r2.stats.parsed_files == 0
 
 
 def test_empty_files_of_two_languages_each_keep_a_presence_chunk(
-    tmp_path: Path, store: IndexStore
+    tmp_path: Path, index: Index
 ) -> None:
     """The empty blob extracted under two languages yields a chunk for each.
 
@@ -799,24 +828,25 @@ def test_empty_files_of_two_languages_each_keep_a_presence_chunk(
         target = tmp_path / "blank" / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text("")
-        index = repo.index
-        index.add(path)
-        index.write()
+        git_index = repo.index
+        git_index.add(path)
+        git_index.write()
         parent = repo.get(repo.head.target) if shas else None
         repo.create_commit(
-            "HEAD", sig, sig, message, index.write_tree(), [parent.id] if parent else []
+            "HEAD", sig, sig, message, git_index.write_tree(), [parent.id] if parent else []
         )
         shas.append(str(repo.head.target))
 
-    build_index(repo.workdir, shas[0], store)
-    build_index(repo.workdir, shas[1], store, base_sha=shas[0])
+    build_index(repo.workdir, shas[0], index)
+    build_index(repo.workdir, shas[1], index, base_sha=shas[0])
 
-    paths = {c.file_path for c in store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=shas[1]))}
+    [registered] = index.repos()
+    paths = {c.file_path for c in index.chunks(at=registered.at(shas[1]))}
     assert paths == {"pkg/__init__.py", "web/blank.html"}
 
 
 def test_symbol_in_an_embedded_fence_is_searchable(
-    multilang_repo: pygit2.Repository, store: IndexStore
+    multilang_repo: pygit2.Repository, index: Index
 ) -> None:
     """A python symbol inside a markdown fence is found at the host's path.
 
@@ -826,29 +856,31 @@ def test_symbol_in_an_embedded_fence_is_searchable(
     style block silently leaves the index.
     """
     sha = str(multilang_repo.head.target)
-    build_index(multilang_repo.workdir, sha, store)
+    build_index(multilang_repo.workdir, sha, index)
 
-    results = search(store, "handle", within=[SnapshotRef(repo_id=1, snapshot_sha=sha)], top_k=10)
+    [repo] = index.repos()
+    results = search(index, "handle", within=[repo.at(sha)], top_k=10)
 
     assert [r.file_paths for r in results if r.name == "handle"] == [["api.md"]]
 
 
 def test_build_index_chunk_ids_stable(
-    git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str
+    git_repo: pygit2.Repository, index: Index, snapshot_sha: str
 ) -> None:
     """Build twice, compare chunk ID sets — no phantom inserts or deletes."""
-    build_index(git_repo.workdir, snapshot_sha, store)
-    ids_1 = {c.id for c in store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha))}
+    build_index(git_repo.workdir, snapshot_sha, index)
+    [repo] = index.repos()
+    ids_1 = {c.id for c in index.chunks(at=repo.at(snapshot_sha))}
     assert len(ids_1) > 0
 
-    build_index(git_repo.workdir, snapshot_sha, store)
-    ids_2 = {c.id for c in store.get_chunks(at=SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha))}
+    build_index(git_repo.workdir, snapshot_sha, index)
+    ids_2 = {c.id for c in index.chunks(at=repo.at(snapshot_sha))}
 
     assert ids_1 == ids_2
 
 
 def test_unparseable_file_is_still_navigable(
-    git_repo: pygit2.Repository, store: IndexStore, snapshot_sha: str, mocker: MockerFixture
+    git_repo: pygit2.Repository, index: Index, snapshot_sha: str, mocker: MockerFixture
 ) -> None:
     """A file whose extraction raises keeps a presence chunk.
 
@@ -858,10 +890,9 @@ def test_unparseable_file_is_still_navigable(
     """
     mocker.patch("rbtr.index.build.extract_file", side_effect=RuntimeError("no parser today"))
 
-    result = build_index(git_repo.workdir, snapshot_sha, store)
+    result = build_index(git_repo.workdir, snapshot_sha, index)
 
     assert result.errors, "extraction failure must be reported"
-    chunks = store.get_chunks(
-        at=SnapshotRef(repo_id=1, snapshot_sha=snapshot_sha), file_path="src/utils.py"
-    )
+    [repo] = index.repos()
+    chunks = index.chunks(at=repo.at(snapshot_sha), file_path="src/utils.py")
     assert [c.kind for c in chunks] == [ChunkKind.RAW_CHUNK]

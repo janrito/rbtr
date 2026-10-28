@@ -17,7 +17,7 @@ from pydantic_ai.messages import TextPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pytest_cases import parametrize_with_cases
 
-from rbtr_eval.expand import _render_expansion_report, expand_queries
+from rbtr_eval.expand import _expansion_examples, expand_queries
 from rbtr_eval.shared_schemas import ExpansionRow, QueryRow
 
 if TYPE_CHECKING:
@@ -124,6 +124,43 @@ def mixed_queries() -> dy.DataFrame[QueryRow]:
     ).pipe(QueryRow.validate, cast=True)
 
 
+@pytest.fixture
+def many_queries() -> dy.DataFrame[QueryRow]:
+    """Two hundred queries over forty names.
+
+    Each name targets five symbols, so choosing one row per name is a
+    real choice.
+    """
+    return pl.DataFrame(
+        [
+            {
+                "slug": "test",
+                "file_path": f"src/m{i}.py",
+                "scope": "",
+                "name": f"symbol_{i % 40}",
+                "line_start": i + 1,
+                "line_end": i + 1,
+                "symbol_kind": "function",
+                "language": "python",
+                "provenance": "docstring",
+                "text": f"how does part {i} work",
+            }
+            for i in range(200)
+        ],
+    ).pipe(QueryRow.validate, cast=True)
+
+
+@pytest.fixture
+def many_expansions(many_queries: dy.DataFrame[QueryRow]) -> dy.DataFrame[ExpansionRow]:
+    """One expansion for each of `many_queries`."""
+    return many_queries.select(
+        *ExpansionRow.primary_key(),
+        pl.lit("concept").alias("query_kind"),
+        pl.concat_list(pl.format("kw{}", "line_start")).alias("keywords"),
+        pl.concat_list(pl.format("var{}", "line_start")).alias("variants"),
+    ).pipe(ExpansionRow.validate, cast=True)
+
+
 @parametrize_with_cases(
     "queries, model, expected_kind, expected_keywords, expected_variants",
     cases=".cases_expand",
@@ -175,17 +212,29 @@ def test_expand_mixed_queries(
     assert len(code_row["variants"]) > 0
 
 
-def test_expansion_report_joins_queries_onto_expansions(
+def test_expansion_examples_join_queries_onto_expansions(
     concept_query: dy.DataFrame[QueryRow], expansion_model: FunctionModel
 ) -> None:
-    """The report's examples carry the query text joined from `QueryRow`.
+    """The examples carry the query text joined from `QueryRow`.
 
-    `ExpansionRow` does not hold `text`, so the report joins it back on the
-    target identity.  Asserting the text reaches the output proves the join
+    `ExpansionRow` does not hold `text`, so the examples join it back on
+    the target identity.  Asserting the text arrives proves the join
     matched, rather than merely that it did not raise.
     """
     result = expand_queries(concept_query, model=expansion_model, concurrency=1)
 
-    report = _render_expansion_report(result, concept_query, "test-model")
+    examples = _expansion_examples(result, concept_query, per_kind=5, seed=42)
 
-    assert "how does configuration loading work" in report
+    assert examples["text"].to_list() == ["how does configuration loading work"]
+
+
+def test_expansion_examples_are_the_same_every_time(
+    many_expansions: dy.DataFrame[ExpansionRow], many_queries: dy.DataFrame[QueryRow]
+) -> None:
+    """The sampled examples depend only on the data, not on row order."""
+    first = _expansion_examples(many_expansions, many_queries, per_kind=5, seed=42)
+
+    assert all(
+        _expansion_examples(many_expansions, many_queries, per_kind=5, seed=42).equals(first)
+        for _ in range(4)
+    )

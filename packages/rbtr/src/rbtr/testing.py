@@ -155,7 +155,7 @@ def isolated_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[Pa
     lets one test's repos leak into another's cross-repo search.
     Repoint both the subprocess (via the `RBTR_DATA_DIR` env it
     inherits) and the in-process `config` singleton (used by
-    `IndexStore.from_config`) at a per-test directory.
+    `Index.from_config`) at a per-test directory.
 
     Teardown kills any daemon still serving this data dir.  The
     daemon smoke tests stop their own daemon in a `finally`, but that

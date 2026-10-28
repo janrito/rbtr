@@ -1,7 +1,7 @@
 -- Count this session's inserted (blob_sha, file_language) pairs that no
--- repo claims.  `_stg` holds one row per pair written by the session's
--- chunk inserts; a pair is claimed when some file_snapshots row
--- anywhere references it, which is the same key sweep_orphan_chunks
+-- checkout claims.  `_stg` holds one row per pair written by the session's
+-- chunk inserts; a pair is claimed when some file_snapshots row in the
+-- file references it, which is the same key sweep_orphan_chunks
 -- deletes by.  A non-zero count means the session is about to commit
 -- chunks the next sweep would take.
 SELECT count(*)

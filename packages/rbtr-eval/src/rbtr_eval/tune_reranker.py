@@ -26,9 +26,15 @@ from rbtr.cli.output import ProgressCallback, progress_reporter
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import SearchRequest, SearchResponse
 from rbtr.domain.models import ChunkKind
-from rbtr_eval.agg import search_metric_aggs
+from rbtr_eval.agg import (
+    Dimension,
+    SearchMetrics,
+    at_target_path,
+    rank_by_score,
+    search_metric_aggs,
+)
 from rbtr_eval.formatting import md_table
-from rbtr_eval.queries import load_all_queries, sample_distribution, subsample, with_query_kind
+from rbtr_eval.queries import load_all_queries, query_kind, sample_distribution, subsample
 from rbtr_eval.rbtr_cli import daemon_session
 from rbtr_eval.shared_schemas import (
     IDENTITY_COLUMNS,
@@ -58,7 +64,48 @@ class RerankerCandidate(dy.Schema):
     latency_ms = dy.Float64(min=0.0)
 
 
-# ── Candidate collection ────────────────────────────────────────────────────
+class BlendRank(dy.Schema):
+    """Each query's target rank under one `(pool, blend_weight)`; null past 10."""
+
+    pool = dy.Int64(min=1)
+    blend_weight = dy.Float64()
+    slug = dy.String()
+    language = dy.String()
+    provenance = dy.String()
+    query_kind = dy.String()
+    rank = dy.UInt8(nullable=True, min=1, max=10)
+    latency_ms = dy.Float64(min=0.0)
+
+
+class GridMetrics(SearchMetrics):
+    """Search metrics for one `(pool, blend_weight)`, with its latency quantiles."""
+
+    pool = dy.Int64(min=1, primary_key=True)
+    blend_weight = dy.Float64(primary_key=True)
+    search_p50_ms = dy.Float64()
+    search_p95_ms = dy.Float64()
+
+
+class RerankerBreakdown(SearchMetrics):
+    """`GridMetrics` over the queries whose `dimension` column holds `value`."""
+
+    pool = dy.Int64(min=1, primary_key=True)
+    blend_weight = dy.Float64(primary_key=True)
+    dimension = dy.Enum((d.value for d in Dimension), primary_key=True)
+    value = dy.String(primary_key=True)
+    search_p50_ms = dy.Float64()
+
+
+class ToleranceChoice(dy.Schema):
+    """The fastest config within one MRR tolerance of a scope's best."""
+
+    scope = dy.String()
+    tolerance_pct = dy.Float64()
+    pool = dy.Int64(min=1)
+    blend_weight = dy.Float64()
+    mrr = dy.Float64()
+    search_p50_ms = dy.Float64()
+    mrr_forgone = dy.Float64()
 
 
 def _collect_candidates(
@@ -124,14 +171,13 @@ def _collect_candidates(
     )
 
     meta = (
-        with_query_kind(queries)
-        .with_row_index("query_idx")
+        queries.with_row_index("query_idx")
         .select(
             "query_idx",
             "slug",
             "language",
             "provenance",
-            "query_kind",
+            query_kind(),
             *IDENTITY_COLUMNS,
         )
         .pipe(QueryMeta.validate, cast=True)
@@ -140,77 +186,44 @@ def _collect_candidates(
     return candidates, meta
 
 
-# ── Offline blend + ranking ──────────────────────────────────────────────────
-
-
 def _rank_all_blends(
     candidates: dy.DataFrame[RerankerCandidate],
     meta: dy.DataFrame[QueryMeta],
     blend_values: list[float],
-) -> pl.DataFrame:
+) -> dy.DataFrame[BlendRank]:
     """Re-blend at every blend weight and find target ranks.
 
-    Cross-joins candidates with the blend grid, computes
-    blended scores, ranks within `(pool, blend_weight,
-    query_idx)`, and joins back to `meta` to find each
-    query's target rank.
-
-    Returns one row per `(pool, blend_weight, query_idx)` with
-    columns: `pool, blend_weight, slug, language, provenance,
-    query_kind, rank, latency_ms`.
+    Cross-joins candidates with the blend grid, ranks the blended
+    scores within `(pool, blend_weight, query_idx)`, and finds each
+    query's target among the top 10.  Every `(pool, blend_weight,
+    query_idx)` gets a row; its rank is null when the target is not in
+    the top 10.
     """
-    blend_frame = pl.DataFrame(
-        {"blend_weight": blend_values},
-        schema={"blend_weight": pl.Float64},
-    )
-
-    scored = (
-        candidates.join(blend_frame, how="cross")
+    blends = pl.DataFrame({"blend_weight": blend_values}, schema={"blend_weight": pl.Float64})
+    ranks = (
+        candidates.join(blends, how="cross")
         .with_columns(
             (
                 pl.col("blend_weight") * pl.col("fusion")
                 + (1.0 - pl.col("blend_weight")) * pl.col("reranker")
             ).alias("score"),
         )
-        .with_columns(
-            pl.col("score")
-            .rank("ordinal", descending=True)
-            .over("pool", "blend_weight", "query_idx")
-            .cast(pl.UInt8)
-            .alias("rank"),
-        )
+        .with_columns(rank_by_score("pool", "blend_weight", "query_idx"))
         .filter(pl.col("rank") <= 10)
-    )
-
-    # The candidate holds every location its content sits at, so the
-    # target's file is one of them.
-    ranks = (
-        scored.join(
+        .join(
             meta.select("query_idx", *IDENTITY_COLUMNS),
             on=["query_idx", *MATCH_COLUMNS],
             how="inner",
         )
-        .filter(pl.col("file_paths").list.contains(pl.col("file_path")))
+        .filter(at_target_path())
         .group_by("pool", "blend_weight", "query_idx")
-        .agg(pl.col("rank").min().alias("rank"))
+        .agg(pl.col("rank").min())
     )
-
-    # Every (pool, blend, query) must appear — build the
-    # full key set and left-join target ranks.
-    pool_query = candidates.select(
-        "pool",
-        "query_idx",
-        "latency_ms",
-    ).unique(subset=["pool", "query_idx"])
-
-    all_keys = pool_query.join(blend_frame, how="cross")
-
     return (
-        all_keys.join(
-            ranks,
-            on=["pool", "blend_weight", "query_idx"],
-            how="left",
-        )
+        candidates.select("pool", "query_idx", "latency_ms")
+        .unique(subset=["pool", "query_idx"])
+        .join(blends, how="cross")
+        .join(ranks, on=["pool", "blend_weight", "query_idx"], how="left")
         .join(
             meta.select("query_idx", "slug", "language", "provenance", "query_kind"),
             on="query_idx",
@@ -226,168 +239,167 @@ def _rank_all_blends(
             "rank",
             "latency_ms",
         )
+        .pipe(BlendRank.validate, cast=True)
     )
 
 
-# ── Aggregation ──────────────────────────────────────────────────────────────
-
-
-def _aggregate_grid(results: pl.DataFrame) -> pl.DataFrame:
-    """Aggregate per (pool, blend_weight) following `measure._aggregate`.
-
-    Uses `search_metric_aggs` for rank-based metrics plus
-    latency quantiles — same columns as `Metrics`.
-    """
-    latency = pl.col("latency_ms")
+def _grid_metrics(ranked: dy.DataFrame[BlendRank]) -> dy.DataFrame[GridMetrics]:
+    """Search metrics per `(pool, blend_weight)`, best MRR first."""
     return (
-        results.group_by("pool", "blend_weight")
-        .agg(
-            *search_metric_aggs(),
-            latency.quantile(0.5).alias("search_p50_ms"),
-            latency.quantile(0.95).alias("search_p95_ms"),
-        )
-        .sort("mrr", "pool", "blend_weight", descending=[True, False, False])
-    )
-
-
-def _aggregate_by_dimension(results: pl.DataFrame, key: str) -> pl.DataFrame:
-    """Aggregate per `(pool, blend_weight, key)`, carrying p50 latency."""
-    return (
-        results.group_by("pool", "blend_weight", key)
+        ranked.group_by("pool", "blend_weight")
         .agg(
             *search_metric_aggs(),
             pl.col("latency_ms").quantile(0.5).alias("search_p50_ms"),
+            pl.col("latency_ms").quantile(0.95).alias("search_p95_ms"),
         )
-        .sort(key, "mrr", "pool", "blend_weight", descending=[False, True, False, False])
+        .sort("mrr", "pool", "blend_weight", descending=[True, False, False])
+        .pipe(GridMetrics.validate, cast=True)
     )
 
 
-# ── Report rendering ────────────────────────────────────────────────────────
+def _breakdowns(ranked: dy.DataFrame[BlendRank]) -> dy.DataFrame[RerankerBreakdown]:
+    """Search metrics per `(pool, blend_weight)` and value of each dimension.
 
-
-_TOLERANCES = (0.005, 0.01, 0.02, 0.03, 0.05)
-
-
-def _cheapest_within_tolerance(configs: pl.DataFrame, tol: float) -> dict[str, float | int]:
-    """Smallest-pool config whose MRR is within `tol` (relative) of the best.
-
-    `configs` holds one row per `(pool, blend_weight)` with `mrr` and
-    `search_p50_ms`.  Latency is monotonic in pool, so the smallest pool
-    clearing the threshold is the fastest acceptable config; ties within
-    a pool break to the highest MRR (best blend), then the lowest blend
-    weight.
+    Within a dimension value, the best MRR comes first.
     """
-    best = float(configs.select(pl.col("mrr").max()).item())
-    chosen = (
-        configs.filter(pl.col("mrr") >= best * (1.0 - tol))
-        .sort("pool", "mrr", "blend_weight", descending=[False, True, False])
-        .row(0, named=True)
+    return (
+        pl.concat(
+            ranked.group_by("pool", "blend_weight", dimension.value)
+            .agg(
+                *search_metric_aggs(),
+                pl.col("latency_ms").quantile(0.5).alias("search_p50_ms"),
+            )
+            .select(
+                "pool",
+                "blend_weight",
+                pl.lit(dimension.value).alias("dimension"),
+                pl.col(dimension.value).alias("value"),
+                pl.exclude("pool", "blend_weight", dimension.value),
+            )
+            for dimension in (
+                Dimension.PROVENANCE,
+                Dimension.QUERY_KIND,
+                Dimension.SLUG,
+                Dimension.LANGUAGE,
+            )
+        )
+        .sort(
+            "dimension",
+            "value",
+            "mrr",
+            "pool",
+            "blend_weight",
+            descending=[False, False, True, False, False],
+        )
+        .pipe(RerankerBreakdown.validate, cast=True)
     )
-    return {
-        "pool": chosen["pool"],
-        "blend_weight": chosen["blend_weight"],
-        "mrr": chosen["mrr"],
-        "search_p50_ms": chosen["search_p50_ms"],
-        "mrr_forgone": best - chosen["mrr"],
-    }
 
 
-def _tolerance_sweep(by_kind: pl.DataFrame, grid: pl.DataFrame) -> pl.DataFrame:
-    """Cheapest pool within each tolerance, per query kind and overall.
+def _tolerance_sweep(
+    grid: dy.DataFrame[GridMetrics], breakdowns: dy.DataFrame[RerankerBreakdown]
+) -> dy.DataFrame[ToleranceChoice]:
+    """The fastest config within each MRR tolerance, per query kind and overall.
 
-    Surfaces the MRR/latency trade-off so the pool is chosen manually.
-    Rows: `(scope, tolerance_pct, pool, blend_weight, mrr,
-    search_p50_ms, mrr_forgone)`.
+    A scope's configs clear a tolerance when their MRR is within it
+    (relative) of the scope's best.  Latency rises with pool, so the
+    smallest pool that clears it is the fastest; ties within a pool go
+    to the highest MRR, then the lowest blend weight.  Kinds come in
+    name order, then `all`.
     """
-    scopes: list[tuple[str, pl.DataFrame]] = [
-        (kind, by_kind.filter(pl.col("query_kind") == kind))
-        for kind in by_kind.get_column("query_kind").unique().sort().to_list()
+    columns = ["scope", "pool", "blend_weight", "mrr", "search_p50_ms"]
+    return (
+        pl.concat(
+            [
+                breakdowns.filter(pl.col("dimension") == Dimension.QUERY_KIND)
+                .rename({"value": "scope"})
+                .select(columns),
+                grid.with_columns(pl.lit("all").alias("scope")).select(columns),
+            ]
+        )
+        .join(pl.DataFrame({"tolerance": [0.005, 0.01, 0.02, 0.03, 0.05]}), how="cross")
+        .with_columns(pl.col("mrr").max().over("scope").alias("best"))
+        .filter(pl.col("mrr") >= pl.col("best") * (1.0 - pl.col("tolerance")))
+        .sort(
+            pl.col("scope") == "all",
+            "scope",
+            "tolerance",
+            "pool",
+            "mrr",
+            "blend_weight",
+            descending=[False, False, False, False, True, False],
+        )
+        .group_by("scope", "tolerance", maintain_order=True)
+        .first()
+        .select(
+            "scope",
+            (pl.col("tolerance") * 100.0).alias("tolerance_pct"),
+            "pool",
+            "blend_weight",
+            "mrr",
+            "search_p50_ms",
+            (pl.col("best") - pl.col("mrr")).alias("mrr_forgone"),
+        )
+        .pipe(ToleranceChoice.validate, cast=True)
+    )
+
+
+def _quality_columns() -> list[pl.Expr]:
+    """The display columns every table shows: n, MRR, NDCG@10, hit@1 and hit@3."""
+    return [
+        pl.col("n_queries"),
+        pl.col("mrr").round(4).alias("MRR"),
+        pl.col("ndcg_at_10").round(4).alias("NDCG@10"),
+        (pl.col("hit_at_1") * 100).round(1).alias("hit@1 %"),
+        (pl.col("hit_at_3") * 100).round(1).alias("hit@3 %"),
     ]
-    scopes.append(("all", grid))
-    rows: list[dict[str, float | int | str]] = [
-        {"scope": scope, "tolerance_pct": tol * 100.0, **_cheapest_within_tolerance(configs, tol)}
-        for scope, configs in scopes
-        for tol in _TOLERANCES
-    ]
-    return pl.DataFrame(rows)
 
 
 def _render_report(
-    grid: pl.DataFrame,
-    by_provenance: pl.DataFrame,
-    by_kind: pl.DataFrame,
-    by_slug: pl.DataFrame,
-    by_language: pl.DataFrame,
+    grid: dy.DataFrame[GridMetrics],
+    breakdowns: dy.DataFrame[RerankerBreakdown],
+    tolerance: dy.DataFrame[ToleranceChoice],
     dist: pl.DataFrame,
     *,
     n_queries: int,
     elapsed_seconds: float,
 ) -> str:
-    """Render the tuning report from the aggregated grid.
+    """Render the tuning report.
 
-    All formatting is done with polars expressions; the
-    template receives pre-rendered markdown table strings.
-    Follows the same pattern as `tune._render_tuning_report`.
+    The best config is the grid's first row; the per-repo and
+    per-language tables show it alone.
     """
-    # ── Grid table (all configs) ─────────────────────────────
-    grid_display = grid.select(
+    best_pool, best_blend = grid.select("pool", "blend_weight").row(0)
+    at_best = (pl.col("pool") == best_pool) & ((pl.col("blend_weight") - best_blend).abs() < 0.01)
+
+    run_table = pl.DataFrame(
+        {
+            "field": ["queries evaluated", "configs evaluated", "elapsed"],
+            "value": [str(n_queries), str(grid.height), f"{elapsed_seconds:.0f} s"],
+        }
+    )
+    grid_table = grid.select(
         pl.col("pool"),
         pl.col("blend_weight").alias("blend"),
-        pl.col("n_queries"),
-        pl.col("mrr").round(4).alias("MRR"),
-        pl.col("ndcg_at_10").round(4).alias("NDCG@10"),
-        (pl.col("hit_at_1") * 100).round(1).alias("hit@1 %"),
-        (pl.col("hit_at_3") * 100).round(1).alias("hit@3 %"),
+        *_quality_columns(),
         (pl.col("hit_at_10") * 100).round(1).alias("hit@10 %"),
         (pl.col("not_found_pct") * 100).round(1).alias("miss %"),
         pl.col("search_p50_ms").round(0).cast(pl.Int64).alias("p50 ms"),
         pl.col("search_p95_ms").round(0).cast(pl.Int64).alias("p95 ms"),
     )
-
-    # ── Best config TOML ─────────────────────────────────────
-    best = grid.row(0, named=True)
-
-    # ── Run metadata table ───────────────────────────────────
-    run_meta = pl.DataFrame(
-        {
-            "field": ["queries evaluated", "configs evaluated", "elapsed"],
-            "value": [
-                str(n_queries),
-                str(grid.height),
-                f"{elapsed_seconds:.0f} s",
-            ],
-        }
-    )
-
-    template = resources.files("rbtr_eval.templates").joinpath("reranker_tuning.md.j2").read_text()
-
-    # ── Per-provenance table ──────────────────────────────
-    prov_display = by_provenance.select(
-        pl.col("provenance"),
-        pl.col("pool"),
+    provenance_table = breakdowns.filter(pl.col("dimension") == Dimension.PROVENANCE).select(
+        pl.col("value").alias("provenance"),
+        "pool",
         pl.col("blend_weight").alias("blend"),
-        pl.col("n_queries"),
-        pl.col("mrr").round(4).alias("MRR"),
-        pl.col("ndcg_at_10").round(4).alias("NDCG@10"),
-        (pl.col("hit_at_1") * 100).round(1).alias("hit@1 %"),
-        (pl.col("hit_at_3") * 100).round(1).alias("hit@3 %"),
+        *_quality_columns(),
     )
-
-    # ── Per-kind table (all configs) ───────────────────────────
-    kind_display = by_kind.select(
-        pl.col("query_kind").alias("kind"),
-        pl.col("pool"),
+    kind_table = breakdowns.filter(pl.col("dimension") == Dimension.QUERY_KIND).select(
+        pl.col("value").alias("kind"),
+        "pool",
         pl.col("blend_weight").alias("blend"),
-        pl.col("n_queries"),
-        pl.col("mrr").round(4).alias("MRR"),
-        pl.col("ndcg_at_10").round(4).alias("NDCG@10"),
-        (pl.col("hit_at_1") * 100).round(1).alias("hit@1 %"),
-        (pl.col("hit_at_3") * 100).round(1).alias("hit@3 %"),
+        *_quality_columns(),
         pl.col("search_p50_ms").round(0).cast(pl.Int64).alias("p50 ms"),
     )
-
-    # ── Latency-aware tolerance sweep (manual pick) ──────
-    tolerance_display = _tolerance_sweep(by_kind, grid).select(
+    tolerance_table = tolerance.select(
         pl.col("scope").alias("kind"),
         pl.col("tolerance_pct").round(1).alias("tol %"),
         pl.col("pool"),
@@ -396,42 +408,27 @@ def _render_report(
         pl.col("search_p50_ms").round(0).cast(pl.Int64).alias("p50 ms"),
         pl.col("mrr_forgone").round(4).alias("MRR vs best"),
     )
+    slug_table = breakdowns.filter(pl.col("dimension") == Dimension.SLUG, at_best).select(
+        pl.col("value").alias("slug"), *_quality_columns()
+    )
+    language_table = breakdowns.filter(pl.col("dimension") == Dimension.LANGUAGE, at_best).select(
+        pl.col("value").alias("language"), *_quality_columns()
+    )
 
-    # ── Per-slug / per-language tables (best config only) ──
-    best_pool = best["pool"]
-    best_blend = best["blend_weight"]
-
-    def _filter_best(df: pl.DataFrame) -> pl.DataFrame:
-        return df.filter(
-            (pl.col("pool") == best_pool) & ((pl.col("blend_weight") - best_blend).abs() < 0.01)
-        )
-
-    def _dimension_display(df: pl.DataFrame, key: str) -> pl.DataFrame:
-        return _filter_best(df).select(
-            pl.col(key),
-            pl.col("n_queries"),
-            pl.col("mrr").round(4).alias("MRR"),
-            pl.col("ndcg_at_10").round(4).alias("NDCG@10"),
-            (pl.col("hit_at_1") * 100).round(1).alias("hit@1 %"),
-            (pl.col("hit_at_3") * 100).round(1).alias("hit@3 %"),
-        )
-
+    template = resources.files("rbtr_eval.templates").joinpath("reranker_tuning.md.j2").read_text()
     return minijinja.Environment().render_str(
         template,
-        grid_table=md_table(grid_display),
-        provenance_table=md_table(prov_display),
-        kind_table=md_table(kind_display),
-        tolerance_table=md_table(tolerance_display),
-        slug_table=md_table(_dimension_display(by_slug, "slug")),
-        language_table=md_table(_dimension_display(by_language, "language")),
+        grid_table=md_table(grid_table),
+        provenance_table=md_table(provenance_table),
+        kind_table=md_table(kind_table),
+        tolerance_table=md_table(tolerance_table),
+        slug_table=md_table(slug_table),
+        language_table=md_table(language_table),
         sample_table=md_table(dist),
         best_pool=best_pool,
         best_blend=best_blend,
-        run_table=md_table(run_meta),
+        run_table=md_table(run_table),
     )
-
-
-# ── Grid generation ──────────────────────────────────────────────────────────
 
 
 def _pool_grid(pool_min: int, pool_max: int, pool_step: int) -> list[int]:
@@ -445,9 +442,6 @@ def _blend_grid(blend_min: float, blend_max: float, blend_steps: int) -> list[fl
         return [round((blend_min + blend_max) / 2, 4)]
     span = blend_max - blend_min
     return [round(blend_min + i * span / (blend_steps - 1), 4) for i in range(blend_steps)]
-
-
-# ── Entry point ──────────────────────────────────────────────────────────────
 
 
 class TuneRerankerCmd(BaseModel):
@@ -497,23 +491,14 @@ class TuneRerankerCmd(BaseModel):
 
         ranked = _rank_all_blends(candidates, meta, blends)
         elapsed = time.monotonic() - t0
-        grid = _aggregate_grid(ranked)
-        by_provenance = _aggregate_by_dimension(ranked, "provenance")
-        by_kind = _aggregate_by_dimension(ranked, "query_kind")
-        by_slug = _aggregate_by_dimension(ranked, "slug")
-        by_language = _aggregate_by_dimension(ranked, "language")
-        dist = sample_distribution(
-            queries,
-            strat_keys=("slug", "language", "provenance"),
-        )
+        grid = _grid_metrics(ranked)
+        breakdowns = _breakdowns(ranked)
 
         report_text = _render_report(
             grid,
-            by_provenance,
-            by_kind,
-            by_slug,
-            by_language,
-            dist,
+            breakdowns,
+            _tolerance_sweep(grid, breakdowns),
+            sample_distribution(queries, strat_keys=("slug", "language", "provenance")),
             n_queries=queries.height,
             elapsed_seconds=elapsed,
         )

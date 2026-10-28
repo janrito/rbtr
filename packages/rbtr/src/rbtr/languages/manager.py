@@ -96,8 +96,6 @@ class LanguageManager:
             if dist is not None:
                 self._distributions[reg.id] = (dist.name, dist.version)
 
-    # ── Public API ───────────────────────────────────────────────────
-
     def detect_language(self, file_path: str) -> str | None:
         """Detect the language of a file from its extension or filename.
 

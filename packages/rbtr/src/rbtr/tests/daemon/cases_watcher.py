@@ -1,10 +1,10 @@
-"""Scenarios for `rbtr.daemon.watcher.poll_watched`.
+"""Scenarios for `rbtr.index.watcher.poll_watched`.
 
 Cases return a `WatcherScenario` — pure declarative data
 describing which repos exist, what each watches, their indexed
 state, and the expected watcher output.  Shared fixtures in
 `test_watcher.py` convert scenarios into real git repos and a
-real `IndexStore`.
+real `Index`.
 
 Worktree scenarios live in `cases_watcher_worktree.py`.
 
@@ -21,9 +21,9 @@ class RepoSpec:
     """A repository to build for a watcher scenario.
 
     `commits == 0` means do not create a repo on disk — used to
-    exercise the path where `list_repos` returns a path the
+    exercise the path where `repos` returns a path the
     filesystem no longer has.
-    `register == False` means do not call `ws.register_repo`
+    `register == False` means do not call `index.register`
     on this repo; used to prove the watcher only considers
     registered repos.
     """
@@ -62,7 +62,7 @@ class WatcherScenario:
     expected: list[ExpectedTarget] = field(default_factory=list)
 
 
-def case_empty_store() -> WatcherScenario:
+def case_empty_index() -> WatcherScenario:
     """No repos registered."""
     return WatcherScenario()
 

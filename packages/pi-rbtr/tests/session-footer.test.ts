@@ -8,12 +8,13 @@ import { join } from "node:path";
 import { describe, expect, vi } from "vitest";
 
 import { SPINNER_FRAMES, STATIC_FRAME } from "../extensions/rbtr/footer.js";
+import type { StatusResponse } from "../extensions/rbtr/generated/protocol.js";
 import { HEALTH_CHECK_MS } from "../extensions/rbtr/index.js";
 import { test, until } from "./session.fixtures.js";
 
 /** The footer of an index with no embeddings, its daemon running or gone; "23.9k symbols" or "812 symbols". */
 const INDEXED = /^rbtr: ○ [\d.]+k? symbols · not embedded$/;
-const INDEXED_NO_DAEMON = /^rbtr: ○ [\d.]+k? symbols · no daemon · not embedded$/;
+const INDEXED_NO_DAEMON = /^rbtr: ○ [\d.]+k? symbols · not running · not embedded$/;
 
 test("in the terminal UI, a footer that waits on rbtr animates", async ({ heldRbtr: _, pi }) => {
   await pi.start({ mode: "tui" });
@@ -45,6 +46,31 @@ describe("in a repository of the test's own", () => {
       const building = since.findIndex((status) => status.includes("indexing"));
       return building !== -1 && since.slice(building + 1).some((status) => INDEXED.test(status));
     });
+  });
+});
+
+describe("in a repository of the test's own, with a daemon of its own", () => {
+  test.override({ ownDaemon: true });
+  test.override("cwd", ({ writableRepo }) => writableRepo);
+
+  test("a daemon back without the repository indexes it again", async ({ cli, writableRepo, pi }) => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const last = () => pi.ui.statuses.at(-1) ?? "";
+      await pi.start();
+      await until(() => INDEXED.test(last()));
+      cli("forget", "--repo-path", writableRepo);
+      cli("daemon", "stop");
+      vi.advanceTimersByTime(HEALTH_CHECK_MS);
+      await until(() => last() === "rbtr: not running");
+      cli("daemon", "start");
+      vi.advanceTimersByTime(HEALTH_CHECK_MS);
+      await until(() => INDEXED.test(last()));
+      const status = JSON.parse(cli("--json", "status", "--repo-path", writableRepo)) as StatusResponse;
+      expect(status.state).toBe("indexed");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -87,7 +113,7 @@ describe("with a daemon of its own", () => {
       await until(() => INDEXED.test(last()));
       cli("daemon", "stop");
       vi.advanceTimersByTime(HEALTH_CHECK_MS);
-      await until(() => / · no daemon/.test(last()));
+      await until(() => / · not running/.test(last()));
       cli("daemon", "start");
       // `held-rbtr` reads its release file when it starts: the next health
       // check's look for the daemon waits for this one.
@@ -121,6 +147,20 @@ test("an index error is notified, and the footer says so", async ({ repo, fakeDa
   expect(pi.ui.statuses.at(-1)).toBe("rbtr: ✗ error");
   // pi's own footer shows it.
   expect(pi.footer(120).at(-1)).toContain("rbtr: ✗ error");
+});
+
+// The daemon publishes gc's notifications to every subscriber, whichever repos it collects.
+test("a gc's progress reaches the footer, and its end restores the index label", async ({ fakeDaemon, pi }) => {
+  await pi.start();
+  await until(() => / symbols$/.test(pi.ui.statuses.at(-1) ?? ""));
+  const label = pi.ui.statuses.at(-1);
+  // Published until it arrives: a subscriber misses what is sent before it joins.
+  await until(() => {
+    void fakeDaemon.publish({ kind: "gc_progress", current: 1, total: 2 });
+    return / collecting 1\/2…$/.test(pi.ui.statuses.at(-1) ?? "");
+  });
+  await fakeDaemon.publish({ kind: "gc_ended" });
+  await until(() => pi.ui.statuses.at(-1) === label);
 });
 
 describe("in rpc mode", () => {

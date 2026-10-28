@@ -1,4 +1,4 @@
-"""Cases for `_resolve_read_ref` routing.
+"""Cases for `resolve_read_ref` routing.
 
 Each case returns a `RefScenario` with the requested ref, repo
 state, and expected symbolic result.  The test fixture resolves
@@ -14,7 +14,7 @@ from rbtr.domain.models import RefSource
 
 @dataclass(frozen=True)
 class RefScenario:
-    """Declarative description of a `_resolve_read_ref` test case."""
+    """Declarative description of a `resolve_read_ref` test case."""
 
     requested_ref: str | None
     # Whether to dirty the working tree before the test.

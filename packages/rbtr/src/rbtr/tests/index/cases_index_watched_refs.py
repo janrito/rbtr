@@ -1,7 +1,7 @@
 """Scenarios for the `watched_refs` store API.
 
-Mirrors `cases_store_repos.py`: declarative operation sequences
-applied in one session, then the expected per-repo listing.
+Mirrors `cases_index_repos.py`: declarative operation sequences
+applied in order, then the expected per-repo listing.
 Exercises idempotent add, multi add + remove, empty no-ops, and
 per-repo isolation.
 """
@@ -18,7 +18,7 @@ class WatchedRefScenario:
     `repos` maps a short key to the path to register. `ops` is an
     ordered list of `(repo_key, op, refs)` where `op` is `"add"` or
     `"remove"`. `expected` maps each repo key to the watched refs
-    `list_watched_refs` should return after the ops are applied.
+    `watched_refs` should return after the ops are applied.
     """
 
     repos: dict[str, str]

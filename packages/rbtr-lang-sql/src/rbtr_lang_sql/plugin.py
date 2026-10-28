@@ -38,9 +38,6 @@ from __future__ import annotations
 
 from rbtr.languages.registration import LanguageRegistration, QueryExtraction, load_query
 
-# ── Plugin ───────────────────────────────────────────────────────────
-
-
 sql = LanguageRegistration(
     id="sql",
     extensions=frozenset({".sql"}),

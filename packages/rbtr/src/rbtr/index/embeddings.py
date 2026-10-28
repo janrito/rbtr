@@ -40,9 +40,6 @@ class EmbedResult:
     truncated: bool
 
 
-# ── Model loading ────────────────────────────────────────────────────
-
-
 @dataclass(frozen=True, slots=True)
 class _ModelShape:
     """What the GGUF metadata says about a model, as `_load_model` needs it."""
@@ -112,9 +109,6 @@ def _load_model(abort_callback: _CFunctionType | None) -> Llama:
     return model
 
 
-# ── Embedder ─────────────────────────────────────────────────────────
-
-
 class Embedder:
     """Owns one embedding model instance via a `GpuModelSlot`.
 
@@ -149,8 +143,6 @@ class Embedder:
             label="Embedding",
         )
 
-    # ── Lifecycle (delegates to slot) ────────────────────────────
-
     @property
     def idle_timeout(self) -> float:
         """Configured idle timeout in seconds."""
@@ -167,8 +159,6 @@ class Embedder:
     def close(self) -> None:
         """Release the model and stop the idle monitor."""
         self._slot.close()
-
-    # ── Embedding ────────────────────────────────────────────────
 
     def embed(self, texts: list[str]) -> list[EmbedResult]:
         """Encode a batch of texts into normalised embedding vectors.
@@ -194,9 +184,6 @@ class Embedder:
     def warmup(self) -> None:
         """Eagerly load the model so the first search doesn't pay the cost."""
         self._slot.warmup()
-
-
-# ── Embedding text formatter ───────────────────────────────────────
 
 
 def embedding_text(name: str, content: str) -> str:

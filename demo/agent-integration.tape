@@ -24,8 +24,6 @@ Type "cd ~/apps/rbtr"
 Enter
 Sleep 1s
 
-# ── Start pi ─────────────────────────────────────────────────
-
 Type "# The footer shows the index is live"
 Enter
 Sleep 500ms
@@ -34,13 +32,9 @@ Type@20ms "pi --model openrouter/z-ai/glm-5.2 --no-skills --no-context-files --n
 Enter
 Sleep 5s
 
-# ── Concept question ─────────────────────────────────────────
-
 Type "How does search fusion work?"
 Enter
 Sleep 60s
-
-# ── Exit ─────────────────────────────────────────────────────
 
 Ctrl+C
 Sleep 1s

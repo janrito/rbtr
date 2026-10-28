@@ -13,34 +13,32 @@ import pytest
 from rbtr.daemon.handlers import handle_forget
 from rbtr.daemon.messages import ForgetRequest
 from rbtr.errors import RbtrError
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 
 
 @pytest.mark.parametrize("watched", [[], ["HEAD"]])
-def test_forget_repo_when_nothing_beyond_head_watched(
-    store: IndexStore, watched: list[str]
-) -> None:
+def test_forget_repo_when_nothing_beyond_head_watched(index: Index, watched: list[str]) -> None:
     """A repo is forgotten when nothing beyond HEAD is watched — whether the
     watch set is exactly HEAD or empty (an inline `--no-daemon` index)."""
-    with store.session() as ws:
-        ws.register_repo("/repo")
+    repo = index.register("/repo")
+    with index.session(repo) as ws:
         if watched:
-            ws.add_watched_refs(1, watched)
+            ws.add_watched_refs(watched)
 
-    resp = handle_forget(ForgetRequest(repo_path="/repo"), store)
+    resp = handle_forget(ForgetRequest(repo_path="/repo"), index)
 
     assert resp.forgotten == ["/repo"]
-    assert store.get_repo_id("/repo") is None
+    assert index.find_repo("/repo") is None
 
 
-def test_forget_refuses_repo_watching_extra_refs(store: IndexStore) -> None:
+def test_forget_refuses_repo_watching_extra_refs(index: Index) -> None:
     """A repo still watching refs beyond HEAD is *not* forgotten — the
     caller must trim those refs first."""
-    with store.session() as ws:
-        ws.register_repo("/repo")
-        ws.add_watched_refs(1, ["HEAD", "main"])
+    repo = index.register("/repo")
+    with index.session(repo) as ws:
+        ws.add_watched_refs(["HEAD", "main"])
 
     with pytest.raises(RbtrError, match="HEAD"):
-        handle_forget(ForgetRequest(repo_path="/repo"), store)
+        handle_forget(ForgetRequest(repo_path="/repo"), index)
 
-    assert store.get_repo_id("/repo") == 1  # untouched
+    assert index.find_repo("/repo") == repo  # untouched

@@ -22,7 +22,7 @@ import pytest
 
 from rbtr.config import Config
 from rbtr.daemon.status import read_status
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 from rbtr.tests.conftest import run_cli
 
 
@@ -58,7 +58,7 @@ def test_a_start_that_loses_the_lock_waits_for_the_holder_to_serve(
     # long after that the holder takes to serve.
     log = tmp_path / "logs" / "daemon.log"
     monkeypatch.setenv("RBTR_LOG_DIR", str(log.parent))
-    holder = IndexStore.from_config(writable=True)
+    holder = Index.from_config(writable=True)
     try:
         with ThreadPoolExecutor(max_workers=1) as pool:
             waiting = pool.submit(run_cli, ["daemon", "start"])

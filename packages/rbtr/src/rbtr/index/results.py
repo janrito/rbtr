@@ -12,6 +12,8 @@ These are pure functions -- they never touch DuckDB directly.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import dataframely as dy
 import polars as pl
 
@@ -22,6 +24,7 @@ from rbtr.domain.models import (
     Chunks,
     EdgeKind,
     ImportMeta,
+    Repo,
     SnapshotCounts,
     SnapshotRef,
 )
@@ -49,6 +52,7 @@ class SnapshotCountsRow(dy.Schema):
 
     repo_id = dy.Int32(primary_key=True)
     snapshot_sha = dy.String(primary_key=True)
+    indexed_at = dy.Datetime(nullable=False)
     total = dy.Int64(nullable=False)
     embedded = dy.Int64(nullable=False)
 
@@ -76,23 +80,6 @@ class ChunkIdRow(dy.Schema):
     """
 
     id = dy.String(nullable=False)
-
-
-class SerialMapRow(dy.Schema):
-    """Backs the cursor-registered `_serial_map` join view.
-
-    Not an insert target: `blob_is_current` left-joins a blob's chunks against
-    this view to check every chunk is at its language's current
-    extraction serial. Maps language id -> current serial (the full
-    registry, plus `""` for plaintext). `extraction_serial` is `Int32` to
-    match the column on `chunks`.
-    """
-
-    language = dy.String(nullable=False)
-    extraction_serial = dy.Int32(nullable=False)
-
-
-# ── Result-row schemas (DuckDB -> Python reads) ──────────────────────
 
 
 class _ChunkIdentity(dy.Schema):
@@ -164,6 +151,16 @@ class ChunkContentRow(dy.Schema):
     kind = dy.Enum((k.value for k in ChunkKind), primary_key=True)
     language = dy.String()
     content = dy.String()
+
+
+class NameMatchRow(ChunkResultRow):
+    """Columns projected by `search_by_name.sql`: a chunk and its match tier.
+
+    `match_tier` ranks how the name matched, 1 (exact) to 4 (substring);
+    each file returns its best tier only.
+    """
+
+    match_tier = dy.Int32(nullable=False)
 
 
 class ScoredChunkResultRow(ChunkResultRow):
@@ -247,7 +244,7 @@ def snapshot_refs_view(refs: list[SnapshotRef]) -> dy.DataFrame[SnapshotRefRow]:
         return SnapshotRefRow.create_empty()
     return pl.DataFrame(
         {
-            "repo_id": [r.repo_id for r in refs],
+            "repo_id": [r.repo.repo_id for r in refs],
             "snapshot_sha": [r.snapshot_sha for r in refs],
         }
     ).pipe(SnapshotRefRow.validate, cast=True)
@@ -265,20 +262,6 @@ def chunk_ids_view(chunk_ids: list[str]) -> dy.DataFrame[ChunkIdRow]:
     frame = pl.DataFrame({"id": chunk_ids}, schema={"id": pl.String})
     return ChunkIdRow.validate(frame, cast=True)
 
-
-def serial_map_view(serials: dict[str, int]) -> dy.DataFrame[SerialMapRow]:
-    """Build the `_serial_map` join view from a language -> serial map."""
-    if not serials:
-        return SerialMapRow.create_empty()
-    return pl.DataFrame(
-        {
-            "language": list(serials.keys()),
-            "extraction_serial": list(serials.values()),
-        }
-    ).pipe(SerialMapRow.validate, cast=True)
-
-
-# ── Row → Chunk mapping ────────────────────────────────────────
 
 # Polars Struct dtype matching ImportMeta's fields.  Derived from
 # the model so it stays in sync when fields are added.
@@ -315,20 +298,20 @@ def scored_to_chunks(
 
 
 def frame_to_snapshot_counts(
-    frame: dy.DataFrame[SnapshotCountsRow],
-) -> list[tuple[SnapshotRef, SnapshotCounts]]:
-    """Pair every row with the snapshot it describes, in frame order.
+    frame: dy.DataFrame[SnapshotCountsRow], repos: Mapping[int, Repo]
+) -> dict[SnapshotRef, SnapshotCounts]:
+    """Key every row's counts by the snapshot it describes, in frame order.
 
-    Returns a list, because the order is the query's answer to which
-    snapshot comes first and a mapping would lose it.
+    *repos* names each registered repo by id.  A row of a repo it lacks
+    is left out: the repo was forgotten after its rows were counted.
+    The frame's order is the query's answer to which snapshot comes
+    first, and the dict keeps it.
     """
-    return [
-        (
-            SnapshotRef(repo_id=row["repo_id"], snapshot_sha=row["snapshot_sha"]),
-            SnapshotCounts(total=row["total"], embedded=row["embedded"]),
-        )
+    return {
+        repo.at(row["snapshot_sha"]): SnapshotCounts(total=row["total"], embedded=row["embedded"])
         for row in frame.iter_rows(named=True)
-    ]
+        if (repo := repos.get(row["repo_id"])) is not None
+    }
 
 
 def changed_to_symbols(

@@ -1,9 +1,9 @@
-"""Scenarios for `rbtr.daemon.watcher.poll_worktree`.
+"""Scenarios for `rbtr.index.watcher.poll_worktree`.
 
 Cases return a `WorktreeScenario` — pure declarative data
 describing a repo's working-tree state and the expected
 watcher output.  Shared fixtures in `test_watcher.py` convert
-scenarios into real git repos and a real `IndexStore`.
+scenarios into real git repos and a real `Index`.
 
 Cases hold no I/O, no helpers, no references to pygit2.
 """

@@ -27,13 +27,13 @@ class RbtrError(Exception):
 class MissingSnapshot:
     """The snapshot a read needed, and the ref the caller named it by.
 
-    The repo and commit are a `SnapshotRef`'s, held as plain values:
-    errors sit below the domain layer. Internal-only, like
-    `SnapshotRef`: raised by a handler and read by the server, it never
-    crosses the RPC boundary.
+    The repo is named by its path, as clients name it; the values are
+    plain because errors sit below the domain layer. Internal-only:
+    raised by a handler and read by the server, it never crosses the RPC
+    boundary.
     """
 
-    repo_id: int
+    repo_path: str
     snapshot_sha: str
     ref: str
 
@@ -127,13 +127,11 @@ class MissingLanguagePluginsError(RbtrError):
 
 
 class DaemonBusyError(RbtrError):
-    """Raised when the daemon is alive but the request couldn't be served.
+    """Raised when the local RPC client cannot obtain a reply.
 
-    The daemon process exists (pid file present, pid alive) but the
-    request timed out or the socket roundtrip failed.  Distinct from
-    "no daemon" (handled by `try_daemon` returning None) so the CLI
-    can refuse to silently fall back to inline mode -- inline reads
-    would contend for DuckDB's process-level WAL lock.
+    Reports discovery, wait-budget or process-liveness failure with
+    `daemon_busy`. After sending, this error leaves execution ambiguous:
+    the daemon may have performed the operation without returning a reply.
     """
 
     error_code: str = "daemon_busy"

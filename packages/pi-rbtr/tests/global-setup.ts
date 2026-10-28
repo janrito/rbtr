@@ -150,7 +150,10 @@ async function chooseCorpus(repo: string, rpc: string): Promise<Corpus> {
     for (const chunk of listed.chunks) {
       if (chunk.kind !== "function" || searchedName(chunk.name) !== chunk.name) continue;
       if (!lines(file)[chunk.line_start - 1].trimStart().startsWith(`def ${chunk.name}(`)) continue;
-      const refs = await send({ kind: "find_refs", repo_path: repo, symbol: chunk.name }, { rpcEndpoint: rpc });
+      const refs = await send(
+        { kind: "find_refs", repo_path: repo, symbol: chunk.name, file_paths: [file] },
+        { rpcEndpoint: rpc },
+      );
       const user = refs.refs.map((ref) => ref.file_path).find((path) => path !== file);
       if (user !== undefined) return { repo, subject: { name: chunk.name, file, user }, long };
     }

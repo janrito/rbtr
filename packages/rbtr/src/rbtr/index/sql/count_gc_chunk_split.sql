@@ -7,7 +7,8 @@
 --
 -- `candidates` are the chunks referenced by a snapshot in the drop set
 -- ($repo_id, $drop_shas).  A candidate is KEPT iff some snapshot
--- OUTSIDE that set (another ref of this repo, or any other repo)
+-- OUTSIDE that set (another ref of this repo, or another checkout of its
+-- project)
 -- references the same (blob_sha, file_language) — including at a
 -- different path, since identical content at two paths is one chunk and
 -- dropping one path leaves the other reaching it.

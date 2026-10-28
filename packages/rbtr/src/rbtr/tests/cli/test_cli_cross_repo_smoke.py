@@ -17,8 +17,8 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.domain.models import FileSnapshot, SnapshotRef
-from rbtr.index.store import IndexStore
+from rbtr.domain.models import FileSnapshot
+from rbtr.index.index import Index
 
 from ..conftest import run_cli
 from ..index.conftest import make_chunk
@@ -53,11 +53,9 @@ def two_repos(tmp_path: Path, isolated_db: Path) -> TwoRepos:
     path_a, head_a = _init_repo(tmp_path / "repo_a")
     path_b, head_b = _init_repo(tmp_path / "repo_b")
 
-    store = IndexStore.from_config(writable=True)
-    with store.session() as ws:
-        id_a = ws.register_repo(path_a)
-        id_b = ws.register_repo(path_b)
-        for repo_id, uniq, head in ((id_a, "alpha", head_a), (id_b, "beta", head_b)):
+    index = Index.from_config(writable=True)
+    for path, uniq, head in ((path_a, "alpha", head_a), (path_b, "beta", head_b)):
+        with index.session(index.register(path)) as ws:
             ws.add_chunk(make_chunk(f"{uniq}_id", name=f"{uniq}_fn", path=f"{uniq}.py"))
             ws.add_chunk(make_chunk(f"shared_{uniq}", name="shared_fn", path="shared.py"))
             ws.insert_snapshots(
@@ -69,10 +67,9 @@ def two_repos(tmp_path: Path, isolated_db: Path) -> TwoRepos:
                         snapshot_sha=head, file_path="shared.py", blob_sha=f"blob_shared_{uniq}"
                     ),
                 ],
-                repo_id=repo_id,
             )
-            ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=head))
-    store.close()
+            ws.mark_indexed(snapshot_sha=head)
+    index.close()
     return TwoRepos(path_a=path_a, path_b=path_b)
 
 

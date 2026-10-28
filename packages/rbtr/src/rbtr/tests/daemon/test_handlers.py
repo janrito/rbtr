@@ -1,13 +1,14 @@
 """Tests for daemon index handlers — end-to-end via ZMQ.
 
 Uses `running_daemon` fixture which starts a real
-server backed by an in-memory IndexStore seeded with test data.
+server backed by an in-memory Index seeded with test data.
 Tests verify typed responses via the actual socket path.
 """
 
 from __future__ import annotations
 
 import json
+import threading
 from collections.abc import Generator
 from pathlib import Path
 
@@ -15,13 +16,16 @@ import pygit2
 import pytest
 import structlog
 from pytest_cases import fixture, parametrize_with_cases
+from pytest_mock import MockerFixture
 
+from rbtr.config import config
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.dto import ResolvedRef
 from rbtr.daemon.handlers import (
     handle_daemon_config,
-    handle_gc,
+    handle_gc_all,
     handle_status,
+    handle_status_all,
     handle_unwatch,
     handle_watch,
 )
@@ -31,36 +35,46 @@ from rbtr.daemon.messages import (
     ErrorResponse,
     FindRefsRequest,
     FindRefsResponse,
-    GcRequest,
+    GcAllRequest,
+    IndexState,
     ListSymbolsRequest,
     ListSymbolsResponse,
     ReadSymbolRequest,
     ReadSymbolResponse,
-    Scope,
     SearchRequest,
     SearchResponse,
+    StatusAllRequest,
     StatusRequest,
     StatusResponse,
     UnwatchRequest,
     WatchRequest,
     WatchSetResponse,
 )
-from rbtr.daemon.server import DaemonServer
-from rbtr.domain.models import EdgeKind, GcMode, QueryKind, RefSource
-from rbtr.errors import RbtrError
-from rbtr.index.store import IndexStore
-from rbtr.tests.daemon.cases_handlers import StatusRootScenario, UnbuiltRefScenario
+from rbtr.daemon.server import Daemon
+from rbtr.domain.models import EdgeKind, EveryRepoGcMode, GcMode, IndexResult, QueryKind, RefSource
+from rbtr.index.build import build_index
+from rbtr.index.index import Index
+from rbtr.index.progress import ProgressCallback
+from rbtr.tests.conftest import make_commit
+from rbtr.tests.daemon.cases_handlers import (
+    IndexStateScenario,
+    StatusRootScenario,
+    UnbuiltRefScenario,
+)
+
+from .conftest import serving
 
 
 @pytest.fixture
-def unindexed_ref() -> str:
-    """A ref that resolves but was never indexed.
-
-    A 40-char hex SHA resolves to itself without repo access, and the
-    seeded store never indexed it — so it exercises the "resolved but
-    not indexed" path rather than "cannot resolve".
-    """
-    return "0" * 40
+def unindexed_ref(seeded_index: Index, fake_repo: str) -> str:
+    """A real unindexed commit on a branch that leaves HEAD unchanged."""
+    return str(
+        make_commit(
+            pygit2.Repository(fake_repo),
+            {"pending.py": b"pending = 1\n"},
+            ref="refs/heads/unindexed",
+        )
+    )
 
 
 def test_daemon_config_reports_version_config_and_plugins() -> None:
@@ -74,31 +88,18 @@ def test_daemon_config_reports_version_config_and_plugins() -> None:
     assert all(p.package for p in resp.plugins)
 
 
-@pytest.mark.parametrize(
-    "mode",
-    [GcMode.HEAD_ONLY, GcMode.KEEP, GcMode.ORPHANS],
-)
-def test_handle_gc_global_rejects_a_repo_scoped_mode(mode: GcMode, store: IndexStore) -> None:
-    """A request covering every repo keeps at least HEAD and the watch
-    set of each. The modes that go further than that name refs, or
-    keep one repo's HEAD alone, and are rejected before touching the
-    store."""
-    with pytest.raises(RbtrError, match="one repo"):
-        handle_gc(GcRequest(repo_path="/repo", scope=Scope.ALL, mode=mode), store)
-
-
 @pytest.mark.parametrize("mode", [GcMode.WATCHED, GcMode.WATCHED_ONLY])
 def test_handle_gc_global_accepts_a_retention_every_repo_can_answer(
-    mode: GcMode, store: IndexStore
+    mode: EveryRepoGcMode, index: Index
 ) -> None:
     """Both retentions are expressed in each repo's own terms — its HEAD,
     its watch set — so either can be applied to every repo at once."""
-    resp = handle_gc(GcRequest(repo_path="/repo", scope=Scope.ALL, mode=mode), store)
+    resp = handle_gc_all(GcAllRequest(mode=mode), index)
 
     assert resp.repos_collected == 0  # nothing registered, but not refused
 
 
-def test_search_returns_results(running_daemon: DaemonServer, fake_repo: str) -> None:
+def test_search_returns_results(running_daemon: Daemon, fake_repo: str) -> None:
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(SearchRequest(repo_path=fake_repo, query="load_config"))
     assert isinstance(resp, SearchResponse)
@@ -107,7 +108,7 @@ def test_search_returns_results(running_daemon: DaemonServer, fake_repo: str) ->
     assert "load_config" in names
 
 
-def test_search_respects_limit(running_daemon: DaemonServer, fake_repo: str) -> None:
+def test_search_respects_limit(running_daemon: Daemon, fake_repo: str) -> None:
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(SearchRequest(repo_path=fake_repo, query="config", limit=1))
     assert isinstance(resp, SearchResponse)
@@ -122,7 +123,7 @@ def test_search_respects_limit(running_daemon: DaemonServer, fake_repo: str) -> 
     ],
 )
 def test_search_accepts_expansion_inputs(
-    running_daemon: DaemonServer,
+    running_daemon: Daemon,
     fake_repo: str,
     keywords: list[str] | None,
     variants: list[str] | None,
@@ -142,7 +143,7 @@ def test_search_accepts_expansion_inputs(
 
 @pytest.mark.parametrize("explain", [True, False])
 def test_search_query_kind_only_under_explain(
-    running_daemon: DaemonServer,
+    running_daemon: Daemon,
     fake_repo: str,
     explain: bool,
 ) -> None:
@@ -155,7 +156,7 @@ def test_search_query_kind_only_under_explain(
 
 
 def test_search_query_kind_override_without_expansion(
-    running_daemon: DaemonServer,
+    running_daemon: Daemon,
     fake_repo: str,
 ) -> None:
     """An explicit query_kind is honoured with no keywords/variants present."""
@@ -169,7 +170,7 @@ def test_search_query_kind_override_without_expansion(
     assert resp.query_kind == QueryKind.CODE
 
 
-def test_read_symbol(running_daemon: DaemonServer, fake_repo: str, daemon_commit: str) -> None:
+def test_read_symbol(running_daemon: Daemon, fake_repo: str, daemon_commit: str) -> None:
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(ReadSymbolRequest(repo_path=fake_repo, symbol="load_config"))
     assert isinstance(resp, ReadSymbolResponse)
@@ -180,7 +181,7 @@ def test_read_symbol(running_daemon: DaemonServer, fake_repo: str, daemon_commit
     assert resp.file_paths is None
 
 
-def test_read_symbol_returns_variable(running_daemon: DaemonServer, fake_repo: str) -> None:
+def test_read_symbol_returns_variable(running_daemon: Daemon, fake_repo: str) -> None:
     """Module-level VARIABLE chunks are readable like any other symbol."""
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(ReadSymbolRequest(repo_path=fake_repo, symbol="MAX_SIZE"))
@@ -189,7 +190,7 @@ def test_read_symbol_returns_variable(running_daemon: DaemonServer, fake_repo: s
     assert "MAX_SIZE" in names
 
 
-def test_read_symbol_not_found(running_daemon: DaemonServer, fake_repo: str) -> None:
+def test_read_symbol_not_found(running_daemon: Daemon, fake_repo: str) -> None:
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(ReadSymbolRequest(repo_path=fake_repo, symbol="nonexistent_xyz"))
     assert isinstance(resp, ReadSymbolResponse)
@@ -197,7 +198,7 @@ def test_read_symbol_not_found(running_daemon: DaemonServer, fake_repo: str) -> 
 
 
 def test_read_symbol_in_an_unregistered_repo_is_repo_not_found(
-    running_daemon: DaemonServer, second_repo: str
+    running_daemon: Daemon, second_repo: str
 ) -> None:
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(ReadSymbolRequest(repo_path=second_repo, symbol="load_config"))
@@ -207,7 +208,7 @@ def test_read_symbol_in_an_unregistered_repo_is_repo_not_found(
 
 @parametrize_with_cases("read", prefix="case_unindexed_read_")
 def test_an_unindexed_ref_is_an_error_not_an_empty_result(
-    running_daemon: DaemonServer,
+    running_daemon: Daemon,
     read: SearchRequest | ReadSymbolRequest | ListSymbolsRequest | FindRefsRequest,
 ) -> None:
     with DaemonClient(running_daemon.runtime_dir) as client:
@@ -219,23 +220,54 @@ def test_an_unindexed_ref_is_an_error_not_an_empty_result(
 @fixture
 @parametrize_with_cases("scenario", prefix="case_unbuilt_")
 def scenario_applied(
-    running_daemon: DaemonServer,
-    seeded_store: IndexStore,
+    runtime_dir: Path,
+    seeded_index: Index,
     fake_repo: str,
     scenario: UnbuiltRefScenario,
+    write_started: threading.Event,
+    write_released: threading.Event,
+    monkeypatch: pytest.MonkeyPatch,
+    mocker: MockerFixture,
 ) -> Generator[UnbuiltRefScenario]:
-    """*scenario*'s build and watch set, applied to `running_daemon`."""
-    repo_id = seeded_store.get_repo_id(fake_repo)
-    assert repo_id is not None
-    with seeded_store.session() as ws:
-        ws.add_watched_refs(repo_id, scenario.watched)
-    running_daemon._active_build = scenario.active_build
-    yield scenario
-    running_daemon._active_build = None
+    """Serve the scenario's real watched work, held at its native operation."""
+    monkeypatch.setattr(config, "embed", False)
+    daemon = Daemon(runtime_dir, seeded_index, idle_poll_interval=60, busy_poll_interval=60)
+    with seeded_index.session(seeded_index.repo(fake_repo)) as ws:
+        ws.add_watched_refs(scenario.watched)
+
+    def build(
+        repo_path: str,
+        snapshot_sha: str,
+        index: Index,
+        *,
+        on_progress: ProgressCallback,
+        stop: threading.Event,
+    ) -> IndexResult:
+        target = scenario.building
+        if target is not None and (repo_path, snapshot_sha) == (
+            target.repo.repo_path,
+            target.snapshot_sha,
+        ):
+            write_started.set()
+            assert write_released.wait(20), "build was not released"
+        return build_index(repo_path, snapshot_sha, index, on_progress=on_progress, stop=stop)
+
+    mocker.patch("rbtr.index.indexer.build_index", side_effect=build)
+    with serving(daemon):
+        try:
+            if scenario.building is not None:
+                with DaemonClient(runtime_dir) as client:
+                    client.send(
+                        WatchRequest(repo_path=scenario.building.repo.repo_path, refs=["building"])
+                    )
+                assert write_started.wait(10), "native build did not start"
+            yield scenario
+        finally:
+            write_released.set()
 
 
 def test_an_unindexed_ref_reports_building_only_when_the_daemon_will_index_it(
-    running_daemon: DaemonServer,
+    runtime_dir: Path,
     fake_repo: str,
     unindexed_ref: str,
     scenario_applied: UnbuiltRefScenario,
@@ -245,7 +277,7 @@ def test_an_unindexed_ref_reports_building_only_when_the_daemon_will_index_it(
     because the repo watches the ref; anything else would have the caller
     wait for a build that never comes.
     """
-    with DaemonClient(running_daemon.runtime_dir) as client:
+    with DaemonClient(runtime_dir) as client:
         resp = client.send(
             ReadSymbolRequest(repo_path=fake_repo, symbol="load_config", ref=unindexed_ref)
         )
@@ -253,7 +285,7 @@ def test_an_unindexed_ref_reports_building_only_when_the_daemon_will_index_it(
     assert resp.code == scenario_applied.expected
 
 
-def test_read_symbol_with_file_paths(running_daemon: DaemonServer, fake_repo: str) -> None:
+def test_read_symbol_with_file_paths(running_daemon: Daemon, fake_repo: str) -> None:
     """`file_paths` narrows the lookup to chunks from the listed files.
 
     Tiered name resolution means `load_config` exact-matches only
@@ -284,9 +316,7 @@ def test_read_symbol_with_file_paths(running_daemon: DaemonServer, fake_repo: st
     assert len(missing.chunks) == 0
 
 
-def test_read_symbol_file_paths_absolute_end_to_end(
-    running_daemon: DaemonServer, fake_repo: str
-) -> None:
+def test_read_symbol_file_paths_absolute_end_to_end(running_daemon: Daemon, fake_repo: str) -> None:
     """An absolute scoping path resolves through the full wire path.
 
     Path-form normalisation itself is covered at the model level
@@ -305,7 +335,7 @@ def test_read_symbol_file_paths_absolute_end_to_end(
 
 
 def test_read_symbol_implicit_falls_back_when_head_unindexed(
-    running_daemon: DaemonServer, fake_repo: str, daemon_commit: str
+    running_daemon: Daemon, fake_repo: str, daemon_commit: str
 ) -> None:
     """A moved-but-unindexed HEAD resolves to the latest indexed commit.
 
@@ -327,7 +357,7 @@ def test_read_symbol_implicit_falls_back_when_head_unindexed(
     assert resp.resolved == ResolvedRef(sha=daemon_commit, source=RefSource.LATEST_INDEXED)
 
 
-def test_list_symbols(running_daemon: DaemonServer, fake_repo: str, daemon_commit: str) -> None:
+def test_list_symbols(running_daemon: Daemon, fake_repo: str, daemon_commit: str) -> None:
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(ListSymbolsRequest(repo_path=fake_repo, file_path="src/config.py"))
     assert isinstance(resp, ListSymbolsResponse)
@@ -339,9 +369,7 @@ def test_list_symbols(running_daemon: DaemonServer, fake_repo: str, daemon_commi
     assert resp.file_path == "src/config.py"
 
 
-def test_list_symbols_absolute_path_end_to_end(
-    running_daemon: DaemonServer, fake_repo: str
-) -> None:
+def test_list_symbols_absolute_path_end_to_end(running_daemon: Daemon, fake_repo: str) -> None:
     """An absolute path outlines the file, and the reply names it repo-relative."""
     abs_path = str(Path(fake_repo) / "src/config.py")
     with DaemonClient(running_daemon.runtime_dir) as client:
@@ -351,7 +379,7 @@ def test_list_symbols_absolute_path_end_to_end(
     assert resp.file_path == "src/config.py"
 
 
-def test_list_symbols_carries_no_source(running_daemon: DaemonServer, fake_repo: str) -> None:
+def test_list_symbols_carries_no_source(running_daemon: Daemon, fake_repo: str) -> None:
     """An outline names symbols and spans them; bodies come from read-symbol."""
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(ListSymbolsRequest(repo_path=fake_repo, file_path="src/config.py"))
@@ -361,14 +389,14 @@ def test_list_symbols_carries_no_source(running_daemon: DaemonServer, fake_repo:
     assert all("content" not in chunk for chunk in payload["chunks"])
 
 
-def test_list_symbols_empty_file(running_daemon: DaemonServer, fake_repo: str) -> None:
+def test_list_symbols_empty_file(running_daemon: Daemon, fake_repo: str) -> None:
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(ListSymbolsRequest(repo_path=fake_repo, file_path="nonexistent.py"))
     assert isinstance(resp, ListSymbolsResponse)
     assert len(resp.chunks) == 0
 
 
-def test_find_refs(running_daemon: DaemonServer, fake_repo: str, daemon_commit: str) -> None:
+def test_find_refs(running_daemon: Daemon, fake_repo: str, daemon_commit: str) -> None:
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(FindRefsRequest(repo_path=fake_repo, symbol="load_config"))
     assert isinstance(resp, FindRefsResponse)
@@ -381,7 +409,7 @@ def test_find_refs(running_daemon: DaemonServer, fake_repo: str, daemon_commit: 
     assert resp.file_paths is None
 
 
-def test_find_refs_with_file_paths(running_daemon: DaemonServer, fake_repo: str) -> None:
+def test_find_refs_with_file_paths(running_daemon: Daemon, fake_repo: str) -> None:
     """`file_paths` narrows name resolution before edges are queried."""
     with DaemonClient(running_daemon.runtime_dir) as client:
         scoped = client.send(
@@ -403,7 +431,7 @@ def test_find_refs_with_file_paths(running_daemon: DaemonServer, fake_repo: str)
 
 
 def test_status_with_index(
-    running_daemon: DaemonServer,
+    running_daemon: Daemon,
     fake_repo: str,
     daemon_commit: str,
 ) -> None:
@@ -411,6 +439,7 @@ def test_status_with_index(
         resp = client.send(StatusRequest(repo_path=fake_repo))
     assert isinstance(resp, StatusResponse)
     assert resp.db_size_bytes is not None  # populated (0 for the in-memory test store)
+    assert resp.state is IndexState.INDEXED
     assert len(resp.indexed_refs) == 1
     assert resp.indexed_refs[0].sha == daemon_commit
     assert resp.indexed_refs[0].total > 0
@@ -418,26 +447,29 @@ def test_status_with_index(
     assert any(w.ref == "HEAD" and w.indexed for w in resp.watched)
 
 
-@pytest.fixture
-def fake_repo_subdir(fake_repo: str) -> str:
-    """A directory inside `fake_repo`."""
-    path = Path(fake_repo) / "sub"
-    path.mkdir()
-    return str(path)
-
-
 @parametrize_with_cases("scenario", prefix="case_status_")
 def test_status_names_the_repository_it_reports_on(
-    running_daemon: DaemonServer, scenario: StatusRootScenario
+    running_daemon: Daemon, scenario: StatusRootScenario
 ) -> None:
     with DaemonClient(running_daemon.runtime_dir) as client:
-        resp = client.send(StatusRequest(repo_path=scenario.repo_path, scope=scenario.scope))
+        resp = client.send(scenario.request)
     assert isinstance(resp, StatusResponse)
     assert resp.repo_path == scenario.expected
 
 
-def test_status_unknown_repo(running_daemon: DaemonServer, second_repo: str) -> None:
-    """Status for an unregistered repo returns empty response.
+@parametrize_with_cases("scenario", prefix="case_state_")
+def test_status_reports_what_the_index_holds(scenario: IndexStateScenario) -> None:
+    """The index missing, the repo missing from it, and the read ref missing from the repo are told apart."""
+    match scenario.request:
+        case StatusAllRequest():
+            resp = handle_status_all(scenario.request, scenario.index)
+        case StatusRequest():
+            resp = handle_status(scenario.request, scenario.index)
+    assert resp.state is scenario.expected
+
+
+def test_status_unknown_repo(running_daemon: Daemon, second_repo: str) -> None:
+    """Status for an unregistered repo says it is not indexed, and lists no refs.
 
     `second_repo` is a real repo the seeded store never registered —
     `fake_repo` is the one `running_daemon` serves.
@@ -445,6 +477,7 @@ def test_status_unknown_repo(running_daemon: DaemonServer, second_repo: str) -> 
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(StatusRequest(repo_path=second_repo))
     assert isinstance(resp, StatusResponse)
+    assert resp.state is IndexState.REPO_NOT_INDEXED
     assert resp.indexed_refs == []
 
 
@@ -453,33 +486,33 @@ def test_status_unknown_repo(running_daemon: DaemonServer, second_repo: str) -> 
 # drive it against the store directly.
 
 
-def test_index_always_watches_head(seeded_store: IndexStore, tmp_path: Path) -> None:
+def test_index_always_watches_head(seeded_index: Index, tmp_path: Path) -> None:
     """A repo first seen via `index <ref>` (not startup backfill) still
     watches HEAD — the invariant that HEAD is always watched."""
     other = str(tmp_path / "other")
-    handle_watch(WatchRequest(repo_path=other, refs=["main"]), seeded_store)
-    watched = seeded_store.list_watched_refs(seeded_store.resolve_repo(other))
+    handle_watch(WatchRequest(repo_path=other, refs=["main"]), seeded_index)
+    watched = seeded_index.watched_refs(seeded_index.repo(other))
     assert "HEAD" in watched
     assert "main" in watched
 
 
-def test_index_records_a_ref_in_the_watch_set(seeded_store: IndexStore, fake_repo: str) -> None:
+def test_index_records_a_ref_in_the_watch_set(seeded_index: Index, fake_repo: str) -> None:
     """`index` records a ref; dropping one is `handle_unwatch`."""
-    repo_id = seeded_store.resolve_repo(fake_repo)
-    added = handle_watch(WatchRequest(repo_path=fake_repo, refs=["main"]), seeded_store)
-    assert "main" in seeded_store.list_watched_refs(repo_id)
+    repo = seeded_index.repo(fake_repo)
+    added = handle_watch(WatchRequest(repo_path=fake_repo, refs=["main"]), seeded_index)
+    assert "main" in seeded_index.watched_refs(repo)
     # The reply is the watch set now, each ref with its SHA and state.
     assert isinstance(added, WatchSetResponse)
     assert {w.ref: w.indexed for w in added.watched} == {"HEAD": True, "main": True}
 
 
-def test_status_reports_watch_set_states(seeded_store: IndexStore, fake_repo: str) -> None:
+def test_status_reports_watch_set_states(seeded_index: Index, fake_repo: str) -> None:
     """Each watched ref is reported as indexed, pending, or unresolvable."""
-    repo_id = seeded_store.resolve_repo(fake_repo)
+    repo = seeded_index.repo(fake_repo)
     pending_sha = "0" * 40  # a bare SHA: resolves to itself, never indexed
-    with seeded_store.session() as ws:
-        ws.add_watched_refs(repo_id, ["main", pending_sha, "nonexistent-branch"])
-    resp = handle_status(StatusRequest(repo_path=fake_repo), seeded_store)
+    with seeded_index.session(repo) as ws:
+        ws.add_watched_refs(["main", pending_sha, "nonexistent-branch"])
+    resp = handle_status(StatusRequest(repo_path=fake_repo), seeded_index)
     watched = {w.ref: w for w in resp.watched}
     assert watched["main"].indexed is True  # resolves to the indexed HEAD
     assert watched[pending_sha].indexed is False
@@ -488,13 +521,13 @@ def test_status_reports_watch_set_states(seeded_store: IndexStore, fake_repo: st
 
 
 def test_watch_refs_logs_intent(
-    seeded_store: IndexStore,
+    seeded_index: Index,
     fake_repo: str,
     log_output: structlog.testing.LogCapture,
 ) -> None:
     """Add and remove each emit a correlated intent event."""
-    handle_watch(WatchRequest(repo_path=fake_repo, refs=["main"]), seeded_store)
-    handle_unwatch(UnwatchRequest(repo_path=fake_repo, refs=["main"]), seeded_store)
+    handle_watch(WatchRequest(repo_path=fake_repo, refs=["main"]), seeded_index)
+    handle_unwatch(UnwatchRequest(repo_path=fake_repo, refs=["main"]), seeded_index)
     events = [e["event"] for e in log_output.entries]
     assert "watched_refs_added" in events
     assert "watched_refs_removed" in events

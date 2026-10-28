@@ -22,12 +22,7 @@ import re
 
 from rbtr.languages.registration import LanguageRegistration, QueryExtraction, load_query
 
-# ── Manifest ─────────────────────────────────────────────────────────
-
 _MODULE_LINE = re.compile(r"^\s*module\s+(\S+)", re.MULTILINE)
-
-
-# ── Plugin ───────────────────────────────────────────────────────────
 
 
 go = LanguageRegistration(

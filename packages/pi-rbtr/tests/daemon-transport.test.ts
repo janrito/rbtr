@@ -10,7 +10,7 @@ import { expect, inject } from "vitest";
 
 import { send } from "../extensions/rbtr/daemon-client.js";
 import { DaemonSession } from "../extensions/rbtr/daemon-session.js";
-import type { Notification } from "../extensions/rbtr/generated/protocol.js";
+import type { Notification, Request } from "../extensions/rbtr/generated/protocol.js";
 import { test, until } from "./session.fixtures.js";
 
 // Every test here needs a daemon started for it, and most freeze it.
@@ -42,6 +42,19 @@ test("a late reply is waited for, and the daemon is asked once", async ({
   frozenDaemon.thaw();
   expect(await reply).toMatchObject({ kind: "status" });
   expect(statusRequestsServed(rbtr.logDir, repo) - before).toBe(1);
+});
+
+test("simultaneous requests receive their own response from the real daemon", async ({ repo, runningDaemon }) => {
+  const requests: Request[] = [
+    { kind: "status", repo_path: repo },
+    { kind: "read_symbol", repo_path: repo, symbol: inject("corpus").subject.name },
+    { kind: "daemon_config" },
+  ];
+  const replies = await Promise.all(
+    requests.map((request) => send(request, { rpcEndpoint: runningDaemon.rpc ?? "", waitBudgetMs: 10_000 })),
+  );
+  expect(replies.map((reply) => reply.kind)).toEqual(requests.map((request) => request.kind));
+  expect(replies[2]).toMatchObject({ kind: "daemon_config", config: { max_concurrent_reads: 2 } });
 });
 
 test("waiting stops when the budget is spent", async ({ repo, runningDaemon, frozenDaemon }) => {

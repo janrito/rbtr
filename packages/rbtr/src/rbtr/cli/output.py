@@ -39,6 +39,7 @@ from rbtr.daemon.messages import (
     ForgetResponse,
     GcResponse,
     IndexedRef,
+    IndexState,
     ListSymbolsResponse,
     OkResponse,
     ReadSymbolResponse,
@@ -118,6 +119,8 @@ def fail(error: ErrorResponse | RbtrError, exit_code: ExitCode = ExitCode.FAILED
         sys.stdout.write("\n")
     else:
         print_err(f"[red]error:[/] {response.message}")
+        if response.code is ErrorCode.OUT_OF_MEMORY:
+            print_err("Raise duckdb_memory_limit in config.toml or with RBTR_DUCKDB_MEMORY_LIMIT.")
     sys.exit(exit_code)
 
 
@@ -204,9 +207,6 @@ def progress_reporter(*labels: str) -> Iterator[list[ProgressCallback]]:
         yield [_make_progress_callback(progress, tid) for tid in task_ids]
 
 
-# ── Helpers ──────────────────────────────────────────────────────────
-
-
 def _short_path(file_path: str) -> str:
     """Shorten a file path relative to CWD when possible."""
     try:
@@ -222,9 +222,6 @@ def _score_style(score: float) -> str:
     if score >= 0.5:
         return "yellow"
     return "dim"
-
-
-# ── Rich formatting ─────────────────────────────────────────────────
 
 
 def _print_rich(model: BaseModel) -> None:
@@ -503,27 +500,44 @@ def _render_status_response(response: StatusResponse) -> None:
     loc = f"[dim]{response.db_path}[/]"
     if response.db_size_bytes is not None:
         loc = f"[dim]{human_bytes(response.db_size_bytes)} · {response.db_path}[/]"
-    if not response.indexed_refs:
-        _out.print("[red]✗[/]  No index found")
-    elif len({ref.repo_path for ref in response.indexed_refs}) > 1:
-        # Cross-repo: group refs under their repo.
-        _out.print(f"[green]✓[/]  indexed repos  {loc}")
-        by_repo: dict[str, list[IndexedRef]] = {}
-        for ref in response.indexed_refs:
-            by_repo.setdefault(ref.repo_path or "?", []).append(ref)
-        for repo_path, refs in by_repo.items():
-            _out.print(f"  [bold]{repo_path}[/]")
-            for ref in refs:
-                _out.print(f"     {_fmt_ref(ref)}")
-    else:
-        total = response.indexed_refs[0].total
-        _out.print(f"[green]✓[/]  {_human(total)} chunks  {loc}")
-        for ref in response.indexed_refs:
-            _out.print(f"   {_fmt_ref(ref)}")
+    match response.state:
+        case IndexState.NO_INDEX:
+            _out.print("[red]✗[/]  the index does not exist")
+        case IndexState.REPO_NOT_INDEXED if response.repo_path is None:
+            _out.print(f"[red]✗[/]  no repo is indexed  {loc}")
+        case IndexState.REPO_NOT_INDEXED:
+            _out.print(f"[red]✗[/]  this repo is not indexed  {loc}")
+        case IndexState.REF_NOT_INDEXED:
+            _out.print(
+                f"[yellow]![/]  this ref is not indexed; "
+                f"{len(response.indexed_refs)} other refs of this repo are  {loc}"
+            )
+            for ref in response.indexed_refs:
+                _out.print(f"   {_fmt_ref(ref)}")
+        case IndexState.INDEXED if len({ref.repo_path for ref in response.indexed_refs}) > 1:
+            # Cross-repo: group refs under their repo.
+            _out.print(f"[green]✓[/]  indexed repos  {loc}")
+            by_repo: dict[str, list[IndexedRef]] = {}
+            for ref in response.indexed_refs:
+                by_repo.setdefault(ref.repo_path or "?", []).append(ref)
+            for repo_path, refs in by_repo.items():
+                _out.print(f"  [bold]{repo_path}[/]")
+                for ref in refs:
+                    _out.print(f"     {_fmt_ref(ref)}")
+        case IndexState.INDEXED:
+            total = response.indexed_refs[0].total
+            _out.print(f"[green]✓[/]  {_human(total)} chunks  {loc}")
+            for ref in response.indexed_refs:
+                _out.print(f"   {_fmt_ref(ref)}")
     if response.watched:
         _out.print("[dim]watching:[/]")
         for w in response.watched:
             _out.print(f"   {_fmt_watched(w)}")
+    for repo_path, count in response.untracked_not_indexed.items():
+        _out.print(
+            f"[yellow]![/]  {count} untracked files in {repo_path} not indexed \
+(over max_untracked_files): add their directories to .gitignore or .git/info/exclude"
+        )
     if response.active_build is not None:
         job = response.active_build
         pct = f" ({100 * job.current / job.total:.0f}%)" if job.total > 0 else ""
@@ -580,19 +594,17 @@ def _human(n: int) -> str:
 
 
 def human_bytes(n: int) -> str:
-    """Format a byte count for humans: `512 B`, `1.5 MB`, `2.1 GB`.
+    """Format a byte count for humans: `512 B`, `1.5 MiB`, `2.1 GiB`.
 
-    Decimal (SI) units: each step divides by 1000 and is labelled
-    accordingly (`KB`/`MB`/`GB`), matching how macOS Finder reports
-    file sizes.
+    Binary units, as rbtr's size settings use: each step divides by 1024.
     """
-    if n < 1000:
+    if n < 2**10:
         return f"{n} B"
-    if n < 1000 * 1000:
-        return f"{n / 1000:.1f} KB"
-    if n < 1000 * 1000 * 1000:
-        return f"{n / (1000 * 1000):.1f} MB"
-    return f"{n / (1000 * 1000 * 1000):.1f} GB"
+    if n < 2**20:
+        return f"{n / 2**10:.1f} KiB"
+    if n < 2**30:
+        return f"{n / 2**20:.1f} MiB"
+    return f"{n / 2**30:.1f} GiB"
 
 
 def _format_elapsed(seconds: float) -> str:

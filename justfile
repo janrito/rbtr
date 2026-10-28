@@ -1,5 +1,3 @@
-# ── setup ──
-
 setup: setup-py setup-js
 
 setup-ci: setup-ci-py setup-ci-js
@@ -15,8 +13,6 @@ setup-js:
 
 setup-ci-js:
     npm ci
-
-# ── check ──
 
 [default]
 check: schema-check validate-graphql lint typecheck test test-ts
@@ -105,8 +101,6 @@ test-cov:
 snapshots:
     uv run pytest --snapshot-update packages/*/src/*/tests/test_samples.py
 
-# ── build ──
-
 build: build-py build-ext
 
 build-py:
@@ -117,14 +111,11 @@ build-ext:
     npm pack ./packages/pi-rbtr --pack-destination dist
     npm pack ./skills/review-github-pr --pack-destination dist
 
-# ── skills ──
-
 # Editable-install all CLI tools so they're available globally.
 install-tools:
     uv tool install -eU packages/rbtr
 
-# ── dead code detection (requires `uv sync --group debug`) ──
-
+# Requires `uv sync --group debug`.
 dead-code:
     uv run --group debug vulture
 
@@ -134,8 +125,6 @@ dead-code:
 eval *FLAGS:
     cd packages/rbtr-eval && uv run {{ FLAGS }} dvc repro
 
-# ── demo ──
-
 # Record all demo tapes (requires `brew install vhs`).
 demo:
     for tape in demo/*.tape; do vhs "$tape"; done
@@ -144,7 +133,10 @@ demo:
 demo-one tape:
     vhs {{ tape }}
 
-# ── release ──
+# Render every architecture diagram to PNG (requires the draw.io desktop app).
+diagrams:
+    for f in packages/rbtr/docs/diagrams/*.drawio; do drawio -x -f png -s 2 -o "${f%.drawio}.png" "$f"; done
+
 # Get the current version from pyproject.toml
 
 current_version := `uvx bump-my-version show current_version`

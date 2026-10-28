@@ -1,20 +1,10 @@
+-- One project's data file.  `meta` holds the embedding model and format
+-- version its vectors were made with; the schema version lives in the
+-- registry (`registry.sql`).
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
-
--- Maps each registered checkout to the small integer id that every per-repo
--- table below carries.  A `repo_id` with no row here is unreachable: gc, the
--- watcher and forget all find their work by listing repos.  `build_index`
--- inserts the row, which is why no foreign key is needed to keep the two in
--- step.  `path` is always canonical (`normalise_repo_path`), so a linked
--- worktree is a repo of its own.  See ARCHITECTURE.md "Repo registration".
-CREATE TABLE IF NOT EXISTS repos (
-  id INTEGER PRIMARY KEY,
-  path TEXT UNIQUE NOT NULL
-);
-
-CREATE SEQUENCE IF NOT EXISTS repos_id_seq START 1;
 
 -- `repo_id` has no DEFAULT.  Every write sets it explicitly, and a default
 -- would let a write that forgot to file its rows under an unrelated repo
@@ -32,8 +22,8 @@ CREATE TABLE IF NOT EXISTS chunks (
   -- Content-addressed store: `id` is a blake2b hash of
   -- (blob_sha, file_language, kind, name, line_start, line_end) and is
   -- therefore globally unique and location-independent.  Identical
-  -- content at several paths, in several repos, or in several
-  -- worktrees is one row here; where it lives is entirely
+  -- content at several paths, or in several checkouts of the project,
+  -- is one row here; where it lives is entirely
   -- `file_snapshots`, joined on blob_sha + file_language =
   -- detected_language.  See ARCHITECTURE.md "Content-addressed
   -- chunks".

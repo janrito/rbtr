@@ -30,8 +30,6 @@ from rbtr.index.search import _normalise_col
 
 log = structlog.get_logger(__name__)
 
-# ── Prompt template ──────────────────────────────────────────────────
-
 _RERANKER_PROMPT = """\
 <|im_start|>system
 Judge whether the Document meets the requirements based on \
@@ -48,9 +46,6 @@ code that answers the query
 </think>
 
 """
-
-
-# ── Model loading ────────────────────────────────────────────────────
 
 
 def _load_model() -> Llama:
@@ -74,9 +69,6 @@ def _load_model() -> Llama:
         verbose=config.embedding_verbose,
     )
     return model
-
-
-# ── Reranker ─────────────────────────────────────────────────────────
 
 
 class Reranker:
@@ -103,8 +95,6 @@ class Reranker:
             label="Reranker",
         )
 
-    # ── Lifecycle (delegates to slot) ────────────────────────────
-
     @property
     def idle_timeout(self) -> float:
         """Configured idle timeout in seconds."""
@@ -125,8 +115,6 @@ class Reranker:
     def warmup(self) -> None:
         """Eagerly load the model so the first search doesn't pay the cost."""
         self._slot.warmup()
-
-    # ── Reranking ────────────────────────────────────────────────
 
     def rerank(
         self,

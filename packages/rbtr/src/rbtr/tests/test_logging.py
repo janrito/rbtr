@@ -104,7 +104,7 @@ def test_daemon_uses_rotating_file_handler() -> None:
     configure_logging(to_file=True, cache=False)
     rotating = [h for h in logging.getLogger().handlers if isinstance(h, RotatingFileHandler)]
     assert len(rotating) == 1
-    assert rotating[0].maxBytes == config.log_max_bytes
+    assert rotating[0].maxBytes == config.log_max_size
     assert rotating[0].backupCount == config.log_backup_count
 
 

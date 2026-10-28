@@ -27,16 +27,17 @@ if TYPE_CHECKING:
 from rbtr.domain.models import ChunkKind, SnapshotRef
 from rbtr.git import normalise_repo_path
 from rbtr.index.build import build_index
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 from rbtr.tests.conftest import make_commit
 from rbtr_eval.paraphrase import (
     SymbolContext,
     _excluded_identifiers,
+    _paraphrase_examples,
     _sampled_content,
     paraphrase_agent,
     paraphrase_symbols,
 )
-from rbtr_eval.shared_schemas import IDENTITY_COLUMNS, QueryRow
+from rbtr_eval.shared_schemas import QueryRow
 
 
 @pytest.mark.parametrize(
@@ -194,16 +195,15 @@ def test_output_validator_accepts_clean_response(
 def paraphrase_result(
     queries: dy.DataFrame[QueryRow],
     mixed_kind_repo: pygit2.Repository,
-    store: IndexStore,
+    index: Index,
     mixed_kind_ref: SnapshotRef,
     clean_model: FunctionModel,
 ) -> tuple[dy.DataFrame[QueryRow], dy.DataFrame[QueryRow]]:
     """Paraphrase the targeted chunk of the corpus."""
     result = paraphrase_symbols(
         queries,
-        store,
-        mixed_kind_repo.workdir,
-        mixed_kind_ref.repo_id,
+        index,
+        index.repos()[0],
         model=clean_model,
         concurrency=1,
     )
@@ -232,16 +232,15 @@ def test_paraphrase_symbols_produces_concept_rows(
 def test_paraphrase_symbols_skips_when_excluded_in_response(
     queries: dy.DataFrame[QueryRow],
     mixed_kind_repo: pygit2.Repository,
-    store: IndexStore,
+    index: Index,
     mixed_kind_ref: SnapshotRef,
     excluded_model: FunctionModel,
 ) -> None:
     """Responses containing excluded identifiers exhaust retries and are dropped."""
     result = paraphrase_symbols(
         queries,
-        store,
-        mixed_kind_repo.workdir,
-        mixed_kind_ref.repo_id,
+        index,
+        index.repos()[0],
         model=excluded_model,
         concurrency=1,
     )
@@ -252,7 +251,7 @@ def test_paraphrase_symbols_skips_when_excluded_in_response(
 def test_paraphrase_symbols_deduplicates_across_provenances(
     queries: dy.DataFrame[QueryRow],
     mixed_kind_repo: pygit2.Repository,
-    store: IndexStore,
+    index: Index,
     mixed_kind_ref: SnapshotRef,
 ) -> None:
     """Multiple provenances for the same symbol produce one LLM call."""
@@ -275,9 +274,8 @@ def test_paraphrase_symbols_deduplicates_across_provenances(
 
     result = paraphrase_symbols(
         both,
-        store,
-        mixed_kind_repo.workdir,
-        mixed_kind_ref.repo_id,
+        index,
+        index.repos()[0],
         model=FunctionModel(counting_fn),
         concurrency=1,
     )
@@ -287,7 +285,7 @@ def test_paraphrase_symbols_deduplicates_across_provenances(
 
 
 @pytest.fixture
-def two_repos(tmp_path: Path, store: IndexStore) -> IndexStore:
+def two_repos(tmp_path: Path, index: Index) -> Index:
     """Two indexed repos whose `lib.py` differ only in the return value.
 
     A corpus repeats paths across repos, so `greet` at `lib.py:1`
@@ -301,13 +299,12 @@ def two_repos(tmp_path: Path, store: IndexStore) -> IndexStore:
                 {"lib.py": f'def greet(name):\n    return f"{greeting} {{name}}"\n'.encode()},
             )
         )
-        with store.session() as ws:
-            ws.register_repo(normalise_repo_path(repo.workdir))
-        build_index(repo.workdir, head, store)
-    return store
+        index.register(normalise_repo_path(repo.workdir))
+        build_index(repo.workdir, head, index)
+    return index
 
 
-def test_example_content_comes_from_the_sampled_repo(two_repos: IndexStore) -> None:
+def test_example_content_comes_from_the_sampled_repo(two_repos: Index) -> None:
     """Repos sharing a path each contribute their own source text."""
     sampled = pl.DataFrame(
         [
@@ -327,8 +324,7 @@ def test_example_content_comes_from_the_sampled_repo(two_repos: IndexStore) -> N
         ]
     ).pipe(QueryRow.validate, cast=True)
 
-    content = _sampled_content(two_repos, sampled)
-    joined = sampled.join(content, on=["slug", *IDENTITY_COLUMNS], how="left").sort("slug")
+    joined = _paraphrase_examples(sampled, _sampled_content(two_repos, sampled)).sort("slug")
 
     assert joined.height == 2
     assert 'f"hi {name}"' in joined["content"][0]

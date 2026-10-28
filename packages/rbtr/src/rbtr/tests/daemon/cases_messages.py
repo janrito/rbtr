@@ -19,13 +19,13 @@ from rbtr.daemon.messages import (
     ChangedSymbolsRequest,
     ChangedSymbolsResponse,
     EmbedEndedNotification,
-    EmbedOutcome,
     ErrorCode,
     ErrorResponse,
     FindRefsRequest,
     FindRefsResponse,
     ForgetRequest,
     ForgetResponse,
+    GcAllRequest,
     GcRequest,
     GcResponse,
     IndexErrorNotification,
@@ -39,14 +39,16 @@ from rbtr.daemon.messages import (
     ReadyNotification,
     Request,
     Response,
+    SearchAllRequest,
     SearchRequest,
     SearchResponse,
     ShutdownRequest,
+    StatusAllRequest,
     StatusRequest,
     StatusResponse,
     UnwatchRequest,
     UnwatchResponse,
-    UnwatchStaleRequest,
+    UnwatchStaleAllRequest,
     WatchRequest,
     WatchResponse,
     WatchSetResponse,
@@ -54,7 +56,8 @@ from rbtr.daemon.messages import (
     request_adapter,
     response_adapter,
 )
-from rbtr.domain.models import GcMode, Scope
+from rbtr.domain.models import GcMode
+from rbtr.index.progress import EmbedOutcome
 
 
 @dataclass(frozen=True)
@@ -286,12 +289,12 @@ def case_gc() -> MessageScenario:
 
 @case(tags=["request"])
 def case_gc_every_repo() -> MessageScenario:
-    """`Scope.ALL` reclaims across every registered repo."""
+    """Reclaiming across every registered repo names none."""
     return MessageScenario(
-        raw=b'{"kind":"gc","repo_path":"/r","scope":"all","mode":"watched"}',
+        raw=b'{"kind":"gc_all","mode":"watched"}',
         adapter=request_adapter,
-        expected_type=GcRequest,
-        checks={"mode": GcMode.WATCHED, "scope": Scope.ALL},
+        expected_type=GcAllRequest,
+        checks={"mode": GcMode.WATCHED, "dry_run": False},
     )
 
 
@@ -299,10 +302,31 @@ def case_gc_every_repo() -> MessageScenario:
 def case_unwatch_stale_everywhere() -> MessageScenario:
     """Stale refs across every indexed repo."""
     return MessageScenario(
-        raw=b'{"kind":"unwatch_stale","repo_path":"/r","scope":"all"}',
+        raw=b'{"kind":"unwatch_stale_all"}',
         adapter=request_adapter,
-        expected_type=UnwatchStaleRequest,
-        checks={"scope": Scope.ALL, "repo_path": "/r", "dry_run": False},
+        expected_type=UnwatchStaleAllRequest,
+        checks={"dry_run": False},
+    )
+
+
+@case(tags=["request"])
+def case_search_every_repo() -> MessageScenario:
+    """A search across every indexed repo carries the query only."""
+    return MessageScenario(
+        raw=b'{"kind":"search_all","query":"retry"}',
+        adapter=request_adapter,
+        expected_type=SearchAllRequest,
+        checks={"query": "retry", "limit": 10},
+    )
+
+
+@case(tags=["request"])
+def case_status_every_repo() -> MessageScenario:
+    return MessageScenario(
+        raw=b'{"kind":"status_all"}',
+        adapter=request_adapter,
+        expected_type=StatusAllRequest,
+        checks={},
     )
 
 
@@ -429,10 +453,10 @@ def case_changed_symbols_response() -> MessageScenario:
 @case(tags=["response"])
 def case_status_response_empty() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"status"}',
+        raw=b'{"kind":"status","state":"no_index"}',
         adapter=response_adapter,
         expected_type=StatusResponse,
-        checks={"indexed_refs": []},
+        checks={"indexed_refs": [], "state": "no_index"},
     )
 
 
@@ -440,7 +464,7 @@ def case_status_response_empty() -> MessageScenario:
 def case_status_response_with_refs() -> MessageScenario:
     return MessageScenario(
         raw=(
-            b'{"kind":"status",'
+            b'{"kind":"status","state":"indexed",'
             b'"indexed_refs":['
             b'{"sha":"abc123","total":50,"embedded":50},'
             b'{"sha":"def456","total":30,"embedded":10}'

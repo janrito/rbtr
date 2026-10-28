@@ -20,7 +20,7 @@ import pytest
 from rbtr.config import Config
 from rbtr.daemon.messages import ErrorCode, ErrorResponse
 from rbtr.daemon.status import DaemonStatusReport, is_pid_alive, read_status
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 from rbtr.tests.conftest import run_cli
 
 
@@ -146,7 +146,7 @@ def test_start_with_db_lock_held_exits_cleanly(
     which is what the pre-fix `except RuntimeError` did.
     """
     monkeypatch.setenv("RBTR_DAEMON_START_TIMEOUT", "15")
-    store = IndexStore.from_config(writable=True)  # take the exclusive lock
+    index = Index.from_config(writable=True)  # take the exclusive lock
     try:
         started = time.monotonic()
         result = run_cli(["daemon", "start"])
@@ -157,5 +157,5 @@ def test_start_with_db_lock_held_exits_cleanly(
         assert error.code == ErrorCode.INDEX_LOCKED
         assert "Another process holds the index lock" in " ".join(error.message.split())
     finally:
-        store.close()
+        index.close()
         run_cli(["daemon", "stop"])

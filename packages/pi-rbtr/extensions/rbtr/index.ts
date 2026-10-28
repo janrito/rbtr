@@ -93,11 +93,10 @@ import {
   renderSearchResult,
   renderStatusCall,
   renderStatusResult,
+  statusFooter,
 } from "./render.js";
 import { loadSettings, type RbtrIndexSettings, saveProjectSettings } from "./settings.js";
 import { LOADER, ON_REQUEST, withOnRequest } from "./tool-set.js";
-
-// ── Tool result shape ─────────────────────────────────────────
 
 type ToolReturn = AgentToolResult<Record<string, unknown>>;
 
@@ -109,8 +108,6 @@ function toolResult(response: Response): ToolReturn {
   const text = JSON.stringify(response);
   return { content: [{ type: "text", text }], structuredContent: JSON.parse(text), details: { response } };
 }
-
-// ── Tool metadata ─────────────────────────────────────────────
 
 /** The group every rbtr tool belongs to, for codemode listings and tool search. */
 const NAMESPACE: ToolNamespace = {
@@ -136,8 +133,6 @@ const DELETES: ToolAnnotations = {
   idempotentHint: false,
   openWorldHint: false,
 };
-
-// ── Extension ─────────────────────────────────────────────────
 
 /**
  * Surface reconcile outcomes to the user.  `up_to_date` and
@@ -230,7 +225,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     let ended = false;
     let wake = () => {};
     const stop = session.onNotification((notification) => {
-      if (notification.repo_path !== repoRoot) return;
+      if (!("repo_path" in notification) || notification.repo_path !== repoRoot) return;
       if (notification.kind === "progress" && waiting) onUpdate?.(waitingFor(notification));
       if (notification.kind === "ready" || notification.kind === "index_error") {
         ended = true;
@@ -330,8 +325,6 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     repoRoot = named ?? repoRoot;
   }
 
-  // ── Index facts in bash and read output ────────────────────
-
   function lookups(cwd: string, signal: AbortSignal | undefined): IndexLookups {
     return {
       readSymbol: (symbol) => session.send({ kind: "read_symbol", repo_path: cwd, symbol }, signal),
@@ -390,7 +383,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     outlinedThisTurn.clear();
   });
 
-  // ── Session lifecycle ───────────────────────────────────────
+  // Session lifecycle
 
   pi.on("session_start", (_event, ctx) => {
     settings = loadSettings(ctx.cwd, ctx.isProjectTrusted());
@@ -475,8 +468,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     cli = "available";
 
     if (decision.kind === "indexed") {
-      const top = (status?.indexed_refs ?? [])[0];
-      if (top) footer?.setStatic("success", footerLabel(top, session.available));
+      const shown = statusFooter(status, session.available);
+      footer?.setStatic(shown.color, shown.text);
       return;
     }
 
@@ -489,10 +482,11 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     // wait for the build: the footer reports it.
     if (decision.index) {
       void triggerIndex(ctx);
+    } else if (decision.kind === "transient") {
+      footer?.setStatic("muted", "rbtr: index unavailable — retrying");
     } else {
-      const hint =
-        decision.kind === "transient" ? "rbtr: index unavailable — retrying" : "rbtr: no index — /rbtr-index";
-      footer?.setStatic("muted", hint);
+      const shown = statusFooter(status, session.available);
+      footer?.setStatic(shown.color, shown.text);
     }
   }
 
@@ -508,8 +502,9 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   });
 
   /**
-   * Periodic health check: detect daemon death/return and update
-   * the footer accordingly.  The ZMQ SUB socket auto-reconnects
+   * Periodic health check: detect daemon death/return, update the
+   * footer accordingly, and index this repository when a returned
+   * daemon lacks it and autoIndex is on.  The ZMQ SUB socket auto-reconnects
    * on the transport layer; this function handles the UI gap.
    * *isCurrent* turns false once the session has ended; nothing past
    * that point touches the session.
@@ -519,25 +514,20 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     if (!isCurrent()) return;
     switch (transition.kind) {
       case "died": {
-        const status = await queryIndexStatus(ctx.cwd);
-        const indexed = status?.indexed_refs ?? [];
-        if (indexed.length > 0) {
-          footer?.setStatic("success", footerLabel(indexed[0], false));
-        } else {
-          footer?.setStatic("muted", "rbtr: no index · no daemon");
-        }
+        const shown = statusFooter(await queryIndexStatus(ctx.cwd), false);
+        footer?.setStatic(shown.color, shown.text);
         break;
       }
       case "returned": {
         const status = await queryIndexStatus(ctx.cwd);
         if (!isCurrent()) return;
-        const indexed = status?.indexed_refs ?? [];
-        if (indexed.length > 0) {
-          footer?.setStatic("success", footerLabel(indexed[0], true));
-        } else {
-          footer?.setStatic("muted", "rbtr: no index");
-        }
+        const shown = statusFooter(status, true);
+        footer?.setStatic(shown.color, shown.text);
         startSubscription(ctx);
+        // A daemon back without this repository, as after an index
+        // replaced on a schema change, indexes it as session start does.
+        const decision = decideStartupDecision(status, settings.autoIndex);
+        if (decision.kind === "empty" && decision.index) void triggerIndex(ctx);
         break;
       }
       case "unchanged":
@@ -561,8 +551,25 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
     try {
       session.subscribe((notification) => {
-        if (notification.repo_path !== repoRoot) return;
         if (!footer) return;
+        // One gc covers every repo the daemon watches, so its notifications name none.
+        if (notification.kind === "gc_started") {
+          footer.setSpinner("muted", (frame) => `rbtr: ${frame} collecting…`);
+          return;
+        }
+        if (notification.kind === "gc_progress") {
+          const { current, total } = notification;
+          footer.setSpinner("muted", (frame) => `rbtr: ${frame} collecting ${current}/${total}…`);
+          return;
+        }
+        if (notification.kind === "gc_ended") {
+          void queryIndexStatus(ctx.cwd).then((status) => {
+            const shown = statusFooter(status, true);
+            footer?.setStatic(shown.color, shown.text);
+          });
+          return;
+        }
+        if (notification.repo_path !== repoRoot) return;
         switch (notification.kind) {
           case "progress": {
             const { phase, current, total } = notification;
@@ -718,7 +725,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     );
   }
 
-  // ── Commands ────────────────────────────────────────────────
+  // Commands
 
   pi.registerCommand("rbtr-status", {
     description: "Show rbtr index status",
@@ -830,7 +837,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     },
   });
 
-  // ── Tools ──────────────────────────────────────────────────
+  // Tools
 
   pi.registerTool({
     name: "rbtr_search",
@@ -878,23 +885,30 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       if (!params.query) throw new Error("Missing required parameter `query`. Example: {query: 'retry logic'}");
+      if (params.scope === "all" && params.ref !== undefined) {
+        throw new Error("`ref` names one repository's snapshot; `scope: 'all'` searches each one's latest.");
+      }
+      const query = {
+        query: params.query,
+        ...(params.limit !== undefined ? { limit: params.limit } : {}),
+        ...(params.keywords !== undefined ? { keywords: params.keywords } : {}),
+        ...(params.variants !== undefined ? { variants: params.variants } : {}),
+      };
       try {
         const resp = await withFallback<SearchResponse>(
           () =>
-            sendWaitingOutBuild(
-              {
-                kind: "search",
-                repo_path: ctx.cwd,
-                query: params.query,
-                ...(params.ref !== undefined ? { ref: params.ref } : {}),
-                ...(params.limit !== undefined ? { limit: params.limit } : {}),
-                ...(params.keywords !== undefined ? { keywords: params.keywords } : {}),
-                ...(params.variants !== undefined ? { variants: params.variants } : {}),
-                ...(params.scope !== undefined ? { scope: params.scope } : {}),
-              },
-              signal,
-              onUpdate,
-            ),
+            params.scope === "all"
+              ? session.send({ kind: "search_all", ...query }, signal)
+              : sendWaitingOutBuild(
+                  {
+                    kind: "search",
+                    repo_path: ctx.cwd,
+                    ...(params.ref !== undefined ? { ref: params.ref } : {}),
+                    ...query,
+                  },
+                  signal,
+                  onUpdate,
+                ),
           () => {
             if (!resolved) throw new Error("rbtr CLI not available");
             const args = ["search", params.query];
@@ -1257,7 +1271,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       const scope = params.scope ?? "workspace";
       try {
         const status = await withFallback<StatusResponse>(
-          () => session.send({ kind: "status", repo_path: ctx.cwd, scope }, signal),
+          () => session.send(scope === "all" ? { kind: "status_all" } : { kind: "status", repo_path: ctx.cwd }, signal),
           () => {
             if (!resolved) throw new Error("rbtr CLI not available");
             const args = scope === "all" ? ["status", "--scope", "all"] : ["status"];

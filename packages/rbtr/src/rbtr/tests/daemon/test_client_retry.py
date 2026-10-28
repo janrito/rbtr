@@ -8,7 +8,6 @@ sleeps for 150 ms.
 
 from __future__ import annotations
 
-import asyncio
 import os
 import subprocess
 import sys
@@ -19,12 +18,14 @@ from pathlib import Path
 import pytest
 import structlog
 import zmq
+from pytest_mock import MockerFixture
 
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import ErrorCode, StatusRequest, StatusResponse
-from rbtr.daemon.server import DaemonServer
+from rbtr.daemon.server import Daemon
 from rbtr.daemon.status import write_status
 from rbtr.errors import DaemonBusyError
+from rbtr.index.index import Index
 
 
 @pytest.fixture
@@ -74,9 +75,11 @@ def dead_daemon_endpoint(silent_endpoint: Path) -> Path:
 
 
 def test_a_late_reply_is_waited_for_not_asked_for_again(
-    running_daemon: DaemonServer,
+    running_daemon: Daemon,
     fake_repo: str,
     log_output: structlog.testing.LogCapture,
+    seeded_index: Index,
+    mocker: MockerFixture,
 ) -> None:
     """A daemon slower than one liveness interval is waited for.
 
@@ -88,13 +91,15 @@ def test_a_late_reply_is_waited_for_not_asked_for_again(
     """
     calls = 0
 
-    async def slow(_request: object) -> StatusResponse:
+    disk_size = seeded_index.disk_size_bytes
+
+    def slow() -> int:
         nonlocal calls
         calls += 1
-        await asyncio.sleep(0.15)
-        return StatusResponse()
+        time.sleep(0.15)
+        return disk_size()
 
-    running_daemon._handlers["status"] = slow
+    mocker.patch.object(seeded_index, "disk_size_bytes", side_effect=slow)
 
     with DaemonClient(
         running_daemon.runtime_dir,

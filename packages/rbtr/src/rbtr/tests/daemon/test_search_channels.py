@@ -7,27 +7,28 @@ distinct top-1 results.  If all three return the same ranking,
 a channel is dead.
 
 Exercises all three search channels (semantic, lexical, name-match)
-via a fake embedder with hand-crafted vectors for controlled cosine
+with a fixed query vector at the Embedder boundary for controlled cosine
 similarity.
 """
 
 from __future__ import annotations
 
-import tempfile
 from collections.abc import Generator
 from pathlib import Path
 
 import pygit2
 import pytest
+from pytest_mock import MockerFixture
 
-from rbtr.config import WeightTriple
+from rbtr.config import WeightTriple, config
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import SearchRequest, SearchResponse
-from rbtr.daemon.server import DaemonServer
-from rbtr.domain.models import FileSnapshot, SnapshotRef
+from rbtr.daemon.server import Daemon
+from rbtr.domain.models import FileSnapshot
 from rbtr.index.embeddings import Embedder
+from rbtr.index.index import Index
+from rbtr.index.reranker import Reranker
 from rbtr.index.search import search
-from rbtr.index.store import IndexStore
 
 from ..index.conftest import make_chunk
 from .conftest import serving
@@ -50,15 +51,23 @@ def _normalise(v: list[float]) -> list[float]:
     return [x / norm for x in v]
 
 
-class _FakeEmbedder(Embedder):
-    """Embedder returning hand-crafted vectors for controlled cosine similarity."""
+@pytest.fixture
+def embedder() -> Generator[Embedder]:
+    instance = Embedder()
+    try:
+        yield instance
+    finally:
+        instance.close()
 
-    def __init__(self, query_vec: list[float]) -> None:
-        super().__init__()
-        self._query_vec = query_vec
 
-    def embed_single(self, text: str) -> list[float]:
-        return _normalise(self._query_vec)
+@pytest.fixture
+def reranker() -> Generator[Reranker | None]:
+    instance = Reranker() if config.reranker_model else None
+    try:
+        yield instance
+    finally:
+        if instance is not None:
+            instance.close()
 
 
 @pytest.fixture
@@ -81,11 +90,11 @@ def channel_vecs() -> tuple[list[float], dict[str, list[float]]]:
 
 
 @pytest.fixture
-def channel_store(
+def channel_index(
     fake_repo: str,
     channel_vecs: tuple[list[float], dict[str, list[float]]],
-    store: IndexStore,
-) -> IndexStore:
+    index: Index,
+) -> Index:
     """Store seeded with chunks designed so the channels disagree.
 
     - "find_items": content about searching/finding (semantic
@@ -112,8 +121,8 @@ def channel_store(
         ("ch_greet", "src/greet.py", "greet", "def greet(name): return f'hello {name}'"),
         ("ch_parse", "src/parse.py", "parse_config", "def parse_config(path): return load(path)"),
     ]
-    with store.session() as ws:
-        repo_id = ws.register_repo(fake_repo)
+    repo = index.register(fake_repo)
+    with index.session(repo) as ws:
         chunks = [
             make_chunk(cid, name=name, content=content, path=path, blob=f"b_{cid}")
             for cid, path, name, content in specs
@@ -129,33 +138,34 @@ def channel_store(
                 FileSnapshot(snapshot_sha=sha, file_path=c.file_path, blob_sha=c.blob_sha)
                 for c in chunks
             ],
-            repo_id=repo_id,
         )
-        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
-    return store
+        ws.mark_indexed(snapshot_sha=sha)
+    return index
 
 
 @pytest.fixture
 def running_daemon(
-    channel_store: IndexStore,
+    runtime_dir: Path,
+    channel_index: Index,
     channel_vecs: tuple[list[float], dict[str, list[float]]],
-) -> Generator[DaemonServer]:
+    stub_embedding_model: None,
+    mocker: MockerFixture,
+) -> Generator[Daemon]:
     """A served daemon whose embedder returns the fixture's query vector."""
     query_vec, _chunk_vecs = channel_vecs
-    rd = Path(tempfile.mkdtemp(prefix="rbtr-ch-"))
-    server = DaemonServer(rd, store=channel_store, idle_poll_interval=60.0, busy_poll_interval=60.0)
-    # Replace the real embedder with a fake to avoid loading GGUF.
-    server._embedder = _FakeEmbedder(query_vec)  # type: ignore[assignment]  # fake for testing
-    # Re-register handlers so the search lambda captures the fake embedder.
-    server._register_index_handlers(channel_store)
+    mocker.patch.object(Embedder, "embed_single", return_value=_normalise(query_vec))
+    server = Daemon(
+        runtime_dir, index=channel_index, idle_poll_interval=60.0, busy_poll_interval=60.0
+    )
     with serving(server):
         yield server
 
 
 def test_daemon_and_direct_search_produce_identical_results(
-    running_daemon: DaemonServer,
-    channel_store: IndexStore,
-    channel_vecs: tuple[list[float], dict[str, list[float]]],
+    running_daemon: Daemon,
+    channel_index: Index,
+    embedder: Embedder,
+    reranker: Reranker | None,
     fake_repo: str,
 ) -> None:
     """Daemon-served search and direct store.search must return the same ranking.
@@ -166,8 +176,6 @@ def test_daemon_and_direct_search_produce_identical_results(
     different weights.
     """
     query = "search"
-    query_vec, _chunk_vecs = channel_vecs
-    embedder = _FakeEmbedder(query_vec)
 
     # Via daemon.
     with DaemonClient(running_daemon.runtime_dir) as client:
@@ -179,13 +187,14 @@ def test_daemon_and_direct_search_produce_identical_results(
     # Via direct store.search — the request sent no keywords/variants, so
     # the daemon applied no expansion; mirror that with the reranker it used.
     sha = str(pygit2.Repository(fake_repo).head.target)
+    [repo] = channel_index.repos()
     direct_results = search(
-        channel_store,
+        channel_index,
         query,
-        within=[SnapshotRef(repo_id=1, snapshot_sha=sha)],
+        within=[repo.at(sha)],
         top_k=5,
         embedder=embedder,
-        reranker=running_daemon._reranker,
+        reranker=reranker,
     )
     direct_names = [r.name for r in direct_results]
     direct_scores = [round(r.score, 6) for r in direct_results]
@@ -199,7 +208,7 @@ def test_daemon_and_direct_search_produce_identical_results(
 
 
 def test_different_weights_produce_different_rankings(
-    running_daemon: DaemonServer, fake_repo: str
+    running_daemon: Daemon, fake_repo: str
 ) -> None:
     """Extreme weight configs must not all produce the same ranking.
 

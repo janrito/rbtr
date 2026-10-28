@@ -23,6 +23,7 @@ import {
   renderReadSymbolResult,
   renderSearchResult,
   renderStatusResult,
+  statusFooter,
 } from "../extensions/rbtr/render.js";
 import { test } from "./session.fixtures.js";
 
@@ -145,6 +146,7 @@ describe("renderStatusResult", () => {
   // embedded, partly, not at all, and an empty snapshot.
   const status: StatusResponse = {
     kind: "status",
+    state: "indexed",
     db_path: "/db",
     indexed_refs: [
       { sha: "a".repeat(40), names: ["HEAD", "main"], total: 1200, embedded: 1200 },
@@ -187,6 +189,7 @@ describe("renderStatusResult", () => {
   test("suppresses the percentage when the job has no total yet", ({ theme }) => {
     const starting: StatusResponse = {
       kind: "status",
+      state: "repo_not_indexed",
       active_build: {
         repo_path: "/repo",
         ref: "f".repeat(40),
@@ -199,13 +202,41 @@ describe("renderStatusResult", () => {
     expect(statusLines(starting, theme)).toContain("⟳ Building: ffffffffffff — walking 0/0 — 2s");
   });
 
-  test("says the index is missing when no ref is indexed", ({ theme }) => {
-    expect(statusLines({ kind: "status" }, theme)).toContain("✗ No index found");
+  test.for<{ response: StatusResponse; line: string }>([
+    { response: { kind: "status", state: "no_index" }, line: "✗ the index does not exist" },
+    {
+      response: { kind: "status", state: "repo_not_indexed", repo_path: "/repo", db_size_bytes: 2 ** 20 },
+      line: "✗ this repo is not indexed · 1.0 MiB",
+    },
+    { response: { kind: "status", state: "repo_not_indexed" }, line: "✗ no repo is indexed" },
+    {
+      response: {
+        kind: "status",
+        state: "ref_not_indexed",
+        repo_path: "/repo",
+        indexed_refs: [{ sha: "a".repeat(40), names: ["main"], total: 3, embedded: 3 }],
+      },
+      line: "! this ref is not indexed; 1 other refs of this repo are",
+    },
+  ])("says what is missing: $line", ({ response, line }, { theme }) => {
+    expect(statusLines(response, theme)).toContain(line);
+  });
+
+  test("names each repo whose untracked files are not indexed", ({ theme }) => {
+    const over: StatusResponse = {
+      kind: "status",
+      state: "repo_not_indexed",
+      untracked_not_indexed: { "/repo": 6489 },
+    };
+    expect(statusLines(over, theme)).toContain(
+      "! 6489 untracked files in /repo not indexed (over max_untracked_files): add their directories to .gitignore or .git/info/exclude",
+    );
   });
 
   test("pads the seconds on the minute boundary", ({ theme }) => {
     const justOverAMinute: StatusResponse = {
       kind: "status",
+      state: "repo_not_indexed",
       active_embed: {
         repo_path: "/repo",
         ref: "f".repeat(40),
@@ -223,6 +254,7 @@ describe("renderStatusResult size suffix", () => {
   function sizeLine(bytes: number | null, theme: Theme): string {
     const response = {
       kind: "status",
+      state: "indexed",
       indexed_refs: [{ sha: "a".repeat(40), names: [], total: 10, embedded: 10 }],
       db_size_bytes: bytes,
     } satisfies StatusResponse;
@@ -230,11 +262,11 @@ describe("renderStatusResult size suffix", () => {
     return plain(renderStatusResult(daemonResult(response), { isPartial: false }, theme).render(1000)[0]).trimEnd();
   }
 
-  test("climbs the unit ladder, rounding bytes and fixing one decimal above", ({ theme }) => {
+  test("climbs binary units as the CLI does, rounding bytes and fixing one decimal above", ({ theme }) => {
     expect(sizeLine(512, theme)).toContain(" · 512 B");
-    expect(sizeLine(2048, theme)).toContain(" · 2.0 KB");
-    expect(sizeLine(1_500_000, theme)).toContain(" · 1.4 MB");
-    expect(sizeLine(3 * 1024 ** 3, theme)).toContain(" · 3.0 GB");
+    expect(sizeLine(2048, theme)).toContain(" · 2.0 KiB");
+    expect(sizeLine(3 * 2 ** 19, theme)).toContain(" · 1.5 MiB");
+    expect(sizeLine(3 * 2 ** 30, theme)).toContain(" · 3.0 GiB");
   });
 
   test("omits the suffix when the daemon sends no size", ({ theme }) => {
@@ -256,8 +288,35 @@ describe("footerLabel", () => {
   });
 
   test("names a missing daemon before the embed state", () => {
-    expect(footerLabel({ total: 3500, embedded: 3500 }, false)).toBe("rbtr: ● 3.5k symbols · no daemon");
-    expect(footerLabel({ total: 3500, embedded: 0 }, false)).toBe("rbtr: ○ 3.5k symbols · no daemon · not embedded");
+    expect(footerLabel({ total: 3500, embedded: 3500 }, false)).toBe("rbtr: ● 3.5k symbols · not running");
+    expect(footerLabel({ total: 3500, embedded: 0 }, false)).toBe("rbtr: ○ 3.5k symbols · not running · not embedded");
+  });
+});
+
+describe("statusFooter", () => {
+  const ref = { sha: "a".repeat(40), names: ["main"], total: 3500, embedded: 3500 };
+  test.for<{ status: StatusResponse | null; daemon: boolean; text: string }>([
+    { status: null, daemon: false, text: "rbtr: not running" },
+    { status: { kind: "status", state: "no_index" }, daemon: false, text: "rbtr: not running" },
+    {
+      status: { kind: "status", state: "indexed", indexed_refs: [ref] },
+      daemon: false,
+      text: "rbtr: ● 3.5k symbols · not running",
+    },
+    { status: { kind: "status", state: "no_index" }, daemon: true, text: "rbtr: no index — /rbtr-index" },
+    {
+      status: { kind: "status", state: "repo_not_indexed" },
+      daemon: true,
+      text: "rbtr: repo not indexed — /rbtr-index",
+    },
+    {
+      status: { kind: "status", state: "ref_not_indexed", indexed_refs: [ref] },
+      daemon: true,
+      text: "rbtr: ref not indexed",
+    },
+    { status: { kind: "status", state: "indexed", indexed_refs: [ref] }, daemon: true, text: "rbtr: ● 3.5k symbols" },
+  ])("$text", ({ status, daemon, text }) => {
+    expect(statusFooter(status, daemon).text).toBe(text);
   });
 });
 

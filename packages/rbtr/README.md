@@ -50,6 +50,16 @@ watched ref current (`HEAD` by default; add more with
 `rbtr watch <ref>`). Subsequent builds are incremental —
 unchanged files (by blob SHA) are skipped.
 
+## How it works
+
+One background daemon per data directory does the work: it watches the
+refs you ask it to, indexes and embeds them, and answers the CLI and the
+pi extension from the same index. It starts on the first command that
+needs it.
+
+![rbtr in context: you and your agents ask one daemon, which reads your
+checkouts, runs local models and owns the index](docs/diagrams/context.png)
+
 ## Walkthrough
 
 Index a repository, then explore it. The transcripts below
@@ -166,14 +176,17 @@ rbtr forget --stale --dry-run # report, change nothing
 ```
 
 Run `--stale` from anywhere, including outside a git repo: a
-deleted worktree or clone can no longer be named, only found.
+deleted worktree or clone can no longer be named, only found. The
+daemon also forgets a checkout on its own once it has been gone for
+three hours (see [When it runs](#rbtr-gc)). Forgetting a repo's last
+checkout deletes its file and hands the space back at once.
 
 ### `rbtr search <query>`
 
 Search the code index.
 
 ```bash
-rbtr search "IndexStore"          # name match
+rbtr search "Index"          # name match
 rbtr search "retry timeout"       # keyword search
 rbtr search "how does auth work"  # semantic search
 ```
@@ -210,7 +223,7 @@ repo name:
 $ rbtr search "connection pool" --scope all
 ukf/deploy/pgbouncer/settings.env:1-9  config  pgbouncer
   0.84
-rbtr/packages/rbtr/src/rbtr/index/store.py:118-140  method  IndexStore.close
+rbtr/packages/rbtr/src/rbtr/index/index.py:118-140  method  Index.close
   0.23
 ```
 
@@ -245,7 +258,7 @@ Symbols that reference a given symbol via the dependency
 graph (imports, docs).
 
 ```bash
-rbtr find-refs IndexStore
+rbtr find-refs Index
 ```
 
 Disambiguate a colliding name by restricting resolution to
@@ -267,7 +280,7 @@ Scope the diff to specific files with `--file-path`
 (repeatable):
 
 ```bash
-rbtr changed-symbols HEAD~5 HEAD --file-path src/rbtr/index/store.py
+rbtr changed-symbols HEAD~5 HEAD --file-path src/rbtr/index/index.py
 ```
 
 ### `rbtr status`
@@ -277,21 +290,46 @@ size, and active builds.
 
 ```bash
 $ rbtr status
-✓  5.8k chunks  1.3 GB · ~/.local/share/rbtr/index.duckdb
+✓  5.8k chunks  1.2 GiB · ~/.local/share/rbtr/index.duckdb
    aa2ecc4bbefb (HEAD, main)  5.8k indexed  5.8k embedded ✓
 ```
 
-The chunk count is this repo's; the size is the whole file,
-which every indexed repo shares. Most of it is embeddings —
-one vector per chunk, and they dominate everything else
-stored. `--scope all` breaks the count down per repo.
+The chunk count is this repo's; the size is the whole index's:
+the registry beside the path shown and every repo's file in
+`index/`. Most of it is embeddings — one vector per chunk, and
+they dominate everything else stored. `--scope all` breaks the count down per repo.
+
+When the repo's index is not ready, status says which part is
+missing:
+
+```bash
+✗  the index does not exist
+✗  this repo is not indexed  1.2 GiB · ~/.local/share/rbtr/index.duckdb
+!  this ref is not indexed; 2 other refs of this repo are  1.2 GiB · ~/.local/share/rbtr/index.duckdb
+```
+
+The first means the index holds no repo yet; the second, that
+it holds others but not this one; the third, that reads fall back to the
+latest indexed commit until the current one is built. With no
+daemon running, status reads the index itself and adds
+`rbtr is not running` on stderr.
+
+A dirty working tree is indexed together with its untracked
+files, so new work is searchable before `git add`. When git lists
+more untracked files than `max_untracked_files` (1,000 by
+default), usually data, caches or nested checkouts, none of them
+are indexed, and status says so:
+
+```bash
+!  6489 untracked files in /home/me/projects/rbtr not indexed (over max_untracked_files): add their directories to .gitignore or .git/info/exclude
+```
 
 Pass `--scope all` to list every indexed repo in the
 shared store, grouped by repo:
 
 ```bash
 $ rbtr status --scope all
-✓  indexed repos  1.3 GB · ~/.local/share/rbtr/index.duckdb
+✓  indexed repos  1.2 GiB · ~/.local/share/rbtr/index.duckdb
   /home/me/projects/ukf
      a4aa7830ad87 (HEAD, main)  68.8k indexed  68.8k embedded ✓
   /home/me/projects/rbtr
@@ -314,17 +352,19 @@ rbtr config
 ```bash
 rbtr daemon start     # start the daemon
 rbtr daemon stop      # stop it
-rbtr daemon status    # show state and build progress
+rbtr daemon status    # show daemon process and connection details
 ```
 
 Starts automatically on first `rbtr watch` or `rbtr search`.
+Use [`rbtr status`](#rbtr-status) for the index and current background job.
+A running daemon can still be indexing a snapshot or computing its embeddings.
 
 ### `rbtr gc`
 
 Garbage-collect old index data. **Destructive and not undoable** —
 it permanently deletes indexed commits/chunks. Always preview with
-`--dry-run` first. It is only ever manual; the daemon never GCs on
-its own.
+`--dry-run` first. The daemon also runs a gc of its own when idle
+(see **When it runs** below).
 
 ```bash
 rbtr gc                           # this repo (keeps branches/tags + watch set)
@@ -338,12 +378,11 @@ rbtr gc --dry-run                 # preview what would be dropped
 ```
 
 `rbtr gc` collects the current repo by default. `--scope all` reclaims
-across **every** indexed repo at once — useful because chunks are shared
-between repos, keeping `watched` or `watched-only`. `head-only`
-and `--keep-refs` name one repo's refs, so scope those with
-`--repo-path`. (The chunk sweep is global on every gc
-regardless, so a plain `rbtr gc` still frees chunks no other repo
-references.)
+across **every** indexed repo at once, keeping `watched` or
+`watched-only`. `head-only` and `--keep-refs` name one repo's refs, so
+scope those with `--repo-path`. A repo and its linked worktrees share
+their chunks, so a plain `rbtr gc` frees the chunks no checkout of the
+repo references any more.
 
 By default it keeps HEAD, every local branch and tag, and
 every watched ref (plus the current worktree), dropping only
@@ -361,18 +400,23 @@ If the daemon is mid-build or mid-embed when you run it, gc waits
 for that work to commit before it starts — usually a second or two,
 longer if a large repo is building.
 
-After deleting, gc rewrites the index file to hand the freed disk
-space back to the operating system — deleting alone keeps that space
-inside the file, so it never shrinks on its own. The rewrite reports
-the size change (`index 2.08 GB → 1.28 GB (-800 MB)`). Pass
-`--no-compact` to skip it.
+After deleting, gc rewrites the repo's index file to hand the freed
+disk space back to the operating system — deleting alone keeps that
+space inside the file, so it never shrinks on its own. Searches keep
+running throughout. The rewrite reports the size change
+(`index 2.0 GiB → 1.2 GiB (-819.2 MiB)`). Pass `--no-compact` to skip
+it.
 
-**When to run it.** Never on a schedule — the daemon does not
-collect on its own, and a healthy index does not need it. Two
-situations call for it: the file has grown past what you want
-to give it, or you have stopped indexing refs and want the
-space back (`--keep watched-only`, after `rbtr unwatch --stale
---scope all` has dropped the branches that no longer exist).
+**When it runs.** The daemon keeps the index tidy on its own. Once it
+has had nothing to build or embed for ten minutes, and at most every
+six hours, it stops watching refs that no longer exist, forgets
+checkouts gone for three hours, collects every repo as
+`rbtr gc --scope all` does, and rewrites each repo's file that has
+grown to twice its size since it was last rewritten. pi's footer shows
+it as `collecting`. Run gc by hand for more than that: when you have
+stopped indexing refs and want the space back (`--keep watched-only`,
+after `rbtr unwatch --stale --scope all` has dropped the branches that
+no longer exist), or to rewrite the files now.
 
 Growth is driven by embeddings, one vector per chunk, so the
 size tracks how many distinct chunks every indexed repo holds
@@ -410,7 +454,7 @@ for the full response models.
 ## Logs
 
 The daemon writes structured logs — one JSON object per line — to
-`daemon.log` in the log directory, rotating at 10 MB and keeping five
+`daemon.log` in the log directory, rotating at 10 MiB and keeping five
 backups. CLI commands log to stderr: coloured on a terminal, JSON when
 piped. stdout is reserved for command output, so logs never pollute a
 `--json` result.
@@ -456,10 +500,27 @@ Notable settings:
   `""` to disable reranking.
 - `reranker_settings` — per-query-kind reranker pool size
   and blend weight.
+- `duckdb_memory_limit` — memory the index database may use
+  (1 GiB by default). Past it, a query spills to disk beside the
+  index, or fails with an error that names this setting.
+- `duckdb_threads` — threads the index database runs a query on;
+  by default half the cores, at most one per 128 MiB of
+  `duckdb_memory_limit`.
+- `max_untracked_files` — the most untracked files a dirty working
+  tree may hold and still have them indexed (1,000 by default).
+- `maintenance_idle_s` / `maintenance_interval_s` — how long the
+  daemon must have been idle before it maintains the index (600 s),
+  and the least time between two passes (6 h).
+- `forget_after_s` — how long a checkout may be gone before the
+  daemon forgets it (3 h).
+- `compact_growth_ratio` — how many times its size after the last
+  rewrite a repo's file may grow before the daemon rewrites it (2).
+- `retire_delay_s` — how long a rewritten file's old copy stays, so
+  searches already running finish on it (60 s).
 - `log_level` — root log level (`DEBUG`, `INFO`, …).
 - `log_format` — `auto` (console on a TTY, else JSON), `console`,
   or `json`.
-- `log_max_bytes` / `log_backup_count` — `daemon.log` rotation size
+- `log_max_size` / `log_backup_count` — `daemon.log` rotation size
   and backup count.
 
 Run `rbtr config` to see every field with its current
@@ -718,7 +779,7 @@ def go_module_prefix(text: str) -> tuple[tuple[str, str], ...]:
 ```
 
 Add a case to `test_import_resolution.py` for the language: two real files
-in a subdirectory, one referencing the other, asserting the edge lands.
+in a subdirectory, one referencing the other, asserting the edge is recorded.
 Nested because two files at the repository root cannot tell a reference to
 a sibling from a reference from the root.
 

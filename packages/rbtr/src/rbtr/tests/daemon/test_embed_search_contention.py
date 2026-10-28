@@ -15,34 +15,40 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
-from collections.abc import Generator
+from collections.abc import Callable, Generator
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
+from types import MethodType
 
 import pygit2
 import pytest
 import structlog
 import zmq
+from pytest_mock import MockerFixture
 
 from rbtr.config import config
-from rbtr.daemon import watcher
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import (
+    DaemonConfigRequest,
     EmbedEndedNotification,
-    EmbedOutcome,
+    GcRequest,
     Notification,
     Response,
     SearchRequest,
     SearchResponse,
     WatchRequest,
     notification_adapter,
+    response_adapter,
 )
-from rbtr.daemon.server import DaemonServer
-from rbtr.domain.models import ChunkKind, FileSnapshot, SnapshotRef
+from rbtr.daemon.server import Daemon
+from rbtr.domain.models import ChunkKind, FileSnapshot, GcCounts, GcMode, SnapshotRef
 from rbtr.domain.tokenise import tokenise_code
+from rbtr.index import watcher
 from rbtr.index.embeddings import Embedder
-from rbtr.index.search import search
+from rbtr.index.gc import run_gc
+from rbtr.index.index import Index
+from rbtr.index.progress import EmbedOutcome
 from rbtr.index.staging import TokenisedChunk
-from rbtr.index.store import IndexStore
 
 from ..conftest import StubModel, make_commit
 from .conftest import serving
@@ -81,9 +87,7 @@ class ConcurrencyDetectingStubModel(StubModel):
         try:
             if not self.first_batch_started.is_set():
                 self.first_batch_started.set()
-                self.first_batch_released.wait(timeout=10)
-            # Small sleep to widen the race window.
-            time.sleep(0.005)
+                assert self.first_batch_released.wait(20), "inference was not released"
             return super().embed(text, normalize=normalize, truncate=truncate)
         finally:
             with self._lock:
@@ -110,46 +114,126 @@ def embed_held_at_first_batch(
 
 
 @pytest.fixture
-def embedder(stub_model: ConcurrencyDetectingStubModel) -> Generator[Embedder]:
-    e = Embedder(model_loader=lambda: stub_model)  # type: ignore[arg-type,return-value]  # StubModel satisfies Llama.embed interface
-    yield e
-    e.close()
+def serving_loop() -> Future[asyncio.AbstractEventLoop]:
+    return Future()
 
 
 @pytest.fixture
-def write_lock_held(running_daemon: DaemonServer) -> Generator[None]:
-    """Hold the daemon's write lock until the test releases it.
-
-    Released here too, so a failed assertion still lets the daemon
-    stop.  Otherwise a writer waits on the lock for ever and the test
-    reports a shutdown timeout instead of what it found.
-    """
-    loop = running_daemon._loop
-    if loop is None:  # `serving` waits for the daemon to listen, so it has one
-        raise RuntimeError
-    asyncio.run_coroutine_threadsafe(running_daemon._write_sem.acquire(), loop).result(timeout=10)
-    yield
-    if running_daemon._write_sem.locked():
-        loop.call_soon_threadsafe(running_daemon._write_sem.release)
+def batch_finished() -> threading.Event:
+    return threading.Event()
 
 
 @pytest.fixture
-def embedded_snapshot(fake_repo: str, store: IndexStore) -> SnapshotRef:
-    """`fake_repo` registered in `store`, at its HEAD commit.
+def post_batch_work() -> list[threading.Event]:
+    return []
+
+
+@pytest.fixture
+def search_started() -> threading.Event:
+    return threading.Event()
+
+
+@pytest.fixture
+def gpu_attempted(search_started: threading.Event, mocker: MockerFixture) -> threading.Event:
+    attempted = threading.Event()
+    acquire = asyncio.Lock.acquire
+
+    async def observed_acquire(lock: asyncio.Lock) -> bool:
+        if search_started.is_set():
+            attempted.set()
+        return await acquire(lock)
+
+    mocker.patch.object(asyncio.Lock, "acquire", observed_acquire)
+    return attempted
+
+
+@pytest.fixture
+def observed_native_batches(
+    serving_loop: Future[asyncio.AbstractEventLoop],
+    batch_finished: threading.Event,
+    post_batch_work: list[threading.Event],
+    search_started: threading.Event,
+    mocker: MockerFixture,
+) -> None:
+    to_thread = asyncio.to_thread
+
+    async def observe[Result, **Params](
+        function: Callable[Params, Result], /, *args: Params.args, **kwargs: Params.kwargs
+    ) -> Result:
+        if not serving_loop.done():
+            serving_loop.set_result(asyncio.get_running_loop())
+        finished = threading.Event() if batch_finished.is_set() or search_started.is_set() else None
+        if finished is not None:
+            post_batch_work.append(finished)
+        try:
+            result = await to_thread(function, *args, **kwargs)
+            if (
+                isinstance(function, MethodType)
+                and isinstance(function.__self__, Embedder)
+                and function.__name__ == "embed"
+            ):
+                batch_finished.set()
+            return result
+        finally:
+            if finished is not None:
+                finished.set()
+
+    mocker.patch.object(asyncio, "to_thread", observe)
+
+
+@pytest.fixture
+def write_lock_held(
+    daemon: Daemon,
+    embed_held_at_first_batch: ConcurrencyDetectingStubModel,
+    fake_repo: str,
+    write_started: threading.Event,
+    write_released: threading.Event,
+    mocker: MockerFixture,
+) -> Generator[Daemon]:
+    """Hold a real collection after it has acquired foreground writer ownership."""
+
+    def collect(
+        index: Index,
+        repo_path: str,
+        *,
+        mode: GcMode,
+        refs: list[str],
+        dry_run: bool,
+        compact: bool = False,
+    ) -> GcCounts:
+        write_started.set()
+        assert write_released.wait(20), "collection was not released"
+        return run_gc(index, repo_path, mode=mode, refs=refs, dry_run=dry_run, compact=compact)
+
+    mocker.patch("rbtr.daemon.handlers.run_gc", side_effect=collect)
+    with serving(daemon), ThreadPoolExecutor(max_workers=1) as clients:
+
+        def ask() -> Response:
+            with DaemonClient(daemon.runtime_dir) as client:
+                return client.send(GcRequest(repo_path=fake_repo, mode=GcMode.WATCHED))
+
+        collecting = clients.submit(ask)
+        try:
+            assert write_started.wait(10), "collection did not start"
+            yield daemon
+        finally:
+            write_released.set()
+            assert collecting.result(timeout=10).kind == "gc"
+
+
+@pytest.fixture
+def embedded_snapshot(fake_repo: str, index: Index) -> SnapshotRef:
+    """`fake_repo` registered in `index`, at its HEAD commit.
 
     The id comes back from the registration, so the ref names a repo
     that exists, and the SHA is git's own rather than a literal.
     """
-    with store.session() as ws:
-        repo_id = ws.register_repo(fake_repo)
-    return SnapshotRef(
-        repo_id=repo_id,
-        snapshot_sha=str(pygit2.Repository(fake_repo).head.target),
-    )
+    repo = index.register(fake_repo)
+    return repo.at(str(pygit2.Repository(fake_repo).head.target))
 
 
 @pytest.fixture
-def embeddable_store(store: IndexStore, embedded_snapshot: SnapshotRef) -> IndexStore:
+def embeddable_index(index: Index, embedded_snapshot: SnapshotRef) -> Index:
     """Store with 50 chunks at `embedded_snapshot` that have no embeddings."""
     chunks: list[TokenisedChunk] = []
     for i in range(50):
@@ -168,7 +252,7 @@ def embeddable_store(store: IndexStore, embedded_snapshot: SnapshotRef) -> Index
                 line_end=2,
             )
         )
-    with store.session() as session:
+    with index.session(embedded_snapshot.repo) as session:
         for c in chunks:
             session.add_chunk(c)
         session.insert_snapshots(
@@ -180,41 +264,47 @@ def embeddable_store(store: IndexStore, embedded_snapshot: SnapshotRef) -> Index
                 )
                 for c in chunks
             ],
-            repo_id=embedded_snapshot.repo_id,
         )
-        session.mark_indexed(at=embedded_snapshot)
-    return store
+        session.mark_indexed(snapshot_sha=embedded_snapshot.snapshot_sha)
+    return index
 
 
 @pytest.fixture
-def running_daemon(
+def daemon(
     runtime_dir: Path,
-    embeddable_store: IndexStore,
-    embedder: Embedder,
-) -> Generator[DaemonServer]:
-    """A served daemon with a stub embedder and unembedded chunks.
-
-    The embed worker starts immediately (``_wake`` is set).
-    """
-    server = DaemonServer(
+    embeddable_index: Index,
+    stub_model: ConcurrencyDetectingStubModel,
+    observed_native_batches: None,
+    mocker: MockerFixture,
+) -> Daemon:
+    """Construct the real runtime before either serving fixture starts work."""
+    mocker.patch("rbtr.index.embeddings._load_model", return_value=stub_model)
+    return Daemon(
         runtime_dir,
-        store=embeddable_store,
+        index=embeddable_index,
         idle_poll_interval=60.0,
         busy_poll_interval=60.0,
     )
-    # Replace the real embedder with our stub-backed one.
-    server._embedder = embedder
-    # Re-register handlers so search uses the stub embedder.
-    server._register_index_handlers(embeddable_store)
-    # Wake the worker so embedding starts immediately.
-    server._wake.set()
-
-    with serving(server):
-        yield server
 
 
 @pytest.fixture
-def notifications(running_daemon: DaemonServer) -> Generator[list[Notification]]:
+def running_daemon(daemon: Daemon) -> Generator[Daemon]:
+    with serving(daemon):
+        yield daemon
+
+
+@pytest.fixture
+def gpu_daemon(
+    daemon: Daemon,
+    embed_held_at_first_batch: ConcurrencyDetectingStubModel,
+    gpu_attempted: threading.Event,
+) -> Generator[Daemon]:
+    with serving(daemon):
+        yield daemon
+
+
+@pytest.fixture
+def notifications(running_daemon: Daemon) -> Generator[list[Notification]]:
     """Every notification the daemon publishes while the test runs.
 
     A SUB socket on the daemon's PUB endpoint, drained on a thread: the
@@ -246,7 +336,7 @@ def notifications(running_daemon: DaemonServer) -> Generator[list[Notification]]
 @pytest.fixture
 def commit_during_first_batch(
     embed_held_at_first_batch: ConcurrencyDetectingStubModel,
-    running_daemon: DaemonServer,
+    running_daemon: Daemon,
     fake_repo: str,
 ) -> str:
     """Move HEAD on while the worker is inside its first batch.
@@ -270,91 +360,70 @@ def commit_during_first_batch(
 
 
 def test_search_works_during_embed(
-    running_daemon: DaemonServer,
+    gpu_daemon: Daemon,
     fake_repo: str,
     stub_model: ConcurrencyDetectingStubModel,
+    search_started: threading.Event,
+    gpu_attempted: threading.Event,
+    serving_loop: Future[asyncio.AbstractEventLoop],
+    post_batch_work: list[threading.Event],
 ) -> None:
-    """Search and embed don't access the model concurrently.
+    """A search that needs the held GPU starts inference only after release."""
 
-    Fires search requests while the embed worker is processing
-    batches.  Asserts no concurrent-access violations and no
-    crashes.
-    """
-    with DaemonClient(running_daemon.runtime_dir) as client:
-        responses: list[SearchResponse] = []
-        for _ in range(20):
-            resp = client.send(SearchRequest(repo_path=fake_repo, query="func_0", limit=5))
-            assert isinstance(resp, SearchResponse)
-            responses.append(resp)
-            time.sleep(0.01)
+    def ask() -> SearchResponse:
+        with DaemonClient(gpu_daemon.runtime_dir) as client:
+            return client.send_or_raise_as(
+                SearchResponse, SearchRequest(repo_path=fake_repo, query="func_0", limit=5)
+            )
 
-    assert stub_model.violations == 0, f"Detected {stub_model.violations} concurrent model accesses"
-    assert len(responses) == 20
+    async def submitted() -> tuple[threading.Event, ...]:
+        await asyncio.sleep(0)
+        return tuple(post_batch_work)
 
-
-def test_search_results_correct_during_embed(
-    running_daemon: DaemonServer,
-    fake_repo: str,
-    embeddable_store: IndexStore,
-    embedded_snapshot: SnapshotRef,
-    embedder: Embedder,
-) -> None:
-    """Search results from the daemon match a direct store search.
-
-    After embedding completes, daemon search should return the
-    same results as a direct call.
-    """
-    # Wait for some embeddings to be written.
-    time.sleep(0.5)
-
-    with DaemonClient(running_daemon.runtime_dir) as client:
-        daemon_resp = client.send(SearchRequest(repo_path=fake_repo, query="func_0", limit=5))
-        assert isinstance(daemon_resp, SearchResponse)
-
-    # Direct search for comparison.
-    direct_results = search(
-        embeddable_store,
-        "func_0",
-        within=[embedded_snapshot],
-        top_k=5,
-        embedder=embedder,
-    )
-
-    # Both should return results (possibly empty if embeddings
-    # aren't complete yet, but they should match).
-    daemon_names = {r.name for r in daemon_resp.results}
-    direct_names = {r.name for r in direct_results}
-    # At minimum, both should succeed without error.
-    assert isinstance(daemon_names, set)
-    assert isinstance(direct_names, set)
+    with ThreadPoolExecutor(max_workers=1) as clients:
+        try:
+            assert stub_model.first_batch_started.wait(10), "background inference did not start"
+            search_started.set()
+            response = clients.submit(ask)
+            assert gpu_attempted.wait(10), "search did not attempt GPU acquisition"
+            pending = asyncio.run_coroutine_threadsafe(
+                submitted(), serving_loop.result(timeout=10)
+            ).result(timeout=10)
+            for finished in pending:
+                assert finished.wait(10), "submitted foreground native work did not finish"
+            assert stub_model.violations == 0, "foreground inference overlapped the held batch"
+        finally:
+            stub_model.first_batch_released.set()
+        result = response.result(timeout=20)
+    assert "func_0" in {hit.name for hit in result.results}
 
 
 def test_the_embed_worker_finishes_the_snapshot(
-    running_daemon: DaemonServer,
-    embeddable_store: IndexStore,
+    running_daemon: Daemon,
+    embeddable_index: Index,
     embedded_snapshot: SnapshotRef,
 ) -> None:
     """The worker embeds every chunk in the snapshot.
 
-    Nothing interrupts this one.  The tests above cover standing aside
+    Nothing interrupts this one.  Other cases cover standing aside
     and resuming; this one covers a run left alone, which is what a
     paging bug would break.
     """
     deadline = time.monotonic() + 30.0
     while time.monotonic() < deadline:
-        if embeddable_store.chunk_counts_for_snapshot(at=embedded_snapshot).is_fully_embedded:
+        if embeddable_index.chunk_counts_for_snapshot(at=embedded_snapshot).is_fully_embedded:
             break
         time.sleep(0.05)
 
-    counts = embeddable_store.chunk_counts_for_snapshot(at=embedded_snapshot)
+    counts = embeddable_index.chunk_counts_for_snapshot(at=embedded_snapshot)
     assert counts.total == 50, "fixture did not seed the chunks it claims to"
     assert counts.is_fully_embedded, f"{counts.unembedded} of {counts.total} left unembedded"
 
 
 def test_the_embed_worker_stands_aside_for_a_pending_build(
-    running_daemon: DaemonServer,
+    running_daemon: Daemon,
     commit_during_first_batch: str,
-    embeddable_store: IndexStore,
+    embeddable_index: Index,
     embedded_snapshot: SnapshotRef,
     notifications: list[Notification],
     log_output: structlog.testing.LogCapture,
@@ -371,8 +440,8 @@ def test_the_embed_worker_stands_aside_for_a_pending_build(
     sends the same notification, and a subscriber can only tell a
     finished run from a yielded one by the outcome it carries.
     """
-    counts = embeddable_store.chunk_counts_for_snapshot(at=embedded_snapshot)
-    assert watcher.poll_worktree(embeddable_store) == [], (
+    counts = embeddable_index.chunk_counts_for_snapshot(at=embedded_snapshot)
+    assert watcher.poll_worktree(embeddable_index) == [], (
         "a dirty worktree would stand the loop aside for the wrong reason"
     )
     deadline = time.monotonic() + 10.0
@@ -393,9 +462,9 @@ def test_the_embed_worker_stands_aside_for_a_pending_build(
 
 
 def test_the_embed_worker_resumes_where_it_stood_aside(
-    running_daemon: DaemonServer,
+    running_daemon: Daemon,
     commit_during_first_batch: str,
-    embeddable_store: IndexStore,
+    embeddable_index: Index,
     embedded_snapshot: SnapshotRef,
     log_output: structlog.testing.LogCapture,
 ) -> None:
@@ -408,7 +477,7 @@ def test_the_embed_worker_resumes_where_it_stood_aside(
     Waits on what the runs report rather than on the counts: a run
     writes its chunks before it logs, so the store reads complete first.
     """
-    counts = embeddable_store.chunk_counts_for_snapshot(at=embedded_snapshot)
+    counts = embeddable_index.chunk_counts_for_snapshot(at=embedded_snapshot)
     # A run reports through `embedding_preempted` when it stands aside
     # and `embedded_chunks` when it reaches the end; both carry the ref.
     runs: list[int] = []
@@ -424,7 +493,7 @@ def test_the_embed_worker_resumes_where_it_stood_aside(
             break
         time.sleep(0.05)
 
-    final = embeddable_store.chunk_counts_for_snapshot(at=embedded_snapshot)
+    final = embeddable_index.chunk_counts_for_snapshot(at=embedded_snapshot)
     assert final.is_fully_embedded, f"{final.unembedded} of {final.total} left unembedded"
     # The runs for this snapshot must add up to its chunks and no more:
     # more would mean a resumed run re-embedded what was already there.
@@ -433,49 +502,63 @@ def test_the_embed_worker_resumes_where_it_stood_aside(
 
 
 def test_no_writer_commits_while_the_write_lock_is_held(
+    write_lock_held: Daemon,
     embed_held_at_first_batch: ConcurrencyDetectingStubModel,
-    running_daemon: DaemonServer,
-    write_lock_held: None,
-    embeddable_store: IndexStore,
+    write_released: threading.Event,
+    batch_finished: threading.Event,
+    serving_loop: Future[asyncio.AbstractEventLoop],
+    post_batch_work: list[threading.Event],
+    embeddable_index: Index,
     embedded_snapshot: SnapshotRef,
     fake_repo: str,
+    rpc_peer: zmq.Socket[bytes],
+    mocker: MockerFixture,
 ) -> None:
-    """Every write in the daemon waits for `_write_sem`.
+    """A foreground collection excludes watch writes and embedding commits."""
+    repo = embeddable_index.repo(fake_repo)
+    sessions = mocker.spy(embeddable_index, "session")
+    try:
+        rpc_peer.send_multipart(
+            [
+                b"watch",
+                b"",
+                WatchRequest(repo_path=fake_repo, refs=["main"]).model_dump_json().encode(),
+            ]
+        )
+        rpc_peer.send_multipart([b"fence", b"", DaemonConfigRequest().model_dump_json().encode()])
+        frames = rpc_peer.recv_multipart()
+        assert frames[:2] == [b"fence", b""]
+        assert response_adapter.validate_json(frames[-1]).kind == "daemon_config"
 
-    gc holds that lock while it compacts: it copies the database and
-    renames the copy over the original, so a write that commits on the
-    old connection is lost.  Two writers must wait — the worker
-    embedding a batch, and a handler writing the watch set.
-    """
-    repo_id = embeddable_store.resolve_repo(fake_repo)
-    replies: list[Response] = []
+        embed_held_at_first_batch.first_batch_released.set()
+        assert batch_finished.wait(10), "native embedding did not finish"
 
-    def ask_to_watch() -> None:
-        with DaemonClient(running_daemon.runtime_dir) as client:
-            replies.append(client.send(WatchRequest(repo_path=fake_repo, refs=["main"])))
+        async def advance() -> tuple[threading.Event, ...]:
+            await asyncio.to_thread(lambda: None)
+            return tuple(post_batch_work)
 
-    caller = threading.Thread(target=ask_to_watch)
-    caller.start()
-    embed_held_at_first_batch.first_batch_released.set()
-    time.sleep(0.5)
+        pending = asyncio.run_coroutine_threadsafe(
+            advance(), serving_loop.result(timeout=10)
+        ).result(timeout=10)
+        for finished in pending:
+            assert finished.wait(10), "post-batch native work did not finish"
+        counts = embeddable_index.chunk_counts_for_snapshot(at=embedded_snapshot)
+        assert counts.unembedded == counts.total
+        assert "main" not in embeddable_index.watched_refs(repo)
+        assert not sessions.called, "a write session was requested during collection"
+    finally:
+        write_released.set()
+        embed_held_at_first_batch.first_batch_released.set()
 
-    counts = embeddable_store.chunk_counts_for_snapshot(at=embedded_snapshot)
-    assert counts.unembedded == counts.total, (
-        f"{counts.total - counts.unembedded} embeddings committed while the lock was held"
-    )
-    assert "main" not in embeddable_store.list_watched_refs(repo_id), (
-        "the watch set was written while the lock was held"
-    )
-
-    running_daemon._loop.call_soon_threadsafe(running_daemon._write_sem.release)  # type: ignore[union-attr]  # the fixture raised if there were no loop
-    caller.join(timeout=20)
-    deadline = time.monotonic() + 20.0
+    frames = rpc_peer.recv_multipart()
+    assert frames[:2] == [b"watch", b""]
+    assert response_adapter.validate_json(frames[-1]).kind == "watch_set"
+    deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
-        if embeddable_store.chunk_counts_for_snapshot(at=embedded_snapshot).is_fully_embedded:
+        if embeddable_index.chunk_counts_for_snapshot(at=embedded_snapshot).is_fully_embedded:
             break
         time.sleep(0.05)
 
-    assert replies, "the index request never answered"
-    assert "main" in embeddable_store.list_watched_refs(repo_id), f"never written: {replies[0]}"
-    final = embeddable_store.chunk_counts_for_snapshot(at=embedded_snapshot)
+    assert "main" in embeddable_index.watched_refs(repo)
+    final = embeddable_index.chunk_counts_for_snapshot(at=embedded_snapshot)
     assert final.is_fully_embedded, f"{final.unembedded} of {final.total} left unembedded"

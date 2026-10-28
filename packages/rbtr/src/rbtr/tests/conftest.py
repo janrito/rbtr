@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import subprocess
 import sys
 import tempfile
+import threading
 from collections.abc import Generator
 from pathlib import Path
 
@@ -16,7 +18,9 @@ from pytest_mock import MockerFixture
 
 from rbtr.config import config
 from rbtr.git import normalise_repo_path
-from rbtr.index.store import IndexStore
+from rbtr.index.embeddings import Embedder
+from rbtr.index.index import Index
+from rbtr.index.indexer import EmbeddingEnded, Indexer, IndexerOutput
 
 
 class StubModel:
@@ -136,9 +140,9 @@ def second_repo(tmp_path: Path) -> str:
 
 
 @pytest.fixture
-def store() -> Generator[IndexStore]:
-    """In-memory writable IndexStore."""
-    s = IndexStore(writable=True)
+def index() -> Generator[Index]:
+    """In-memory writable Index."""
+    s = Index(writable=True)
     yield s
     s.close()
 
@@ -203,19 +207,49 @@ Run `format_name` to clean strings.
 """,
     }
 
-    index = repo.index
+    git_index = repo.index
     for path, content in files.items():
         full = tmp_path / path
         full.parent.mkdir(parents=True, exist_ok=True)
         full.write_bytes(content)
-        index.add(path)
+        git_index.add(path)
 
-    index.write()
-    tree_oid = index.write_tree()
+    git_index.write()
+    tree_oid = git_index.write_tree()
     sig = pygit2.Signature("Test", "test@test.com")
     repo.create_commit("HEAD", sig, sig, "Initial commit", tree_oid, [])
 
     return repo
+
+
+@pytest.fixture
+def linked_worktree(
+    git_repo: pygit2.Repository, tmp_path_factory: pytest.TempPathFactory
+) -> pygit2.Repository:
+    """A linked git worktree of `git_repo` at the same HEAD commit.
+
+    Models a second checkout of one repository: a distinct workdir over
+    the *same* object store, so identical content yields identical blob
+    SHAs — the real-world worktree/clone case the content-addressed
+    store deduplicates.
+    """
+    path = tmp_path_factory.mktemp("linked") / "checkout"
+    git_repo.add_worktree("checkout", str(path))
+    return pygit2.Repository(pygit2.discover_repository(str(path)))
+
+
+@pytest.fixture
+def project_index(
+    index: Index, git_repo: pygit2.Repository, linked_worktree: pygit2.Repository
+) -> Index:
+    """`index` with two checkouts of one project registered, as repos 1 and 2.
+
+    Repo 1 is `git_repo`'s main checkout and repo 2 its linked worktree, so
+    both write to one project file, as every checkout of a project does.
+    """
+    index.register(normalise_repo_path(git_repo.workdir))
+    index.register(normalise_repo_path(linked_worktree.workdir))
+    return index
 
 
 @pytest.fixture
@@ -290,6 +324,42 @@ def stub_embedding_model(mocker: MockerFixture) -> None:
     exercising concurrency, not embedding quality.
     """
     mocker.patch("rbtr.index.embeddings._load_model", return_value=StubModel())
+
+
+@pytest.fixture
+def indexer_outputs() -> list[IndexerOutput]:
+    return []
+
+
+@pytest.fixture
+def indexer(
+    index_for_indexer: Index,
+    indexer_outputs: list[IndexerOutput],
+    stub_embedding_model: None,
+) -> Generator[Indexer]:
+    """A standalone service over the caller's dataset, stopping after one embed run."""
+    stop = threading.Event()
+    gpu_lock = asyncio.Lock()
+    embedder = Embedder(gpu_lock=gpu_lock, abort=stop)
+
+    async def output(event: IndexerOutput) -> None:
+        indexer_outputs.append(event)
+        if isinstance(event, EmbeddingEnded):
+            service.request_shutdown()
+
+    service = Indexer(
+        index_for_indexer,
+        embedder=embedder,
+        gpu_lock=gpu_lock,
+        write_sem=asyncio.Semaphore(1),
+        stop=stop,
+        on_output=output,
+    )
+    try:
+        yield service
+    finally:
+        service.request_shutdown()
+        embedder.close()
 
 
 @pytest.fixture(autouse=True)

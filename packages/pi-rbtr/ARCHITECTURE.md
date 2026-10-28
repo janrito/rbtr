@@ -39,6 +39,9 @@ The daemon publishes notifications about its builds.
 pi-rbtr subscribes to them and paints the footer: progress
 while a build runs, the symbol count when it ends. A health
 check every 30 s notices a daemon that stops or comes back.
+A daemon that comes back without this repository, as one
+restarted on a replaced index does, gets the session-start
+decision again: with `autoIndex` on, pi-rbtr indexes it.
 
 After the model's `bash` searches and its reads of long
 files, pi-rbtr asks the daemon what the index knows and
@@ -95,12 +98,13 @@ pid check needs nothing new; it is worth revisiting if the
 
 ### Patient time limits
 
-A daemon that is indexing answers a search late, after the
-work in front of it, and asking again only adds to that
-queue. So a tool call waits 120 s for the daemon, and the
-CLI fallback 150 s, enough to outlast the client it starts.
+A request can wait for its execution resource and for native work to finish.
+The [core concurrency model](../rbtr/ARCHITECTURE.md#concurrency-model)
+defines those queues and shared controls. A tool call waits 120 s for the daemon,
+and the CLI fallback 150 s, enough to outlast the client it starts.
 An abort from the user ends any wait at once and is never
-retried.
+retried. The [core protocol](../rbtr/ARCHITECTURE.md#daemon-protocol)
+distinguishes a returned error from a local wait ending without a reply.
 
 A read whose ref rbtr is building, or will build without
 being asked, waits for that build to end, at most 30 s,
@@ -143,9 +147,9 @@ most two guidelines.
 
 `rbtr_status` and `rbtr_gc` start inactive, so the prompt
 the model reads first is about finding code; the loader,
-`rbtr_index_tools`, activates them on request. pi 1.0 does
-not restore loaded tools in a forked or resumed session, so
-the model loads them again there.
+`rbtr_index_tools`, activates them on request. pi restores
+the tools a session loaded when it forks or resumes it, so
+they stay active there.
 
 The line saying the repository has an index is pi's `rbtr`
 prompt section. Returning a whole `systemPrompt` instead

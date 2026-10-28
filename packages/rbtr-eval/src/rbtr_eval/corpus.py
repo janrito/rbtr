@@ -20,7 +20,7 @@ from pathlib import Path
 from rbtr.domain.models import SnapshotRef
 from rbtr.errors import RbtrError
 from rbtr.git import head_sha
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,7 +34,7 @@ class Corpus:
     refs: tuple[SnapshotRef, ...]
 
 
-def corpus_refs(store: IndexStore) -> Corpus:
+def corpus_refs(index: Index) -> Corpus:
     """Every registered repo at HEAD, in registration order.
 
     Raises `RbtrError` when a repo's HEAD is not indexed, or when a
@@ -42,9 +42,9 @@ def corpus_refs(store: IndexStore) -> Corpus:
     doubles every per-snapshot count in the reports.
     """
     refs: list[SnapshotRef] = []
-    for repo in store.list_repos():
+    for repo in index.repos():
         head = head_sha(repo.repo_path)
-        indexed = {sha for sha, _ in store.list_indexed_snapshots(repo.repo_id)}
+        indexed = {s.snapshot_sha for s in index.indexed_snapshots(repo)}
         if head not in indexed:
             msg = (
                 f"{repo.repo_path}: HEAD {head} is not indexed, so the eval "
@@ -60,19 +60,18 @@ def corpus_refs(store: IndexStore) -> Corpus:
                 f"`rbtr gc --keep-head-only --repo-path {repo.repo_path}`."
             )
             raise RbtrError(msg)
-        refs.append(SnapshotRef(repo_id=repo.repo_id, snapshot_sha=head))
+        refs.append(repo.at(head))
     return Corpus(refs=tuple(refs))
 
 
-def corpus_ref(store: IndexStore, slug: str) -> SnapshotRef:
+def corpus_ref(index: Index, slug: str) -> SnapshotRef:
     """The corpus snapshot for the repo whose directory is named *slug*.
 
     Raises `RbtrError` when no registered repo matches, or when the
     index fails the checks `corpus_refs` makes.
     """
-    paths = {repo.repo_id: repo.repo_path for repo in store.list_repos()}
-    for ref in corpus_refs(store).refs:
-        if Path(paths[ref.repo_id]).name == slug:
+    for ref in corpus_refs(index).refs:
+        if Path(ref.repo.repo_path).name == slug:
             return ref
     msg = f"No indexed repo named {slug!r}. Run the `index` stage first."
     raise RbtrError(msg)

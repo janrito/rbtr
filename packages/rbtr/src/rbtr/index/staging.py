@@ -61,7 +61,7 @@ class ChunkStagingRow(dy.Schema):
     """Matches the `_stg` view columns consumed by `upsert_chunks.sql`.
 
     No `repo_id` and no `file_path` column: the chunk store is
-    content-addressed and shared across repos and paths (both live in
+    content-addressed and shared across checkouts and paths (both live in
     `file_snapshots`, joined on blob_sha + file_language).
     No `embedding` column: embeddings are always NULL on
     initial insert and set later via `update_embedding(s)`.
@@ -161,7 +161,7 @@ def staged_edges(edges: list[Edge], *, at: SnapshotRef) -> dy.DataFrame[EdgeStag
     return (
         pl.DataFrame(Edges.dump_python(edges, mode="json"))
         .with_columns(
-            repo_id=pl.lit(at.repo_id, dtype=pl.Int32),
+            repo_id=pl.lit(at.repo.repo_id, dtype=pl.Int32),
             snapshot_sha=pl.lit(at.snapshot_sha),
         )
         .pipe(EdgeStagingRow.validate, cast=True)
@@ -196,3 +196,29 @@ def staged_embeddings(
     return pl.DataFrame(
         {"id": ids, "embedding": embeddings, "embedding_truncated": truncated}
     ).pipe(EmbeddingStagingRow.validate, cast=True)
+
+
+class SerialMapRow(dy.Schema):
+    """Backs the cursor-registered `_serial_map` join view.
+
+    Not an insert target: `blob_is_current` left-joins a blob's chunks against
+    this view to check every chunk is at its language's current
+    extraction serial. Maps language id -> current serial (the full
+    registry, plus `""` for plaintext). `extraction_serial` is `Int32` to
+    match the column on `chunks`.
+    """
+
+    language = dy.String(nullable=False)
+    extraction_serial = dy.Int32(nullable=False)
+
+
+def serial_map_view(serials: dict[str, int]) -> dy.DataFrame[SerialMapRow]:
+    """Build the `_serial_map` join view from a language -> serial map."""
+    if not serials:
+        return SerialMapRow.create_empty()
+    return pl.DataFrame(
+        {
+            "language": list(serials.keys()),
+            "extraction_serial": list(serials.values()),
+        }
+    ).pipe(SerialMapRow.validate, cast=True)

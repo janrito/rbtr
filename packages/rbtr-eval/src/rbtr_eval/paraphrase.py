@@ -33,10 +33,11 @@ from pydantic_ai.settings import ModelSettings
 from rbtr.cli.output import ProgressCallback, progress_reporter
 from rbtr.config import config
 from rbtr.domain.identity import SCOPE_SEPARATOR
-from rbtr.domain.models import CODE_KINDS, ChunkKind, SnapshotRef
+from rbtr.domain.models import CODE_KINDS, ChunkKind, Repo
 from rbtr.git import read_head
+from rbtr.index.index import Index
+from rbtr.index.refs import latest_refs
 from rbtr.index.results import ChunkContentRow
-from rbtr.index.store import IndexStore
 from rbtr_eval.formatting import heading_label, md_table
 from rbtr_eval.shared_schemas import IDENTITY_COLUMNS, QueryRow
 
@@ -51,9 +52,6 @@ log = logging.getLogger(__name__)
 
 # Fail the stage rather than write a dataset gutted by endpoint errors.
 _MIN_YIELD = 0.5
-
-
-# ── Deps ─────────────────────────────────────────────────────────────
 
 
 class SymbolContext(BaseModel):
@@ -75,8 +73,6 @@ class SymbolContext(BaseModel):
         """
         return [i for i in value if i]
 
-
-# ── Agent ────────────────────────────────────────────────────────────
 
 paraphrase_agent: Agent[SymbolContext, ConceptQuery] = Agent(
     output_type=ConceptQuery,
@@ -168,13 +164,9 @@ def _check_excluded(ctx: RunContext[SymbolContext], data: ConceptQuery) -> Conce
     return data
 
 
-# ── Symbol content from index ─────────────────────────────────────────
-
-
 def _load_symbol_content(
-    store: IndexStore,
-    repo_path: str,
-    repo_id: int,
+    index: Index,
+    repo: Repo,
 ) -> dy.DataFrame[ChunkContentRow]:
     """Load symbol content from the index.
 
@@ -183,14 +175,11 @@ def _load_symbol_content(
     ``QueryRow`` on primary-key columns, so only chunks that
     were sampled by extract survive.
     """
-    sha = read_head(repo_path)
+    sha = read_head(repo.repo_path)
     if sha is None:
-        msg = f"no HEAD in {repo_path}"
+        msg = f"no HEAD in {repo.repo_path}"
         raise SystemExit(msg)
-    return store.chunk_contents(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
-
-
-# ── Excluded identifiers ─────────────────────────────────────────────
+    return index.chunk_contents(at=repo.at(sha))
 
 
 def _excluded_identifiers(name: str, scope: str) -> list[str]:
@@ -219,9 +208,6 @@ def _excluded_identifiers(name: str, scope: str) -> list[str]:
             if part:
                 excluded.add(part)
     return sorted(excluded)
-
-
-# ── Paraphrasing ─────────────────────────────────────────────────────
 
 
 async def _paraphrase_one(
@@ -291,9 +277,8 @@ async def _paraphrase_one(
 
 def paraphrase_symbols(
     queries: dy.DataFrame[QueryRow],
-    store: IndexStore,
-    repo_path: str,
-    repo_id: int,
+    index: Index,
+    repo: Repo,
     model: str | Model,
     *,
     concurrency: int = 10,
@@ -305,7 +290,7 @@ def paraphrase_symbols(
     concurrently for each symbol, and returns validated
     concept QueryRows.
     """
-    symbols = _load_symbol_content(store, repo_path, repo_id).with_columns(
+    symbols = _load_symbol_content(index, repo).with_columns(
         pl.col("kind").alias("symbol_kind"),
     )
     join_keys = list(IDENTITY_COLUMNS)
@@ -355,10 +340,41 @@ def paraphrase_symbols(
     return pl.DataFrame(rows).pipe(QueryRow.validate, cast=True)
 
 
-# ── Report ───────────────────────────────────────────────────────────
+class SymbolContent(dy.Schema):
+    """A sampled symbol's source text, keyed by its repo and identity."""
+
+    slug = dy.String()
+    file_path = dy.String()
+    scope = dy.String()
+    name = dy.String()
+    line_start = dy.UInt32()
+    line_end = dy.UInt32()
+    symbol_kind = dy.Enum(k.value for k in ChunkKind)
+    content = dy.String()
 
 
-def _sampled_content(store: IndexStore, sampled: dy.DataFrame[QueryRow]) -> pl.DataFrame:
+class ConceptCount(dy.Schema):
+    """Concept queries per repo and language; every count the report shows sums these."""
+
+    slug = dy.String(primary_key=True)
+    language = dy.String(primary_key=True)
+    n = dy.UInt32(min=1)
+
+
+class ParaphraseExample(dy.Schema):
+    """A sampled concept query with the source it paraphrases.
+
+    `content` is null when the index holds no chunk for the target.
+    """
+
+    slug = dy.String()
+    name = dy.String()
+    language = dy.String()
+    text = dy.String()
+    content = dy.String(nullable=True)
+
+
+def _sampled_content(index: Index, sampled: dy.DataFrame[QueryRow]) -> dy.DataFrame[SymbolContent]:
     """Source text for *sampled*, keyed by the symbol's full identity.
 
     A corpus holds one snapshot per repo and repeats paths across
@@ -367,67 +383,77 @@ def _sampled_content(store: IndexStore, sampled: dy.DataFrame[QueryRow]) -> pl.D
     than from one frame spanning the corpus.
     """
     slugs = set(sampled["slug"].unique())
-    by_id = {r.repo_id: r.repo_path.rsplit("/", 1)[-1] for r in store.list_repos()}
+    named = [(ref, ref.repo.repo_path.rsplit("/", 1)[-1]) for ref in latest_refs(index)]
     frames = [
-        store.chunk_contents(at=ref)
+        index.chunk_contents(at=ref)
         .with_columns(pl.col("kind").alias("symbol_kind"))
         .select(*IDENTITY_COLUMNS, "content")
-        .with_columns(pl.lit(by_id[ref.repo_id]).alias("slug"))
-        for ref in store.list_latest_refs()
-        if by_id.get(ref.repo_id) in slugs
+        .with_columns(pl.lit(slug).alias("slug"))
+        for ref, slug in named
+        if slug in slugs
     ]
     if not frames:
-        return pl.DataFrame(schema={**sampled.schema, "content": pl.String}).select(
-            "slug", *IDENTITY_COLUMNS, "content"
+        return SymbolContent.create_empty()
+    return pl.concat(frames).pipe(SymbolContent.validate, cast=True)
+
+
+def _concept_counts(concepts: dy.DataFrame[QueryRow]) -> dy.DataFrame[ConceptCount]:
+    """How many concept queries each repo and language has."""
+    return (
+        concepts.group_by("slug", "language")
+        .agg(pl.len().alias("n"))
+        .sort("slug", "language")
+        .pipe(ConceptCount.validate, cast=True)
+    )
+
+
+def _paraphrase_examples(
+    sampled: dy.DataFrame[QueryRow],
+    content: dy.DataFrame[SymbolContent],
+) -> dy.DataFrame[ParaphraseExample]:
+    """*sampled* with each target's source text from *content*, in sampled order."""
+    return (
+        sampled.join(
+            content,
+            on=["slug", *IDENTITY_COLUMNS],
+            how="left",
+            maintain_order="left",
         )
-    return pl.concat(frames)
+        .select("slug", "name", "language", "text", "content")
+        .pipe(ParaphraseExample.validate, cast=True)
+    )
 
 
 def _render_paraphrase_report(
-    concepts: dy.DataFrame[QueryRow],
+    counts: dy.DataFrame[ConceptCount],
+    examples: dy.DataFrame[ParaphraseExample],
     model: str,
-    store: IndexStore,
 ) -> str:
-    """Render PARAPHRASE.md from concept + index data."""
-    repo_table = concepts.group_by("slug").agg(pl.len().alias("n")).sort("slug")
-
+    """Render PARAPHRASE.md; each table sums *counts* over the column it does not show."""
+    repo_table = counts.group_by("slug").agg(pl.col("n").sum()).sort("slug")
     lang_table = (
-        concepts.group_by("language")
-        .agg(pl.len().alias("n"))
+        counts.group_by("language")
+        .agg(pl.col("n").sum())
         .sort("n", "language", descending=[True, False])
     )
-
-    # Look up source content for sampled examples from the index.
-    sampled = concepts.sample(10, seed=42).pipe(QueryRow.validate, cast=True)
-    examples_df = sampled.join(
-        _sampled_content(store, sampled),
-        on=["slug", *IDENTITY_COLUMNS],
-        how="left",
-    )
-    examples = [
-        {
-            "slug": r["slug"],
-            "name": r["name"],
-            "heading": heading_label(r["name"]),
-            "language": r["language"],
-            "content": r["content"] or "",
-            "concept": r["text"],
-        }
-        for r in examples_df.iter_rows(named=True)
-    ]
+    example_records = examples.select(
+        "slug",
+        "name",
+        pl.col("name").map_elements(heading_label, return_dtype=pl.String).alias("heading"),
+        "language",
+        pl.col("content").fill_null(""),
+        pl.col("text").alias("concept"),
+    ).to_dicts()
 
     template = resources.files("rbtr_eval.templates").joinpath("paraphrase.md.j2").read_text()
     return minijinja.Environment().render_str(
         template,
         model=model,
-        total=concepts.height,
+        total=counts["n"].sum(),
         repo_table=md_table(repo_table),
         lang_table=md_table(lang_table),
-        examples=examples,
+        examples=example_records,
     )
-
-
-# ── CLI subcommands ──────────────────────────────────────────────────
 
 
 class ParaphraseCmd(BaseModel):
@@ -444,19 +470,18 @@ class ParaphraseCmd(BaseModel):
 
     def cli_cmd(self) -> None:
         query_df = pl.read_parquet(self.symbols).pipe(QueryRow.validate, cast=True)
-        store = IndexStore(str(config.db_path))
+        index = Index(str(config.db_path))
         repo_path = str(Path(self.repo_path).resolve())
-        repo_id = store.get_repo_id(repo_path)
-        if repo_id is None:
+        repo = index.find_repo(repo_path)
+        if repo is None:
             msg = f"Repo not indexed: {repo_path}"
             raise SystemExit(msg)
 
         with progress_reporter("paraphrase") as (on_progress,):
             result = paraphrase_symbols(
                 query_df,
-                store,
-                repo_path,
-                repo_id,
+                index,
+                repo,
                 self.model,
                 concurrency=self.concurrency,
                 on_progress=on_progress,
@@ -482,15 +507,20 @@ class ParaphraseReportCmd(BaseModel):
     concept_dir: Path = Field(description="Directory holding concept parquet files.")
     model: str = Field(description="Model string used for paraphrasing.")
     report: Path = Field(description="Output path for PARAPHRASE.md.")
+    examples: int = Field(10, description="Concept queries shown as examples.")
+    seed: int = Field(42, description="Deterministic-sampling seed for examples.")
 
     def cli_cmd(self) -> None:
         concepts = pl.concat(
             [pl.read_parquet(f) for f in sorted(self.concept_dir.glob("*.parquet"))]
         ).pipe(QueryRow.validate, cast=True)
-        store = IndexStore(str(config.db_path))
+        sampled = concepts.sample(self.examples, seed=self.seed).pipe(QueryRow.validate, cast=True)
+        content = _sampled_content(Index(str(config.db_path)), sampled)
 
         self.report.parent.mkdir(parents=True, exist_ok=True)
         self.report.write_text(
-            _render_paraphrase_report(concepts, self.model, store),
+            _render_paraphrase_report(
+                _concept_counts(concepts), _paraphrase_examples(sampled, content), self.model
+            ),
             encoding="utf-8",
         )

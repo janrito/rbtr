@@ -38,11 +38,6 @@ from rbtr.languages.registration import (
 if TYPE_CHECKING:
     from tree_sitter import Node
 
-# ── Query ────────────────────────────────────────────────────────────
-
-
-# ── Import extractor ─────────────────────────────────────────────────
-
 
 def extract_import_meta(
     resolver: ImportResolver, node: Node, captures: dict[str, list[Node]]
@@ -77,9 +72,6 @@ def extract_import_meta(
         meta.module = cleaned
         meta.dots = str(dots or 1)
     return meta
-
-
-# ── Plugin ───────────────────────────────────────────────────────────
 
 
 ruby = LanguageRegistration(

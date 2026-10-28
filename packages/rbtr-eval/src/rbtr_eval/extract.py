@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 from rbtr.config import config
 from rbtr.domain.identity import SCOPE_SEPARATOR
 from rbtr.domain.models import SnapshotRef
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 from rbtr.languages.manager import get_manager
 from rbtr.languages.registration import QueryExtraction
 from rbtr.languages.treesitter import extract_doc_spans
@@ -184,10 +184,9 @@ def queries_for_symbol(
 
 
 def extract_queries(
-    store: IndexStore,
+    index: Index,
     slug: str,
-    repo_id: int,
-    sha: str,
+    at: SnapshotRef,
     *,
     min_per_language: int = 50,
 ) -> tuple[dy.DataFrame[QueryRow], int, list[dict[str, str | int]]]:
@@ -204,7 +203,7 @@ def extract_queries(
     where `dropped_languages` lists the skipped languages and their
     chunk counts.
     """
-    chunks = store.get_chunks(at=SnapshotRef(repo_id=repo_id, snapshot_sha=sha))
+    chunks = index.chunks(at=at)
     symbols = [c for c in chunks if c.kind not in EXCLUDED_KINDS]
 
     lang_counts = (
@@ -258,14 +257,13 @@ class ExtractCmd(BaseModel):
     )
 
     def cli_cmd(self) -> None:
-        store = IndexStore(str(config.db_path), writable=True)
-        ref = corpus_ref(store, self.slug)
+        index = Index(str(config.db_path), writable=True)
+        ref = corpus_ref(index, self.slug)
 
         all_queries, n_symbols, dropped = extract_queries(
-            store,
+            index,
             self.slug,
-            ref.repo_id,
-            ref.snapshot_sha,
+            ref,
             min_per_language=self.min_per_language,
         )
         sampled = subsample(

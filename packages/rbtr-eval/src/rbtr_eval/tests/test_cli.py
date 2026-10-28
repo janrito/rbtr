@@ -23,7 +23,7 @@ import pytest
 from pydantic_settings import CliApp
 
 from rbtr.config import config
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 from rbtr_eval.cli import RbtrEval
 from rbtr_eval.shared_schemas import QueryRow, RepoHeader
 
@@ -80,13 +80,15 @@ def test_extract_writes_validated_parquet_files(
     # Build a file-backed index where rbtr's settings name it, so ExtractCmd
     # can open it. The build registers the repo under its canonical root, whose
     # last component matches the slug so extract can find it via Path(path).name.
-    file_store = IndexStore(str(config.db_path), writable=True)
+    file_index = Index(str(config.db_path), writable=True)
     repo = pygit2.Repository(str(tiny_repo))
     head = str(repo.head.target)
 
     from rbtr.index.build import build_index  # deferred: heavy native libs
 
-    build_index(repo.workdir, head, file_store)
+    build_index(repo.workdir, head, file_index)
+    # The index has one owner at a time, as across processes.
+    file_index.close()
 
     argv = [
         "extract",

@@ -1,6 +1,6 @@
 """Behaviour tests for the measure polars pipeline.
 
-Exercises the composed `_score_outcomes |> _aggregate` chain against
+Exercises `_score_outcomes` and the statistics computed from it against
 synthetic `SearchBatch` frames built in `cases_pipeline.py`. No daemon,
 no embedding model; the purpose is to catch scoring and aggregation
 bugs before the expensive indexing run hits them.
@@ -15,9 +15,18 @@ import polars as pl
 import pytest
 from pytest_cases import parametrize_with_cases
 
-from rbtr.domain.models import SnapshotRef
-from rbtr.index.store import IndexStore
-from rbtr_eval.measure import SearchBatch, _aggregate, _annotate_truncation, _score_outcomes
+from rbtr.index.index import Index
+from rbtr_eval.measure import (
+    SearchBatch,
+    TruncatedTarget,
+    _arm_metrics,
+    _breakdowns,
+    _metrics_file,
+    _score_outcomes,
+    _target_shapes,
+    _truncated_targets,
+)
+from rbtr_eval.shared_schemas import RepoHeader
 from rbtr_eval.tests.conftest import chunk, hit, outcome_row, snap
 
 
@@ -29,7 +38,7 @@ def test_scoring_assigns_ranks(batch: dy.DataFrame[SearchBatch]) -> None:
     missing target (with top-1 still populated), and the left-join shape
     (every input row appears exactly once).
     """
-    scored = _score_outcomes(batch).sort("name")
+    scored = _score_outcomes(batch, TruncatedTarget.create_empty()).sort("name")
 
     # Row preservation: every input row survives exactly once.
     assert scored.height == batch.height
@@ -52,21 +61,19 @@ def test_scoring_assigns_ranks(batch: dy.DataFrame[SearchBatch]) -> None:
 
 
 @parametrize_with_cases("batch", cases=".cases_pipeline", has_tag="metrics")
-def test_aggregate_computes_metrics(batch: dy.DataFrame[SearchBatch]) -> None:
-    """`score |> aggregate` computes Hit@k / MRR / NDCG and the rollup.
+def test_breakdowns_compute_metrics(batch: dy.DataFrame[SearchBatch]) -> None:
+    """The per-repo breakdown computes Hit@k / MRR / NDCG and latency.
 
     Slug `r` has ranks 1, 3, null, null: Hit@1 = 1/4, Hit@3 = Hit@10 =
     2/4, MRR = (1 + 1/3 + 0 + 0) / 4, median over {1, 3} = 2.0, and the
     two null ranks count as misses (not_found = 0.5). Two slugs produce
-    per-slug rows plus an `__all__` rollup.
+    a row each.
     """
-    metrics = _aggregate(_score_outcomes(batch))
+    by_repo = _breakdowns(_score_outcomes(batch, TruncatedTarget.create_empty())).filter(
+        pl.col("dimension") == "slug"
+    )
 
-    per_repo = metrics.filter(
-        (pl.col("slug") == "r")
-        & (pl.col("language") == "__all__")
-        & (pl.col("provenance") == "__all__")
-    ).row(0, named=True)
+    per_repo = by_repo.filter(pl.col("value") == "r").row(0, named=True)
     assert per_repo["n_queries"] == 4
     assert per_repo["hit_at_1"] == 0.25
     assert per_repo["hit_at_3"] == 0.5
@@ -78,33 +85,19 @@ def test_aggregate_computes_metrics(batch: dy.DataFrame[SearchBatch]) -> None:
     assert per_repo["search_p50_ms"] == 30.0
     assert per_repo["search_p95_ms"] == 40.0
 
-    # Two slugs produce per-slug rows plus the `__all__` rollup.
-    assert sorted(metrics["slug"].unique().to_list()) == ["__all__", "r", "r2"]
+    assert by_repo["value"].to_list() == ["r", "r2"]
 
 
 @parametrize_with_cases("batch", cases=".cases_pipeline", has_tag="kinds")
-def test_aggregate_breaks_out_symbol_kind(batch: dy.DataFrame[SearchBatch]) -> None:
-    """Metrics carry a per-`symbol_kind` rollup and a `symbol_kind` x
-    `query_kind` rollup, so each target kind is measured on its own axis
-    and in the cross with request shape."""
-    metrics = _aggregate(_score_outcomes(batch))
+def test_statistics_break_out_symbol_kind(batch: dy.DataFrame[SearchBatch]) -> None:
+    """Each target kind is measured on its own axis and in the cross
+    with request shape."""
+    outcomes = _score_outcomes(batch, TruncatedTarget.create_empty())
 
-    per_kind = metrics.filter(
-        (pl.col("slug") == "__all__")
-        & (pl.col("language") == "__all__")
-        & (pl.col("provenance") == "__all__")
-        & (pl.col("query_kind") == "__all__")
-        & (pl.col("symbol_kind") != "__all__")
-    )
-    assert set(per_kind["symbol_kind"].to_list()) == {"function", "config_key"}
+    per_kind = _breakdowns(outcomes).filter(pl.col("dimension") == "symbol_kind")
+    assert set(per_kind["value"].to_list()) == {"function", "config_key"}
 
-    cross = metrics.filter(
-        (pl.col("slug") == "__all__")
-        & (pl.col("language") == "__all__")
-        & (pl.col("provenance") == "__all__")
-        & (pl.col("symbol_kind") != "__all__")
-        & (pl.col("query_kind") != "__all__")
-    )
+    cross = _target_shapes(outcomes)
     pairs = set(zip(cross["symbol_kind"].to_list(), cross["query_kind"].to_list(), strict=True))
     assert pairs == {("function", "concept"), ("config_key", "identifier")}
 
@@ -116,18 +109,17 @@ def indexed_copy(tmp_path: Path) -> Path:
     `q.py` is vendored verbatim to `vendor/q.py`, so both snapshot
     rows carry the blob the chunk was extracted from.
     """
-    store = IndexStore(str(tmp_path / "index.duckdb"), writable=True)
+    index = Index(str(tmp_path / "index.duckdb"), writable=True)
     fn = chunk(file_path="q.py", kind="function", name="load")
-    with store.session() as ws:
-        repo_id = ws.register_repo(str(tmp_path / "alpha"))
+    repo = index.register(str(tmp_path / "alpha"))
+    with index.session(repo) as ws:
         ws.add_chunk(fn)
         ws.insert_snapshots(
             [snap("a" * 40, fn), snap("a" * 40, fn, path="vendor/q.py")],
-            repo_id=repo_id,
         )
-        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha="a" * 40))
+        ws.mark_indexed(snapshot_sha="a" * 40)
         ws.update_embeddings([fn.id], [[0.5] * 768], truncated=[True])
-    store.close()
+    index.close()
     return tmp_path / "index.duckdb"
 
 
@@ -156,7 +148,7 @@ def test_truncation_marks_every_location_of_the_chunk(indexed_copy: Path) -> Non
         ]
     ).pipe(SearchBatch.validate, cast=True)
 
-    annotated = _annotate_truncation(_score_outcomes(batch), indexed_copy).sort("file_path")
+    annotated = _score_outcomes(batch, _truncated_targets(indexed_copy)).sort("file_path")
 
     marked = annotated.filter(pl.col("name") == "load")
     assert marked["file_path"].to_list() == ["q.py", "vendor/q.py"]
@@ -164,3 +156,19 @@ def test_truncation_marks_every_location_of_the_chunk(indexed_copy: Path) -> Non
 
     unmarked = annotated.filter(pl.col("name") == "other")
     assert unmarked["target_truncated"].to_list() == [False]
+
+
+@parametrize_with_cases("batch", cases=".cases_pipeline", has_tag="kinds")
+def test_metrics_file_holds_each_arms_figures_overall_and_per_query_kind(
+    batch: dy.DataFrame[SearchBatch], headers: dy.DataFrame[RepoHeader]
+) -> None:
+    """`dvc metrics` reads nested objects, so each figure sits under its arm,
+    then `all` or the query kind."""
+    outcomes = _score_outcomes(batch, TruncatedTarget.create_empty())
+
+    metrics = _metrics_file(_arm_metrics(outcomes), _breakdowns(outcomes), headers, 1.0)
+
+    assert set(metrics.arms) == {"none"}
+    assert set(metrics.arms["none"]) == {"all", "concept", "identifier"}
+    assert metrics.arms["none"]["all"]["n_queries"] == batch.height
+    assert metrics.shas == {"r": "abc123def456"}

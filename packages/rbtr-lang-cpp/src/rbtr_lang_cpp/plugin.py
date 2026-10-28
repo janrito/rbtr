@@ -23,12 +23,6 @@ from __future__ import annotations
 
 from rbtr.languages.registration import LanguageRegistration, QueryExtraction, load_query
 
-# ── Query ────────────────────────────────────────────────────────────
-
-
-# ── Plugin ───────────────────────────────────────────────────────────
-
-
 cpp = LanguageRegistration(
     id="cpp",
     extensions=frozenset({".cpp", ".cc", ".cxx", ".hpp", ".hxx"}),

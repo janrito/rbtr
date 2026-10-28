@@ -57,7 +57,15 @@ async function checkReplies(pi: PiSession, ask: Ask, cwd: string, steps: [Call, 
     const reply = end.result.structuredContent as Reply;
     const label = `${end.name} ${JSON.stringify(end.input)}`;
     if ("ask" in expected) {
-      expect(reply, label).toEqual(await ask({ ...expected.ask, repo_path: cwd } as Request));
+      // DuckDB sums a lexical score's terms in parallel, in no fixed order, so two
+      // identical searches can score a hit differently in the last digits.
+      const rounded = (value: unknown): unknown =>
+        JSON.parse(
+          JSON.stringify(value, (_key, field) =>
+            typeof field === "number" && !Number.isInteger(field) ? Number(field.toPrecision(12)) : field,
+          ),
+        );
+      expect(rounded(reply), label).toEqual(rounded(await ask({ ...expected.ask, repo_path: cwd } as Request)));
       expect(reply, label).toMatchObject(expected.shows);
     } else {
       expect(reply, label).toMatchObject(expected.reply);

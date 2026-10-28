@@ -1,74 +1,29 @@
-"""DuckDB storage — schema, reads, and search for the code index.
+"""The index's files: one DuckDB instance holding the registry and every project's file.
 
-The store manages four tables:
-
-- `file_snapshots` maps a commit SHA to its file tree (path → blob SHA).
-- `chunks` holds indexed content, keyed by blob SHA so identical files
-  across commits are stored once.
-- `edges` records relationships between chunks, scoped per commit.
-- `indexed_snapshots` tracks which `(repo, commit)` pairs have been
-  fully indexed.
-
-All commit-scoped queries join through `file_snapshots` to resolve
-which chunks belong to a given snapshot.
-
-## Type architecture
-
-`IndexStore` owns the DuckDB connection, thread-local cursor
-cache, FTS index, and all read methods.  Write operations
-live on `WriteSession` (in `writer.py`), obtained via
-`IndexStore.session()`.  The session is a context manager
-that wraps all writes in a transaction: commit + FTS rebuild
-on clean exit, rollback on exception.
-
-The store defaults to read-only (`writable=False`).  Pass
-`writable=True` to enable `session()`.  This prevents
-accidental writes from search handlers.
-
-## FTS rebuild contract
-
-DuckDB FTS does not auto-update after INSERT or DELETE.
-The FTS index is rebuilt by `WriteSession` after commit
-when chunks were modified.  On open, the persisted index
-(if any) is queryable immediately; otherwise the first
-session that inserts chunks rebuilds it.
-
-## Blob dedup and language-change invalidation
-
-See the "Blob dedup and language invalidation" section in
-`ARCHITECTURE.md` for the full flow.  `blob_is_current` gates
-extraction by `(blob_sha, file_language)` — the language the *file* was
-read as, not a chunk's own, so an empty `.html` is still extracted after
-an identical empty `.py`.  The `blob_is_current`
-docstring documents the semantics and prose special case.
+Only `Index` uses `Store` (an import-linter contract keeps it
+so).  ARCHITECTURE's "Index files" and "Concurrency model" describe how.
 """
 
 from __future__ import annotations
 
+import contextlib
+import shutil
 import threading
-from collections.abc import Iterator
-from contextlib import contextmanager
+import time
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
-import dataframely as dy
 import duckdb
-import polars as pl
 
 # duckdb requires this imported before any thread uses a connection.
-import pyarrow  # type: ignore[import-untyped]  # noqa: F401
+import pyarrow  # noqa: F401
 import structlog
 
-from rbtr.config import config, own_dir
-from rbtr.domain.models import (
-    Chunk,
-    ChunkKind,
-    EdgeKind,
-    Repo,
-    SnapshotCounts,
-    SnapshotRange,
-    SnapshotRef,
-)
-from rbtr.domain.tokenise import tokenise_code
+from rbtr.config import config, index_dir_of, own_dir
+from rbtr.domain.models import Repo, SnapshotRef
 from rbtr.errors import (
     IndexLockedError,
     IndexNotBuiltError,
@@ -76,65 +31,39 @@ from rbtr.errors import (
     RbtrError,
     RepoNotFoundError,
 )
-from rbtr.git import worktree_tree_sha
+from rbtr.git import common_dir
 from rbtr.index import load_sql
-from rbtr.index.constants import SCHEMA_VERSION
-from rbtr.index.results import (
-    ChangedSymbolRow,
-    ChunkContentRow,
-    ChunkPathResultRow,
-    ChunkResultRow,
-    EdgeResultRow,
-    InboundDegreeResultRow,
-    InboundRefResultRow,
-    ScoredChunkResultRow,
-    SnapshotCountsRow,
-    _decode_metadata,
-    chunk_ids_view,
-    file_paths_view,
-    frame_to_chunks,
-    frame_to_snapshot_counts,
-    serial_map_view,
-    snapshot_refs_view,
-)
-from rbtr.index.writer import WriteSession
+from rbtr.index.constants import EMBEDDING_FORMAT_VERSION, SCHEMA_VERSION
+from rbtr.index.db import build_fts
 
 log = structlog.get_logger(__name__)
 
-
-# Pre-load all SQL at import time so file I/O is not on the hot path.
-_GET_CHUNKS_SQL = load_sql("get_chunks.sql")
-_GET_EDGES_SQL = load_sql("get_edges.sql")
-_INBOUND_REFS_SQL = load_sql("inbound_refs.sql")
-_CHANGED_SYMBOLS_SQL = load_sql("changed_symbols.sql")
-_SEARCH_BY_NAME_SQL = load_sql("search_by_name.sql")
-_SEARCH_SIMILAR_SQL = load_sql("search_similar.sql")
-_SEARCH_FULLTEXT_SQL = load_sql("search_fulltext.sql")
-_COUNT_ORPHAN_CHUNKS_SQL = load_sql("count_orphan_chunks.sql")
-_COUNT_GC_CHUNK_SPLIT_SQL = load_sql("count_gc_chunk_split.sql")
-_INBOUND_DEGREE_SQL = load_sql("inbound_degree.sql")
-_BLOB_IS_CURRENT_SQL = load_sql("blob_is_current.sql")
+_REGISTRY_SQL = load_sql("registry.sql")
+_SCHEMA_SQL = load_sql("schema.sql")
 _GET_SCHEMA_VERSION_SQL = load_sql("get_schema_version.sql")
-_GET_REPO_SQL = load_sql("get_repo.sql")
+_SET_SCHEMA_VERSION_SQL = load_sql("set_schema_version.sql")
+_LIST_PROJECTS_SQL = load_sql("list_projects.sql")
 _LIST_REPOS_SQL = load_sql("list_repos.sql")
-_GET_CHUNK_PATHS_SQL = load_sql("get_chunk_paths.sql")
-_CHUNK_COUNTS_BY_SNAPSHOT_SQL = load_sql("chunk_counts_by_snapshot.sql")
-_DISTINCT_CHUNK_LANGUAGES_SQL = load_sql("distinct_chunk_languages.sql")
-_HAS_INDEXED_SQL = load_sql("has_indexed.sql")
-_LIST_INDEXED_COMMITS_SQL = load_sql("list_indexed_snapshots.sql")
-_LIST_WATCHED_REFS_SQL = load_sql("list_watched_refs.sql")
-_COUNT_FILE_SNAPSHOTS_SQL = load_sql("count_file_snapshots.sql")
-_COUNT_EDGES_SQL = load_sql("count_edges.sql")
-_GET_SNAPSHOT_LANGUAGE_SQL = load_sql("get_snapshot_language.sql")
-_UNEMBEDDED_CHUNK_IDS_SQL = load_sql("unembedded_chunk_ids.sql")
-_GET_CHUNKS_BY_ID_SQL = load_sql("get_chunks_by_id.sql")
-_HAS_FTS_INDEX_SQL = load_sql("has_fts_index.sql")
-_DROP_FTS_INDEX_SQL = load_sql("drop_fts_index.sql")
-_WIPE_SCHEMA_SQL = load_sql("wipe_schema.sql")
-_DATA_SIZE_BYTES_SQL = load_sql("data_size_bytes.sql")
-
-
-# ── Row mapping ──────────────────────────────────────────────────────
+_GET_EMBEDDING_META_SQL = load_sql("get_embedding_meta.sql")
+_COUNT_EMBEDDINGS_SQL = load_sql("count_embeddings.sql")
+_CLEAR_ALL_EMBEDDINGS_SQL = load_sql("clear_all_embeddings.sql")
+_SET_EMBEDDING_VERSION_SQL = load_sql("set_embedding_version.sql")
+_SET_EMBEDDING_MODEL_SQL = load_sql("set_embedding_model.sql")
+_GET_PROJECT_SQL = load_sql("get_project.sql")
+_INSERT_PROJECT_SQL = load_sql("insert_project.sql")
+_SET_PROJECT_FILE_SQL = load_sql("set_project_file.sql")
+_DELETE_PROJECT_SQL = load_sql("delete_project.sql")
+_REGISTER_REPO_SQL = load_sql("register_repo.sql")
+_FORGET_REPO_SQL = load_sql("delete_repo.sql")
+# A repo's rows in its project's file, deleted when it is forgotten.
+_FORGET_ROWS_SQL = [
+    load_sql("delete_snapshots_for_repo.sql"),
+    load_sql("delete_edges_for_repo.sql"),
+    load_sql("delete_indexed_snapshots_for_repo.sql"),
+    load_sql("delete_watched_refs_for_repo.sql"),
+]
+_LIST_MISSING_REPOS_SQL = load_sql("list_missing_repos.sql")
+_SET_MISSING_SINCE_SQL = load_sql("set_missing_since.sql")
 
 
 def _parse_calver(version: str) -> tuple[int, ...]:
@@ -150,69 +79,104 @@ def _parse_calver(version: str) -> tuple[int, ...]:
         return ()
 
 
-# ── IndexStore ─────────────────────────────────────────────────────────
+class Store:
+    """One in-memory DuckDB instance with the index's files attached.
 
-
-class IndexStore:
-    """DuckDB-backed storage for the code index.
-
-    Owns the DuckDB connection, thread-local cursor cache, FTS
-    index, and read methods.  Write operations live on
-    `WriteSession`, obtained via `session()`.
-
-    DuckDB connections are **not** thread-safe, but cursors
-    obtained via `connection.cursor()` are isolated per-call.
-    The `_cursor` property caches one cursor per thread so the
-    build thread and search handlers can share one instance.
+    The registry (`index.duckdb`) is attached as `registry`, and every
+    project's data file (`index/<uuid>.duckdb`), which the registry
+    names, under its alias.  Holding the registry is owning the index:
+    DuckDB's file lock on it keeps every other process out, and every
+    live data file is attached by the same process.  Every change to the
+    registry is one of its methods, which reloads the copy that routes
+    reads and writes.  Methods may be called from any thread: each thread
+    gets its own cursor per file.
     """
 
     def __init__(self, db_path: Path | str | None = None, *, writable: bool = False) -> None:
         self.db_path: str | None = str(db_path) if db_path else None
         self._writable = writable
-        self._bootstrapped = False
-        self._repo_cache: dict[str, int] = {}
-        if db_path is not None:
-            own_dir(Path(db_path).parent)
-        dsn = str(db_path) if db_path else ":memory:"
-        try:
-            self._con = duckdb.connect(dsn)
-        except duckdb.IOException as exc:
-            msg = str(exc)
-            if "lock" in msg.lower():
-                log.exception("duckdb_lock_conflict")
-                locked_msg = (
-                    "Index database is locked by another process. "
-                    "If the daemon is running, route commands through it "
-                    "(`rbtr daemon status` to check)."
-                )
-                raise IndexLockedError(locked_msg) from exc
-            raise
-        self._load_fts(self._con)
         self._local = threading.local()
-        # Enforce the schema version *while holding the connection* (and
-        # thus DuckDB's exclusive lock), so a wipe is done in place and
-        # never unlinks the file -- unlinking would let a second process
-        # open a fresh DB at the same path and defeat the lock.
-        if db_path is not None:
-            self._enforce_schema_version()
+        self._pool = ThreadPoolExecutor(thread_name_prefix="rbtr-read")
+        # A copy of the registry, reloaded by `sync`.
+        self._project_of: dict[int, int] = {}
+        self._file_of: dict[int, str] = {}
+        self._repos: dict[str, Repo] = {}
+        self._retired: list[tuple[str, float]] = []
+        self._con = self._connect(":memory:")
+        self._load_fts(self._con)
+        if db_path is None:
+            self._con.execute("ATTACH ':memory:' AS registry")
+            self._create_registry()
+            return
+        path = Path(db_path)
+        own_dir(path.parent)
+        self._projects_dir.mkdir(exist_ok=True)
+        # An in-memory instance spills to `.tmp` in the working directory
+        # unless told otherwise; this is where a file database would.
+        self._con.execute(f"SET temp_directory = {_quote(f'{path}.tmp')}")
+        self._attach_registry()
+        # Enforce the schema version *while holding the registry* (and
+        # thus DuckDB's exclusive lock), so no second process can open
+        # the index while it is checked or replaced.
+        self._enforce_schema_version()
+        self._sync()
+        self._attach_projects()
         if writable:
-            with self.session():
-                pass  # schema DDL + embedding version check
+            self._delete_unnamed_files()
+            # Both schemas are `CREATE ... IF NOT EXISTS`: re-applying them
+            # adds a table a newer rbtr introduced without a version bump.
+            self._registry().execute(_REGISTRY_SQL)
+            for file in self._file_of.values():
+                cur = self._cursor_for(_alias(file))
+                cur.execute(_SCHEMA_SQL)
+                self._check_embedding_version(cur)
 
-    def _enforce_schema_version(self) -> None:
-        """Keep, wipe, or refuse the open DB by its stored schema version.
+    def _attach_registry(self) -> None:
+        """Attach `index.duckdb` as `registry`."""
+        self._attach_file(str(self.db_path), "registry")
 
-        Runs under the held connection.  An equal version keeps the
-        DB; a newer running binary wipes and rebuilds it in place; an
-        *older* running binary refuses (raises `IndexSchemaTooNewError`)
-        rather than destroy an index a newer rbtr wrote.
+    def _attach_file(self, target: str, alias: str) -> None:
+        """Attach *target* as *alias*, or close and raise `IndexLockedError`.
+
+        DuckDB's lock error means another process holds the file, and
+        with it the index; its file-handle conflict means another store in
+        this process does.
         """
         try:
-            rows = self._con.execute(_GET_SCHEMA_VERSION_SQL).fetchall()
+            self._con.execute(f"ATTACH {_quote(target)} AS {alias}")
+        except (duckdb.IOException, duckdb.BinderException) as exc:
+            message = str(exc).lower()
+            if "lock" not in message and "file handle conflict" not in message:
+                raise
+            log.exception("duckdb_lock_conflict")
+            self._con.close()
+            msg = (
+                "Index database is locked by another process. "
+                "If the daemon is running, route commands through it "
+                "(`rbtr daemon status` to check)."
+            )
+            raise IndexLockedError(msg) from exc
+
+    def _create_registry(self) -> None:
+        """Create the registry's tables and record this schema version."""
+        cur = self._registry()
+        cur.execute(_REGISTRY_SQL)
+        cur.execute(_SET_SCHEMA_VERSION_SQL, {"schema_version": SCHEMA_VERSION})
+
+    def _enforce_schema_version(self) -> None:
+        """Keep, replace, or refuse the registry by its stored schema version.
+
+        An equal version keeps the index; a newer running binary replaces
+        it with an empty one (rbtr rebuilds rather than migrates); an
+        *older* running binary refuses (raises `IndexSchemaTooNewError`)
+        rather than destroy an index a newer rbtr wrote.  A fresh file
+        gets the registry's tables when writable.
+        """
+        try:
+            rows = self._registry().execute(_GET_SCHEMA_VERSION_SQL).fetchall()
         except duckdb.CatalogException:
-            # No meta table: a fresh DB.  The writable bootstrap builds it;
-            # a read would fail on the first missing table.
             if self._writable:
+                self._create_registry()
                 return
             self._con.close()
             msg = f"No index at {self.db_path}; run `rbtr watch` first."
@@ -231,664 +195,458 @@ class IndexStore:
             )
             raise RbtrError(msg)
         log.warning("index_schema_changed", stored=stored or "none", current=SCHEMA_VERSION)
-        if self._con.execute(_HAS_FTS_INDEX_SQL).fetchone():
-            self._con.execute(_DROP_FTS_INDEX_SQL)
-        self._con.execute(_WIPE_SCHEMA_SQL)
+        # Deleting rows does not shrink a DuckDB file, so the old index is
+        # replaced, not emptied.  Its path is unlinked while it is still
+        # open, so its lock is held until a new file exists at the path:
+        # a process that creates one first wins DuckDB's lock on it, and
+        # the attach below then raises `IndexLockedError`.
+        path = Path(str(self.db_path))
+        path.unlink()
+        Path(f"{path}.wal").unlink(missing_ok=True)
+        self._con.execute("DETACH registry")
+        self._local.cursors = {}
+        self._attach_registry()
+        self._create_registry()
 
-    @classmethod
-    def from_config(cls, *, writable: bool = False) -> IndexStore:
-        """Open the database at the central DB path."""
-        return cls(config.db_path, writable=writable)
+    def _sync(self) -> None:
+        """Reload the copy of the registry, and retire every file it stopped naming.
+
+        Run after each registry transaction.  A file is attached before a
+        registry row names it (`_new_file`, `_copy`), so this attaches
+        nothing.
+        """
+        cur = self._registry()
+        projects = cur.execute(_LIST_PROJECTS_SQL).fetchall()
+        repos = cur.execute(_LIST_REPOS_SQL).fetchall()
+        dropped = set(self._file_of.values()) - {str(r[1]) for r in projects}
+        self._file_of = {int(r[0]): str(r[1]) for r in projects}
+        self._project_of = {int(r[0]): int(r[2]) for r in repos}
+        self._repos = {str(r[1]): Repo(repo_id=int(r[0]), repo_path=str(r[1])) for r in repos}
+        for file in dropped:
+            self._retire(file)
+
+    def _attach_projects(self) -> None:
+        """Attach every file the registry names.
+
+        Another process holding one of them owns the index through a
+        registry this process can no longer see, so this one backs out
+        with `IndexLockedError`.
+        """
+        for file in self._file_of.values():
+            self._attach(file)
+
+    def _delete_unnamed_files(self) -> None:
+        """Delete files no registry row names: the residue of a crash.
+
+        Everything under `index/` that is not a live file or its WAL was
+        being built or retired when the process stopped.  Copies left by
+        the compaction that once renamed `index.duckdb.compact-*` over the
+        index go too.
+        """
+        named = set(self._file_of.values())
+        named |= {f"{file}.wal" for file in named}
+        for entry in self._projects_dir.iterdir():
+            if entry.name not in named:
+                log.info("deleted_unnamed_index_file", file=entry.name)
+                _delete(entry)
+        path = Path(str(self.db_path))
+        for entry in path.parent.glob(f"{path.name}.compact-*"):
+            log.info("deleted_unnamed_index_file", file=entry.name)
+            _delete(entry)
 
     @property
-    def _cursor(self) -> duckdb.DuckDBPyConnection:
-        """Thread-local cursor — safe to access from any thread.
+    def _projects_dir(self) -> Path:
+        """The directory holding the project files, beside the registry."""
+        return index_dir_of(Path(str(self.db_path)))
 
-        Caches one cursor per thread to avoid the overhead of
-        `connection.cursor()` on every operation (which triggers
-        `getcwd` + `stat` syscalls in DuckDB).
+    @staticmethod
+    def _connect(dsn: str) -> duckdb.DuckDBPyConnection:
+        """Open *dsn* with the configured memory limit and thread count.
+
+        The store's one connection opens through here; every file it
+        uses is attached to it, so the limit covers them all.
         """
-        cur = getattr(self._local, "cur", None)
-        if cur is None or self._local.built_against is not self._con:
-            # First use on this thread, or compaction published a new
-            # connection: bind a fresh cursor to the current one. A read
-            # already in progress keeps the cursor it captured (see
-            # `reader`), so a swap never tears it.
-            cur = self._con.cursor()
-            self._local.cur = cur
-            self._local.built_against = self._con
-        return cur
-
-    @contextmanager
-    def reader(self, **frames: pl.DataFrame) -> Iterator[duckdb.DuckDBPyConnection]:
-        """A cursor for the block, with *frames* registered as temp views.
-
-        The query a caller writes decides what it reads; *frames* bind
-        the values it joins against, each under its keyword name, and
-        are dropped when the block ends.
-
-        Capturing the cursor once keeps a multi-statement read atomic
-        against a concurrent compaction swap: the register, the query,
-        and the unregister all run on the same connection, which stays
-        alive for this read. It also replaces the register/try/finally/
-        unregister boilerplate each such read would otherwise repeat.
-        """
-        cur = self._cursor
-        for name, frame in frames.items():
-            cur.register(name, frame)
-        try:
-            yield cur
-        finally:
-            for name in frames:
-                cur.unregister(name)
-
-    def session(self) -> WriteSession:
-        """Create a `WriteSession` for use as a context manager.
-
-        **Concurrency warning:** in the daemon, write sessions must
-        only be opened from the job worker thread (serialised by
-        `_write_sem`).  The watcher, RPC handlers, and embed
-        preemption checks must be read-only.
-
-        Raises `RuntimeError` if the store was opened read-only.
-        """
-        if not self._writable:
-            msg = "session() requires a writable IndexStore (pass writable=True)"
-            raise RuntimeError(msg)
-        return WriteSession(self)
-
-    def close(self) -> None:
-        """Close the database connection."""
-        self._con.close()
-
-    def data_size_bytes(self) -> int:
-        """Logical size allocated inside the main database file, in bytes.
-
-        `block_size * total_blocks` from `pragma_database_size` — the
-        in-file pages including free space kept for reuse, so it drops
-        only when the file is rewritten (compacted), never from a plain
-        delete. This is the measure of compaction reclaim. It excludes
-        the write-ahead log and reads zero until the WAL is consolidated,
-        so it is not the on-disk footprint (see `disk_size_bytes`).
-        """
-        row = self._cursor.execute(_DATA_SIZE_BYTES_SQL).fetchone()
-        return int(row[0]) if row is not None else 0
-
-    def disk_size_bytes(self) -> int:
-        """Total bytes the index occupies on disk (database file + WAL).
-
-        The honest footprint a user sees: it counts the actual files, so
-        it is non-zero as soon as anything is committed and never depends
-        on whether the write-ahead log has been consolidated into the
-        main file. Zero for an in-memory store.
-        """
-        if self.db_path is None:
-            return 0
-        db = Path(self.db_path)
-        total = db.stat().st_size if db.exists() else 0
-        wal = db.with_name(f"{db.name}.wal")
-        if wal.exists():
-            total += wal.stat().st_size
-        return total
+        return duckdb.connect(
+            dsn,
+            config={
+                "memory_limit": f"{int(config.duckdb_memory_limit)} bytes",
+                "threads": config.duckdb_threads,
+            },
+        )
 
     def _load_fts(self, con: duckdb.DuckDBPyConnection) -> None:
         """Install and load the full-text-search extension on *con*."""
         con.install_extension("fts")
         con.load_extension("fts")
 
-    def _adopt_connection(self, con: duckdb.DuckDBPyConnection) -> None:
-        """Publish a freshly-opened connection as the live one, lock-free.
+    def _attach(self, file: str) -> None:
+        """Attach the project file named *file* under its alias."""
+        target = ":memory:" if self.db_path is None else str(self._projects_dir / file)
+        self._attach_file(target, _alias(file))
 
-        Compaction opens the rewritten file as its own connection
-        (`WriteSession.compact`) and hands it here. Assigning `self._con`
-        is atomic under the GIL, so a reader sees either the old
-        connection or the new one, never a torn state; each thread's
-        cached cursor was built against the old connection, so `_cursor`
-        rebinds it on next use. The old connection is **not** closed here
-        — it stays alive for readers still using it and closes itself by
-        refcount once the last has rebound, so no read is ever cut off
-        mid-query.
+    def _new_file(self) -> str:
+        """Create, attach and return a fresh project file with the data schema.
+
+        The registry does not name it yet: until a registry transaction
+        does, a crash leaves it for `_delete_unnamed_files`.
         """
-        self._load_fts(con)
-        self._con = con
+        file = f"{uuid4().hex}.duckdb"
+        self._attach(file)
+        cur = self._cursor_for(_alias(file))
+        cur.execute(_SCHEMA_SQL)
+        self._check_embedding_version(cur)
+        # Built on the empty table, so a search never meets a file without one.
+        build_fts(cur)
+        return file
 
-    def get_repo_id(self, path: str) -> int | None:
-        """Return the repo_id for *path*, or None if not registered.
+    def _file_bytes(self, file: str) -> int:
+        """Bytes *file* and its WAL take on disk; zero in memory."""
+        if self.db_path is None:
+            return 0
+        path = self._projects_dir / file
+        wal = path.with_name(f"{file}.wal")
+        return sum(p.stat().st_size for p in (path, wal) if p.exists())
 
-        *path* is matched exactly, as stored at registration — it is not
-        normalised, so pass a canonical path.  A repo whose checkout has
-        since been deleted is still found, which is how it gets forgotten.
+    def register(self, path: str) -> Repo:
+        """Register a repo path and return the repo.
+
+        Idempotent — returns the existing repo if already registered.
+        *path* must be canonical, since it is what identifies the repo:
+        two spellings of one checkout would become two repos.  Pass it
+        through `normalise_repo_path` first, as `build_index` does.
+
+        The checkout joins the project of its git common directory, so a
+        linked worktree shares its main checkout's file.  A path git does
+        not know is a project of its own.  A new project's file is made
+        before one registry transaction names it and registers the repo.
         """
-        row = self._cursor.execute(_GET_REPO_SQL, {"path": path}).fetchone()
-        return int(row[0]) if row else None
-
-    def resolve_repo(self, repo: str) -> int:
-        """Return the repo_id for *repo*, raising if not registered.
-
-        As with `get_repo_id`, *repo* is matched exactly and must already
-        be canonical.  Results are cached for the lifetime of the store.
-        """
-        cached = self._repo_cache.get(repo)
-        if cached is not None:
-            return cached
-        repo_id = self.get_repo_id(repo)
-        if repo_id is None:
-            msg = f"Repo not registered: {repo}"
-            raise RepoNotFoundError(msg)
-        self._repo_cache[repo] = repo_id
-        return repo_id
-
-    def list_repos(self) -> list[Repo]:
-        """Return all registered repos."""
-        rows = self._cursor.execute(_LIST_REPOS_SQL).fetchall()
-        return [Repo(repo_id=int(r[0]), repo_path=str(r[1])) for r in rows]
-
-    def list_watched_refs(self, repo_id: int) -> list[str]:
-        """Return the repo's watched refs (symbolic names), sorted by name."""
-        rows = self._cursor.execute(_LIST_WATCHED_REFS_SQL, {"repo_id": repo_id}).fetchall()
-        return [str(r[0]) for r in rows]
-
-    def indexed_worktree_ref(self, repo_path: str, repo_id: int) -> SnapshotRef | None:
-        """The worktree's tree SHA, when the tree is dirty and indexed.
-
-        `None` when the worktree matches HEAD's tree, when the repo
-        is gone, or when that tree has never been indexed — in each
-        case the caller wants a commit instead.
-        """
-        tree_sha = worktree_tree_sha(repo_path)
-        if tree_sha is None:
-            return None
-        at = SnapshotRef(repo_id=repo_id, snapshot_sha=tree_sha)
-        return at if self.has_indexed(at=at) else None
-
-    def latest_indexed_ref(self, repo_id: int) -> SnapshotRef | None:
-        """The most recently indexed snapshot for one repo, if any.
-
-        `None` when the repo has never been indexed.
-        """
-        indexed = self.list_indexed_snapshots(repo_id)
-        if not indexed:
-            return None
-        return SnapshotRef(repo_id=repo_id, snapshot_sha=indexed[0][0])
-
-    def latest_ref(self, repo: Repo) -> SnapshotRef | None:
-        """Resolve the most recent indexed ref for one repo.
-
-        Prefers the current worktree tree SHA when the worktree is
-        dirty and that tree has been indexed; otherwise falls back
-        to the newest indexed commit.  Returns `None` when the repo
-        has no indexed commits at all.
-        """
-        dirty = self.indexed_worktree_ref(repo.repo_path, repo.repo_id)
-        return dirty if dirty is not None else self.latest_indexed_ref(repo.repo_id)
-
-    def list_latest_refs(self) -> list[SnapshotRef]:
-        """Return one `SnapshotRef` per registered repo with indexed data.
-
-        Applies `latest_ref` to every repo from `list_repos`,
-        skipping repos that have never been indexed.  The basis for
-        cross-repo search: the returned list is passed straight to
-        `search()`.
-        """
-        refs: list[SnapshotRef] = []
-        for repo in self.list_repos():
-            ref = self.latest_ref(repo)
-            if ref is not None:
-                refs.append(ref)
-        return refs
-
-    # ── Completion tracking (indexed_snapshots) ──────────────────────
-
-    def has_indexed(self, *, at: SnapshotRef) -> bool:
-        """Return whether the snapshot at *at* was fully indexed."""
-        row = self._cursor.execute(
-            _HAS_INDEXED_SQL, {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha}
-        ).fetchone()
-        return row is not None
-
-    def list_indexed_snapshots(self, repo_id: int) -> list[tuple[str, str]]:
-        """Return `(snapshot_sha, indexed_at)` for this repo, newest first."""
-        rows = self._cursor.execute(_LIST_INDEXED_COMMITS_SQL, {"repo_id": repo_id}).fetchall()
-        return [
-            (
-                str(r[0]),
-                str(r[1]),
-            )
-            for r in rows
-        ]
-
-    def count_file_snapshots(self, *, at: SnapshotRef) -> int:
-        """Return the number of `file_snapshots` rows for this commit.
-
-        Read-only. Used by dry-run GC reporting.
-        """
-        row = self._cursor.execute(
-            _COUNT_FILE_SNAPSHOTS_SQL, {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha}
-        ).fetchone()
-        return int(row[0]) if row else 0
-
-    def count_edges(self, *, at: SnapshotRef) -> int:
-        """Return the number of `edges` rows for this commit.
-
-        Read-only. Used by dry-run GC reporting.
-        """
-        row = self._cursor.execute(
-            _COUNT_EDGES_SQL,
-            {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha},
-        ).fetchone()
-        return int(row[0]) if row else 0
-
-    def count_orphan_chunks(self) -> int:
-        """Count chunks not referenced by any file snapshot in any repo.
-
-        The chunk store is content-addressed and shared, so orphan
-        status is global: a chunk is an orphan iff no snapshot
-        anywhere references its `(blob_sha, file_language)`.
-        """
-        row = self._cursor.execute(_COUNT_ORPHAN_CHUNKS_SQL).fetchone()
-        return int(row[0]) if row else 0
-
-    def count_gc_chunk_split(self, repo_id: int, drop_shas: list[str]) -> tuple[int, int]:
-        """Split a GC drop set's chunks into `(dropped, kept_shared)`.
-
-        *dropped* is the chunks the drop set would free; *kept_shared*
-        is candidate chunks retained because a ref outside the drop set
-        (another ref of this repo, or any other repo) still references
-        their `(blob_sha, file_language)`.  Read-only — it computes the
-        split from the reference graph without simulating the drop, so
-        it serves dry-run and real runs alike.
-        """
-        if not drop_shas:
-            return (0, 0)
-        row = self._cursor.execute(
-            _COUNT_GC_CHUNK_SPLIT_SQL, {"repo_id": repo_id, "drop_shas": drop_shas}
-        ).fetchone()
+        self.require_writable()
+        existing = self.repo_at(path)
+        if existing is not None:
+            return existing
+        shared = common_dir(path) or path
+        cur = self._registry()
+        row = cur.execute(_GET_PROJECT_SQL, {"common_dir": shared}).fetchone()
         if row is None:
-            return (0, 0)
-        return (int(row[0]), int(row[1]))
+            file = self._new_file()
+            project = {
+                "common_dir": shared,
+                "file": file,
+                "compacted_bytes": self._file_bytes(file),
+            }
+            cur.begin()
+            project_id = int(cur.execute(_INSERT_PROJECT_SQL, project).fetchall()[0][0])
+        else:
+            cur.begin()
+            project_id = int(row[0])
+        params = {"path": path, "project_id": project_id}
+        repo_id = int(cur.execute(_REGISTER_REPO_SQL, params).fetchall()[0][0])
+        cur.commit()
+        self._sync()
+        return Repo(repo_id=repo_id, repo_path=path)
 
-    # ── Reads ────────────────────────────────────────────────────────
+    def forget(self, repo: Repo) -> None:
+        """Forget a registered repo, and its project with its last checkout.
 
-    def blob_is_current(self, blob_sha: str, language: str, serials: dict[str, int]) -> bool:
-        """Check whether *blob_sha* is up to date for host *language*.
-
-        This is the blob-dedup gate: the orchestrator calls it
-        before extracting a file.  If True, the blob's chunks are
-        current and valid — skip.  If False, the file needs
-        (re-)extraction.  The check is **global** (the chunk store
-        is content-addressed and shared), so a blob already parsed
-        by any repo is reused — no re-parse when a second
-        repo/worktree indexes it.
-
-        *language* is the file's currently detected host language;
-        *serials* maps language id → current extraction serial (the
-        full registry, plus `""` for plaintext).  The blob is up to
-        date iff it has ≥1 chunk in *language* **and** every chunk's
-        `(language, extraction_serial)` matches a row in
-        *serials*.  Either condition failing triggers re-extraction:
-
-        - Detected language changed — a blob indexed as plaintext
-          (`language=""`), then a plugin registered for the
-          extension → no chunk in the new language → re-extract.
-          (Every file leaves a host-language chunk, so this check
-          is reliable.)
-        - A language's extraction serial is bumped → chunks stored at
-          the old serial no longer match → re-extracted.
-        - A multi-language file (SFC) lists every embedded language
-          plus the host, so bumping *any* contributor (the svelte
-          host or the delegated typescript) re-extracts the file;
-          when none change, it is skipped like any other blob.
-
-        When `blob_is_current` returns False and old chunks exist for
-        the blob (language change), the caller must delete old
-        chunks before inserting new ones — the new extraction
-        may produce different chunk IDs that the upsert can't
-        reconcile.
+        A project's last checkout takes the project with it: one registry
+        transaction deletes both rows, and the project's file is retired.
+        Otherwise the repo's `file_snapshots`, `edges`, `indexed_snapshots`
+        and `watched_refs` are deleted from the project's file in one
+        transaction, then its registry row.  Its chunks stay: the project's
+        other checkouts share them, so reclaiming the ones it orphans is
+        gc's job.
         """
-        with self.reader(_serial_map=serial_map_view(serials)) as cur:
-            row = cur.execute(
-                _BLOB_IS_CURRENT_SQL, {"blob_sha": blob_sha, "language": language}
-            ).fetchone()
-        return bool(row[0]) if row and row[0] is not None else False
+        self.require_writable()
+        repo_id = repo.repo_id
+        project_id = self._project(repo)
+        last = self._checkouts(project_id) == 1
+        cur = self._registry()
+        if last:
+            cur.begin()
+            cur.execute(_FORGET_REPO_SQL, {"repo_id": repo_id})
+            cur.execute(_DELETE_PROJECT_SQL, {"project_id": project_id})
+            cur.commit()
+        else:
+            data = self.data(repo)
+            data.begin()
+            for sql in _FORGET_ROWS_SQL:
+                data.execute(sql, {"repo_id": repo_id})
+            data.commit()
+            cur.execute(_FORGET_REPO_SQL, {"repo_id": repo_id})
+        self._sync()
 
-    def get_snapshot_language(self, file_path: str, *, repo_id: int) -> str:
-        """Return the detected language from any existing snapshot.
+    def compact(self, repo: Repo) -> None:
+        """Rewrite *repo*'s project file into a fresh one, live.
 
-        Returns `''` if the file has never been indexed or was
-        indexed as plaintext.
+        The file is the project's, so its other checkouts' data is
+        rewritten with it.
+
+        Deleting rows does not shrink a DuckDB file: the freed space is
+        kept inside it for reuse.  Copying the live data into a fresh file
+        is the only way to hand that space back.  The copy (search index
+        included) is made and checkpointed, then one registry transaction
+        names the new file.  Reads that started on the old file finish on
+        it; it is retired.  A failure leaves the old file live and the
+        index simply not shrunk.
         """
-        row = self._cursor.execute(
-            _GET_SNAPSHOT_LANGUAGE_SQL,
-            {"repo_id": repo_id, "file_path": file_path},
-        ).fetchone()
-        return str(row[0]) if row else ""
+        self.require_writable()
+        self._compact_project(self._project(repo))
 
-    def chunk_counts_by_snapshot(
-        self, *, repo_id: int | None = None
-    ) -> list[tuple[SnapshotRef, SnapshotCounts]]:
-        """Return chunk and embedded counts per indexed snapshot, one pair each.
+    def compact_all(self) -> None:
+        """Rewrite every project file into a fresh one, as `compact` does."""
+        self.require_writable()
+        for project_id in list(self._file_of):
+            self._compact_project(project_id)
 
-        Spans every repo unless *repo_id* narrows it.  One grouped pass
-        whatever the scope, so the cost does not grow with the number of
-        snapshots asked about — which matters because reading
-        `chunks.embedding` is most of the work.
+    def _compact_project(self, project_id: int) -> None:
+        new = self._copy(project_id)
+        if new is None:
+            return
+        params = {
+            "project_id": project_id,
+            "file": new,
+            "compacted_bytes": self._file_bytes(new),
+        }
+        self._registry().execute(_SET_PROJECT_FILE_SQL, params)
+        self._sync()
 
-        Every snapshot in `indexed_snapshots` gets a pair; one holding no
-        chunks counts zero.  Ordered most recently indexed first, ties
-        broken by `snapshot_sha`.
+    def compact_grown(self, ratio: float) -> int:
+        """Compact every project file grown past *ratio* times its baseline.
+
+        The baseline is the file's size when it was last written whole
+        (`projects.compacted_bytes`).  Returns how many files were
+        compacted.
         """
-        return frame_to_snapshot_counts(self._chunk_counts_frame(repo_id=repo_id))
+        self.require_writable()
+        rows = self._registry().execute(_LIST_PROJECTS_SQL).fetchall()
+        grown = [int(r[0]) for r in rows if self._file_bytes(str(r[1])) > ratio * int(r[2])]
+        for project_id in grown:
+            self._compact_project(project_id)
+        return len(grown)
 
-    def _chunk_counts_frame(
-        self, *, repo_id: int | None = None, snapshot_sha: str | None = None
-    ) -> dy.DataFrame[SnapshotCountsRow]:
-        """Back the counts readers with one validated frame.
+    def missing_since(self) -> dict[Repo, datetime]:
+        """When each repo whose path was found gone was first found so."""
+        rows = self._registry().execute(_LIST_MISSING_REPOS_SQL).fetchall()
+        # Stored as UTC without a zone: DuckDB needs `pytz` to return one.
+        return {
+            Repo(repo_id=int(r[0]), repo_path=str(r[1])): r[2].replace(tzinfo=UTC) for r in rows
+        }
 
-        *snapshot_sha* narrows to a single snapshot and is meaningful
-        only alongside *repo_id*, which is why it stays private: a SHA
-        on its own matches that commit in every repo.
-        """
-        return (
-            self._cursor.execute(
-                _CHUNK_COUNTS_BY_SNAPSHOT_SQL,
-                {"repo_id": repo_id, "snapshot_sha": snapshot_sha},
-            )
-            .pl()
-            .pipe(SnapshotCountsRow.validate, cast=True)
+    def set_missing_since(self, repo: Repo, when: datetime | None) -> None:
+        """Record when *repo*'s path was first found gone; `None` clears it."""
+        self.require_writable()
+        stored = when.astimezone(UTC).replace(tzinfo=None) if when is not None else None
+        self._registry().execute(
+            _SET_MISSING_SINCE_SQL, {"repo_id": repo.repo_id, "missing_since": stored}
         )
 
-    def chunk_counts_for_snapshot(self, *, at: SnapshotRef) -> SnapshotCounts:
-        """Return chunk and embedded counts for one indexed snapshot.
+    def _retire(self, file: str) -> None:
+        """Detach and delete *file* once reads that may be using it are done."""
+        self._retired.append((file, time.monotonic() + config.retire_delay_s))
 
-        Counts chunks, so content held at several paths counts once — the
-        figure embedding progress is measured against.  A snapshot that
-        holds no chunks, or was never marked indexed, reads as zero of
-        zero.
+    def retire_due(self) -> None:
+        """Detach and delete every retired file whose delay has passed.
+
+        A read started before its file was replaced runs on the old file
+        to the end; `retire_delay_s` is far longer than any read.
         """
-        frame = self._chunk_counts_frame(repo_id=at.repo_id, snapshot_sha=at.snapshot_sha)
-        if frame.is_empty():
-            return SnapshotCounts(total=0, embedded=0)
-        row = frame.row(0, named=True)
-        return SnapshotCounts(total=row["total"], embedded=row["embedded"])
+        now = time.monotonic()
+        due = [file for file, at in self._retired if at <= now]
+        self._retired = [(file, at) for file, at in self._retired if at > now]
+        for file in due:
+            self._detach(file)
 
-    def unembedded_chunk_ids(self, *, at: SnapshotRef) -> list[str]:
-        """Return the id of every chunk at *at* still lacking a vector.
+    def _detach(self, file: str) -> None:
+        """Detach *file* and delete it with its WAL."""
+        self._con.execute(f"DETACH {_alias(file)}")
+        self._unlink(file)
 
-        One id however many paths hold the content, because embedding
-        writes the single content-addressed row they share.  The whole
-        work list comes back at once: this is the one read on the embed
-        path that touches `chunks.embedding`, and the caller fetches the
-        chunks themselves by id.
-        """
-        rows = self._cursor.execute(
-            _UNEMBEDDED_CHUNK_IDS_SQL,
-            {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha},
-        ).fetchall()
-        return [str(r[0]) for r in rows]
+    def _unlink(self, file: str) -> None:
+        """Delete *file* and its WAL from disk, if they are there."""
+        if self.db_path is not None:
+            for name in (file, f"{file}.wal"):
+                (self._projects_dir / name).unlink(missing_ok=True)
 
-    def get_chunks_by_id(self, chunk_ids: list[str], *, at: SnapshotRef) -> list[Chunk]:
-        """Return the named chunks as they are seen at *at*, ordered by id.
+    def _check_embedding_version(self, cur: duckdb.DuckDBPyConnection) -> None:
+        """Clear a file's embeddings if the format version or model changed."""
+        rows = cur.execute(_GET_EMBEDDING_META_SQL).fetchall()
+        stored: dict[str, str] = {str(r[0]): str(r[1]) for r in rows}
 
-        An id that no longer resolves at *at* is left out of the
-        result, which shortens the page: a chunk can be collected
-        between a work list being drawn up and a page of it being read.
-        """
-        if not chunk_ids:
-            return []
-        params = {"repo_id": at.repo_id, "snapshot_sha": at.snapshot_sha}
-        with self.reader(_chunk_ids=chunk_ids_view(chunk_ids)) as cur:
-            frame = (
-                cur.execute(_GET_CHUNKS_BY_ID_SQL, params)
-                .pl()
-                .pipe(_decode_metadata)
-                .pipe(ChunkResultRow.validate, cast=True)
+        stored_version = stored.get("embedding_version", "")
+        stored_model = stored.get("embedding_model", "")
+        current_version = str(EMBEDDING_FORMAT_VERSION)
+        current_model = config.embedding_model
+
+        if stored_version == current_version and stored_model == current_model:
+            return
+
+        n = cur.execute(_COUNT_EMBEDDINGS_SQL).fetchone()
+        count = n[0] if n else 0
+        if count > 0:
+            log.warning(
+                "embedding_config_changed",
+                stored_model=stored_model or "<none>",
+                current_model=current_model,
+                stored_version=stored_version or "<none>",
+                current_version=current_version,
+                cleared=count,
             )
-        return frame_to_chunks(frame)
+            cur.execute(_CLEAR_ALL_EMBEDDINGS_SQL)
+        cur.execute(_SET_EMBEDDING_VERSION_SQL, {"embedding_version": current_version})
+        cur.execute(_SET_EMBEDDING_MODEL_SQL, {"embedding_model": current_model})
 
-    def distinct_chunk_languages(self) -> set[str]:
-        """Return every real language present in the store (global).
+    def _cursor_for(self, alias: str) -> duckdb.DuckDBPyConnection:
+        """This thread's cursor on the file attached as *alias*.
 
-        Excludes the raw-chunk fallback pseudo-language (`''`), so the
-        result is the set of languages some plugin has actually
-        extracted -- a record of the plugin set that built the index.
+        Caches one cursor per thread and file to avoid the overhead of
+        `connection.cursor()` on every operation (which triggers `getcwd`
+        + `stat` syscalls in DuckDB).
         """
-        rows = self._cursor.execute(_DISTINCT_CHUNK_LANGUAGES_SQL).fetchall()
-        return {str(r[0]) for r in rows}
-
-    def get_chunks(
-        self,
-        *,
-        at: SnapshotRef,
-        file_path: str | None = None,
-        kind: ChunkKind | None = None,
-        name: str | None = None,
-    ) -> list[Chunk]:
-        """Query chunks visible at *at* with optional filters."""
-        kind_val = kind.value if kind is not None else None
-        params = {
-            "repo_id": at.repo_id,
-            "snapshot_sha": at.snapshot_sha,
-            "file_path": file_path,
-            "kind": kind_val,
-            "name": name,
-        }
-        frame = (
-            self._cursor.execute(_GET_CHUNKS_SQL, params)
-            .pl()
-            .pipe(_decode_metadata)
-            .pipe(ChunkResultRow.validate, cast=True)
+        cursors: dict[str, duckdb.DuckDBPyConnection] = self._local.__dict__.setdefault(
+            "cursors", {}
         )
-        return frame_to_chunks(frame)
+        cur = cursors.get(alias)
+        if cur is None:
+            cur = self._con.cursor()
+            # The alias is one the store made (`registry` or `_alias`).
+            cur.execute(f"USE {alias}")
+            cursors[alias] = cur
+        return cur
 
-    def inbound_refs(
-        self, target_ids: list[str], *, at: SnapshotRef
-    ) -> dy.DataFrame[InboundRefResultRow]:
-        """Return referrers of the given target chunks at *at*.
+    def _registry(self) -> duckdb.DuckDBPyConnection:
+        """This thread's cursor on the registry."""
+        return self._cursor_for("registry")
 
-        One row per inbound edge, resolved to the source (referrer)
-        chunk's identity plus the edge kind — powers `find-refs`.
+    def _alias_of(self, repo: Repo) -> str:
+        """The alias of the file holding *repo*'s data."""
+        return _alias(self._file_of[self._project(repo)])
+
+    def data(self, repo: Repo) -> duckdb.DuckDBPyConnection:
+        """This thread's cursor on the file holding *repo*'s data."""
+        return self._cursor_for(self._alias_of(repo))
+
+    def across[T](
+        self,
+        within: list[SnapshotRef],
+        read: Callable[[duckdb.DuckDBPyConnection, list[SnapshotRef]], T],
+    ) -> list[T]:
+        """Run *read* on each project file *within* spans; one result each.
+
+        *read* gets that file's cursor and the refs it holds.  Several
+        files are read at once, each on a pool thread with its own cursor:
+        a statement has a fixed cost on every file, which reading them in
+        turn would pay once per file.
         """
-        if not target_ids:
-            return InboundRefResultRow.create_empty()
-        with self.reader(_snapshot_refs=snapshot_refs_view([at])) as cur:
-            return (
-                cur.execute(_INBOUND_REFS_SQL, {"target_ids": target_ids})
-                .pl()
-                .pipe(InboundRefResultRow.validate, cast=True)
-            )
-
-    def chunk_contents(self, *, at: SnapshotRef) -> dy.DataFrame[ChunkContentRow]:
-        """Return all chunks at *at* as a content-only frame.
-
-        The frame is validated through `ChunkContentRow` and
-        contains identity columns (`file_path`, `scope`, `name`,
-        `line_start`, `line_end`, `kind`) plus `language` and
-        `content`.
-        """
-        params = {
-            "repo_id": at.repo_id,
-            "snapshot_sha": at.snapshot_sha,
-            "file_path": None,
-            "kind": None,
-            "name": None,
-        }
-        return (
-            self._cursor.execute(_GET_CHUNKS_SQL, params)
-            .pl()
-            .select(
-                "file_path",
-                "scope",
-                "name",
-                "line_start",
-                "line_end",
-                "kind",
-                "language",
-                "content",
-            )
-            .pipe(ChunkContentRow.validate, cast=True)
+        groups: dict[str, list[SnapshotRef]] = {}
+        for ref in within:
+            groups.setdefault(self._alias_of(ref.repo), []).append(ref)
+        if len(groups) <= 1:
+            return [read(self._cursor_for(alias), refs) for alias, refs in groups.items()]
+        return list(
+            self._pool.map(lambda item: read(self._cursor_for(item[0]), item[1]), groups.items())
         )
 
-    def edges(
-        self,
-        *,
-        within: list[SnapshotRef],
-        source_id: str | None = None,
-        target_id: str | None = None,
-        kind: EdgeKind | None = None,
-    ) -> dy.DataFrame[EdgeResultRow]:
-        """Return edges scoped to *within* as a validated frame."""
-        kind_val = kind.value if kind is not None else None
-        params = {
-            "source_id": source_id,
-            "target_id": target_id,
-            "kind": kind_val,
-        }
-        with self.reader(_snapshot_refs=snapshot_refs_view(within)) as cur:
-            return cur.execute(_GET_EDGES_SQL, params).pl().pipe(EdgeResultRow.validate, cast=True)
+    def each_file[T](self, read: Callable[[duckdb.DuckDBPyConnection], T]) -> list[T]:
+        """Run *read* on every live project file at once; one result each."""
+        aliases = [_alias(file) for file in self._file_of.values()]
+        return list(self._pool.map(lambda alias: read(self._cursor_for(alias)), aliases))
 
-    def inbound_degrees(
-        self, chunk_ids: list[str], *, within: list[SnapshotRef]
-    ) -> dy.DataFrame[InboundDegreeResultRow]:
-        """Return inbound edge counts for the given chunk IDs."""
-        if not chunk_ids:
-            return InboundDegreeResultRow.create_empty()
-        with self.reader(_snapshot_refs=snapshot_refs_view(within)) as cur:
-            return (
-                cur.execute(_INBOUND_DEGREE_SQL, {"chunk_ids": chunk_ids})
-                .pl()
-                .pipe(InboundDegreeResultRow.validate, cast=True)
-            )
+    def close(self) -> None:
+        """Delete retired files and close the database connection."""
+        self._pool.shutdown()
+        for file, _at in self._retired:
+            self._detach(file)
+        self._retired = []
+        self._con.close()
 
-    def changed_symbols(
-        self,
-        *,
-        between: SnapshotRange,
-        file_paths: list[str] | None = None,
-    ) -> dy.DataFrame[ChangedSymbolRow]:
-        """Symbol-level diff between two indexed commits.
+    def disk_size_bytes(self) -> int:
+        """Total bytes the index occupies on disk: its files and their WALs.
 
-        Returns one row per changed symbol, each labelled
-        added/modified/removed in a single SQL pass. Symbol identity
-        is `(file_path, name, scope)`; a head symbol is "modified"
-        iff that identity exists at base but no base symbol of that
-        identity has matching content (content-set membership, so a
-        non-unique identity cannot fan out into spurious pairs). A
-        side that is not indexed contributes no rows, so the caller
-        must check both commits are present to distinguish "no
-        changes" from "not indexed".
-
-        When *file_paths* is a non-empty list, the diff is scoped to
-        those files via the cursor-registered `_file_paths` semi-join
-        in `changed_symbols.sql`; `None` or an empty list diffs every
-        file (the `scope_all` flag bypasses the view).
+        The registry and every live project file.  A file a compaction
+        replaced is not counted: it is deleted once `retire_delay_s` has
+        passed.  It counts the actual files, so it is non-zero as soon as
+        anything is committed and never depends on whether a write-ahead
+        log has been consolidated.  Zero for an in-memory store.
         """
-        params = {
-            "repo_id": between.repo_id,
-            "head_sha": between.head_sha,
-            "base_sha": between.base_sha,
-            "scope_all": not file_paths,
-        }
-        with self.reader(_file_paths=file_paths_view(file_paths or [])) as cur:
-            return (
-                cur.execute(_CHANGED_SYMBOLS_SQL, params)
-                .pl()
-                .pipe(_decode_metadata)
-                .pipe(ChangedSymbolRow.validate, cast=True)
-            )
+        if self.db_path is None:
+            return 0
+        registry = Path(self.db_path)
+        files = [registry, registry.with_name(f"{registry.name}.wal")]
+        for file in self._file_of.values():
+            files += [self._projects_dir / file, self._projects_dir / f"{file}.wal"]
+        return sum(p.stat().st_size for p in files if p.exists())
 
-    # ── Match (internal frame, public chunk) ─────────────────────
+    def require_writable(self) -> None:
+        """Raise `RuntimeError` unless this process may change the index."""
+        if not self._writable:
+            msg = "Writing to the index requires a writable Index (pass writable=True)"
+            raise RuntimeError(msg)
 
-    def name_matches(
-        self, pattern: str, *, within: list[SnapshotRef]
-    ) -> dy.DataFrame[ChunkResultRow]:
-        """Return name-matched chunks as a validated frame.
+    def _project(self, repo: Repo) -> int:
+        """The project *repo* belongs to; `RepoNotFoundError` if none."""
+        project_id = self._project_of.get(repo.repo_id)
+        if project_id is None:
+            msg = f"Repo not registered: {repo.repo_path}"
+            raise RepoNotFoundError(msg)
+        return project_id
 
-        Resolution is tiered: exact → case-insensitive exact →
-        prefix → substring.  Only the best tier that has matches
-        is returned.
+    def _checkouts(self, project_id: int) -> int:
+        """How many registered repos belong to *project_id*."""
+        return sum(1 for p in self._project_of.values() if p == project_id)
+
+    def repo_at(self, path: str) -> Repo | None:
+        """The repo registered at *path*, matched exactly; `None` if there is none."""
+        return self._repos.get(path)
+
+    def repos(self) -> list[Repo]:
+        """Every registered repo, in the order they were registered."""
+        return sorted(self._repos.values(), key=lambda repo: repo.repo_id)
+
+    def _copy(self, project_id: int) -> str | None:
+        """Copy *project_id*'s file into a fresh one; the copy's name, or `None`.
+
+        The copy (search index included) is checkpointed.  The registry
+        does not name it yet: until a registry transaction does, a crash leaves it for
+        `_delete_unnamed_files`.  A failure deletes the copy and leaves the
+        old file live.
         """
-        with self.reader(_snapshot_refs=snapshot_refs_view(within)) as cur:
-            return (
-                cur.execute(
-                    _SEARCH_BY_NAME_SQL,
-                    {"name": pattern, "pattern": f"%{pattern}%"},
-                )
-                .pl()
-                .pipe(_decode_metadata)
-                .pipe(ChunkResultRow.validate, cast=True)
-            )
+        old = self._file_of[project_id]
+        new = f"{uuid4().hex}.duckdb"
+        try:
+            self._attach(new)
+            cur = self._cursor_for(_alias(new))
+            # Both aliases are ones the store made (`_alias`).
+            cur.execute(f"COPY FROM DATABASE {_alias(old)} TO {_alias(new)}")
+            cur.execute("CHECKPOINT")
+        except (OSError, duckdb.Error) as exc:
+            log.warning("gc_compaction_failed", error=str(exc))
+            # The attach itself may be what failed.
+            with contextlib.suppress(duckdb.Error):
+                self._con.execute(f"DETACH {_alias(new)}")
+            self._unlink(new)
+            return None
+        return new
 
-    def match_by_name(self, pattern: str, *, at: SnapshotRef) -> list[Chunk]:
-        """Find chunks by name with tiered resolution.
 
-        Prefers exact matches, then case-insensitive exact, then
-        prefix, then substring.  Returns only the best tier.
-        """
-        return frame_to_chunks(self.name_matches(pattern, within=[at]))
+def _alias(file: str) -> str:
+    """The name a project file is attached under: `p_` and its uuid."""
+    return f"p_{file.removesuffix('.duckdb')}"
 
-    def similar_matches(
-        self,
-        query_embeddings: list[list[float]],
-        *,
-        within: list[SnapshotRef],
-        top_k: int = 10,
-    ) -> dy.DataFrame[ScoredChunkResultRow]:
-        """Return cosine-similar chunks across multiple query vectors.
 
-        Registers a temporary polars frame of vectors, cross-joins
-        it with the chunks table, and keeps the best (MAX) cosine
-        similarity per chunk.  One table scan regardless of the
-        number of query vectors.
+def _quote(text: str) -> str:
+    """*text* as a SQL string literal.
 
-        Thread-safe: `register`/`unregister` are cursor-scoped —
-        the views are invisible to other cursors, so concurrent
-        calls on different thread-local cursors cannot collide.
-        """
-        vecs_frame = pl.DataFrame({"vec": query_embeddings}).cast({"vec": pl.List(pl.Float32)})
-        with self.reader(_qvecs=vecs_frame, _snapshot_refs=snapshot_refs_view(within)) as cur:
-            return (
-                cur.execute(_SEARCH_SIMILAR_SQL, {"top_k": top_k})
-                .pl()
-                .pipe(_decode_metadata)
-                .pipe(ScoredChunkResultRow.validate, cast=True)
-            )
+    DuckDB parses an `ATTACH` path or a `SET` value as a literal and takes
+    neither as a bound parameter, so the value is interpolated: every
+    single quote in it is doubled to keep the literal unbreakable.
+    """
+    escaped = text.replace("'", "''")
+    return f"'{escaped}'"
 
-    # ── FTS ──────────────────────────────────────────────────────────
 
-    def fulltext_matches(
-        self,
-        query: str,
-        *,
-        within: list[SnapshotRef],
-        top_k: int = 10,
-    ) -> dy.DataFrame[ScoredChunkResultRow]:
-        """Return BM25-matched chunks as a validated scored frame."""
-        tokenised_query = tokenise_code(query)
-        if not tokenised_query:
-            return ScoredChunkResultRow.create_empty()
-        with self.reader(_snapshot_refs=snapshot_refs_view(within)) as cur:
-            try:
-                return (
-                    cur.execute(
-                        _SEARCH_FULLTEXT_SQL,
-                        {"tokenised_query": tokenised_query, "top_k": top_k},
-                    )
-                    .pl()
-                    .pipe(_decode_metadata)
-                    .pipe(ScoredChunkResultRow.validate, cast=True)
-                )
-            except duckdb.CatalogException as exc:
-                raise IndexNotBuiltError from exc
-
-    def chunk_paths(
-        self, chunk_ids: list[str], *, within: list[SnapshotRef]
-    ) -> dy.DataFrame[ChunkPathResultRow]:
-        """Return `(id, file_path)` for the given chunk IDs."""
-        if not chunk_ids:
-            return ChunkPathResultRow.create_empty()
-        with self.reader(_snapshot_refs=snapshot_refs_view(within)) as cur:
-            return (
-                cur.execute(_GET_CHUNK_PATHS_SQL, {"chunk_ids": chunk_ids})
-                .pl()
-                .pipe(ChunkPathResultRow.validate, cast=True)
-            )
+def _delete(path: Path) -> None:
+    """Delete the file or directory at *path*."""
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink()

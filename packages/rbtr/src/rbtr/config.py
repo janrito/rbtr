@@ -19,7 +19,8 @@ Derived paths are exposed as computed fields:
 
 - `runtime_dir`  — `platformdirs.user_runtime_path / hash(data_dir)`,
                    for sockets + status file
-- `db_path`      — `data_dir / db_name`
+- `db_path`      — `data_dir / db_name`, the index's registry
+- `index_dir`    — `index/` beside `db_path`, the project files
 - `daemon_log`   — `log_dir / "daemon.log"`
 - `daemon_stderr` — `log_dir / "daemon.stderr"`
 - `daemon_rpc`   — `runtime_dir / "daemon.rpc"`
@@ -45,6 +46,7 @@ from typing import Self
 import platformdirs
 from pydantic import (
     BaseModel,
+    ByteSize,
     Field,
     computed_field,
     field_validator,
@@ -133,11 +135,18 @@ class Config(BaseSettings):
     )
     db_name: str = Field(
         default="index.duckdb",
-        description="Filename of the DuckDB index under `data_dir`.",
+        description="Filename of the index's registry under `data_dir`.",
     )
-    max_file_size: int = Field(
-        default=512 * 1024,
-        description="Skip files larger than this (bytes).",
+    max_file_size: ByteSize = Field(
+        default=ByteSize(512 * 2**10),
+        description="Skip files larger than this (e.g. `512KiB`).",
+    )
+    max_untracked_files: int = Field(
+        default=1000,
+        ge=0,
+        description="Most untracked files a dirty working tree may hold and \
+still have them indexed with it.  Past that, none are, and `rbtr status` \
+reports how many there are.",
     )
     chunk_lines: int = Field(default=50, description="Lines per index chunk.")
     chunk_overlap: int = Field(default=5, description="Overlap lines between adjacent chunks.")
@@ -170,7 +179,7 @@ embeddings are kept, unread.",
         "If set too low (e.g. 512) and a chunk has 600 tokens, the "
         "embedding is SILENTLY CORRUPTED — the decoder only sees the "
         "last 512 tokens before pooling.  Larger than needed (e.g. "
-        "32768) wastes ~1 GB Metal memory and slows inference ~1.3x.  "
+        "32768) wastes ~1 GiB Metal memory and slows inference ~1.3x.  "
         "Capped at the context the model was trained on.",
     )
     embedding_n_gpu_layers: int = Field(
@@ -193,6 +202,29 @@ embeddings are kept, unread.",
         default=512,
         description="Max chunks buffered before a DuckDB insert flush. "
         "Caps peak memory during indexing.",
+    )
+    duckdb_memory_limit: ByteSize = Field(
+        default=ByteSize(2**30),
+        description="Memory DuckDB's buffer manager may use, per open index \
+(e.g. `1GiB`).  DuckDB caches index blocks up to this limit and keeps them; \
+past it, a query spills to `<index>.tmp` beside the index, or fails with an \
+out-of-memory error.  Query results are allocated outside it, so the process \
+uses somewhat more.",
+    )
+    duckdb_threads: int = Field(
+        # At most one thread per 128 MiB of the limit, just above DuckDB's
+        # documented minimum memory per thread ("Hardware Configuration" in
+        # its performance guide).
+        default_factory=lambda data: max(
+            1,
+            min(
+                (os.process_cpu_count() or 1) // 2,
+                data["duckdb_memory_limit"] // (128 * 2**20),
+            ),
+        ),
+        ge=1,
+        description="Threads DuckDB runs a query on.  Defaults to half the \
+usable cores, at most one per 128 MiB of `duckdb_memory_limit`, and at least one.",
     )
     reranker_model: str | None = Field(
         default="ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/qwen3-reranker-0.6b-q8_0.gguf",
@@ -222,9 +254,9 @@ embeddings are kept, unread.",
         default=LogFormat.AUTO,
         description="Log renderer: auto (console on a TTY, else JSON), console, or json.",
     )
-    log_max_bytes: int = Field(
-        default=10 * 1024 * 1024,
-        description="Max size of `daemon.log` before rotation (bytes).",
+    log_max_size: ByteSize = Field(
+        default=ByteSize(10 * 2**20),
+        description="Max size of `daemon.log` before rotation (e.g. `10MiB`).",
     )
     log_backup_count: int = Field(
         default=5,
@@ -235,6 +267,11 @@ embeddings are kept, unread.",
         description="Seconds before unloading the embedding model when idle.  \
 Set to 0 to keep the model loaded.  Only used by the daemon.",
     )
+    max_concurrent_reads: int = Field(
+        default=2,
+        ge=1,
+        description="Concurrent daemon RPCs needing neither GPU nor write ownership. Excess requests wait in memory.",
+    )
     idle_poll_interval: float = Field(
         default=5.0,
         description="Seconds between watcher polls while the build queue is idle.  \
@@ -244,6 +281,35 @@ Only used by the daemon.",
         default=30.0,
         description="Seconds between watcher polls while a build is in progress.  \
 Slowed down to avoid flooding the queue with duplicates.  Only used by the daemon.",
+    )
+    retire_delay_s: float = Field(
+        default=60.0,
+        gt=0,
+        description="Seconds a project's old data file stays open after a compaction \
+replaces it, so reads already running on it can finish.  It is deleted after that.",
+    )
+    maintenance_idle_s: float = Field(
+        default=600.0,
+        gt=0,
+        description="Seconds the build and embed queues must have been empty before \
+maintenance runs.  Only used by the daemon.",
+    )
+    maintenance_interval_s: float = Field(
+        default=6 * 3600.0,
+        gt=0,
+        description="Fewest seconds between two maintenance runs.  Only used by the daemon.",
+    )
+    forget_after_s: float = Field(
+        default=3 * 3600.0,
+        gt=0,
+        description="Seconds a registered checkout's path may be missing before \
+maintenance forgets it.  Only used by the daemon.",
+    )
+    compact_growth_ratio: float = Field(
+        default=2.0,
+        gt=1.0,
+        description="Maintenance compacts a project's file once it is this many times \
+its size after it was last written whole.  Only used by the daemon.",
     )
     daemon_wait_budget_s: float = Field(
         default=120.0,
@@ -324,6 +390,11 @@ Disable in tests or resource-constrained environments.",
 
     @computed_field  # type: ignore[prop-decorator]
     @property
+    def index_dir(self) -> Path:
+        return index_dir_of(self.db_path)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
     def daemon_log(self) -> Path:
         return self.log_dir / "daemon.log"
 
@@ -392,6 +463,11 @@ Disable in tests or resource-constrained environments.",
 
 
 config = Config()
+
+
+def index_dir_of(db_path: Path) -> Path:
+    """The directory holding the project files of the index whose registry is *db_path*."""
+    return db_path.parent / "index"
 
 
 def own_dir(path: Path) -> Path:

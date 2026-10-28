@@ -14,6 +14,7 @@
 SELECT
   i.repo_id,
   i.snapshot_sha,
+  i.indexed_at,
   count(DISTINCT c.id) AS total,
   count(DISTINCT c.id) FILTER (WHERE c.embedding IS NOT NULL) AS embedded
 FROM indexed_snapshots AS i

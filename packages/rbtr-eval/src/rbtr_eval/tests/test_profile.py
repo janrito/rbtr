@@ -1,9 +1,8 @@
 """Behaviour tests for the pre-measurement dataset profile.
 
-`_render_report` characterises the query set: which target kinds
-are present (coverage), how provenance maps to `classify_query`
-(classification), and example queries.  Tested through the
-rendered report.
+The profile characterises the query set: which target kinds are
+present (coverage), how provenance maps to `classify_query`
+(classification), and example queries.
 """
 
 from __future__ import annotations
@@ -12,7 +11,7 @@ import dataframely as dy
 import polars as pl
 import pytest
 
-from rbtr_eval.profile import _render_report
+from rbtr_eval.profile import _dropped_languages, _examples, _query_counts, _render_report
 from rbtr_eval.shared_schemas import QueryRow, RepoHeader
 
 
@@ -61,59 +60,34 @@ def queries() -> dy.DataFrame[QueryRow]:
     return pl.DataFrame(rows).pipe(QueryRow.validate, cast=True)
 
 
-@pytest.fixture
-def headers() -> dy.DataFrame[RepoHeader]:
-    """Header row for the single repo in `queries`."""
-    return pl.DataFrame(
-        [
-            {
-                "slug": "r",
-                "sha": "abc123def456",
-                "seed": 0,
-                "queries_per_cell": 25,
-                "n_documented": 2,
-                "n_queries": 3,
-                "dropped_languages": [],
-            }
-        ],
-        schema_overrides={
-            "dropped_languages": pl.List(pl.Struct({"language": pl.String, "n_chunks": pl.UInt32}))
-        },
-    ).pipe(RepoHeader.validate, cast=True)
-
-
-def test_report_shows_present_kinds_not_absent_ones(
+def test_counts_show_present_kinds_not_absent_ones(
     queries: dy.DataFrame[QueryRow],
-    headers: dy.DataFrame[RepoHeader],
 ) -> None:
-    """Coverage: target kinds in the set appear; kinds absent from it do not.
+    """Coverage: target kinds in the set are counted; kinds absent from it are not.
 
-    This is the axis the harness was blind to — a kind that is never
-    generated (here `comment`) must be visibly absent, answering "are
-    we missing comment/config queries?" from the dataset alone.
+    A kind that is never generated (here `comment`) must be visibly
+    absent, answering "are we missing comment/config queries?" from the
+    dataset alone.
     """
-    report = _render_report(queries, headers, seed=0)
+    counts = _query_counts(queries)
 
-    assert "function" in report
-    assert "doc_section" in report
-    assert "comment" not in report
-    assert "config_key" not in report
+    assert set(counts["symbol_kind"].cast(pl.String)) == {"function", "doc_section"}
 
 
-def test_report_classifies_by_text_and_shows_examples(
+def test_queries_classify_by_text_and_examples_show_it(
     queries: dy.DataFrame[QueryRow],
-    headers: dy.DataFrame[RepoHeader],
 ) -> None:
-    """The concept-shaped query's text appears and drives classification.
+    """A query's kind follows its text, and the examples carry the text
+    verbatim, so data-quality issues are visible pre-run.
 
-    The example text is surfaced verbatim (so data-quality issues are
-    visible pre-run), and `concept` shows a non-zero share because a
-    query classifies by its text, not its provenance.
+    Both `load_config` queries target one function; the name classifies
+    as an identifier and the question as a concept.
     """
-    report = _render_report(queries, headers, seed=0)
+    examples = _examples(queries, per_provenance=3, seed=0)
 
-    assert "how does configuration loading resolve overrides" in report
-    assert "concept" in report
+    kind_of = dict(zip(examples["text"], examples["query_kind"], strict=True))
+    assert kind_of["load_config"] == "identifier"
+    assert kind_of["how does configuration loading resolve overrides"] == "concept"
 
 
 def test_report_lists_exclusions_and_threshold(
@@ -122,8 +96,12 @@ def test_report_lists_exclusions_and_threshold(
 ) -> None:
     """The report names the kinds no queries are generated for and the
     below-threshold drop status, so both are visible pre-measurement."""
-    report = _render_report(queries, headers, seed=0)
+    dropped = _dropped_languages(headers)
+    report = _render_report(
+        _query_counts(queries), dropped, _examples(queries, per_provenance=3, seed=0), headers
+    )
 
+    assert dropped.is_empty()
     assert "Not measured" in report
     assert "`import`" in report
     # The headers fixture drops no language, so the threshold status says so.

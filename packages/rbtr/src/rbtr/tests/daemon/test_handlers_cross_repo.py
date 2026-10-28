@@ -1,6 +1,6 @@
 """Cross-repo handlers end-to-end through the daemon RPC socket.
 
-Serves a real `DaemonServer` over two indexed repos to verify scope
+Serves a real `Daemon` over two indexed repos to verify scope
 behaviour and non-search isolation over the wire, not just via direct
 handler calls.
 """
@@ -17,22 +17,23 @@ from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import (
     ReadSymbolRequest,
     ReadSymbolResponse,
-    Scope,
+    SearchAllRequest,
     SearchRequest,
     SearchResponse,
+    StatusAllRequest,
     StatusRequest,
     StatusResponse,
 )
-from rbtr.daemon.server import DaemonServer
-from rbtr.domain.models import FileSnapshot, SnapshotRef
-from rbtr.index.store import IndexStore
+from rbtr.daemon.server import Daemon
+from rbtr.domain.models import FileSnapshot
+from rbtr.index.index import Index
 
 from ..index.conftest import make_chunk
 from .conftest import serving
 
 
 @pytest.fixture
-def shared_symbol_store(fake_repo: str, second_repo: str, store: IndexStore) -> IndexStore:
+def shared_symbol_index(fake_repo: str, second_repo: str, index: Index) -> Index:
     """Index both repos, each holding a unique symbol plus `shared_fn`.
 
     The shared name is what makes cross-repo merge, workspace isolation
@@ -43,8 +44,8 @@ def shared_symbol_store(fake_repo: str, second_repo: str, store: IndexStore) -> 
     """
     for path, uniq in ((fake_repo, "alpha"), (second_repo, "beta")):
         head = str(pygit2.Repository(path).head.target)
-        with store.session() as ws:
-            repo_id = ws.register_repo(path)
+        repo = index.register(path)
+        with index.session(repo) as ws:
             ws.add_chunk(make_chunk(f"{uniq}_id", name=f"{uniq}_fn", path=f"{uniq}.py"))
             ws.add_chunk(make_chunk(f"shared_{uniq}", name="shared_fn", path="shared.py"))
             ws.insert_snapshots(
@@ -56,33 +57,32 @@ def shared_symbol_store(fake_repo: str, second_repo: str, store: IndexStore) -> 
                         snapshot_sha=head, file_path="shared.py", blob_sha=f"blob_shared_{uniq}"
                     ),
                 ],
-                repo_id=repo_id,
             )
-            ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=head))
-    return store
+            ws.mark_indexed(snapshot_sha=head)
+    return index
 
 
 @pytest.fixture
 def running_daemon(
     runtime_dir: Path,
-    shared_symbol_store: IndexStore,
+    shared_symbol_index: Index,
     stub_embedding_model: None,
-) -> Generator[DaemonServer]:
+) -> Generator[Daemon]:
     """A served daemon over both repos (stub embedder: routing, not vectors)."""
     with serving(
-        DaemonServer(
-            runtime_dir, store=shared_symbol_store, idle_poll_interval=60.0, busy_poll_interval=60.0
+        Daemon(
+            runtime_dir, index=shared_symbol_index, idle_poll_interval=60.0, busy_poll_interval=60.0
         )
     ) as server:
         yield server
 
 
 def test_search_scope_all_merges_repos(
-    running_daemon: DaemonServer, fake_repo: str, second_repo: str
+    running_daemon: Daemon, fake_repo: str, second_repo: str
 ) -> None:
     """`scope=all` over the socket returns both repos, attributed."""
     with DaemonClient(running_daemon.runtime_dir) as client:
-        resp = client.send(SearchRequest(repo_path=fake_repo, query="shared_fn", scope=Scope.ALL))
+        resp = client.send(SearchAllRequest(query="shared_fn"))
     assert isinstance(resp, SearchResponse)
     # Both repos hold a `shared_fn`; the hit carries repo_path attribution
     # rather than an id, so the merge shows as both repo_paths present.
@@ -93,9 +93,7 @@ def test_search_scope_all_merges_repos(
     }
 
 
-def test_search_workspace_excludes_other_repo(
-    running_daemon: DaemonServer, second_repo: str
-) -> None:
+def test_search_workspace_excludes_other_repo(running_daemon: Daemon, second_repo: str) -> None:
     """A workspace search over the socket stays in the path's repo."""
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(SearchRequest(repo_path=second_repo, query="shared_fn"))
@@ -108,17 +106,17 @@ def test_search_workspace_excludes_other_repo(
 
 
 def test_status_scope_all_lists_both_repos(
-    running_daemon: DaemonServer, fake_repo: str, second_repo: str
+    running_daemon: Daemon, fake_repo: str, second_repo: str
 ) -> None:
     """`status --scope all` over the socket reports both repos."""
     with DaemonClient(running_daemon.runtime_dir) as client:
-        resp = client.send(StatusRequest(repo_path=fake_repo, scope=Scope.ALL))
+        resp = client.send(StatusAllRequest())
     assert isinstance(resp, StatusResponse)
     repo_paths = {ref.repo_path for ref in resp.indexed_refs}
     assert repo_paths == {fake_repo, second_repo}
 
 
-def test_status_workspace_single_repo(running_daemon: DaemonServer, fake_repo: str) -> None:
+def test_status_workspace_single_repo(running_daemon: Daemon, fake_repo: str) -> None:
     """Workspace status over the socket reports only the path's repo."""
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(StatusRequest(repo_path=fake_repo))
@@ -127,7 +125,7 @@ def test_status_workspace_single_repo(running_daemon: DaemonServer, fake_repo: s
     assert all(ref.repo_path == fake_repo for ref in resp.indexed_refs)
 
 
-def test_read_symbol_isolated_to_repo(running_daemon: DaemonServer, fake_repo: str) -> None:
+def test_read_symbol_isolated_to_repo(running_daemon: Daemon, fake_repo: str) -> None:
     """read_symbol for a colliding name returns only the path's repo."""
     with DaemonClient(running_daemon.runtime_dir) as client:
         resp = client.send(ReadSymbolRequest(repo_path=fake_repo, symbol="shared_fn"))

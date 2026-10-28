@@ -1,1 +1,2 @@
 demo/output/*.gif filter=lfs diff=lfs merge=lfs -text
+packages/rbtr/docs/diagrams/*.png filter=lfs diff=lfs merge=lfs -text

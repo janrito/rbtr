@@ -57,8 +57,6 @@ export function formatWatched(watched: WatchedRef[]): string[] {
   return lines;
 }
 
-// ── Helpers ─────────────────────────────────────────────────────
-
 /** A running read's row: what it reported, such as a wait for a build, or *doing*. */
 function partialRow(result: ToolResult, doing: string, theme: Theme): Text {
   return new Text(theme.fg("warning", getContentText(result) || doing), 0, 0);
@@ -118,8 +116,6 @@ function refSuffix(args: Record<string, unknown>, theme: Theme): string {
   if (!ref) return "";
   return theme.fg("dim", ` @${ref}`);
 }
-
-// ── Search ──────────────────────────────────────────────────────
 
 function scoreStyle(theme: Theme, score: number): string {
   if (score >= 1.0) return theme.fg("success", score.toFixed(2));
@@ -252,8 +248,6 @@ export function renderSearchResult(
   return new Text(lines.join("\n"), 0, 0);
 }
 
-// ── Read symbol ─────────────────────────────────────────────────
-
 export function renderReadSymbolCall(args: Record<string, unknown>, theme: Theme): Text {
   const symbol = str(args.symbol);
   const label =
@@ -305,8 +299,6 @@ export function renderReadSymbolResult(
   return new Text(lines.join("\n"), 0, 0);
 }
 
-// ── List symbols ────────────────────────────────────────────────
-
 export function renderListSymbolsCall(args: Record<string, unknown>, theme: Theme): Text {
   const file = str(args.file);
   const label = file === null ? invalidArg(theme) : file ? theme.fg("accent", file) : theme.fg("toolOutput", "...");
@@ -329,8 +321,6 @@ export function renderListSymbolsResult(result: ToolResult, options: { isPartial
   lines.push(theme.fg("dim", `${chunks.length} symbol(s)`));
   return new Text(lines.join("\n"), 0, 0);
 }
-
-// ── Find refs ───────────────────────────────────────────────────
 
 export function renderFindRefsCall(args: Record<string, unknown>, theme: Theme): Text {
   const symbol = str(args.symbol);
@@ -364,8 +354,6 @@ export function renderFindRefsResult(result: ToolResult, options: { isPartial: b
   lines.push(theme.fg("dim", `${refs.length} reference(s)`));
   return new Text(lines.join("\n"), 0, 0);
 }
-
-// ── Changed symbols ─────────────────────────────────────────────
 
 export function renderChangedSymbolsCall(args: Record<string, unknown>, theme: Theme): Text {
   const base = str(args.base);
@@ -419,8 +407,6 @@ export function renderChangedSymbolsResult(result: ToolResult, options: { isPart
   return new Text(lines.join("\n"), 0, 0);
 }
 
-// ── Index ───────────────────────────────────────────────────────
-
 export function renderIndexCall(args: Record<string, unknown>, theme: Theme): Text {
   const refs = decodeStringList(args.refs);
   const label = refs.length > 0 ? refs.join(", ") : "HEAD";
@@ -445,8 +431,6 @@ export function renderIndexResult(result: ToolResult, options: { isPartial: bool
   return new Text(theme.fg("dim", getContentText(result)), 0, 0);
 }
 
-// ── Status ──────────────────────────────────────────────────────
-
 export function renderStatusCall(_args: Record<string, unknown>, theme: Theme): Text {
   return new Text(theme.fg("toolTitle", theme.bold("rbtr_status")), 0, 0);
 }
@@ -460,8 +444,21 @@ export function renderStatusResult(result: ToolResult, options: { isPartial: boo
   const lines: string[] = [];
   const indexed = response?.indexed_refs ?? [];
   const crossRepo = new Set(indexed.map((ref) => ref.repo_path)).size > 1;
-  if (indexed.length === 0) {
-    lines.push(theme.fg("error", "✗ No index found"));
+  if (response?.state === undefined || response.state === "no_index") {
+    lines.push(theme.fg("error", "✗ the index does not exist"));
+  } else if (response.state === "repo_not_indexed") {
+    const subject = response.repo_path == null ? "no repo is" : "this repo is not";
+    lines.push(theme.fg("error", `✗ ${subject} indexed${formatSizeSuffix(response)}`));
+  } else if (response.state === "ref_not_indexed") {
+    lines.push(
+      theme.fg(
+        "warning",
+        `! this ref is not indexed; ${indexed.length} other refs of this repo are${formatSizeSuffix(response)}`,
+      ),
+    );
+    for (const ref of indexed) {
+      lines.push(theme.fg("muted", formatIndexedRef(ref)));
+    }
   } else if (crossRepo) {
     lines.push(theme.fg("success", `✓ indexed repos${formatSizeSuffix(response)}`));
     const byRepo = new Map<string, typeof indexed>();
@@ -483,6 +480,16 @@ export function renderStatusResult(result: ToolResult, options: { isPartial: boo
     for (const ref of indexed) {
       lines.push(theme.fg("muted", formatIndexedRef(ref)));
     }
+  }
+
+  for (const [repoPath, count] of Object.entries(response?.untracked_not_indexed ?? {})) {
+    lines.push(
+      theme.fg(
+        "warning",
+        `! ${count} untracked files in ${repoPath} not indexed (over max_untracked_files): ` +
+          "add their directories to .gitignore or .git/info/exclude",
+      ),
+    );
   }
 
   const job = response?.active_build;
@@ -542,18 +549,40 @@ export function shortSha(sha: string): string {
  *   rbtr: ● 3.5k symbols
  *   rbtr: ○ 3.5k symbols · not embedded
  *   rbtr: ○ 3.5k symbols · 42% embedded
- *   rbtr: ● 3.5k symbols · no daemon
- *   rbtr: ○ 3.5k symbols · no daemon · not embedded
+ *   rbtr: ● 3.5k symbols · not running
+ *   rbtr: ○ 3.5k symbols · not running · not embedded
  */
 export function footerLabel(counts: EmbedCounts, daemon: boolean): string {
   const { total, embedded } = counts;
   const glyph = isFullyEmbedded(counts) ? "●" : "○";
   const parts = [`rbtr: ${glyph} ${humanCount(total)} symbols`];
-  if (!daemon) parts.push("no daemon");
+  if (!daemon) parts.push("not running");
   if (!isFullyEmbedded(counts)) {
     parts.push(embedded > 0 ? `${Math.round((100 * embedded) / total)}% embedded` : "not embedded");
   }
   return parts.join(" · ");
+}
+
+/**
+ * The footer for *status*, what the index holds for the session's
+ * repository; *daemon* says whether a daemon answered. An indexed repo
+ * shows its symbols whether or not the daemon runs.
+ */
+export function statusFooter(
+  status: StatusResponse | null,
+  daemon: boolean,
+): { color: "success" | "warning" | "muted"; text: string } {
+  const top = status?.indexed_refs?.[0];
+  if (top && (status?.state === "indexed" || !daemon)) return { color: "success", text: footerLabel(top, daemon) };
+  if (!daemon) return { color: "muted", text: "rbtr: not running" };
+  switch (status?.state) {
+    case "ref_not_indexed":
+      return { color: "warning", text: "rbtr: ref not indexed" };
+    case "repo_not_indexed":
+      return { color: "muted", text: "rbtr: repo not indexed — /rbtr-index" };
+    default:
+      return { color: "muted", text: "rbtr: no index — /rbtr-index" };
+  }
 }
 
 /** Format a count for humans: 42, 1.2k, 11.2k. */
@@ -562,16 +591,16 @@ export function humanCount(n: number): string {
   return `${(n / 1000).toFixed(1)}k`;
 }
 
-/** Database size as ` · 1.5 MB`, or nothing when the daemon sends no size. */
+/** Database size as ` · 1.5 MiB` in binary units, as the CLI's `human_bytes`; nothing when the daemon sends no size. */
 function formatSizeSuffix(response: StatusResponse | undefined): string {
   const bytes = response?.db_size_bytes;
   if (bytes == null) return "";
   let size = bytes;
-  for (const unit of ["B", "KB", "MB"]) {
+  for (const unit of ["B", "KiB", "MiB"]) {
     if (size < 1024) return unit === "B" ? ` · ${Math.round(size)} ${unit}` : ` · ${size.toFixed(1)} ${unit}`;
     size /= 1024;
   }
-  return ` · ${size.toFixed(1)} GB`;
+  return ` · ${size.toFixed(1)} GiB`;
 }
 
 /** Render one indexed ref as a single line: sha, names, indexed count, embed state. */

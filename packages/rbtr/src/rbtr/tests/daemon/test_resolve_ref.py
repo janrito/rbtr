@@ -1,4 +1,4 @@
-"""Tests for `_resolve_read_ref` routing logic.
+"""Tests for `resolve_read_ref` routing logic.
 
 Verifies the ref behaviours:
 - `None` → worktree tree SHA if dirty and indexed, HEAD otherwise
@@ -14,11 +14,12 @@ import pygit2
 import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.daemon.handlers import _resolve_read_ref
-from rbtr.domain.models import RefSource, SnapshotRef
+from rbtr.config import config
+from rbtr.domain.models import RefSource
 from rbtr.errors import IndexNotBuiltError
 from rbtr.git import worktree_tree_sha
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
+from rbtr.index.refs import resolve_read_ref
 
 from .cases_resolve_ref import RefScenario
 
@@ -64,33 +65,35 @@ def ref_repo(
 
 
 @fixture
-def ref_store(
+def ref_index(
     ref_scenario: RefScenario,
     ref_repo: pygit2.Repository,
-    store: IndexStore,
-) -> IndexStore:
-    with store.session() as ws:
-        repo_id = ws.register_repo(ref_repo.workdir)
-        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=str(ref_repo.head.target)))
+    index: Index,
+) -> Index:
+    repo = index.register(ref_repo.workdir)
+    with index.session(repo) as ws:
+        ws.mark_indexed(snapshot_sha=str(ref_repo.head.target))
         if ref_scenario.tree_sha_indexed:
-            tree_sha = worktree_tree_sha(ref_repo.workdir)
+            tree_sha = worktree_tree_sha(
+                ref_repo.workdir, max_untracked_files=config.max_untracked_files
+            )
             if tree_sha is not None:
-                ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=tree_sha))
-    return store
+                ws.mark_indexed(snapshot_sha=tree_sha)
+    return index
 
 
 def test_resolve_read_ref(
     ref_scenario: RefScenario,
     ref_repo: pygit2.Repository,
-    ref_store: IndexStore,
+    ref_index: Index,
 ) -> None:
-    repo_id = ref_store.resolve_repo(ref_repo.workdir)
-    result = _resolve_read_ref(ref_store, ref_repo.workdir, repo_id, ref_scenario.requested_ref)
+    repo = ref_index.repo(ref_repo.workdir)
+    result = resolve_read_ref(ref_index, repo, ref_scenario.requested_ref)
 
     # Map symbolic names to actual SHAs.
     head_sha = str(ref_repo.head.target)
     feature_sha = str(ref_repo.references["refs/heads/feature"].target)
-    tree_sha = worktree_tree_sha(ref_repo.workdir)
+    tree_sha = worktree_tree_sha(ref_repo.workdir, max_untracked_files=config.max_untracked_files)
     expected_map: dict[str, str | None] = {
         "HEAD_SHA": head_sha,
         "FEATURE_SHA": feature_sha,
@@ -120,24 +123,24 @@ def _gate_repo(tmp_path: Path, sig: pygit2.Signature) -> pygit2.Repository:
 
 
 def test_implicit_unindexed_head_falls_back_to_latest_indexed(
-    tmp_path: Path, ref_sig: pygit2.Signature, store: IndexStore
+    tmp_path: Path, ref_sig: pygit2.Signature, index: Index
 ) -> None:
     """Implicit resolution prefers an older indexed commit over an
     unindexed HEAD rather than returning an empty result."""
     repo = _gate_repo(tmp_path, ref_sig)
     older = "a" * 40
-    with store.session() as ws:
-        repo_id = ws.register_repo(repo.workdir)
-        ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha=older))
+    registered = index.register(repo.workdir)
+    with index.session(registered) as ws:
+        ws.mark_indexed(snapshot_sha=older)
 
-    result = _resolve_read_ref(store, repo.workdir, repo_id, None, require_indexed=True)
+    result = resolve_read_ref(index, registered, None, require_indexed=True)
 
-    assert result.at == SnapshotRef(repo_id=repo_id, snapshot_sha=older)
+    assert result.at == registered.at(older)
     assert result.source == RefSource.LATEST_INDEXED
 
 
 def test_implicit_unindexed_head_nothing_indexed_errors(
-    tmp_path: Path, ref_sig: pygit2.Signature, store: IndexStore
+    tmp_path: Path, ref_sig: pygit2.Signature, index: Index
 ) -> None:
     """With nothing indexed, the implicit path errors clearly instead of
     silently resolving to an unqueryable ref.
@@ -147,8 +150,7 @@ def test_implicit_unindexed_head_nothing_indexed_errors(
     plain not-indexed guidance here.
     """
     repo = _gate_repo(tmp_path, ref_sig)
-    with store.session() as ws:
-        repo_id = ws.register_repo(repo.workdir)
+    registered = index.register(repo.workdir)
 
     with pytest.raises(IndexNotBuiltError, match="not indexed"):
-        _resolve_read_ref(store, repo.workdir, repo_id, None, require_indexed=True)
+        resolve_read_ref(index, registered, None, require_indexed=True)

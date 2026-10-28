@@ -23,18 +23,24 @@ from rbtr.index.classify import classify_query
 from rbtr_eval.shared_schemas import IDENTITY_COLUMNS, QueryRow
 
 
-def with_query_kind(queries: dy.DataFrame[QueryRow]) -> pl.DataFrame:
-    """Add a `query_kind` column from `classify_query(text)`.
+class ClassifiedQuery(QueryRow):
+    """A `QueryRow` with the `query_kind` its text classifies as."""
+
+    query_kind = dy.String()
+
+
+def query_kind() -> pl.Expr:
+    """`query_kind`: the `QueryKind` that `classify_query(text)` returns.
 
     Classifies each query by its request text — the axis production
     routes on — so tuning and reporting partition queries the way
     search does at runtime, independent of how the query was
     generated (`provenance`) or which kind of chunk it targets.
     """
-    return queries.with_columns(
+    return (
         pl.col("text")
         .map_elements(lambda q: classify_query(q).value, return_dtype=pl.String)
-        .alias("query_kind"),
+        .alias("query_kind")
     )
 
 

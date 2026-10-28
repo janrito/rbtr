@@ -11,17 +11,15 @@ import pytest
 from pytest_cases import parametrize_with_cases
 
 from rbtr.daemon.dto import ResolvedRef
-from rbtr.daemon.handlers import handle_search, handle_status
-from rbtr.daemon.messages import SearchRequest, StatusRequest
-from rbtr.domain.models import FileSnapshot, RefSource, SnapshotRef
-from rbtr.index.store import IndexStore
+from rbtr.domain.models import FileSnapshot, RefSource
+from rbtr.index.index import Index
 
 from ..index.conftest import make_chunk
 from .cases_cross_repo import ScopeScenario
 
 
 @pytest.fixture
-def two_repos(store: IndexStore) -> tuple[IndexStore, dict[int, str]]:
+def two_repos(index: Index) -> tuple[Index, dict[int, str]]:
     """A store with two indexed repos and their `repo_id -> path` map.
 
     Repo 1 holds chunk `r1_loader`, repo 2 holds `r2_loader`; both
@@ -33,8 +31,8 @@ def two_repos(store: IndexStore) -> tuple[IndexStore, dict[int, str]]:
         2: make_chunk("r2_loader", name="load_beta", path="beta.py", blob="b_r2"),
     }
     for repo_id, chunk in chunks.items():
-        with store.session() as ws:
-            ws.register_repo(paths[repo_id])
+        repo = index.register(paths[repo_id])
+        with index.session(repo) as ws:
             ws.add_chunk(chunk)
             ws.insert_snapshots(
                 [
@@ -42,21 +40,16 @@ def two_repos(store: IndexStore) -> tuple[IndexStore, dict[int, str]]:
                         snapshot_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha
                     )
                 ],
-                repo_id=repo_id,
             )
-            ws.mark_indexed(at=SnapshotRef(repo_id=repo_id, snapshot_sha="head"))
-    return store, paths
+            ws.mark_indexed(snapshot_sha="head")
+    return index, paths
 
 
 @parametrize_with_cases("scenario", cases=".cases_cross_repo")
-def test_search_scope(
-    scenario: ScopeScenario, two_repos: tuple[IndexStore, dict[int, str]]
-) -> None:
+def test_search_scope(scenario: ScopeScenario, two_repos: tuple[Index, dict[int, str]]) -> None:
     """Search returns hits from exactly the in-scope repos, attributed."""
-    store, paths = two_repos
-    resp = handle_search(
-        SearchRequest(repo_path=paths[1], query="load", scope=scenario.scope), store
-    )
+    index, paths = two_repos
+    resp = scenario.search(index, paths[1])
     # The DTO carries no id; repo_path is the attribution signal. In
     # attributed (cross-repo) mode the set of repo_paths returned must be
     # exactly the in-scope repos; in workspace mode all hits are
@@ -74,12 +67,10 @@ def test_search_scope(
 
 
 @parametrize_with_cases("scenario", cases=".cases_cross_repo")
-def test_status_scope(
-    scenario: ScopeScenario, two_repos: tuple[IndexStore, dict[int, str]]
-) -> None:
+def test_status_scope(scenario: ScopeScenario, two_repos: tuple[Index, dict[int, str]]) -> None:
     """Status reports refs for exactly the in-scope repos, attributed."""
-    store, paths = two_repos
-    resp = handle_status(StatusRequest(repo_path=paths[1], scope=scenario.scope), store)
+    index, paths = two_repos
+    resp = scenario.status(index, paths[1])
 
     expected_paths = {paths[r] for r in scenario.expected_repos}
     assert {ref.repo_path for ref in resp.indexed_refs} == expected_paths

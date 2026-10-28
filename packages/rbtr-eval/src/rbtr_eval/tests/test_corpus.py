@@ -1,6 +1,6 @@
 """`corpus_refs` names the snapshots the eval measures.
 
-Seeds a real git repo and a real `IndexStore`: `head_sha` reads git,
+Seeds a real git repo and a real `Index`: `head_sha` reads git,
 so neither can be faked.
 """
 
@@ -13,9 +13,8 @@ import pygit2
 import pytest
 from pytest_cases import parametrize_with_cases
 
-from rbtr.domain.models import SnapshotRef
 from rbtr.errors import RbtrError
-from rbtr.index.store import IndexStore
+from rbtr.index.index import Index
 from rbtr_eval.corpus import Corpus, corpus_refs
 from rbtr_eval.tests.cases_corpus import CorpusScenario
 from rbtr_eval.tests.conftest import seed_corpus
@@ -42,32 +41,30 @@ def repo_at_head(tmp_path: Path) -> RepoAtHead:
 
 
 @pytest.fixture
-def store(tmp_path: Path) -> IndexStore:
+def index(tmp_path: Path) -> Index:
     """A file-backed, writable index, isolated to this test."""
-    return IndexStore(str(tmp_path / "index" / "index.duckdb"), writable=True)
+    return Index(str(tmp_path / "index" / "index.duckdb"), writable=True)
 
 
 @parametrize_with_cases("scenario", cases=".cases_corpus", has_tag="valid")
 def test_corpus_refs_names_each_repos_head(
-    scenario: CorpusScenario, store: IndexStore, repo_at_head: RepoAtHead
+    scenario: CorpusScenario, index: Index, repo_at_head: RepoAtHead
 ) -> None:
     """The corpus is HEAD, given as a `SnapshotRef` per registered repo."""
-    repo_id = seed_corpus(store, repo_at_head.path, repo_at_head.head, scenario.indexed)
+    seeded = seed_corpus(index, repo_at_head.path, repo_at_head.head, scenario.indexed)
 
-    assert corpus_refs(store) == Corpus(
-        refs=(SnapshotRef(repo_id=repo_id, snapshot_sha=repo_at_head.head),)
-    )
+    assert corpus_refs(index) == Corpus(refs=(seeded.at(repo_at_head.head),))
 
 
 @parametrize_with_cases("scenario", cases=".cases_corpus", has_tag="invalid")
 def test_corpus_refs_refuses_an_index_that_is_not_the_corpus(
-    scenario: CorpusScenario, store: IndexStore, repo_at_head: RepoAtHead
+    scenario: CorpusScenario, index: Index, repo_at_head: RepoAtHead
 ) -> None:
     """Anything but HEAD alone is refused, naming the repo and the SHA."""
-    seed_corpus(store, repo_at_head.path, repo_at_head.head, scenario.indexed)
+    seed_corpus(index, repo_at_head.path, repo_at_head.head, scenario.indexed)
     assert scenario.error_match is not None
 
     with pytest.raises(RbtrError, match=scenario.error_match) as excinfo:
-        corpus_refs(store)
+        corpus_refs(index)
 
     assert str(repo_at_head.path) in str(excinfo.value)
