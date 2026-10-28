@@ -43,10 +43,10 @@ def test_registry_and_project_file_hold_their_tables(tmp_path: Path) -> None:
     index.close()
     query = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
     with duckdb.connect(str(tmp_path / "index.duckdb"), read_only=True) as con:
-        registry = {row[0] for row in con.execute(query).fetchall()}
+        registry = {row[0] for row in con.sql(query).fetchall()}
     (project_file,) = index_dir_of(tmp_path / "index.duckdb").glob("*.duckdb")
     with duckdb.connect(str(project_file), read_only=True) as con:
-        data = {row[0] for row in con.execute(query).fetchall()}
+        data = {row[0] for row in con.sql(query).fetchall()}
     assert {"meta", "projects", "repos"} <= registry
     assert {"meta", "file_snapshots", "chunks", "edges", "indexed_snapshots"} <= data
     assert "repos" not in data
@@ -160,7 +160,7 @@ def test_embedding_meta_stored_after_change(
     if not scenario.expected_meta_stored:
         return
     with index.reader(index.repo("/repo")) as cur:
-        rows = cur.execute(
+        rows = cur.sql(
             "SELECT key, value FROM meta WHERE key IN ('embedding_model', 'embedding_version')"
         ).fetchall()
     stored = {str(r[0]): str(r[1]) for r in rows}
@@ -178,6 +178,19 @@ def _seed_one_chunk(path: Path) -> None:
             [FileSnapshot(snapshot_sha="head", file_path="f.py", blob_sha="blob_c1")],
         )
     seed.close()
+
+
+def test_an_index_under_a_path_with_a_quote_opens_and_reopens(tmp_path: Path) -> None:
+    """A single quote in the index's path reaches DuckDB intact."""
+    path = tmp_path / "o'brien" / "index.duckdb"
+    _seed_one_chunk(path)
+
+    index = Index(path, writable=True)
+    try:
+        [repo] = index.repos()
+        assert len(index.chunks(at=repo.at("head"))) == 1
+    finally:
+        index.close()
 
 
 def test_reading_a_db_rbtr_never_built_says_it_is_not_built(tmp_path: Path) -> None:
@@ -218,7 +231,7 @@ def test_a_stale_index_is_replaced_by_an_empty_one(tmp_path: Path) -> None:
     path = tmp_path / "index.duckdb"
     _seed_one_chunk(path)
     con = duckdb.connect(str(path))
-    con.execute("CREATE TABLE padding AS SELECT range AS x FROM range(2000000)")
+    con.execute("CREATE TABLE padding AS SELECT md5(range::VARCHAR) AS x FROM range(200000)")
     con.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '2000.1.1')")
     con.close()
     size_before = path.stat().st_size
@@ -289,7 +302,7 @@ def test_checkouts_of_one_repository_share_a_project_file(
         files = {}
         for repo in (main, worktree, elsewhere):
             with index.reader(repo) as cur:
-                files[repo] = cur.execute("SELECT current_database()").fetchone()
+                files[repo] = cur.sql("SELECT current_database()").fetchall()
         assert files[main] == files[worktree]
         assert files[elsewhere] != files[main]
         projects = Path(str(index.db_path)).parent / "index"
@@ -341,9 +354,9 @@ def test_forgetting_a_projects_last_checkout_deletes_its_file(tmp_path: Path) ->
         ws.mark_indexed(snapshot_sha="head")
     query = "SELECT path FROM duckdb_databases() WHERE database_name = current_database()"
     with index.reader(kept) as cur:
-        kept_file = Path(cur.execute(query).fetchall()[0][0]).name
+        kept_file = Path(cur.sql(query).fetchall()[0][0]).name
     with index.reader(forgotten) as cur:
-        forgotten_file = Path(cur.execute(query).fetchall()[0][0]).name
+        forgotten_file = Path(cur.sql(query).fetchall()[0][0]).name
 
     index.forget(forgotten)
 

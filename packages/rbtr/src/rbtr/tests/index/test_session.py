@@ -14,6 +14,7 @@ import duckdb
 import pytest
 from dataframely.exc import ValidationError
 from pytest_cases import parametrize_with_cases
+from pytest_mock import MockerFixture
 
 from rbtr.config import config
 from rbtr.domain.models import Edge, EdgeKind, FileSnapshot, Repo, SnapshotRef
@@ -87,9 +88,19 @@ def test_chunks_cannot_be_committed_without_a_claim(index: Index) -> None:
         lambda index, repo: index.compact(repo),
         lambda index, repo: index.compact_all(),
         lambda index, repo: index.compact_grown(1.0),
+        lambda index, repo: index.rebuild_fts(),
         lambda index, repo: index.set_missing_since(repo, None),
     ],
-    ids=["session", "register", "forget", "compact", "compact_all", "compact_grown", "missing"],
+    ids=[
+        "session",
+        "register",
+        "forget",
+        "compact",
+        "compact_all",
+        "compact_grown",
+        "rebuild_fts",
+        "missing",
+    ],
 )
 def test_a_read_only_index_refuses_every_write(
     tmp_path: Path, write: Callable[[Index, Repo], object]
@@ -158,6 +169,19 @@ def test_fts_rebuilt_after_chunk_insert(index: Index) -> None:
 
     results = index.fulltext_matches("searchable", within=[repo.at("c1")])
     assert len(results) > 0
+
+
+def test_a_failed_fts_rebuild_keeps_the_previous_index(index: Index, mocker: MockerFixture) -> None:
+    """A rebuild that fails part-way leaves the previous FTS index whole."""
+    ref = index.register("/repo").at("c1")
+    seed_index(index, [make_chunk("before", name="before_check")], ref)
+    mocker.patch("rbtr.index.db._NEUTRALISE_FTS_IDF_SQL", "SELECT * FROM no_such_table")
+    after = make_chunk("after", name="after_check", path="g.py")
+    with pytest.raises(duckdb.CatalogException):
+        seed_index(index, [after], ref)
+
+    assert len(index.fulltext_matches("before", within=[ref])) == 1
+    assert len(index.fulltext_matches("after", within=[ref])) == 0
 
 
 def test_buffer_flushes_at_batch_size(index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -323,7 +347,7 @@ def test_update_embeddings_round_trip(index: Index) -> None:
 
     # Verify truncation flags in the DB.
     with index.reader(repo) as cur:
-        rows = cur.execute("SELECT id, embedding_truncated FROM chunks ORDER BY id").fetchall()
+        rows = cur.sql("SELECT id, embedding_truncated FROM chunks ORDER BY id").fetchall()
     by_id = {row[0]: row[1] for row in rows}
     assert by_id[chunk_a.id] is True
     assert by_id[chunk_b.id] is False
@@ -386,3 +410,13 @@ def test_chunk_with_inverted_span_is_rejected(index: Index, head_ref: SnapshotRe
     inverted = make_chunk("a").model_copy(update={"line_start": 7, "line_end": 6})
     with pytest.raises(duckdb.ConstraintException):
         seed_index(index, [inverted], head_ref)
+
+
+def test_a_failed_commit_leaves_the_thread_able_to_read(
+    index: Index, head_ref: SnapshotRef
+) -> None:
+    """A session whose commit fails rolls back, so the thread reads on."""
+    inverted = make_chunk("a").model_copy(update={"line_start": 7, "line_end": 6})
+    with pytest.raises(duckdb.ConstraintException):
+        seed_index(index, [inverted], head_ref)
+    assert index.has_indexed(at=head_ref) is False

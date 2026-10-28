@@ -958,8 +958,8 @@ for the dedup mechanism.
   original query only (no keyword or variant widening).
 - **No reranker model** → search returns fusion-ranked
   results without cross-encoder reranking.
-- **No FTS index** (first search before any build completes)
-  → error with guidance to run `rbtr watch`.
+- **No index yet** (a read before the first build) → error
+  with guidance to run `rbtr watch`.
 
 ## Development
 

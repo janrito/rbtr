@@ -66,7 +66,9 @@ export default defineConfig({
     // on loading the old pi. A cache per pi version starts afresh instead.
     fsModuleCachePath: join("node_modules", ".vitest-cache", `pi-${pi.version}`),
     // A test with a daemon of its own (`ownDaemon`) indexes a copy of the
-    // repository and starts that daemon: 7–10 s at load average 24.
-    testTimeout: 30_000,
+    // repository and starts that daemon: 7–10 s at load average 24, and over
+    // 20 s at load average 15 with the Python suite running. The timeout only
+    // bounds a hang, so it leaves room for both.
+    testTimeout: 90_000,
   },
 });

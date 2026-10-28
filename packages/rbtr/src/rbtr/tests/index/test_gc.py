@@ -445,7 +445,7 @@ def test_run_gc_all_freed_matches_physical_deletion(global_gc: GlobalGcFixture) 
         total = 0
         for repo in (global_gc.a, global_gc.b):
             with global_gc.index.reader(repo) as cur:
-                total += cur.execute("SELECT count(*) FROM chunks").fetchall()[0][0]
+                total += cur.sql("SELECT count(*) FROM chunks").fetchall()[0][0]
         return total
 
     before = chunk_rows()

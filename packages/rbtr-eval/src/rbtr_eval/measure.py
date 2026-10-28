@@ -222,7 +222,7 @@ def _truncated_targets(db_path: Path) -> dy.DataFrame[TruncatedTarget]:
     frames = []
     for repo in index.repos():
         with index.reader(repo) as cur:
-            frame = cur.execute(_TRUNCATED_CHUNKS_SQL, {"repo_id": repo.repo_id}).pl()
+            frame = cur.sql(_TRUNCATED_CHUNKS_SQL, params={"repo_id": repo.repo_id}).pl()
         frames.append(frame.with_columns(pl.lit(repo.repo_path).alias("path")))
     index.close()
     trunc = pl.concat(frames) if frames else pl.DataFrame()

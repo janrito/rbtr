@@ -115,7 +115,7 @@ def _per_ref(index: Index, corpus: Corpus, sql: str) -> pl.DataFrame:
     frames = []
     for ref in corpus.refs:
         with index.reader(ref.repo, _snapshot_refs=snapshot_refs_view([ref])) as cur:
-            frames.append(cur.execute(sql).pl())
+            frames.append(cur.sql(sql).pl())
     return pl.concat(frames)
 
 

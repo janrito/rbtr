@@ -126,7 +126,7 @@ The reason to reach for this is **speed**, and the win comes
 from turning many round trips into a single set-based one:
 
 - **One scan instead of N.** Scoring chunks against 3 query
-  vectors by looping `execute` three times scans the chunks
+  vectors by running the query three times scans the chunks
   table three times. Registering the vectors as `_qvecs` and
   `CROSS JOIN`-ing scores all of them in one scan — benchmarked
   at **7–32× faster for 3 vectors** (see ARCHITECTURE,
@@ -149,16 +149,17 @@ So the mental model is: *keep the set in a frame, let DuckDB do
 the set operation once.* The looping/`IN`-literal alternatives
 pay a per-row or per-call tax this avoids.
 
-The lifecycle is always register → execute → unregister, but
-don't hand-write it. Use the `_registered_views` context
+The lifecycle is always register → query → unregister, but
+don't hand-write it. Use the `registered_views` context
 manager: it registers each frame, yields the cursor, and drops
-the views on exit — even if the query raises, so a failed query
+the views on exit. When the query raises inside a transaction,
+the transaction's rollback drops them instead, so a failed query
 can't leak a view onto the cursor:
 
 ```python
-with self._registered_views(_snapshot_refs=snapshot_refs_view(within)) as cur:
+with registered_views(cur, _snapshot_refs=snapshot_refs_view(within)) as c:
     return (
-        cur.execute(_SEARCH_SQL, {"top_k": top_k})
+        c.sql(_SEARCH_SQL, params={"top_k": top_k})
         .pl()
         .pipe(ScoredChunkResultRow.validate, cast=True)
     )
@@ -166,6 +167,11 @@ with self._registered_views(_snapshot_refs=snapshot_refs_view(within)) as cur:
 
 Rules:
 
+- **Read through `cur.sql()`, change state through `execute()`.**
+  A read is `cur.sql(SQL, params=...)` followed by `.pl()` or
+  `.fetchall()`, consumed before the cursor is used again.
+  `execute()` is for DDL and DML, and any rows it returns are read
+  with `.fetchall()`.
 - **Name views with a leading underscore** (`_snapshot_refs`,
   `_qvecs`, `_stg`) so the SQL clearly marks them as transient
   bind inputs, not real tables. The SQL `JOIN _snapshot_refs` /
@@ -184,14 +190,14 @@ Rules:
   the target column is TEXT — DuckDB sees a polars `Struct` as a
   nested type, not a string. `_bulk_insert` does this with
   `pl.col(c).struct.json_encode()`.
-- **It is thread-safe by cursor.** `_registered_views` binds the
+- **It is thread-safe by cursor.** `registered_views` binds the
   views on the thread-local cursor, and rbtr uses one such cursor
   per thread, so concurrent calls on different threads register
   identically-named views without colliding. Don't add locks for
   this.
 - **Register multiple views for one query** when it needs several
   inputs — pass them as separate keyword arguments to
-  `_registered_views` (e.g. `_qvecs=…` + `_snapshot_refs=…` in
+  `registered_views` (e.g. `_qvecs=…` + `_snapshot_refs=…` in
   the semantic search).
 
 This is the polars↔DuckDB bridge: keep data construction and

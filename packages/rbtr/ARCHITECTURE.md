@@ -1010,8 +1010,8 @@ first and the scope after it.
 ### Registered frames as query inputs
 
 Both reads and writes pass polars frames into DuckDB by
-**registering them as named views** (`register` →
-`execute` → `unregister` in a `finally`), rather than
+**registering them as named views** (`register` → query →
+`unregister`), rather than
 interpolating values into SQL or issuing one query per
 row. The motive is speed: it collapses N round trips into
 one set-based operation — one table scan instead of N, one
@@ -1044,6 +1044,21 @@ no locking needed. Registered frames carry a `dataframely`
 schema like any other frame, so the view's column types
 match the table it joins against. The caller-side
 convention lives in the `rbtr-data` skill.
+
+Reads run through `cur.sql(...)` and are read to the end with
+`.pl()` or `.fetchall()`; `execute()` runs DDL and DML, and any
+rows it returns are read with `.fetchall()`. DuckDB holds a
+cursor while an `execute()` result is unread, and refuses
+`register`, `unregister` and relation reads on it until then.
+The store caches one cursor per thread and file, so one
+half-read result would break every later call on that thread. A
+relation has no `fetchone()`, so a read through one cannot be
+left half-read; it costs about 60 µs more per statement.
+
+A statement that fails inside a transaction aborts it, and an
+aborted transaction refuses `unregister`. `registered_views`
+therefore lets the statement's exception propagate and leaves
+the views to the owner's rollback.
 
 ### Completion tracking
 
@@ -1153,7 +1168,7 @@ writing a claim in the same session, which is what lets one
 re-extraction re-chunk a blob for every checkout sharing it.
 
 **Compaction.** Deleting rows does not shrink a DuckDB file — the
-freed space is kept inside it for reuse, so a file only ever grows.
+freed space is kept inside it for reuse, so a file never shrinks.
 To hand that space back, `gc` finishes by rewriting each project
 file it collected: `Index.compact` switches the project to a
 fresh copy, search index included (see
@@ -1254,14 +1269,19 @@ daemon runs `run_maintenance` under `_write_sem`. In order, it:
    path gone, and is cleared when the path is back;
 3. collects every repo in `WATCHED` mode (`run_gc_all`);
 4. compacts each project file grown past `compact_growth_ratio` (2)
-   times its `compacted_bytes`.
+   times its `compacted_bytes`;
+5. rebuilds every project file's FTS index (`rebuild_fts`).
 
-Each step removes only what `rbtr unwatch --stale`, `rbtr forget
---stale`, `rbtr gc --scope all` and `rbtr gc --compact` would. A pass
+Each removing step removes only what `rbtr unwatch --stale`, `rbtr
+forget --stale`, `rbtr gc --scope all` and `rbtr gc --compact` would.
+The rebuild writes each index in the loaded FTS extension's format, so
+an index another DuckDB built, which may search far slower, is
+replaced within one pass of an upgrade, without rbtr detecting which
+DuckDB built it. It costs about 1.6 s for an index of eight files. A pass
 is published as a gc (`gc_started`, `gc_progress` per repo,
 `gc_ended`), which clients already show, and logged as
 `maintenance_started` and `maintenance_finished` with what it
-removed. The same task deletes the files compactions replaced, every
+did. The same task deletes the files compactions replaced, every
 idle poll, once `retire_delay_s` has passed.
 
 ## Search fusion
@@ -1516,8 +1536,8 @@ scores at `0.0` (graceful fallback).
 
 When expansion produces variants, the original query
 vector and all variant vectors are evaluated in a
-single DuckDB scan. The vectors are loaded into a
-cursor-scoped register (`SELECT $vectors`) and joined
+single DuckDB scan. The vectors are registered as the
+cursor-scoped view `_qvecs` and joined
 via `CROSS JOIN` + `MAX(cosine_similarity)` so each
 chunk is scored against the closest matching vector.
 This avoids N separate table scans — benchmarked at
@@ -1525,29 +1545,41 @@ This avoids N separate table scans — benchmarked at
 
 ### FTS index lifecycle
 
-DuckDB's FTS extension persists its inverted index to disk.
-The persisted index survives connection close + reopen and
-is queryable immediately. It does **not** auto-update after
-INSERT or DELETE.
+Lexical search uses DuckDB's FTS extension, scoring with BM25F
+over `name_tokens` and `content_tokens`. An FTS index is ordinary
+tables and SQL macros (`match_bm25`) that the extension writes
+into the file. It persists across close and reopen, and does
+**not** update after `INSERT` or `DELETE`.
 
 Each project file has its own FTS index, made with the file over
 its still empty `chunks` table, so every file has one.
 
+**IDF is neutralised.** After each build every term's document
+frequency is set to 1 (`neutralise_fts_idf.sql`), so a score
+depends on term frequency and document length only. In code a
+term common across chunks is often the one asked for — `config`,
+`model` — and IDF would suppress it.
+
 **Write path** (build, GC): a [write session](#write-path) that
 modified chunks rebuilds its file's FTS index after it commits
-(`overwrite = 1`, an atomic drop and create). Making a file and
-this are the only paths that write FTS DDL; a compaction copies
-the index with the rest of the file.
+(`overwrite = 1`). The build and the IDF update run in one
+transaction, so a failure leaves the previous index whole and no
+index is left with its IDF in place. Making a file, this and
+[maintenance](#maintenance) are the only paths that write FTS DDL;
+a compaction copies the index with the rest of the file.
 
-**Read path** (search): queries the existing persisted
-index. Never rebuilds.
+**Read path** (search): queries the persisted index and never
+rebuilds. A search running during a rebuild reads the previous
+index until the rebuild commits, so a build in progress still
+returns results for the chunks indexed before it.
 
-DuckDB's MVCC ensures readers see a consistent snapshot
-during a concurrent rebuild — they block briefly on the DDL
-and then execute against the fresh index. A stale index
-(built before the latest inserts) is acceptable during a
-build; it still returns results for previously-indexed
-chunks.
+`incremental = 1`, the extension's trigger-maintained index, does
+not replace the rebuild. It rejects the chunk upsert's
+`ON CONFLICT DO UPDATE` ("not yet supported with REFERENCING NEW
+TABLE AS triggers"), leaves rows changed by `UPDATE` unindexed, and
+increments `dict.df` on insert, which undoes the neutralised IDF.
+Revisit if the extension supports upserts and stops maintaining
+`df`.
 
 ## Storage models vs API DTOs
 
@@ -1733,7 +1765,11 @@ This application-level coordination is distinct from DuckDB's file and
 transaction rules. Reads use thread-local cursors and can overlap writes.
 A read already using a file finishes against it when compaction switches
 to a replacement. Cross-project reads also have their own query pool;
-[Index files](#index-files) explains the storage-level ownership.
+[Index files](#index-files) explains the storage-level ownership. A DuckDB
+connection busy with one thread's call refuses another thread's call
+rather than waiting, so the store's root connection runs `ATTACH` and
+`DETACH` only under the writer semaphore, and other threads only take
+cursors from it, which a busy connection still allows.
 
 Model handles need protection beyond scheduling inference. Idle unload
 takes the same GPU lock so it cannot dispose of a model still in use.
@@ -2127,7 +2163,11 @@ Revisit if the index ever needs concurrent writers.
 
 **One data file per project, named by a registry.** Deleting rows
 never shrinks a DuckDB file, so reclaiming space means writing the
-live data into a new file and using that one instead. Renaming a
+live data into a new file and using that one instead. DuckDB
+reuses the freed space for later writes but returns none to the
+operating system: a file of 60,000 chunks at about 22 MB was
+still 16.0 MB after 90% of them were deleted, and a copy wrote it
+as 1.8 MB. Renaming a
 compacted copy over the open index loses writes after a crash: a
 connection adopted after the rename goes on writing its WAL under
 the copy's old name, which the next open does not look for, and a
@@ -2236,13 +2276,21 @@ about 100 MiB at that size. Threads default to half the usable
 cores, capped at one per 128 MiB of the limit, just above DuckDB's
 documented minimum per thread; the thread count barely moved the
 footprint, and half the cores was faster than either a quarter or
-all of them.
+all of them. DuckDB also starts an asynchronous I/O pool of
+four threads per core, at most 256. rbtr leaves it at its default:
+capping it at `duckdb_threads` changed neither the test suite's
+time nor memory, only the number of idle threads (49 to 10).
+Revisit if rbtr reads files over a network.
 
 ### Search
 
 **Exact cosine over approximate NN.** Exact recall
 outweighs marginal latency. Revisit when query latency is
-measured as a bottleneck.
+measured as a bottleneck. DuckDB's `NEAREST` join returns
+the same top 50 more slowly: on a 23,542-chunk file the current
+query took 0.68 s, an exact `NEAREST` join 1.50 s and `APPROX
+NEAREST` 1.30 s. Revisit if DuckDB gains a vector index the join
+uses.
 
 **Client-supplied query expansion over static rules.**
 Query expansion (synonym keywords and variant phrasings)

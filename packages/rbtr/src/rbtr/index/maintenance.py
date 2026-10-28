@@ -2,10 +2,11 @@
 
 `run_maintenance` stops watching refs git can no longer resolve, forgets
 checkouts missing past `forget_after_s`, collects every repo in watched
-mode, and compacts project files grown past `compact_growth_ratio`, in
-that order.  Each step only removes what the user would remove by hand
-with `rbtr unwatch --stale`, `rbtr forget --stale`, `rbtr gc --scope all`
-or `rbtr gc --compact`.
+mode, compacts project files grown past `compact_growth_ratio`, and
+rebuilds every project file's FTS index, in that order.  Each removing
+step only removes what the user would remove by hand with
+`rbtr unwatch --stale`, `rbtr forget --stale`, `rbtr gc --scope all` or
+`rbtr gc --compact`.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ log = structlog.get_logger(__name__)
 
 
 def run_maintenance(index: Index, *, now: datetime, on_progress: RepoProgressCallback) -> None:
-    """Run one maintenance pass over the whole index; log what it removed.
+    """Run one maintenance pass over the whole index; log what it did.
 
     *now* is when the pass runs, the time a checkout found missing is
     recorded against.  *on_progress* is called with each repo as gc
@@ -37,6 +38,7 @@ def run_maintenance(index: Index, *, now: datetime, on_progress: RepoProgressCal
         index, mode=GcMode.WATCHED, dry_run=False, on_progress=on_progress
     )
     compacted = index.compact_grown(config.compact_growth_ratio)
+    fts_rebuilt = index.rebuild_fts()
     log.info(
         "maintenance_finished",
         unwatched=sum(len(refs) for refs in unwatched.values()),
@@ -45,4 +47,5 @@ def run_maintenance(index: Index, *, now: datetime, on_progress: RepoProgressCal
         snapshots=counts.snapshots,
         chunks=counts.chunks,
         compacted=compacted,
+        fts_rebuilt=fts_rebuilt,
     )
