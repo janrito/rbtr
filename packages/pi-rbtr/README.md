@@ -77,64 +77,66 @@ instead of, and the tools that find code are listed first.
 Shapes, not fixtures — the line numbers and scores below move
 with the code they describe.
 
-Every tool replies with one JSON object, rbtr's own response, in
-the shape its output schema declares; codemode scripts receive the
-same object as a structured value. An empty result has the same
-shape with an empty list. A read names the snapshot it read as
-`resolved` (its SHA, and whether that was the ref asked for, `head`,
-the dirty working tree, or the latest indexed commit because the
-one asked for is not indexed yet), and echoes its scoping paths,
-repo-relative.
+Every tool's reply is rbtr's own response, in the shape its output
+schema declares. codemode scripts receive that object as a
+structured value. The model reads it as text: one line per symbol
+as `path:line kind name`, each file once, and a method named with
+its scope (`EngineArgs::add_cli_args`, as `rbtr_read_symbol` takes
+it). A read first names the snapshot it read: its SHA, and whether
+that was the ref asked for, `head`, the dirty working tree, or the
+latest indexed commit because the one asked for is not indexed yet.
 
-**`rbtr_search`** — query in, scored results out:
+**`rbtr_search`** — query in, ranked hits out, each with the first
+8 lines of its source:
 
-```json
-{"kind": "search", "results": [
-  {"name": "fuse_scores", "kind": "function", "file_paths": ["src/rbtr/index/search.py"],
-   "line_start": 298, "line_end": 380, "score": 0.49,
-   "preview": {"text": "def fuse_scores(...):\n    ...", "clipped": true, "total_lines": 83}}
-], "resolved": {"sha": "4a6a6ffc…", "source": "head"}}
+```text
+read at 4a6a6ffc1b2e (head): 2 result(s)
+match: src/rbtr/index/search.py:298 function fuse_scores
+  def fuse_scores(
+      frame: pl.DataFrame,
+  … 75 more lines
+match: src/rbtr/index/search.py:44 function _name_score_expr
+  def _name_score_expr(query: str) -> pl.Expr:
 ```
 
-A hit carries the first 20 lines of the symbol. A longer one
-is `clipped` and reports `total_lines`; `rbtr_read_symbol`
-returns the whole body.
+A hit that ends in `… N more lines` is longer; `rbtr_read_symbol`
+returns it whole.
 
 **`rbtr_read_symbol`** — symbol name in, full source out:
 
-```json
-{"kind": "read_symbol", "chunks": [
-  {"name": "fuse_scores", "kind": "function", "file_path": "src/rbtr/index/search.py",
-   "line_start": 298, "line_end": 380, "content": "def fuse_scores(...):\n    ..."}
-], "resolved": {"sha": "4a6a6ffc…", "source": "head"}, "file_paths": null}
+```text
+read at 4a6a6ffc1b2e (head)
+defined: src/rbtr/index/search.py:298-380 function fuse_scores
+def fuse_scores(
+    ...
 ```
 
-**`rbtr_list_symbols`** — file path in, TOC out:
+**`rbtr_list_symbols`** — file path in, outline out, without
+imports and comments:
 
-```json
-{"kind": "list_symbols", "chunks": [
-  {"name": "_name_score_expr", "kind": "function", "line_start": 44, "line_end": 86},
-  {"name": "fuse_scores", "kind": "function", "line_start": 298, "line_end": 380}
-], "resolved": {"sha": "4a6a6ffc…", "source": "head"}, "file_path": "src/rbtr/index/search.py"}
+```text
+read at 4a6a6ffc1b2e (head)
+outline of src/rbtr/index/search.py:
+  _name_score_expr (function) lines 44-86
+  fuse_scores (function) lines 298-380
 ```
 
 **`rbtr_find_refs`** — symbol name in, referring symbols out:
 
-```json
-{"kind": "find_refs", "refs": [
-  {"name": "from rbtr.index.index import Index", "kind": "import",
-   "file_path": "src/rbtr/daemon/watcher.py", "line_start": 30, "edge": "imports"}
-], "resolved": {"sha": "4a6a6ffc…", "source": "head"}, "file_paths": null}
+```text
+read at 4a6a6ffc1b2e (head): 1 ref(s)
+imports: src/rbtr/daemon/watcher.py:30 import from rbtr.index.index import Index
 ```
 
 **`rbtr_changed_symbols`** — two refs in, changed symbols out:
 
-```json
-{"kind": "changed_symbols", "changes": [
-  {"chunk": {"name": "resolveCommand", "kind": "function", "file_path": "exec.ts", "line_start": 34, "line_end": 70},
-   "change": "modified"}
-], "base_sha": "5ba5a78c…", "head_sha": "4a6a6ffc…", "file_paths": null}
+```text
+changes from 5ba5a78c0d1e to 4a6a6ffc1b2e: 1 change(s)
+modified: exec.ts:34 function resolveCommand
 ```
+
+The replies that report on the index rather than code are rbtr's
+JSON, as are errors.
 
 **`rbtr_watch`** — refs in, the watch set out:
 

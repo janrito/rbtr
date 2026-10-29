@@ -116,20 +116,33 @@ again. It waits for the build only, not for embeddings,
 which reads do not need. After 30 s the model gets rbtr's
 "in progress" reply and can go on with other tools.
 
-### Raw JSON replies
+### Replies: the response for scripts, text for the model
 
-The model gets rbtr's JSON object as it is. Models parse
-JSON well and take the fields they need; reformatting would
-lose information or add size. A codemode script gets the
-same object as `structuredContent`, and the renderers draw
-the human-readable view from it.
+Each tool returns rbtr's response three ways. A codemode script
+gets the object as `structuredContent`, typed by the tool's
+output schema; the renderers draw from `details.response`; and
+the model reads `content`, the text `model-text.ts` renders from
+the same object. A script never reads `content`, so the text is
+shaped for the model alone.
 
-Prose replies, such as an empty result echoing the call's
-arguments, do not work beside codemode: a script's
-`JSON.parse` fails on them, and in a trial on pi 0.99.1 the
-model spent a turn wrapping the call in `try`/`catch`. A
-read instead reports what rbtr resolved, such as the commit
-it read, which the model cannot know otherwise.
+The text uses the `[rbtr index]` facts' line shapes, so the model
+reads one vocabulary for the index: `path:line kind name`, each
+file once, a method named `Class::method` as `rbtr_read_symbol`
+takes it. A read first names the commit it read and how rbtr chose
+it, which the model cannot know otherwise. Outlines leave out
+imports and comments (`OUTLINE_EXCLUDES`, asked of rbtr with the
+`kinds` filter), and search previews carry 8 lines
+(`SEARCH_PREVIEW_LINES`, about half the median hit) with
+`… N more lines` when clipped. Errors, and the replies that
+report on the index rather than code (status, watch, gc), stay
+rbtr's JSON: they are small and have no repeated values.
+
+Sending the model rbtr's raw JSON does not work here: over 127
+rbtr calls in 12 `rbtr-agent-eval` runs it was 585,998
+characters, of which keys, punctuation, values repeated on every
+item and fields the model does not use were 40%; an outline's
+were 78%. Revisit if rbtr's responses stop repeating a path and
+its metadata on every item, which is most of the difference.
 
 Each tool's output schema lists rbtr's error object beside
 its success reply. Leaving the error out would shorten
