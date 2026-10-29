@@ -81,7 +81,10 @@ that cannot be read leaves the daemon running.
 The daemon keeps the index open and its models loaded, so a
 call costs milliseconds, where a CLI call pays for a new
 process every time. The CLI keeps the tools working when no
-daemon runs.
+daemon runs. A CLI process with no daemon opens the index and
+holds it alone, so pi-rbtr runs its rbtr commands one at a
+time: pi runs a turn's tool calls at once, and side by side
+they would fail with `index_locked`.
 
 The daemon's sockets sit at fixed paths, so a restarted
 daemon is reached again without looking for it. ZMQ never
