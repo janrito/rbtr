@@ -252,13 +252,18 @@ def _files_in_directory(
     )
 
 
-def _targets_at(
+def module_files(
     path: str,
     repo_files: set[str],
     resolution: ImportResolution,
-    importer_ext: str,
+    importer_ext: str = "",
 ) -> list[str]:
-    """The files a reference to *path* names: one file, or a directory's."""
+    """The files a reference to the module *path* names: one file, or a directory's.
+
+    *path* is `/`-separated (a dotted module style's `.` also works).
+    *importer_ext* breaks ties between files that differ only by
+    extension; a caller with no importing file leaves it empty.
+    """
     found = _resolve_module_to_file(path, repo_files, resolution, importer_ext)
     if found is not None:
         return [found]
@@ -283,13 +288,13 @@ def _resolve_unanchored(
     `css/a.css` means `css/b.css`.
     """
     importer_ext = PurePosixPath(file_path).suffix
-    from_root = _targets_at(module, repo_files, resolution, importer_ext)
+    from_root = module_files(module, repo_files, resolution, importer_ext)
     if from_root or resolution.module_style is not ModuleStyle.PATH:
         return from_root
     beside_importer = _relative_module(file_path, 1, module)
     if beside_importer is None or beside_importer == module:
         return []
-    return _targets_at(beside_importer, repo_files, resolution, importer_ext)
+    return module_files(beside_importer, repo_files, resolution, importer_ext)
 
 
 def _resolve_import_targets(
@@ -320,7 +325,7 @@ def _resolve_import_targets(
         anchored = _relative_module(file_path, dots, module)
         if anchored is None:
             return []
-        return _targets_at(anchored, repo_files, resolution, PurePosixPath(file_path).suffix)
+        return module_files(anchored, repo_files, resolution, PurePosixPath(file_path).suffix)
 
     if not module:
         return []

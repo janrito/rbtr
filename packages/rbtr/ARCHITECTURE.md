@@ -1442,6 +1442,41 @@ purpose:
 so absolute, `./`-prefixed, and relative inputs all match the
 stored (repo-relative) chunk paths.
 
+### Symbol name resolution
+
+`read-symbol` and `find-refs` turn a name into chunks through
+`Index.name_matches`, as does search's name-match channel. A
+name matches by tier (exact, case-insensitive, prefix,
+substring), and only the best tier any file found is kept.
+
+A qualified name is written in the canonical form a scope is
+stored in, `Outer::Inner::name` (`compose_scope`), or with any
+separator in `config.qualifier_separators` (`.`, `#`, `/` by
+default), which `name_matches` reads as `::`. Its last part
+matches by the same tiers; the parts before it say where the
+symbol is, as rows of the `_qualifiers` view that
+`search_by_name.sql` joins:
+
+- read whole as a scope, the symbol's scope must end with it
+  (`EngineArgs.add_cli_args`, `Inner.m` for `Outer::Inner`);
+- its leading parts may name a module, resolved as an import
+  would be (`module_files` in `rbtr.languages.edges`, for each
+  language in the snapshot: source roots, `index_files`,
+  `path_substitutions`, a path suffix of two or more parts);
+  the symbol must then be in a file they name, with the
+  remaining parts as its exact scope
+  (`vllm.engine.arg_utils.EngineArgs.add_cli_args`,
+  Rust's `crate::foo::bar`).
+
+The whole name is also tried as a literal name, so a heading
+such as `Release 1.2` still resolves, and the better tier of
+the two readings counts. A qualifier that places nothing finds
+nothing rather than falling back to the bare name, so an empty
+answer means the qualified symbol does not exist.
+
+Module resolution reuses import resolution, so a qualified
+name reaches a module exactly when an import of it would.
+
 ### Query expansion
 
 Query expansion is client-supplied: the caller passes

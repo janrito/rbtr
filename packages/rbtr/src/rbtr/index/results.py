@@ -82,6 +82,28 @@ class FilePathRow(dy.Schema):
     file_path = dy.String(nullable=False)
 
 
+class QualifierRow(dy.Schema):
+    """Backs the cursor-registered `_qualifiers` view: where a qualified name may point.
+
+    Not an insert target: `search_by_name.sql` admits a chunk when one
+    row does.  A row with no file asks that the chunk's scope end with
+    `scope`; a row with a file (in `repo_id`) asks that the chunk be in
+    that file with exactly `scope`.
+    """
+
+    repo_id = dy.Int32(nullable=True)
+    file_path = dy.String(nullable=True)
+    scope = dy.String(nullable=False)
+
+
+class SnapshotFileRow(dy.Schema):
+    """Projected by `snapshot_file_paths.sql`: a file in a snapshot, and its language."""
+
+    repo_id = dy.Int32(nullable=False)
+    file_path = dy.String(nullable=False)
+    detected_language = dy.String(nullable=False)
+
+
 class ChunkIdRow(dy.Schema):
     """Backs the cursor-registered `_chunk_ids` join view.
 
