@@ -188,15 +188,19 @@ class SearchHitOut(BaseModel):
     signals: SearchSignals | None = Field(default=None, exclude_if=lambda v: v is None)
 
     @classmethod
-    def from_scored(cls, sc: ScoredChunk, *, explain: bool = False) -> SearchHitOut:
+    def from_scored(
+        cls, sc: ScoredChunk, *, explain: bool = False, preview_lines: int | None = None
+    ) -> SearchHitOut:
+        """The hit for *sc*, previewing *preview_lines* lines (default: the config's)."""
         meta = sc.metadata if sc.metadata != ImportMeta() else None
+        limit = config.search_preview_lines if preview_lines is None else preview_lines
         return cls(
             name=sc.name,
             kind=sc.kind,
             file_paths=sc.file_paths,
             scope=sc.scope,
             language=sc.language,
-            preview=Preview.from_content(sc.content, limit=config.search_preview_lines),
+            preview=Preview.from_content(sc.content, limit=limit),
             line_start=sc.line_start,
             line_end=sc.line_end,
             match_line_offset=sc.match_line_offset,

@@ -26,6 +26,23 @@ export type Request =
   | UnwatchStaleAllRequest
   | ForgetRequest
   | ForgetStaleRequest;
+export type KindFilter = IncludeKinds | ExcludeKinds;
+/**
+ * Kind of indexed chunk.
+ */
+export type ChunkKind =
+  | "function"
+  | "class"
+  | "method"
+  | "variable"
+  | "import"
+  | "doc_section"
+  | "config_key"
+  | "comment"
+  | "migration"
+  | "test_function"
+  | "api_endpoint"
+  | "raw_chunk";
 /**
  * What a `rbtr gc` invocation is allowed to delete.
  */
@@ -59,22 +76,6 @@ export type ErrorCode =
   | "shutting_down"
   | "out_of_memory"
   | "internal";
-/**
- * Kind of indexed chunk.
- */
-export type ChunkKind =
-  | "function"
-  | "class"
-  | "method"
-  | "variable"
-  | "import"
-  | "doc_section"
-  | "config_key"
-  | "comment"
-  | "migration"
-  | "test_function"
-  | "api_endpoint"
-  | "raw_chunk";
 /**
  * How a read chose the snapshot it read.
  *
@@ -160,6 +161,10 @@ export interface SearchRequest {
   variants?: string[] | null;
   explain?: boolean;
   /**
+   * Lines of each hit's body to preview; a longer body is clipped and says so. None uses `search_preview_lines` from the config.
+   */
+  preview_lines?: number | null;
+  /**
    * Force expansion pipeline. One of concept|identifier|code. None means heuristic.
    */
   query_kind?: string | null;
@@ -199,6 +204,10 @@ export interface SearchAllRequest {
   variants?: string[] | null;
   explain?: boolean;
   /**
+   * Lines of each hit's body to preview; a longer body is clipped and says so. None uses `search_preview_lines` from the config.
+   */
+  preview_lines?: number | null;
+  /**
    * Force expansion pipeline. One of concept|identifier|code. None means heuristic.
    */
   query_kind?: string | null;
@@ -216,6 +225,25 @@ export interface ListSymbolsRequest {
   repo_path: string;
   file_path: string;
   ref?: string | null;
+  kinds?: KindFilter | null;
+}
+/**
+ * Keep only symbols of these kinds.
+ */
+export interface IncludeKinds {
+  /**
+   * @minItems 1
+   */
+  include: [ChunkKind, ...ChunkKind[]];
+}
+/**
+ * Drop symbols of these kinds, and keep the rest.
+ */
+export interface ExcludeKinds {
+  /**
+   * @minItems 1
+   */
+  exclude: [ChunkKind, ...ChunkKind[]];
 }
 export interface FindRefsRequest {
   kind: "find_refs";

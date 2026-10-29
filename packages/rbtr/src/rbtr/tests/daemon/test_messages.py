@@ -60,6 +60,22 @@ def test_named_refs_and_the_stale_rule_cannot_be_asked_for_together() -> None:
     assert "stale" in str(excinfo.value)
 
 
+@pytest.mark.parametrize(
+    "kinds",
+    [
+        b'{"include":["class"],"exclude":["import"]}',
+        b'{"include":[]}',
+        b"{}",
+    ],
+    ids=["both", "empty", "neither"],
+)
+def test_a_kind_filter_names_kinds_to_include_or_to_exclude(kinds: bytes) -> None:
+    """A filter is one list of kinds, kept or dropped; any other shape is refused."""
+    raw = b'{"kind":"list_symbols","repo_path":"/r","file_path":"a.py","kinds":' + kinds + b"}"
+    with pytest.raises(ValidationError):
+        request_adapter.validate_json(raw)
+
+
 def test_a_scope_cannot_be_asked_of_named_refs() -> None:
     """Breadth belongs to the stale rule: a named ref is watched in the
     one repo the request names."""

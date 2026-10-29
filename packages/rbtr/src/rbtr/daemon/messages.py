@@ -43,6 +43,7 @@ from rbtr.daemon.dto import (
 from rbtr.daemon.status import DaemonStatusReport
 from rbtr.domain.models import (
     ChangeKind,
+    ChunkKind,
     EveryRepoGcMode,
     GcMode,
     IndexStats,
@@ -190,6 +191,14 @@ class SearchQuery(BaseModel):
     keywords: OptStrList = None
     variants: OptStrList = None
     explain: bool = False
+    preview_lines: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Lines of each hit's body to preview; a longer body is clipped and says so. "
+            "None uses `search_preview_lines` from the config."
+        ),
+    )
     query_kind: str | None = Field(
         default=None,
         description=(
@@ -245,12 +254,40 @@ class ReadSymbolRequest(BaseModel):
     file_paths: RepoRelativePaths = None
 
 
+class IncludeKinds(BaseModel):
+    """Keep only symbols of these kinds."""
+
+    model_config = _STRICT
+    include: list[ChunkKind] = Field(min_length=1)
+
+    def admits(self, kind: ChunkKind) -> bool:
+        return kind in self.include
+
+
+class ExcludeKinds(BaseModel):
+    """Drop symbols of these kinds, and keep the rest."""
+
+    model_config = _STRICT
+    exclude: list[ChunkKind] = Field(min_length=1)
+
+    def admits(self, kind: ChunkKind) -> bool:
+        return kind not in self.exclude
+
+
+type KindFilter = IncludeKinds | ExcludeKinds
+"""Which kinds of symbol a read returns: one list, kept or dropped.
+
+Two shapes rather than two optional lists, so a request cannot ask to
+include and exclude at once."""
+
+
 class ListSymbolsRequest(BaseModel):
     model_config = _STRICT
     kind: Literal["list_symbols"] = "list_symbols"
     repo_path: str
     file_path: RepoRelativePath
     ref: str | None = None
+    kinds: KindFilter | None = None
 
 
 class FindRefsRequest(BaseModel):
