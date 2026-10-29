@@ -42,6 +42,7 @@ from rbtr.index.results import (
     EdgeResultRow,
     InboundDegreeResultRow,
     InboundRefResultRow,
+    IndexedSnapshotRow,
     NameMatchRow,
     ScoredChunkResultRow,
     SnapshotCountsRow,
@@ -79,6 +80,7 @@ _COUNT_FILE_SNAPSHOTS_SQL = load_sql("count_file_snapshots.sql")
 _COUNT_EDGES_SQL = load_sql("count_edges.sql")
 _UNEMBEDDED_CHUNK_IDS_SQL = load_sql("unembedded_chunk_ids.sql")
 _GET_CHUNKS_BY_ID_SQL = load_sql("get_chunks_by_id.sql")
+_SNAPSHOTS_TO_EMBED_SQL = load_sql("snapshots_to_embed.sql")
 
 
 class Index:
@@ -329,6 +331,24 @@ class Index:
             .sort(["indexed_at", "snapshot_sha"], descending=[True, False])
             .pipe(SnapshotCountsRow.validate, cast=True)
         )
+
+    def snapshots_to_embed(self) -> list[SnapshotRef]:
+        """Return every indexed snapshot holding a chunk without a vector, newest first.
+
+        Ties in `indexed_at` fall to `snapshot_sha`, as in
+        `chunk_counts_by_snapshot`.  A snapshot of a repo forgotten since
+        is left out.
+        """
+        frame = _concat(
+            self._store.each_file(lambda cur: cur.sql(_SNAPSHOTS_TO_EMBED_SQL).pl()),
+            IndexedSnapshotRow,
+        ).sort(["indexed_at", "snapshot_sha"], descending=[True, False])
+        repos = {r.repo_id: r for r in self._store.repos()}
+        return [
+            repo.at(snapshot_sha)
+            for repo_id, snapshot_sha in frame.select("repo_id", "snapshot_sha").iter_rows()
+            if (repo := repos.get(repo_id)) is not None
+        ]
 
     def chunk_counts_for_snapshot(self, *, at: SnapshotRef) -> SnapshotCounts:
         """Return chunk and embedded counts for one indexed snapshot.

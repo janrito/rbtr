@@ -35,7 +35,7 @@ class ChunkQueryScenario:
 @dataclass(frozen=True)
 class EmbedOrderScenario:
     """Snapshots to mark indexed, grouped by transaction, and the order
-    the counts query should return them in."""
+    the embed and counts queries should return them in."""
 
     transactions: list[list[str]]
     expected: list[str]
