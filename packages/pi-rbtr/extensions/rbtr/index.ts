@@ -1012,7 +1012,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     namespace: NAMESPACE,
     annotations: READS,
     description:
-      "Find what imports or documents a symbol, from the index's dependency graph: the files and symbols that depend on it. Use it instead of grepping for a name when you need to know what a change would affect. Returns edges (source, target, kind `imports` or `docs`), not text matches; grep finds occurrences inside strings and comments.",
+      "Find what imports or documents a symbol, from the index's dependency graph: the files and symbols that depend on it. Use it instead of grepping for a name when you need to know what a change would affect. Returns edges (source, target, kind `imports` or `documents`), not text matches; grep finds occurrences inside strings and comments.",
     promptSnippet: "Find what imports or documents a symbol, to see what a change would affect",
     promptGuidelines: [
       "Use rbtr_find_refs instead of grep before changing a function or class, to find the code that depends on it.",
