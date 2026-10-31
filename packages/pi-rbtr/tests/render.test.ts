@@ -10,7 +10,7 @@ import { stripVTControlCharacters as plain } from "node:util";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { describe, expect } from "vitest";
 
-import type { SearchHitOut, StatusResponse } from "../extensions/rbtr/generated/protocol.js";
+import type { ErrorResponse, SearchHitOut, StatusResponse } from "../extensions/rbtr/generated/protocol.js";
 import {
   extractPayload,
   fileScopeSuffix,
@@ -295,8 +295,11 @@ describe("footerLabel", () => {
 
 describe("statusFooter", () => {
   const ref = { sha: "a".repeat(40), names: ["main"], total: 3500, embedded: 3500 };
-  test.for<{ status: StatusResponse | null; daemon: boolean; text: string }>([
+  const notARepo = { kind: "error", code: "repo_not_found", message: "Not a git repository: ." } as const;
+  test.for<{ status: StatusResponse | ErrorResponse | null; daemon: boolean; text: string }>([
     { status: null, daemon: false, text: "rbtr: not running" },
+    { status: notARepo, daemon: false, text: "rbtr: not a git repository" },
+    { status: notARepo, daemon: true, text: "rbtr: not a git repository" },
     { status: { kind: "status", state: "no_index" }, daemon: false, text: "rbtr: not running" },
     {
       status: { kind: "status", state: "indexed", indexed_refs: [ref] },

@@ -20,6 +20,7 @@ import type {
   ActiveJob,
   ChangedSymbol,
   ChangedSymbolsResponse,
+  ErrorResponse,
   FindRefsResponse,
   IndexedRef,
   ListSymbolsResponse,
@@ -565,13 +566,19 @@ export function footerLabel(counts: EmbedCounts, daemon: boolean): string {
 
 /**
  * The footer for *status*, what the index holds for the session's
- * repository; *daemon* says whether a daemon answered. An indexed repo
- * shows its symbols whether or not the daemon runs.
+ * repository, or rbtr's error reading it; *daemon* says whether a daemon
+ * answered. An indexed repo shows its symbols whether or not the daemon
+ * runs.
  */
 export function statusFooter(
-  status: StatusResponse | null,
+  status: StatusResponse | ErrorResponse | null,
   daemon: boolean,
 ): { color: "success" | "warning" | "muted"; text: string } {
+  if (status?.kind === "error") {
+    return status.code === "repo_not_found"
+      ? { color: "muted", text: "rbtr: not a git repository" }
+      : statusFooter(null, daemon);
+  }
   const top = status?.indexed_refs?.[0];
   if (top && (status?.state === "indexed" || !daemon)) return { color: "success", text: footerLabel(top, daemon) };
   if (!daemon) return { color: "muted", text: "rbtr: not running" };
