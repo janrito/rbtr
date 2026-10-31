@@ -352,6 +352,14 @@ Disable in tests or resource-constrained environments.",
             "this is clipped and says so; read-symbol returns the whole body."
         ),
     )
+    qualifier_separators: list[str] = Field(
+        default=[".", "#", "/"],
+        description=(
+            "Separators a caller may write between the parts of a qualified symbol "
+            "name (`Foo.bar`, `Foo#bar`, `pkg/mod.bar`), besides `::`, the scope "
+            "separator. Each is read as `::`."
+        ),
+    )
     search_weights: dict[QueryKind, WeightTriple] = Field(
         default={
             QueryKind.CONCEPT: WeightTriple(alpha=0.50, beta=0.40, gamma=0.10),
