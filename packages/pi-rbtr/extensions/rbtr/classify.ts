@@ -19,6 +19,8 @@ export interface DaemonFailure {
   message: string;
 }
 
+const INDEX_LOCKED_MESSAGE = "rbtr index temporarily unavailable (database busy); try again shortly.";
+
 /**
  * Classify a failed `rbtr daemon …` invocation into an actionable
  * category and message, from its exit code, the `ErrorResponse`
@@ -29,7 +31,7 @@ export interface DaemonFailure {
  */
 export function classifyDaemonFailure(code: number | null, reply: ErrorResponse | null, stderr: string): DaemonFailure {
   if (reply?.code === "index_locked") {
-    return { kind: "db-locked", message: "rbtr index temporarily unavailable (database busy); will retry." };
+    return { kind: "db-locked", message: INDEX_LOCKED_MESSAGE };
   }
   const message = reply?.message ?? stderr.trim();
   return { kind: "transient", message: message || `rbtr daemon command failed (exit ${code ?? "?"}).` };
@@ -38,16 +40,26 @@ export function classifyDaemonFailure(code: number | null, reply: ErrorResponse 
 export type StartupDecision =
   | { kind: "indexed" } // the repo has indexed refs: show the footer
   | { kind: "empty"; index: boolean } // no index, or not this repo: index if enabled
-  | { kind: "transient"; index: boolean }; // daemon/db busy: warn, index if enabled
+  | { kind: "no-repo" } // the session is not in a git repository: index nothing
+  | { kind: "transient"; index: boolean; message: string }; // status unreadable: warn, index if enabled
 
 /**
  * Decide what `session_start` should do, once rbtr runs, from its index
- * status: `null` when the status could not be read. A transient failure
- * still attempts indexing so the repo gets indexed once the daemon is
- * healthy.
+ * status: rbtr's error when it answered with one, `null` when the status
+ * could not be read. A transient failure still attempts indexing so the
+ * repo gets indexed once the daemon is healthy.
  */
-export function decideStartupDecision(status: StatusResponse | null, autoIndex: boolean): StartupDecision {
-  if (status === null) return { kind: "transient", index: autoIndex };
+export function decideStartupDecision(
+  status: StatusResponse | ErrorResponse | null,
+  autoIndex: boolean,
+): StartupDecision {
+  if (status === null) return { kind: "transient", index: autoIndex, message: "rbtr could not read the index status." };
+  if (status.kind === "error") {
+    if (status.code === "repo_not_found") return { kind: "no-repo" };
+    const message =
+      status.code === "index_locked" ? INDEX_LOCKED_MESSAGE : `rbtr could not read the index status: ${status.message}`;
+    return { kind: "transient", index: autoIndex, message };
+  }
   if (status.state === "indexed" || status.state === "ref_not_indexed") return { kind: "indexed" };
   return { kind: "empty", index: autoIndex };
 }

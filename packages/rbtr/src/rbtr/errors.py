@@ -66,7 +66,7 @@ class IndexNotBuiltError(RbtrError):
 
 
 class RepoNotFoundError(RbtrError):
-    """Raised when the index has no row for a repo: never indexed, or forgotten."""
+    """Raised when a path is not a git checkout, or the index has no row for its repo."""
 
     error_code: str = "repo_not_found"
 

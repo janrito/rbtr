@@ -2001,7 +2001,8 @@ Error responses carry a `code` field:
 - `index_in_progress` — the daemon will index what the read
   needs without being asked; retry after the `ready`
   notification.
-- `repo_not_found` — the supplied path does not identify an available Git checkout.
+- `repo_not_found` — the supplied path is not a Git checkout, or the index has not
+  registered that checkout.
 - `index_locked` — another process holds the index's write
   lock; retry once it has let go.
 - `shutting_down` — the daemon rejected this call before its native work started.
