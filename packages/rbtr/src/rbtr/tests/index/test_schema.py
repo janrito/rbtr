@@ -72,9 +72,8 @@ def reopened(
     before = scenario.before
 
     if before.create_bare_file:
-        con = duckdb.connect(str(path))
-        con.execute("CREATE TABLE dummy (x INT)")
-        con.close()
+        with duckdb.connect(str(path)) as con:
+            con.execute("CREATE TABLE dummy (x INT)")
     else:
         seed = Index(path, writable=True)
         registered = seed.register("/repo")
@@ -113,9 +112,8 @@ def reopened(
         if before.embedding_version is not None:
             updates.append((project_file, "embedding_version", before.embedding_version))
         for file, key, value in updates:
-            con = duckdb.connect(str(file))
-            con.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", [key, value])
-            con.close()
+            with duckdb.connect(str(file)) as con:
+                con.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", [key, value])
 
     for name, sql in scenario.migrations.items():
         (chains / name).parent.mkdir(exist_ok=True)
@@ -229,10 +227,11 @@ def test_an_index_older_than_migrations_is_replaced_by_an_empty_one(
     """
     path = tmp_path / "index.duckdb"
     _seed_one_chunk(path)
-    con = duckdb.connect(str(path))
-    con.execute("CREATE TABLE padding AS SELECT md5(range::VARCHAR) AS x FROM range(1000000)")
-    con.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '2000.1.1')")
-    con.close()
+    with duckdb.connect(str(path)) as con:
+        con.execute("CREATE TABLE padding AS SELECT md5(range::VARCHAR) AS x FROM range(1000000)")
+        con.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '2000.1.1')"
+        )
     size_before = path.stat().st_size
 
     index = Index(path, writable=True)  # too old to migrate -> replaced
