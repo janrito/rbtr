@@ -7,6 +7,7 @@ chains and their naming.
 from __future__ import annotations
 
 import importlib.resources
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum, StrEnum
 
@@ -77,6 +78,9 @@ class BringForward:
 
 type Step = Current | Replace | BringForward
 
+type Chains = Mapping[FileKind, list[Migration]]
+"""Every kind's migrations, oldest first, as `chain` loads them."""
+
 
 def chain(kind: FileKind) -> list[Migration]:
     """The migrations of *kind*, oldest first, from its `<start>__<end>.sql` files."""
@@ -92,14 +96,21 @@ def chain(kind: FileKind) -> list[Migration]:
     return sorted(migrations, key=lambda migration: parse_calver(migration.end))
 
 
-def plan(kind: FileKind, stored: str | None, *, current: str, writable: bool) -> Step:
+def plan(
+    chains: Chains,
+    kind: FileKind,
+    stored: str | None,
+    *,
+    current: str,
+    writable: bool,
+) -> Step:
     """What opening a file of *kind* that records *stored* does to bring it to *current*.
 
-    A file recording no version, one not calver, or one older than the
-    oldest `start` across every kind's migrations (*current* when none
-    ship) is replaced.  Raises `IndexSchemaTooNewError` for a newer file,
-    and `RbtrError` naming `rbtr watch` when a read-only open would change
-    a file.
+    Decides from *chains* alone.  A file recording no version, one not
+    calver, or one older than the oldest `start` across every kind's
+    migrations (*current* when none ship) is replaced.  Raises
+    `IndexSchemaTooNewError` for a newer file, and `RbtrError` naming
+    `rbtr watch` when a read-only open would change a file.
     """
     try:
         version = parse_calver(stored) if stored is not None else None
@@ -116,15 +127,14 @@ def plan(kind: FileKind, stored: str | None, *, current: str, writable: bool) ->
         )
         raise RbtrError(msg)
     oldest = min(
-        (parse_calver(shipped[0].start) for each in FileKind if (shipped := chain(each))),
+        (parse_calver(shipped[0].start) for shipped in chains.values() if shipped),
         default=parse_calver(current),
     )
     if version is None or version < oldest:
         return Replace(stored=stored)
-    migrations = chain(kind)
     return BringForward(
         stored=str(stored),
-        migrations=tuple(m for m in migrations if parse_calver(m.end) > version),
+        migrations=tuple(m for m in chains[kind] if parse_calver(m.end) > version),
     )
 
 
