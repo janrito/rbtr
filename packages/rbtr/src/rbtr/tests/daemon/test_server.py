@@ -22,11 +22,11 @@ from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import (
     CollectWork,
     DaemonConfigRequest,
+    EmbedWork,
     ErrorCode,
     ErrorResponse,
     GcAllRequest,
     GcEndedNotification,
-    GcResponse,
     Notification,
     OkResponse,
     ProgressNotification,
@@ -40,6 +40,7 @@ from rbtr.daemon.messages import (
 from rbtr.daemon.server import Daemon
 from rbtr.domain.models import GcMode
 from rbtr.errors import DaemonBusyError, RbtrError
+from rbtr.index.embeddings import Embedder, EmbedResult
 from rbtr.index.index import Index
 from rbtr.index.progress import RepoProgressCallback
 from rbtr.tests.daemon.cases_server import MalformedMessage, StopScenario
@@ -104,27 +105,15 @@ def test_gc_publishes_its_start_progress_and_end(running_daemon: Daemon, fake_re
     ]
 
 
+@pytest.mark.usefixtures("held_gc")
 def test_status_lists_a_running_gc_for_every_repository(
-    running_daemon: Daemon, fake_repo: str, second_repo: str, mocker: MockerFixture
+    running_daemon: Daemon,
+    fake_repo: str,
+    second_repo: str,
+    gc_started: threading.Event,
+    gc_released: threading.Event,
 ) -> None:
     """A gc concerns every repository, so a status for any of them lists it while it runs."""
-    started = threading.Event()
-    released = threading.Event()
-
-    def collect(*_args: object, on_progress: RepoProgressCallback, **_kwargs: object) -> GcResponse:
-        on_progress(fake_repo, 1, 2)
-        started.set()
-        assert released.wait(10), "gc was not released"
-        return GcResponse(
-            snapshots_dropped=0,
-            file_snapshots_dropped=0,
-            edges_dropped=0,
-            chunks_freed=0,
-            elapsed_seconds=0.0,
-            dry_run=True,
-        )
-
-    mocker.patch("rbtr.daemon.server.handle_gc_all", collect)
     gc = threading.Thread(
         target=lambda: DaemonClient(running_daemon.runtime_dir).send(
             GcAllRequest(mode=GcMode.WATCHED)
@@ -132,7 +121,7 @@ def test_status_lists_a_running_gc_for_every_repository(
     )
     gc.start()
     try:
-        assert started.wait(10), "gc did not start"
+        assert gc_started.wait(10), "gc did not start"
         with DaemonClient(running_daemon.runtime_dir) as client:
             statuses = [
                 client.send(StatusRequest(repo_path=fake_repo)),
@@ -140,12 +129,104 @@ def test_status_lists_a_running_gc_for_every_repository(
                 client.send(StatusAllRequest()),
             ]
     finally:
-        released.set()
+        gc_released.set()
         gc.join(10)
     for status in statuses:
         assert isinstance(status, StatusResponse)
         [job] = [job for job in status.active if isinstance(job.work, CollectWork)]
         assert (job.phase, job.current, job.total) == ("collecting", 1, 2)
+
+
+def test_status_lists_the_gc_maintenance_runs(
+    runtime_dir: Path,
+    seeded_index: Index,
+    fake_repo: str,
+    gc_started: threading.Event,
+    gc_released: threading.Event,
+    stub_embedding_model: None,
+    mocker: MockerFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Maintenance's gc is tracked as a request's is, so status lists it while it runs."""
+
+    def maintain(*_args: object, on_progress: RepoProgressCallback, **_kwargs: object) -> None:
+        on_progress(fake_repo, 1, 2)
+        gc_started.set()
+        assert gc_released.wait(20), "maintenance was not released"
+
+    mocker.patch("rbtr.index.indexer.run_maintenance", maintain)
+    monkeypatch.setattr(config, "maintenance_idle_s", 0.0)
+    server = Daemon(runtime_dir, index=seeded_index, idle_poll_interval=0.2)
+    with serving(server), DaemonClient(server.runtime_dir) as client:
+        assert gc_started.wait(30), "maintenance did not start"
+        status = client.send(StatusRequest(repo_path=fake_repo))
+        gc_released.set()
+    assert isinstance(status, StatusResponse)
+    [job] = [job for job in status.active if isinstance(job.work, CollectWork)]
+    assert (job.phase, job.current, job.total) == ("collecting", 1, 2)
+
+
+@pytest.mark.usefixtures("held_gc")
+def test_status_lists_an_embed_and_a_gc_running_together(
+    runtime_dir: Path,
+    seeded_index: Index,
+    fake_repo: str,
+    gc_started: threading.Event,
+    gc_released: threading.Event,
+    stub_embedding_model: None,
+    mocker: MockerFixture,
+) -> None:
+    """A gc runs while an embed waits on its model, so status lists both."""
+    embedding = threading.Event()
+    embed = Embedder.embed
+
+    def held_embed(embedder: Embedder, texts: list[str]) -> list[EmbedResult]:
+        embedding.set()
+        assert gc_released.wait(20), "the embed was not released"
+        return embed(embedder, texts)
+
+    mocker.patch.object(Embedder, "embed", held_embed)
+    server = Daemon(runtime_dir, index=seeded_index)
+    with serving(server):
+        assert embedding.wait(20), "the embed did not start"
+        gc = threading.Thread(
+            target=lambda: DaemonClient(server.runtime_dir).send(GcAllRequest(mode=GcMode.WATCHED))
+        )
+        gc.start()
+        try:
+            assert gc_started.wait(10), "gc did not start"
+            with DaemonClient(server.runtime_dir) as client:
+                status = client.send(StatusRequest(repo_path=fake_repo))
+        finally:
+            gc_released.set()
+            gc.join(10)
+    assert isinstance(status, StatusResponse)
+    assert {type(job.work) for job in status.active} == {EmbedWork, CollectWork}
+
+
+def test_a_gc_that_fails_still_ends(
+    running_daemon: Daemon, fake_repo: str, mocker: MockerFixture
+) -> None:
+    """A failing gc publishes its end and leaves status, as one that succeeds does."""
+    mocker.patch("rbtr.daemon.server.handle_gc_all", side_effect=RbtrError("the gc failed"))
+    with subscribed(running_daemon, fake_repo) as sub:
+        with DaemonClient(running_daemon.runtime_dir) as client:
+            reply = client.send(GcAllRequest(mode=GcMode.WATCHED))
+            status = client.send(StatusAllRequest())
+        published: list[Notification] = []
+        while sub.poll(2000):
+            # The gc's notifications; others, such as an embed's progress, are skipped.
+            match notification_adapter.validate_json(sub.recv()):
+                case GcEndedNotification() | ProgressNotification(work=CollectWork()) as gc:
+                    published.append(gc)
+
+    assert isinstance(reply, ErrorResponse)
+    assert published == [
+        ProgressNotification(work=CollectWork(), phase="collecting", current=0, total=0),
+        GcEndedNotification(),
+    ]
+    assert isinstance(status, StatusResponse)
+    assert not [job for job in status.active if isinstance(job.work, CollectWork)]
 
 
 def test_an_idle_daemon_runs_maintenance(
