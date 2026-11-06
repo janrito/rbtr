@@ -1,0 +1,5 @@
+# Recipients the greeter writes to, in order.
+- name: world
+  greeting: hello
+- name: team
+  greeting: hi

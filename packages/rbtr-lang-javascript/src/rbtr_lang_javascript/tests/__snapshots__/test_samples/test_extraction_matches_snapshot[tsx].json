@@ -34,6 +34,64 @@
   },
   {
     "blob_sha": "sha1",
+    "file_path": "main.tsx",
+    "role": {
+      "kind": "comment"
+    },
+    "scope": "",
+    "language": "tsx",
+    "file_language": "tsx",
+    "content": "// Mount the greeting on the page.",
+    "span": {
+      "start": 1,
+      "end": 1
+    },
+    "id": "84322774e820d091"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "main.tsx",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "expression_statement"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "tsx",
+    "file_language": "tsx",
+    "content": "ReactDOM.render(<Greeting name=\"world\" />, document.getElementById(\"root\"));",
+    "span": {
+      "start": 2,
+      "end": 2
+    },
+    "id": "49cba60e80ccb9a7"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "main.tsx",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "export_statement"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "tsx",
+    "file_language": "tsx",
+    "content": "export default Greeting;",
+    "span": {
+      "start": 4,
+      "end": 4
+    },
+    "id": "a06524107b38b1d4"
+  },
+  {
+    "blob_sha": "sha1",
     "file_path": "tsx.tsx",
     "role": {
       "kind": "comment"
