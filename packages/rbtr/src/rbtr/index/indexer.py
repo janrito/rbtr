@@ -123,14 +123,11 @@ type IndexerOutput = (
 class Indexer:
     """Build, embed, poll and maintain using caller-owned data, models and controls.
 
-    Construction synchronously seeds HEAD watches. Give it exclusive writable
-    Index access, before sharing or while holding the writer semaphore, off a
-    UI loop.
-
-    The caller starts the chosen `run`, `watch` and `maintain` coroutines, at most
-    once each on the same loop. Stop through `request_shutdown`, not cancellation,
-    and await all started operations before disposing of supplied resources.
-    Their completion includes native work and awaited output.
+    Construct it on the loop that owns it; construction seeds HEAD watches,
+    so give it the writable Index to itself. The caller starts `run`,
+    `watch` and `maintain`, at most once each, on that loop. Stop through
+    `request_shutdown`, not cancellation, and await every started operation
+    before disposing of supplied resources.
     """
 
     def __init__(
@@ -168,7 +165,7 @@ class Indexer:
         )
         self._wake = asyncio.Event()
         self._stopped = asyncio.Event()
-        self._loop: asyncio.AbstractEventLoop | None = None
+        self._loop = asyncio.get_running_loop()
         self._state_lock = threading.Lock()
         self._running_job: RunningJob[BuildJob | EmbedJob] | None = None
         self._failed_builds: frozenset[watcher.FailedBuild] = frozenset()
@@ -183,11 +180,10 @@ class Indexer:
     def wake(self) -> None:
         """Signal reselection without waiting, from any thread; repeated wakes coalesce.
 
-        Before a loop is attached, `run`'s initial selection covers stored work.
+        Before `run` starts, its initial selection covers stored work.
         """
-        loop = self._loop
-        if loop is not None and not loop.is_closed():
-            loop.call_soon_threadsafe(self._signal)
+        if not self._loop.is_closed():
+            self._loop.call_soon_threadsafe(self._signal)
 
     def _signal(self) -> None:
         self._wake.set()
@@ -200,7 +196,6 @@ class Indexer:
         self.wake()
 
     async def _pause(self, delay: float) -> None:
-        self._loop = asyncio.get_running_loop()
         if self._stopping.is_set():
             return
         with contextlib.suppress(TimeoutError):
@@ -215,11 +210,11 @@ class Indexer:
                     self._running_job = output
         await self._on_output(output)
 
-    def _emit_native(self, loop: asyncio.AbstractEventLoop, output: IndexerOutput) -> None:
-        """Submit output to its loop and block this thread until delivery finishes."""
+    def _emit_native(self, output: IndexerOutput) -> None:
+        """Submit output to the owning loop and block this thread until delivery finishes."""
         # asyncio requires its thread-safe entry point. The caller keeps
         # the loop alive until native producers and their output finish.
-        sent = asyncio.run_coroutine_threadsafe(self._emit(output), loop)
+        sent = asyncio.run_coroutine_threadsafe(self._emit(output), self._loop)
         sent.result()
 
     def _backfill_head_watches(self, index: Index) -> None:
@@ -232,13 +227,13 @@ class Indexer:
                 ws.add_watched_refs([HEAD_REF])
         log.info("head_watch_backfill", repos=len(repos))
 
-    def _run_build(self, run: RunningJob[BuildJob], loop: asyncio.AbstractEventLoop) -> None:
+    def _run_build(self, run: RunningJob[BuildJob]) -> None:
         """Run one build on a native thread, reporting through its owning loop."""
         job = run.work
         index = self._index
 
         def report(phase: str, done: int, total: int) -> None:
-            self._emit_native(loop, replace(run, phase=phase, current=done, total=total))
+            self._emit_native(replace(run, phase=phase, current=done, total=total))
 
         try:
             repo = index.register(job.repo_path)
@@ -248,7 +243,7 @@ class Indexer:
                     for ref in job.refs
                 ]
             except RbtrError as exc:
-                self._emit_native(loop, IndexingError(job.repo_path, str(exc)))
+                self._emit_native(IndexingError(job.repo_path, str(exc)))
                 return
 
             for sha in resolved:
@@ -260,7 +255,7 @@ class Indexer:
                     stop=self._stopping,
                 )
                 counts = index.chunk_counts_for_snapshot(at=repo.at(sha))
-                self._emit_native(loop, BuildReady(repo.at(sha), counts, result))
+                self._emit_native(BuildReady(repo.at(sha), counts, result))
                 # Clean up stale worktree tree SHAs.  After a
                 # worktree build, old tree SHAs from previous edits
                 # linger in indexed_snapshots.  After a commit build,
@@ -271,7 +266,7 @@ class Indexer:
         except BuildStopped:
             log.info("build_stopped_shutdown", repo=job.repo_path)
         except Exception as exc:
-            self._emit_native(loop, IndexingError(job.repo_path, str(exc)))
+            self._emit_native(IndexingError(job.repo_path, str(exc)))
             raise
 
     async def _run_embed_async(self, run: RunningJob[EmbedJob]) -> None:
@@ -395,7 +390,6 @@ class Indexer:
         logged and selection continues; failed build targets stay suppressed in
         this instance. Selection errors are raised to the caller.
         """
-        self._loop = asyncio.get_running_loop()
         self._wake.set()
         while not self._stopping.is_set():
             await self._wake.wait()
@@ -427,9 +421,7 @@ class Indexer:
                         else:
                             run = self._set_active(job, job_ctx["job_id"])
                             async with self._write_sem:
-                                await asyncio.to_thread(
-                                    self._run_build, run, asyncio.get_running_loop()
-                                )
+                                await asyncio.to_thread(self._run_build, run)
                     except Exception:
                         log.exception("job_failed", job=str(job))
                         if isinstance(job, BuildJob):
@@ -505,20 +497,20 @@ class Indexer:
                 async with self._write_sem:
                     if self._stopping.is_set():
                         return
-                    await asyncio.to_thread(self._maintain, index, asyncio.get_running_loop())
+                    await asyncio.to_thread(self._maintain, index)
                 last_pass = time.monotonic()
 
-    def _maintain(self, index: Index, loop: asyncio.AbstractEventLoop) -> None:
+    def _maintain(self, index: Index) -> None:
         """Run a native maintenance pass and report its collection progress."""
         log.info("maintenance_started")
-        self._emit_native(loop, CollectionPhase.STARTED)
+        self._emit_native(CollectionPhase.STARTED)
         try:
             run_maintenance(
                 index,
                 now=datetime.now(UTC),
                 on_progress=lambda _repo_path, done, total: self._emit_native(
-                    loop, CollectionProgress(done, total)
+                    CollectionProgress(done, total)
                 ),
             )
         finally:
-            self._emit_native(loop, CollectionPhase.ENDED)
+            self._emit_native(CollectionPhase.ENDED)

@@ -87,9 +87,8 @@ def _notify(sock: zmq.Socket, notification: BaseModel) -> None:
 class Daemon:
     """Serve code requests and background indexing for a caller-owned Index.
 
-    Construction synchronously seeds HEAD watches. Give it exclusive writable
-    access, before concurrent use or while holding the writer semaphore, off a
-    UI loop. With `index=None`, only configuration and shutdown are available.
+    `serve` makes the indexer and the RPC on its loop, then indexes once
+    ready. With `index=None`, only configuration and shutdown are available.
 
     Use `serve` once on one event loop. Stop through `request_shutdown` rather
     than cancellation, then await serving before closing the supplied Index.
@@ -116,7 +115,6 @@ class Daemon:
         self.pub_addr = f"ipc://{runtime_dir / 'daemon.pub'}"
         self._zmq_ctx = zmq.asyncio.Context()
         self._zmq_shadow: zmq.Context = zmq.Context.shadow(self._zmq_ctx)
-        handlers = {"daemon_config": Handler(RpcResource.READ, handle_daemon_config)}
         self._allow_missing_plugins = allow_missing_plugins
         self._index = index
         self._ready = threading.Event()
@@ -124,7 +122,11 @@ class Daemon:
         self._reranker: Reranker | None = None
 
         self._write_sem = asyncio.Semaphore(1)
+        # Made by `serve`, on the loop the indexer reports through.
         self._indexer: Indexer | None = None
+        self._rpc: RPC | None = None
+        self._idle_poll_interval = idle_poll_interval
+        self._busy_poll_interval = busy_poll_interval
         self._warmup = config.warmup
         # Serialises all GPU inference (search + embed batches
         # + idle-unload) so Metal is never driven concurrently.
@@ -150,27 +152,6 @@ class Daemon:
                     gpu_lock=self._gpu_lock,
                     load_lock=self._gpu_load_lock,
                 )
-            self._indexer = Indexer(
-                index,
-                embedder=self._embedder,
-                gpu_lock=self._gpu_lock,
-                write_sem=self._write_sem,
-                stop=self._stopping,
-                on_output=self._publish_index_output,
-                idle_poll_interval=idle_poll_interval,
-                busy_poll_interval=busy_poll_interval,
-            )
-            handlers.update(self._index_handlers(index))
-        self._rpc = RPC(
-            self._zmq_ctx,
-            self.rpc_addr,
-            handlers=handlers,
-            gpu_lock=self._gpu_lock,
-            write_sem=self._write_sem,
-            index_error=self._index_error,
-            on_shutdown=self.request_shutdown,
-            on_failure=self._stop_when_it_fails,
-        )
 
     def _cleanup(self) -> None:
         remove_status(self.runtime_dir)
@@ -309,8 +290,11 @@ class Daemon:
 
     def request_shutdown(self) -> None:
         """Request stop without waiting; safe to call repeatedly from any thread."""
-        self._rpc.request_shutdown()
+        # Set before reading `_rpc`: `serve` sets `_rpc` before reading the
+        # event, so one of the two stops an RPC made meanwhile.
         self._stopping.set()
+        if self._rpc is not None:
+            self._rpc.request_shutdown()
         if self._indexer is not None:
             self._indexer.wake()
 
@@ -379,6 +363,35 @@ class Daemon:
         warmup_tasks: list[asyncio.Task[None]] = []
         index_tasks: list[asyncio.Task[None]] = []
         relay_task: asyncio.Task[None] | None = None
+        index = self._index
+        handlers = {"daemon_config": Handler(RpcResource.READ, handle_daemon_config)}
+        indexer: Indexer | None = None
+        if index is not None:
+            indexer = Indexer(
+                index,
+                embedder=self._embedder,
+                gpu_lock=self._gpu_lock,
+                write_sem=self._write_sem,
+                stop=self._stopping,
+                on_output=self._publish_index_output,
+                idle_poll_interval=self._idle_poll_interval,
+                busy_poll_interval=self._busy_poll_interval,
+            )
+            handlers.update(self._index_handlers(index))
+        self._indexer = indexer
+        rpc = RPC(
+            ctx,
+            self.rpc_addr,
+            handlers=handlers,
+            gpu_lock=self._gpu_lock,
+            write_sem=self._write_sem,
+            index_error=self._index_error,
+            on_shutdown=self.request_shutdown,
+            on_failure=self._stop_when_it_fails,
+        )
+        self._rpc = rpc
+        if self._stopping.is_set():
+            rpc.request_shutdown()
 
         def ready() -> None:
             nonlocal relay_task
@@ -402,12 +415,12 @@ class Daemon:
                         asyncio.create_task(asyncio.to_thread(self._reranker.warmup))
                     )
             relay_task = asyncio.create_task(self._notification_relay(progress_pull, pub))
-            if self._indexer is not None:
+            if indexer is not None:
                 index_tasks.extend(
                     [
-                        asyncio.create_task(self._indexer.run(), name="job_worker"),
-                        asyncio.create_task(self._indexer.watch(), name="watcher"),
-                        asyncio.create_task(self._indexer.maintain(), name="maintenance"),
+                        asyncio.create_task(indexer.run(), name="job_worker"),
+                        asyncio.create_task(indexer.watch(), name="watcher"),
+                        asyncio.create_task(indexer.maintain(), name="maintenance"),
                     ]
                 )
             for task in index_tasks:
@@ -415,7 +428,7 @@ class Daemon:
 
         try:
             pub.bind(self.pub_addr)
-            await self._rpc.serve(ready)
+            await rpc.serve(ready)
         finally:
             self.request_shutdown()
             try:
@@ -435,7 +448,7 @@ class Daemon:
                 self._cleanup()
                 self._notify_push.close()
                 progress_pull.close()
-                self._rpc.close()
+                rpc.close()
                 pub.close()
                 ctx.term()
                 log.info("daemon_stopped")
