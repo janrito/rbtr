@@ -1155,7 +1155,9 @@ every repository. It is replaced, not emptied, because deleting rows
 does not shrink a DuckDB file. The old registry is unlinked while
 still open, so its lock holds until the new one exists; a process that
 creates it first wins the lock, and this one stops with
-`IndexLockedError`. The old project files are deleted as residue.
+`IndexLockedError`. The old project files are deleted as residue. A
+daemon reports the replacement in its status and in its discovery
+file, from which the command that started it logs the same warning.
 
 rbtr declares no foreign keys; see
 [Design decisions](#design-decisions).
@@ -1891,10 +1893,11 @@ replies `index_in_progress`, and writes wait. The language check, which
 reads every file, runs after the migration. A failed migration stops the
 daemon.
 
-Discovery records the process identity and connection details, not work in
-progress. Process status consequently differs from a query of index state,
-and a snapshot-ready notification differs from both: it reports a completed
-build's counts, which can still show vectors awaiting computation.
+Discovery records the process identity and connection details, and what its
+open replaced, not work in progress. Process status consequently differs from
+a query of index state, and a snapshot-ready notification differs from both:
+it reports a completed build's counts, which can still show vectors awaiting
+computation.
 
 ### Stopping
 

@@ -406,6 +406,7 @@ def _status(
             if (count := untracked_file_count(repo.repo_path)) > config.max_untracked_files
         },
         active=active,
+        replaced=index.replaced,
     )
 
 

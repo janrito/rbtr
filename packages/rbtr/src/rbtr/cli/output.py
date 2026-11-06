@@ -547,6 +547,12 @@ def _render_status_response(response: StatusResponse) -> None:
             f"[yellow]![/]  {count} untracked files in {repo_path} not indexed \
 (over max_untracked_files): add their directories to .gitignore or .git/info/exclude"
         )
+    if (replaced := response.replaced) is not None:
+        _out.print(
+            f"[yellow]![/]  replaced an index from schema {replaced.stored or 'unknown'}, "
+            f"too old to migrate, at {replaced.replaced_at.astimezone():%Y-%m-%d %H:%M}: "
+            "every repository must be indexed again"
+        )
     for job in response.active:
         _out.print(_fmt_active(job))
 
