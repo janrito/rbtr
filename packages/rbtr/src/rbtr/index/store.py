@@ -262,8 +262,10 @@ class Store:
     def migrate(self, on_progress: ProgressCallback = _noop_progress) -> None:
         """Migrate each waiting project file on a copy that the registry then names.
 
-        A copy grown past `compact_growth_ratio` is compacted first.  Reports
-        `("migrating", done, total)`.  A failure deletes its copy and raises,
+        A copy grown past `compact_growth_ratio` is compacted first.  The
+        registry records as the file's baseline (`compacted_bytes`, the size
+        it was last written whole) the copy before its migrations ran, or the
+        compacted copy.  Reports `("migrating", done, total)`.  A failure deletes its copy and raises,
         leaving that file and the rest waiting at their old versions.
         """
         waiting = list(self._waiting.items())
@@ -282,16 +284,18 @@ class Store:
             except BaseException:
                 self._detach(new)
                 raise
+            baseline = copied_bytes
             if self._file_bytes(new) > config.compact_growth_ratio * copied_bytes:
                 migrated = new
                 try:
                     new = self._copy(migrated)
                 finally:
                     self._detach(migrated)
+                baseline = self._file_bytes(new)
             params = {
                 "project_id": project_of[file],
                 "file": new,
-                "compacted_bytes": self._file_bytes(new),
+                "compacted_bytes": baseline,
             }
             self._registry().execute(_SET_PROJECT_FILE_SQL, params)
             self._sync()
