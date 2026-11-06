@@ -49,7 +49,6 @@ from rbtr.domain.models import (
     IndexStats,
     QueryKind,
     RefsByRepo,
-    ReplacedIndex,
 )
 from rbtr.index.progress import EmbedOutcome
 
@@ -686,9 +685,6 @@ class StatusResponse(BaseModel):
     # Work running now: the repository's own, and work that concerns
     # every repository.
     active: list[ActiveJob] = []
-    # The index this daemon's open replaced, for the daemon's lifetime, so
-    # a client that connects after the replacement still learns of it.
-    replaced: ReplacedIndex | None = None
 
 
 class DaemonConfigResponse(BaseModel):

@@ -1156,8 +1156,9 @@ does not shrink a DuckDB file. The old registry is unlinked while
 still open, so its lock holds until the new one exists; a process that
 creates it first wins the lock, and this one stops with
 `IndexLockedError`. The old project files are deleted as residue. A
-daemon reports the replacement in its status and in its discovery
-file, from which the command that started it logs the same warning.
+daemon records the replacement in its discovery file, from which the
+command that started it logs the same warning and `rbtr daemon status`
+reports it for the daemon's lifetime.
 
 rbtr declares no foreign keys; see
 [Design decisions](#design-decisions).

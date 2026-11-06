@@ -215,6 +215,7 @@ class DaemonStart(BaseModel):
                 pub=running.pub,
                 version=running.version,
                 uptime_seconds=_uptime_seconds(running.started_at),
+                replaced=running.replaced,
             )
         )
 
@@ -256,6 +257,7 @@ class DaemonStatusCmd(BaseModel):
                 pub=status.pub,
                 version=status.version,
                 uptime_seconds=_uptime_seconds(status.started_at),
+                replaced=status.replaced,
             )
         )
 
