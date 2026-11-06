@@ -186,6 +186,9 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   // Whether the session runs in a git repository; true until startup
   // finds that it does not.
   let inRepository = true;
+  // Whether the daemon last said it was migrating; the health check then
+  // asks again, in case this session missed `migration_ended`.
+  let migrating = false;
   // Bumped on every session start and shutdown, so a startup that
   // finishes after its session ended changes nothing.
   let generation = 0;
@@ -405,6 +408,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     settings = loadSettings(ctx.cwd, ctx.isProjectTrusted());
     repoRoot = null;
     inRepository = true;
+    migrating = false;
     footer = new Footer(ctx);
     footer.setSpinner("muted", (frame) => `rbtr: ${frame} starting…`);
     const current = ++generation;
@@ -485,6 +489,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     cli = "available";
 
     if (decision.kind === "no-repo") inRepository = false;
+    migrating = decision.kind === "migrating";
     // While the daemon migrates, the footer says so; its end decides on indexing.
     if (decision.kind === "indexed" || decision.kind === "no-repo" || decision.kind === "migrating") {
       const shown = statusFooter(status, session.available);
@@ -550,8 +555,23 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         break;
       }
       case "unchanged":
+        if (migrating) await afterMigration(ctx, isCurrent);
         break;
     }
+  }
+
+  /**
+   * Once the daemon's migration has ended, show the index and, with
+   * autoIndex on, index this repository if it has none.
+   */
+  async function afterMigration(ctx: ExtensionContext, isCurrent: () => boolean): Promise<void> {
+    const status = await queryIndexStatus(ctx.cwd);
+    if (!isCurrent() || (status?.kind === "status" && status.state === "migrating")) return;
+    migrating = false;
+    const shown = statusFooter(status, true);
+    footer?.setStatic(shown.color, shown.text);
+    const decision = decideStartupDecision(status, settings.autoIndex);
+    if (decision.kind === "empty" && decision.index) void triggerIndex(ctx);
   }
 
   /**
@@ -562,6 +582,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
    */
   function startSubscription(ctx: ExtensionContext): void {
     let buildStartedAt: number | null = null;
+    const subscribedIn = generation;
 
     const elapsedSuffix = (): string => {
       if (buildStartedAt === null) return "";
@@ -574,6 +595,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         // A gc or a migration covers every repo the daemon watches, so its notifications name none.
         if (notification.kind === "progress" && notificationRepo(notification) === null) {
           const { current, total } = notification;
+          if (notification.work.kind === "migrate") migrating = true;
           const doing = notification.work.kind === "migrate" ? "migrating index files" : "collecting";
           footer.setSpinner("muted", (frame) =>
             total > 0 ? `rbtr: ${frame} ${doing} ${current}/${total}…` : `rbtr: ${frame} ${doing}…`,
@@ -581,13 +603,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
           return;
         }
         if (notification.kind === "migration_ended") {
-          // Startup left indexing to the end of the migration.
-          void queryIndexStatus(ctx.cwd).then((status) => {
-            const shown = statusFooter(status, true);
-            footer?.setStatic(shown.color, shown.text);
-            const decision = decideStartupDecision(status, settings.autoIndex);
-            if (decision.kind === "empty" && decision.index) void triggerIndex(ctx);
-          });
+          void afterMigration(ctx, () => subscribedIn === generation);
           return;
         }
         if (notification.kind === "gc_ended") {
