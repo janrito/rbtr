@@ -514,11 +514,16 @@ def test_migrating_a_kind_from_its_base_gives_the_schema_of_a_new_file(
     """
     migrations = chain(kind)
     directory = importlib.resources.files("rbtr.index") / "sql" / "migrations" / kind
-    base = (
-        (directory / f"{migrations[0].start}.base.sql").read_text(encoding="utf-8")
-        if migrations
-        else load_sql(schema)
-    )
+    if migrations:
+        base_file = directory / f"{migrations[0].start}.base.sql"
+        assert base_file.is_file(), (
+            f"the {kind} chain starts at {migrations[0].start} \
+but ships no {base_file.name}: add it beside the chain, holding {schema} as it stood \
+at {migrations[0].start}"
+        )
+        base = base_file.read_text(encoding="utf-8")
+    else:
+        base = load_sql(schema)
     with duckdb.connect() as migrated, duckdb.connect() as fresh:
         migrated.execute(base)
         start = migrations[0].start if migrations else SCHEMA_VERSION
