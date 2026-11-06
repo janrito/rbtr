@@ -21,6 +21,7 @@ from pydantic import (
     BaseModel,
     BeforeValidator,
     ConfigDict,
+    Discriminator,
     Field,
     JsonValue,
     StringConstraints,
@@ -430,7 +431,7 @@ class ForgetStaleRequest(BaseModel):
     dry_run: bool = False
 
 
-Request = Annotated[
+type Request = Annotated[
     ShutdownRequest
     | WatchRequest
     | SearchRequest
@@ -449,7 +450,7 @@ Request = Annotated[
     | UnwatchStaleAllRequest
     | ForgetRequest
     | ForgetStaleRequest,
-    Field(discriminator="kind"),
+    Discriminator("kind"),
 ]
 
 request_adapter: TypeAdapter[Request] = TypeAdapter(Request)
@@ -717,7 +718,7 @@ class ForgetResponse(BaseModel):
     dry_run: bool = False
 
 
-Response = Annotated[
+type Response = Annotated[
     ErrorResponse
     | OkResponse
     | WatchResponse
@@ -732,7 +733,7 @@ Response = Annotated[
     | GcResponse
     | UnwatchResponse
     | ForgetResponse,
-    Field(discriminator="kind"),
+    Discriminator("kind"),
 ]
 
 response_adapter: TypeAdapter[Response] = TypeAdapter(Response)
@@ -805,7 +806,7 @@ class MigrationEndedNotification(BaseModel):
     kind: Literal["migration_ended"] = "migration_ended"
 
 
-Notification = Annotated[
+type Notification = Annotated[
     ProgressNotification
     | ReadyNotification
     | EmbedEndedNotification
@@ -813,7 +814,7 @@ Notification = Annotated[
     | IndexErrorNotification
     | GcEndedNotification
     | MigrationEndedNotification,
-    Field(discriminator="kind"),
+    Discriminator("kind"),
 ]
 
 notification_adapter: TypeAdapter[Notification] = TypeAdapter(Notification)
