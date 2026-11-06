@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import importlib.resources
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum, StrEnum
 
 import duckdb
 
@@ -37,6 +37,13 @@ class FileKind(StrEnum):
 
     REGISTRY = "registry"
     PROJECT = "project"
+
+
+class Migrate(Enum):
+    """When the open runs the project-file migrations that work on a copy."""
+
+    ON_OPEN = "on_open"
+    LATER = "later"  # the owner calls `Index.migrate`; until then those files refuse reads
 
 
 @dataclass(frozen=True)

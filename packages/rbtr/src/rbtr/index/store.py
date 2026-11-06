@@ -26,6 +26,7 @@ from rbtr.config import config, index_dir_of, own_dir
 from rbtr.domain.models import ReplacedIndex, Repo, SnapshotRef
 from rbtr.errors import (
     IndexLockedError,
+    IndexMigratingError,
     IndexNotBuiltError,
     RepoNotFoundError,
 )
@@ -37,6 +38,7 @@ from rbtr.index.migrations import (
     BringForward,
     Current,
     FileKind,
+    Migrate,
     Replace,
     plan,
     run,
@@ -91,6 +93,7 @@ class Store:
         db_path: Path | str | None = None,
         *,
         writable: bool = False,
+        migrate: Migrate = Migrate.ON_OPEN,
     ) -> None:
         self.db_path: str | None = str(db_path) if db_path else None
         self._writable = writable
@@ -102,7 +105,8 @@ class Store:
         self._repos: dict[str, Repo] = {}
         self._retired: list[tuple[str, float]] = []
         self._replaced: ReplacedIndex | None = None
-        # Project files that migrate on a copy, waiting for `migrate`.
+        # Project files waiting for `migrate`, which routing refuses.
+        # Replaced whole, so a reader on another thread sees one set or the other.
         self._waiting: dict[str, BringForward] = {}
         self._con = self._connect(":memory:")
         self._load_fts(self._con)
@@ -129,7 +133,8 @@ class Store:
                 for file in self._file_of.values():
                     if file not in self._waiting:
                         self._check_embedding_version(self._cursor_for(_alias(file)))
-            self.migrate()
+            if migrate is Migrate.ON_OPEN:
+                self.migrate()
         except BaseException:
             self._con.close()
             raise
@@ -248,6 +253,11 @@ class Store:
     def replaced(self) -> ReplacedIndex | None:
         """The index this store replaced on open, or `None` if it replaced none."""
         return self._replaced
+
+    @property
+    def migrating(self) -> bool:
+        """Whether any project file waits for `migrate`, refusing reads and writes until then."""
+        return bool(self._waiting)
 
     def migrate(self, on_progress: ProgressCallback = _noop_progress) -> None:
         """Migrate each waiting project file on a copy that the registry then names.
@@ -621,8 +631,11 @@ class Store:
         return self._cursor_for("registry")
 
     def _alias_of(self, repo: Repo) -> str:
-        """The alias of the file holding *repo*'s data."""
-        return _alias(self._file_of[self._project(repo)])
+        """The alias of the file holding *repo*'s data; `IndexMigratingError` while it waits."""
+        file = self._file_of[self._project(repo)]
+        if file in self._waiting:
+            raise IndexMigratingError
+        return _alias(file)
 
     def data(self, repo: Repo) -> duckdb.DuckDBPyConnection:
         """This thread's cursor on the file holding *repo*'s data."""
@@ -650,7 +663,12 @@ class Store:
         )
 
     def each_file[T](self, read: Callable[[duckdb.DuckDBPyConnection], T]) -> list[T]:
-        """Run *read* on every live project file at once; one result each."""
+        """Run *read* on every live project file at once; one result each.
+
+        Raises `IndexMigratingError` while any file waits for `migrate`.
+        """
+        if self._waiting:
+            raise IndexMigratingError
         aliases = [_alias(file) for file in self._file_of.values()]
         return list(self._pool.map(lambda alias: read(self._cursor_for(alias)), aliases))
 

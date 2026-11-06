@@ -27,6 +27,7 @@ from rbtr.config import config, index_dir_of
 from rbtr.domain.models import FileSnapshot
 from rbtr.errors import (
     IndexLockedError,
+    IndexMigratingError,
     IndexNotBuiltError,
     RepoNotFoundError,
 )
@@ -34,7 +35,7 @@ from rbtr.git import normalise_repo_path
 from rbtr.index import load_sql
 from rbtr.index.constants import EMBEDDING_FORMAT_VERSION, SCHEMA_VERSION
 from rbtr.index.index import Index
-from rbtr.index.migrations import BringForward, FileKind, chain, parse_calver, run
+from rbtr.index.migrations import BringForward, FileKind, Migrate, chain, parse_calver, run
 from rbtr.index.staging import TokenisedChunk
 
 from .cases_index_versioning import FileAfter, MigrationScenario, VersioningScenario
@@ -439,6 +440,29 @@ def test_opening_brings_each_file_forward_or_leaves_it(
             FileAfter(version[0][0] if version else None, frozenset(r[0] for r in added))
             == expected
         )
+
+
+def test_a_deferred_migration_refuses_its_file_until_it_runs(
+    tmp_path: Path, chains: Path, mocker: MockerFixture
+) -> None:
+    """`Migrate.LATER` leaves a project file that migrates on a copy unreadable until `migrate`."""
+    path = tmp_path / "index.duckdb"
+    _seed_one_chunk(path)
+    (chains / "project").mkdir()
+    (chains / "project" / f"{SCHEMA_VERSION}__2099.1.0.sql").write_text("SELECT 1;")
+    mocker.patch("rbtr.index.store.SCHEMA_VERSION", "2099.1.0")
+
+    index = Index(path, writable=True, migrate=Migrate.LATER)
+    try:
+        [repo] = index.repos()
+        assert index.migrating
+        with pytest.raises(IndexMigratingError):
+            index.chunks(at=repo.at("head"))
+        index.migrate()
+        assert not index.migrating
+        assert index.chunks(at=repo.at("head"))
+    finally:
+        index.close()
 
 
 @pytest.mark.parametrize(("ratio", "compacted"), [(1000.0, False), (1.0, True)])

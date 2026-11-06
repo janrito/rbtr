@@ -84,6 +84,18 @@ class IndexSchemaTooNewError(RbtrError):
         )
 
 
+class IndexMigratingError(RbtrError):
+    """Raised when a read or write reaches an index file still waiting to be migrated.
+
+    `Index.migrate` brings the file forward; the same call then succeeds.
+    """
+
+    error_code: str = "index_in_progress"
+
+    def __init__(self) -> None:
+        super().__init__("This project's index file is waiting to be migrated; try again shortly.")
+
+
 class IndexLockedError(RbtrError):
     """Raised when another process holds DuckDB's write lock.
 

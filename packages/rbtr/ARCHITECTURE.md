@@ -1134,8 +1134,10 @@ which one registry update then names, as compaction does (see
 leaves the old file live. A copy that grew past
 `compact_growth_ratio` is compacted before the switch.
 
-The copies run during the open, which logs `index_file_migrated` and
-`index_replaced`.
+The copies run during the open, unless the caller passes
+`Migrate.LATER`; until `Index.migrate` runs, a read or write of a
+waiting file raises `IndexMigratingError` (`index_in_progress`). The
+open logs `index_file_migrated` and `index_replaced`.
 
 A migration keeps every column it does not change, vectors included.
 DuckDB cannot add a constraint with `ALTER`, so such a migration
