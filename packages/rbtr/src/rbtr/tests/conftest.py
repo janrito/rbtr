@@ -313,6 +313,17 @@ def _configure_structlog(log_output: structlog.testing.LogCapture) -> Generator[
 
 
 @pytest.fixture
+def chains(tmp_path_factory: pytest.TempPathFactory, mocker: MockerFixture) -> Path:
+    """An empty root of migration chains, standing in for the ones rbtr ships.
+
+    A test writes a kind's migrations under `<root>/<kind>/`.
+    """
+    root = tmp_path_factory.mktemp("migrations")
+    mocker.patch("rbtr.index.migrations._CHAINS", root)
+    return root
+
+
+@pytest.fixture
 def stub_embedding_model(mocker: MockerFixture) -> None:
     """Opt-in: replace the embedding model loader with the deterministic stub.
 

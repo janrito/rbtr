@@ -866,7 +866,9 @@ one registry `UPDATE` naming the new file; that commit is the switch.
 Reads already running finish on the old file, which stays attached for
 `retire_delay_s` (60 s) and is then detached and deleted. A crash
 before the commit leaves the new file unnamed, and a crash after it
-leaves the old one unnamed; the next open deletes either.
+leaves the old one unnamed; the next open deletes either. Compaction
+switches to a plain copy; migrating a project file switches to a copy
+the migrations ran on (see [Migrations](#migrations)).
 
 ![How compaction replaces a project's file: copy, switch the registry,
 and delete the old file after the retire delay](docs/diagrams/file-switch.png)
@@ -1077,28 +1079,17 @@ builds. GC uses it to identify orphans: any
 `meta` is a key-value table that tracks compatibility, in the
 registry and in each project file. Three keys:
 
-- `schema_version`, in the registry — the DDL version of
-  both schemas. A mismatch replaces the index with an empty
-  one on open: it is derived data, so rebuilding is the only
-  migration.
+- `schema_version`, in every file — the `SCHEMA_VERSION` of the
+  rbtr that last migrated it. A file at an older version is
+  migrated on open (see [Migrations](#migrations)).
 - `embedding_model`, in each project file — the GGUF model
   ID used to compute its vectors.
 - `embedding_version`, in each project file — a format
   version for the embedding pipeline.
 
 When the model or version changes, the file's embeddings are
-cleared and recomputed on the next build.
-
-**Replacing the index.** Deleting rows does not shrink a DuckDB
-file, so a stale index is replaced rather than emptied. Its
-registry is unlinked while it is still open, so its lock holds
-until a new file exists at the path, and a new registry is then
-created there. A process that creates one first wins DuckDB's
-lock on it, and this one stops with `IndexLockedError`. The old
-project files, which the new registry does not name, are deleted
-as residue. An older rbtr finds a newer `schema_version` and
-refuses to open the index (`IndexSchemaTooNewError`), changing
-nothing.
+cleared and recomputed on the next build: vectors from two models
+cannot be compared, so no migration keeps them.
 
 A fourth invalidation axis lives outside `meta`, per chunk:
 `chunks.extraction_serial`, the extraction serial of the chunk's
@@ -1107,30 +1098,60 @@ chunk carries TypeScript's serial, not the host svelte plugin's.
 Its only reader is the blob-dedup check, so a plugin can invalidate
 only its own stale extractions (see
 [Content-addressed chunks and blob dedup](#content-addressed-chunks-and-blob-dedup)),
-without the rebuild a `schema_version` bump forces.
+with no schema change.
 
-**Additive vs breaking changes.** `registry.sql` and `schema.sql`
-are applied `CREATE TABLE IF NOT EXISTS` on every writable open,
-to the registry and to every project file, so a purely
-**additive** table (e.g. `watched_refs`) appears in existing
-indexes in place — no `schema_version` bump, no rebuild. Only a
-**breaking** change to an existing table or column bumps
-`schema_version` (and so replaces the index).
+#### Migrations
 
-**Constraints reach only new databases.** DuckDB has no
-`ALTER TABLE ... ADD CONSTRAINT`, and `CREATE TABLE IF NOT
-EXISTS` leaves an existing table untouched. A `CHECK` or
-`FOREIGN KEY` added to `schema.sql` therefore applies to
-databases created after the change and not to those already
-on disk — it will hold on a fresh checkout while being absent
-from every index in the field. Applying one everywhere means
-bumping `schema_version`, so that each database is rebuilt
-with it.
+`registry.sql` and `schema.sql` create new files. Every later schema
+change, a new table included, is a migration under
+`index/sql/migrations/<kind>/` (`registry` or `project`) and bumps
+`SCHEMA_VERSION`. A migration named `<start>__<end>.sql` applies to a
+file recording any version from `<start>` up to `<end>`. Each kind's
+migrations form one chain ordered by version, since rbtr releases from
+one line.
 
-`chunks` carries two: a span ends on or after the line it
-starts on, and truncation describes an embedding that exists.
-Every index has both, because an index built without them has an
-older `schema_version` and is replaced on open.
+Opening the index for writing brings each file forward from the
+version it records; `migrations.plan` decides and `Store` acts:
+
+- current: nothing runs;
+- older: the migrations whose `<end>` is newer run in order, each in
+  its own transaction that records its `<end>`. A failure leaves the
+  file at the last version reached, and the next open resumes;
+- newer: refused with `IndexSchemaTooNewError`, since migrations run
+  forward only;
+- too old: no recorded version, not calver, or older than the oldest
+  `<start>` across all chains (`SCHEMA_VERSION` if none ship), since a
+  release may migrate one kind only. The index is replaced (below).
+  Deleting a migration's file retires it.
+
+A read-only open refuses any file it would change and names
+`rbtr watch`.
+
+The registry migrates first, in place, because it names the other
+files. A project file that migrations change is migrated on a copy,
+which one registry update then names, as compaction does (see
+[Switching a project's file](#index-files)), so a failure or a crash
+leaves the old file live. A copy that grew past
+`compact_growth_ratio` is compacted before the switch.
+
+The copies run during the open, which logs `index_file_migrated` and
+`index_replaced`.
+
+A migration keeps every column it does not change, vectors included.
+DuckDB cannot add a constraint with `ALTER`, so such a migration
+rebuilds the table with `INSERT … SELECT`. That is how the two
+`CHECK`s on `chunks` (a span ends on or after its first line;
+truncation implies an embedding) reach existing files. A test runs
+each kind's chain over its base schema (`<start>.base.sql`) and
+compares the result with a new file's.
+
+**Replacing an index too old to migrate.** The index is rebuilt from
+git, so it is replaced with an empty one, at the cost of re-indexing
+every repository. It is replaced, not emptied, because deleting rows
+does not shrink a DuckDB file. The old registry is unlinked while
+still open, so its lock holds until the new one exists; a process that
+creates it first wins the lock, and this one stops with
+`IndexLockedError`. The old project files are deleted as residue.
 
 rbtr declares no foreign keys; see
 [Design decisions](#design-decisions).
@@ -2197,11 +2218,22 @@ expression, and it reads registered frames zero-copy, which is
 what lets retrieval and bulk upsert both be single set-based
 statements (see
 [Registered frames as query inputs](#registered-frames-as-query-inputs)).
-The cost is a young file format with no in-place schema
-migration — hence the wipe-and-rebuild policy in
-[Versioning](#versioning) — and one writer at a time. Both are
-acceptable for derived data with a single writing daemon.
-Revisit if the index ever needs concurrent writers.
+The cost is a young file format whose `ALTER TABLE` cannot add a
+constraint, so some migrations rebuild a table (see
+[Migrations](#migrations)), and one writer at a time, which a
+single writing daemon accepts. Revisit if the index ever needs
+concurrent writers.
+
+**Migrations, not rebuilds.** A schema change migrates every file
+from the version it records. Replacing the index on every breaking
+change does not work here: it re-extracts every checkout and
+re-embeds every chunk to change a column.
+
+**Opening the index migrates it.** Migration belongs to the `index`
+layer and reports through the log; the CLI and the daemon just open
+the index. Migrating in each command
+instead repeats the work in every interface, and one that forgets opens
+an index it never brought forward.
 
 **One data file per project, named by a registry.** Deleting rows
 never shrinks a DuckDB file, so reclaiming space means writing the
