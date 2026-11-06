@@ -505,5 +505,26 @@
       "end": 85
     },
     "id": "64cbb79e676b4e9d"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "python.py",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "decorator"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "python",
+    "file_language": "python",
+    "content": "@lru_cache",
+    "span": {
+      "start": 49,
+      "end": 49
+    },
+    "id": "3737d43147fb34bf"
   }
 ]

@@ -133,7 +133,7 @@ reads one vocabulary for the index: `path:line kind name`, each
 file once, a method named `Class::method` as `rbtr_read_symbol`
 takes it. A read first names the commit it read and how rbtr chose
 it, which the model cannot know otherwise. Outlines leave out
-imports and comments (`OUTLINE_EXCLUDES`, asked of rbtr with the
+imports, comments and fragments (`OUTLINE_EXCLUDES`, asked of rbtr with the
 `kinds` filter), and search previews carry 8 lines
 (`SEARCH_PREVIEW_LINES`, about half the median hit) with
 `… N more lines` when clipped. Errors, and the replies that

@@ -33,5 +33,5 @@ cpp = LanguageRegistration(
         class_scope_types=frozenset({"class_specifier", "struct_specifier"}),
     ),
     source_roots=("", "include", "src"),
-    extraction_serial=6,
+    extraction_serial=7,
 )

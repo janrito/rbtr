@@ -65,5 +65,47 @@
       "end": 14
     },
     "id": "c401891794cc2bc1"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "sql_duckdb.sql",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "ERROR"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "sql",
+    "file_language": "sql",
+    "content": ");",
+    "span": {
+      "start": 8,
+      "end": 8
+    },
+    "id": "7e812beaa4c7eb1f"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "sql_duckdb.sql",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "ERROR"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "sql",
+    "file_language": "sql",
+    "content": "CREATE MACRO add_one(x) AS x + 1;",
+    "span": {
+      "start": 12,
+      "end": 12
+    },
+    "id": "6e5310f0f3c0bc57"
   }
 ]

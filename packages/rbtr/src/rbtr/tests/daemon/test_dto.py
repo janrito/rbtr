@@ -26,13 +26,16 @@ from ..conftest import make_commit
 
 @pytest.fixture(scope="module")
 def replies(module_index: Index, module_repo: pygit2.Repository) -> dict[ChunkKind, SymbolOut]:
-    """A function and an import, built into an index and read back as replies."""
+    """A function, an import and a fragment, built into an index and read back as replies."""
     source = b"""\
 from os import environ
 
 
 def load_config():
     return environ
+
+
+load_config()
 """
     sha = str(make_commit(module_repo, {"src/app.py": source}, ref="refs/heads/replies"))
     path = normalise_repo_path(module_repo.workdir)
@@ -48,8 +51,11 @@ def test_drops_storage_internals(replies: dict[ChunkKind, SymbolOut]) -> None:
     assert "embedding" not in data
 
 
-def test_metadata_is_omitted_on_all_but_imports(replies: dict[ChunkKind, SymbolOut]) -> None:
-    data = json.loads(replies[ChunkKind.FUNCTION].model_dump_json())
+@pytest.mark.parametrize("kind", [ChunkKind.FUNCTION, ChunkKind.FRAGMENT])
+def test_metadata_is_omitted_on_all_but_imports(
+    replies: dict[ChunkKind, SymbolOut], kind: ChunkKind
+) -> None:
+    data = json.loads(replies[kind].model_dump_json())
     assert "metadata" not in data
 
 

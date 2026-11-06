@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 from pytest_cases import parametrize_with_cases
 
-from rbtr.domain.models import ChunkKind
+from rbtr.domain.models import ChunkKind, Fragment, FragmentMeta
 from rbtr.git import FileEntry
 from rbtr.languages.extract import extract_file
 
@@ -42,17 +42,18 @@ def test_extracts_all_expected_kinds(
         assert (name, scope) in methods, f"expected method ({name}, {scope}) not in {methods}"
 
 
-def test_sql_pragma_not_extracted() -> None:
-    """A DuckDB PRAGMA yields no definition chunk.
+def test_sql_pragma_is_a_parse_error_fragment() -> None:
+    """A DuckDB PRAGMA reaches a chunk only as a fragment of a parse error.
 
     The grammar has no PRAGMA statement node, so it parses to a top-level
     ERROR with no enclosing `statement` to capture. This is a known
     limitation guard; it flags the day the grammar gains PRAGMA support.
-    Only the content-less host-presence chunk (for blob dedup) remains.
     """
     src = "PRAGMA create_fts_index('chunks', 'id', 'body');\n"
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "sql")
-    assert [c for c in chunks if c.content] == []
+    assert [(c.role, c.content) for c in chunks] == [
+        (Fragment(meta=FragmentMeta(node_types=("ERROR",))), src.rstrip())
+    ]
 
 
 @pytest.mark.xfail(

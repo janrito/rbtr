@@ -107,7 +107,7 @@ python = LanguageRegistration(
     index_files=frozenset({"__init__.py"}),
     source_roots=("", "src"),
     module_style=ModuleStyle.DOTTED,
-    extraction_serial=6,
+    extraction_serial=7,
 )
 
 python.import_extractor(extract_import_meta)

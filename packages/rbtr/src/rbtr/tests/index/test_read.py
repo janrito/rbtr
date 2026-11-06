@@ -191,7 +191,13 @@ def test_an_import_reads_back_as_written(
 ) -> None:
     seed_index(index, [script_import], head_ref)
     assert index.chunks(at=head_ref)["metadata"].to_list() == [
-        {"module": "greeter.js", "names": "greet", "dots": "1", "language_hint": "javascript"}
+        {
+            "module": "greeter.js",
+            "names": "greet",
+            "dots": "1",
+            "language_hint": "javascript",
+            "node_types": None,
+        }
     ]
 
 

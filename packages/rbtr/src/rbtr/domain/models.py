@@ -39,6 +39,7 @@ class ChunkKind(StrEnum):
     TEST_FUNCTION = "test_function"
     API_ENDPOINT = "api_endpoint"
     RAW_CHUNK = "raw_chunk"
+    FRAGMENT = "fragment"
 
 
 CODE_KINDS: frozenset[ChunkKind] = frozenset(
@@ -183,7 +184,26 @@ class RawSlice(BaseModel, frozen=True):
         return ""
 
 
-type Role = Annotated[Definition | Section | Import | Comment | RawSlice, Discriminator("kind")]
+class FragmentMeta(BaseModel, frozen=True):
+    """The syntax a fragment holds: its named nodes' types, in order, once each."""
+
+    node_types: tuple[str, ...]
+
+
+class Fragment(BaseModel, frozen=True):
+    """A run of a file's code that no query pattern names."""
+
+    kind: Literal[ChunkKind.FRAGMENT] = ChunkKind.FRAGMENT
+    meta: FragmentMeta
+
+    @property
+    def name(self) -> str:
+        return ""
+
+
+type Role = Annotated[
+    Definition | Section | Import | Comment | RawSlice | Fragment, Discriminator("kind")
+]
 """What a chunk is, carrying exactly the data that kind of chunk has."""
 
 

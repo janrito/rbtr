@@ -48,5 +48,26 @@
       "end": 17
     },
     "id": "b6ef13e06c2afd39"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "sql_clickhouse.sql",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "ERROR"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "sql",
+    "file_language": "sql",
+    "content": "ORDER BY (user_id, event_date);",
+    "span": {
+      "start": 12,
+      "end": 12
+    },
+    "id": "6e5310f0f3c0bc57"
   }
 ]

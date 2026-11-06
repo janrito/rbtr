@@ -34,7 +34,7 @@ go = LanguageRegistration(
         scope_types=frozenset({"type_spec"}),
     ),
     package_directory=True,
-    extraction_serial=4,
+    extraction_serial=5,
     manifest="go.mod",
 )
 

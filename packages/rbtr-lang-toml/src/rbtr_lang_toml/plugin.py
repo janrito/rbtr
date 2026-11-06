@@ -68,7 +68,7 @@ toml = LanguageRegistration(
     ),
     # A `path` dependency names a directory, which its manifest stands for.
     index_files=frozenset({"Cargo.toml", "pyproject.toml"}),
-    extraction_serial=5,
+    extraction_serial=6,
 )
 
 

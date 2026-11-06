@@ -31,5 +31,5 @@ tree_sitter_query = LanguageRegistration(
     extraction=QueryExtraction(
         query=load_query(__package__, "tree_sitter_query"),
     ),
-    extraction_serial=2,
+    extraction_serial=3,
 )

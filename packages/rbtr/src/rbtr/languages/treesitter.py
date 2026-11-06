@@ -16,12 +16,15 @@ from typing import TYPE_CHECKING
 
 from tree_sitter import Language, Parser, Query, QueryCursor, Range
 
+from rbtr.config import config
 from rbtr.domain.identity import compose_scope
 from rbtr.domain.models import (
     Chunk,
     ChunkKind,
     Comment,
     Definition,
+    Fragment,
+    FragmentMeta,
     Import,
     RawSlice,
     Role,
@@ -33,7 +36,7 @@ from rbtr.languages.chunks import last_line
 from rbtr.languages.registration import QueryExtraction
 
 if TYPE_CHECKING:
-    from tree_sitter import Node
+    from tree_sitter import Node, Tree
 
     from rbtr.languages.registration import LanguageRegistration
 
@@ -213,7 +216,7 @@ def extract_symbols(
     *,
     included_ranges: list[Range] | None = None,
 ) -> Iterator[Chunk]:
-    """Parse *content* and yield structural chunks, in source order.
+    """Parse *content* and yield the query's chunks in source order, then fragments.
 
     Runs a tree-sitter query over the parsed AST; each capture's kind, name,
     scope, and metadata are derived from the query's capture conventions:
@@ -237,6 +240,10 @@ def extract_symbols(
     that statement, so it never folds into what follows. Imports are not a
     documented surface, so a block before one stays standalone.
 
+    **Fragments.** After the captured chunks come `FRAGMENT` chunks for
+    the code they leave (`_fragments`), so every line of the parsed
+    range reaches a chunk.
+
     Parameters:
         registered_language:  The language's registration — the
                               `QueryExtraction`, name/scope/import resolution,
@@ -257,7 +264,23 @@ def extract_symbols(
     if included_ranges is not None:
         parser.included_ranges = included_ranges
     tree = parser.parse(content)
-    query = _get_query(grammar, extraction.query)
+    captured = list(_captured(registered_language, file_path, blob_sha, content, tree, extraction))
+    yield from captured
+    yield from _fragments(
+        registered_language, file_path, blob_sha, content, tree, extraction, captured
+    )
+
+
+def _captured(
+    registered_language: LanguageRegistration,
+    file_path: str,
+    blob_sha: str,
+    content: bytes,
+    tree: Tree,
+    extraction: QueryExtraction,
+) -> Iterator[Chunk]:
+    """The chunks the query's captures make, in source order."""
+    query = _get_query(tree.language, extraction.query)
 
     # Flatten chunk-producing captures into one source-ordered stream.
     items: list[tuple[Node, str, dict[str, list[Node]]]] = []
@@ -351,6 +374,8 @@ def extract_symbols(
                 role = Comment()
             case ChunkKind.RAW_CHUNK:
                 role = RawSlice()
+            case ChunkKind.FRAGMENT:
+                role = Fragment(meta=FragmentMeta(node_types=(node.type,)))
             case kind:
                 role = Definition(kind=kind, name=name)
         seen.append((node.start_byte, node.end_byte))
@@ -368,6 +393,88 @@ def extract_symbols(
 
     if pending and (chunk := resolve(pending)) is not None:
         yield chunk
+
+
+def injection_holders(registered_language: LanguageRegistration, tree: Tree) -> list[Node]:
+    """The nodes holding a block *registered_language* delegates to another language.
+
+    An HTML `<script>` element holds the javascript its injection query
+    hands on: the element's tags belong to that block, not to the host.
+    """
+    if registered_language.injection_query is None:
+        return []
+    query = _get_query(tree.language, registered_language.injection_query)
+    return [
+        block.parent or block
+        for _pattern, captures in QueryCursor(query).matches(tree.root_node)
+        for block in captures.get("injection.content", [])
+    ]
+
+
+def _fragments(
+    registered_language: LanguageRegistration,
+    file_path: str,
+    blob_sha: str,
+    content: bytes,
+    tree: Tree,
+    extraction: QueryExtraction,
+    captured: list[Chunk],
+) -> Iterator[Chunk]:
+    """Fragment chunks for the code *captured* leaves, so every line reaches a chunk.
+
+    Walks the tree from the root by lines. A node no captured chunk
+    touches is left over; a node one touches only in part is looked
+    into. Left-over siblings join one fragment until a blank line, a
+    covered node or `config.chunk_lines` lines separate them, and a run
+    of anonymous syntax alone (a closing brace) makes none. A node
+    holding an injected block counts as covered: its language's
+    extraction reaches it.
+    """
+    covered = bytearray(content.count(b"\n") + 2)
+    spans = [(c.line_start, c.line_end) for c in captured] + [
+        (holder.start_point[0] + 1, last_line(holder))
+        for holder in injection_holders(registered_language, tree)
+    ]
+    for start, end in spans:
+        covered[start : end + 1] = b"\x01" * (end - start + 1)
+
+    def runs(node: Node) -> Iterator[list[Node]]:
+        run: list[Node] = []
+        for child in node.children:
+            lines = covered[child.start_point[0] + 1 : last_line(child) + 1]
+            if 1 in lines:
+                if run:
+                    yield run
+                run = []
+                if 0 in lines:
+                    yield from runs(child)
+                continue
+            if run and (
+                not _contiguous(content, run[-1].end_byte, child.start_byte)
+                or last_line(child) - run[0].start_point[0] > config.chunk_lines
+            ):
+                yield run
+                run = []
+            run.append(child)
+        if run:
+            yield run
+
+    for run in runs(tree.root_node):
+        node_types = tuple(dict.fromkeys(n.type for n in run if n.is_named))
+        text = content[run[0].start_byte : run[-1].end_byte].decode("utf-8", errors="replace")
+        if not node_types or not text.strip():
+            continue
+        yield Chunk.model_validate(
+            {
+                "blob_sha": blob_sha,
+                "file_path": file_path,
+                "role": Fragment(meta=FragmentMeta(node_types=node_types)),
+                "scope": _scope_names(_enclosing_scopes(run[0], extraction.scope_types)),
+                "language": registered_language.id,
+                "content": text.rstrip("\n"),
+                "span": Span(start=run[0].start_point[0] + 1, end=last_line(run[-1])),
+            }
+        )
 
 
 @dataclasses.dataclass(frozen=True)

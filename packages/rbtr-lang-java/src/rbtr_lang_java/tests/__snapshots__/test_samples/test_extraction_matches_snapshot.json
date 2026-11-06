@@ -35,6 +35,27 @@
   },
   {
     "blob_sha": "sha1",
+    "file_path": "com/example/format/Formatter.java",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "package_declaration"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "java",
+    "file_language": "java",
+    "content": "package com.example.format;",
+    "span": {
+      "start": 1,
+      "end": 1
+    },
+    "id": "8ff2d9f9e1c0eb30"
+  },
+  {
+    "blob_sha": "sha1",
     "file_path": "java.java",
     "role": {
       "kind": "comment"
@@ -473,5 +494,26 @@
       "end": 74
     },
     "id": "ba8ca0e94a46742e"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "java.java",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "package_declaration"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "java",
+    "file_language": "java",
+    "content": "package com.example.greet;",
+    "span": {
+      "start": 6,
+      "end": 6
+    },
+    "id": "c31d31ddd00c47c7"
   }
 ]
