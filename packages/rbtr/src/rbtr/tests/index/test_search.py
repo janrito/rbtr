@@ -65,6 +65,7 @@ def test_name_score_expr(query: str, name: str, expected: float) -> None:
         (ChunkKind.TEST_FUNCTION, 0.7),
         (ChunkKind.IMPORT, 0.3),
         (ChunkKind.RAW_CHUNK, 0.5),
+        (ChunkKind.COMMENT, 0.5),
         (ChunkKind.DOC_SECTION, 0.8),
         (ChunkKind.CONFIG_KEY, 0.6),
         (ChunkKind.VARIABLE, 1.0),
@@ -82,7 +83,7 @@ def test_kind_boost_expr(kind: ChunkKind, expected: float) -> None:
         .filter(pl.Series([k == kind for k in ChunkKind]))
         .item()
     )
-    assert result > 0.0
+    assert result == pytest.approx(expected)
     assert result == pytest.approx(expected)
 
 
