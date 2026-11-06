@@ -49,7 +49,7 @@ def test_chunks_returns_expected(
         kind=s.kind,
         name=s.name,
     )
-    assert sorted(c.name for c in chunks) == sorted(s.expected_names)
+    assert sorted(chunks["name"]) == sorted(s.expected_names)
 
 
 @fixture
@@ -87,7 +87,7 @@ def test_upsert_replaces_content(index: Index) -> None:
 
     chunks = index.chunks(at=repo.at("head"))
     assert len(chunks) == 1
-    assert "return 2" in chunks[0].content
+    assert "return 2" in chunks["content"][0]
 
 
 def test_delete_chunks_for_blobs_removes_target(index: Index) -> None:
@@ -202,7 +202,7 @@ def test_a_read_leaves_the_cursor_free_for_the_next(index: Index, head_ref: Snap
     chunk = make_chunk("a")
     seed_index(index, [chunk], head_ref)
     assert index.count_edges(at=head_ref) == 0
-    assert [c.id for c in index.chunks_by_id([chunk.id], at=head_ref)] == [chunk.id]
+    assert index.chunks_by_id([chunk.id], at=head_ref)["id"].to_list() == [chunk.id]
 
 
 @pytest.fixture
@@ -226,8 +226,9 @@ def test_an_import_reads_back_as_written(
     script_import: TokenisedChunk, index: Index, head_ref: SnapshotRef
 ) -> None:
     seed_index(index, [script_import], head_ref)
-    [read] = index.chunks(at=head_ref)
-    assert read.metadata == script_import.metadata
+    assert index.chunks(at=head_ref)["metadata"].to_list() == [
+        {"module": "greeter.js", "names": "", "dots": "", "language_hint": "javascript"}
+    ]
 
 
 def test_inbound_refs_empty_targets(index: Index, head_ref: SnapshotRef) -> None:
@@ -280,8 +281,8 @@ def test_shared_content_is_one_row_visible_to_both_repos(
     """Shared content is a single physical row, visible to every repo."""
     index = shared_chunk_index
     repo1, repo2 = index.repos()
-    assert [c.id for c in index.chunks(at=repo1.at("head"))] == [shared_chunk.id]
-    assert [c.id for c in index.chunks(at=repo2.at("head"))] == [shared_chunk.id]
+    assert index.chunks(at=repo1.at("head"))["id"].to_list() == [shared_chunk.id]
+    assert index.chunks(at=repo2.at("head"))["id"].to_list() == [shared_chunk.id]
     with index.reader(repo1) as cur:
         rows = cur.sql("SELECT count(*) FROM chunks").fetchall()
     assert rows == [(1,)]
@@ -323,8 +324,8 @@ def test_cleanup_keeps_chunk_referenced_by_another_repo(
         cleaned = ws.cleanup()
     assert cleaned.chunks == 0
     assert index.count_orphan_chunks() == 0
-    assert [c.id for c in index.chunks(at=repo1.at("head"))] == [shared_chunk.id]
-    assert [c.id for c in index.chunks(at=repo2.at("head"))] == [shared_chunk.id]
+    assert index.chunks(at=repo1.at("head"))["id"].to_list() == [shared_chunk.id]
+    assert index.chunks(at=repo2.at("head"))["id"].to_list() == [shared_chunk.id]
 
 
 def test_shared_chunk_swept_only_after_last_repo_drops_it(
@@ -338,14 +339,14 @@ def test_shared_chunk_swept_only_after_last_repo_drops_it(
     with index.session(repo1) as ws:
         first_drop = ws.drop_snapshot(snapshot_sha="head")
     assert first_drop.chunks == 0
-    assert [c.id for c in index.chunks(at=repo2.at("head"))] == [shared_chunk.id]
+    assert index.chunks(at=repo2.at("head"))["id"].to_list() == [shared_chunk.id]
 
     # Repo 2 drops its commit: last reference gone, chunk is swept.
     with index.session(repo2) as ws:
         second_drop = ws.drop_snapshot(snapshot_sha="head")
     assert second_drop.chunks == 1
     assert index.count_orphan_chunks() == 0
-    assert index.chunks(at=repo2.at("head")) == []
+    assert index.chunks(at=repo2.at("head")).is_empty()
 
 
 def test_rechunk_of_shared_blob_propagates_to_all_repos(
@@ -368,8 +369,8 @@ def test_rechunk_of_shared_blob_propagates_to_all_repos(
         ws.delete_chunks_for_blobs({"b_shared"}, file_language="")
         ws.add_chunk(rechunked)
 
-    assert [c.id for c in index.chunks(at=repo1.at("head"))] == [rechunked.id]
-    assert [c.id for c in index.chunks(at=repo2.at("head"))] == [rechunked.id]
+    assert index.chunks(at=repo1.at("head"))["id"].to_list() == [rechunked.id]
+    assert index.chunks(at=repo2.at("head"))["id"].to_list() == [rechunked.id]
 
 
 def test_drop_snapshot_keeps_a_chunk_still_reachable_at_another_path(
@@ -397,7 +398,7 @@ def test_drop_snapshot_keeps_a_chunk_still_reachable_at_another_path(
 
     assert dropped.chunks == 0
     assert index.count_orphan_chunks() == 0
-    assert [c.id for c in index.chunks(at=repo.at("c2"))] == [shared.id]
+    assert index.chunks(at=repo.at("c2"))["id"].to_list() == [shared.id]
 
 
 def test_inbound_refs_to_shared_chunk_resolve_per_repo(

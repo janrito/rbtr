@@ -1,24 +1,25 @@
 """Output DTOs for the read commands.
 
 These are the API/wire shape returned by the daemon and printed by the
-CLI's `--json`. They are deliberately distinct from the storage models
-in `rbtr.domain.models`: storage rows carry identity hashes (`id`,
-`blob_sha`), an embedding, ranking internals, and an always-present
-`metadata` bag, none of which a caller needs. Projecting to a DTO keeps
-the public contract minimal and low-noise — agents read these payloads
-straight into their context.
+CLI's `--json`. They are deliberately distinct from the index's rows:
+those carry identity hashes (`id`, `blob_sha`), the embedding flag,
+ranking internals and empty import metadata on every chunk, none of
+which a caller needs. Each is validated straight from a read's frame rows, which
+keeps the public contract flat, minimal and low-noise — agents read
+these payloads straight into their context.
 
 Being output-only, a DTO never flows into the write/staging path, so it
-is free to omit empty fields (which a storage model cannot — the same
-`model_dump` builds its insert frame).
+is free to omit empty fields.
 """
 
 from __future__ import annotations
 
+import dataframely as dy
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from rbtr.config import config
-from rbtr.domain.models import Chunk, ChunkKind, EdgeKind, ImportMeta, RefSource, ScoredChunk
+from rbtr.domain.models import ChunkKind, EdgeKind, ImportMeta, RefSource, ScoredChunk
+from rbtr.index.results import ChunkResultRow, SymbolRefRow, SymbolRow, import_metadata
 
 _STRICT = ConfigDict(extra="forbid")
 
@@ -43,20 +44,6 @@ class SymbolRefOut(BaseModel):
     line_end: int
     metadata: ImportMeta | None = Field(default=None, exclude_if=lambda v: v is None)
 
-    @classmethod
-    def from_chunk(cls, chunk: Chunk) -> SymbolRefOut:
-        meta = chunk.metadata if chunk.metadata != ImportMeta() else None
-        return cls(
-            name=chunk.name,
-            kind=chunk.kind,
-            file_path=chunk.file_path,
-            scope=chunk.scope,
-            language=chunk.language,
-            line_start=chunk.line_start,
-            line_end=chunk.line_end,
-            metadata=meta,
-        )
-
 
 class SymbolOut(BaseModel):
     """A symbol and its source, as returned by read-symbol.
@@ -77,21 +64,6 @@ class SymbolOut(BaseModel):
     line_start: int
     line_end: int
     metadata: ImportMeta | None = Field(default=None, exclude_if=lambda v: v is None)
-
-    @classmethod
-    def from_chunk(cls, chunk: Chunk) -> SymbolOut:
-        meta = chunk.metadata if chunk.metadata != ImportMeta() else None
-        return cls(
-            name=chunk.name,
-            kind=chunk.kind,
-            file_path=chunk.file_path,
-            scope=chunk.scope,
-            language=chunk.language,
-            content=chunk.content,
-            line_start=chunk.line_start,
-            line_end=chunk.line_end,
-            metadata=meta,
-        )
 
 
 class Preview(BaseModel):
@@ -192,7 +164,6 @@ class SearchHitOut(BaseModel):
         cls, sc: ScoredChunk, *, explain: bool = False, preview_lines: int | None = None
     ) -> SearchHitOut:
         """The hit for *sc*, previewing *preview_lines* lines (default: the config's)."""
-        meta = sc.metadata if sc.metadata != ImportMeta() else None
         limit = config.search_preview_lines if preview_lines is None else preview_lines
         return cls(
             name=sc.name,
@@ -205,7 +176,7 @@ class SearchHitOut(BaseModel):
             line_end=sc.line_end,
             match_line_offset=sc.match_line_offset,
             matched_terms=sc.matched_terms,
-            metadata=meta,
+            metadata=sc.metadata,
             repo_path=sc.repo_path,
             score=sc.score,
             signals=SearchSignals.from_scored(sc) if explain else None,
@@ -241,6 +212,20 @@ class RefOut(BaseModel):
 
 RefOuts = TypeAdapter(list[RefOut])
 """Bulk validator for a `find-refs` result frame (one call, not per row)."""
+SymbolRefOuts = TypeAdapter(list[SymbolRefOut])
+SymbolOuts = TypeAdapter(list[SymbolOut])
+
+
+def symbol_refs(frame: dy.DataFrame[ChunkResultRow]) -> list[SymbolRefOut]:
+    """Each row of a chunk-result frame as a `SymbolRefOut`."""
+    rows = frame.with_columns(import_metadata()).pipe(SymbolRefRow.validate, cast=True)
+    return SymbolRefOuts.validate_python(rows.to_dicts())
+
+
+def symbols(frame: dy.DataFrame[ChunkResultRow]) -> list[SymbolOut]:
+    """Each row of a chunk-result frame as a `SymbolOut`, body included."""
+    rows = frame.with_columns(import_metadata()).pipe(SymbolRow.validate, cast=True)
+    return SymbolOuts.validate_python(rows.to_dicts())
 
 
 class PluginInfo(BaseModel):

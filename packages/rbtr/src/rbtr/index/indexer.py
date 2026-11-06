@@ -28,8 +28,8 @@ from rbtr.errors import BuildStopped, RbtrError
 from rbtr.git import HEAD_REF, resolve_ref
 from rbtr.index import watcher
 from rbtr.index.build import build_index, drop_stale_worktree_shas
-from rbtr.index.embed import write_embedding_batch
-from rbtr.index.embeddings import Embedder, embedding_text
+from rbtr.index.embed import embedding_batches, write_embedding_batch
+from rbtr.index.embeddings import Embedder
 from rbtr.index.index import Index
 from rbtr.index.maintenance import run_maintenance
 from rbtr.index.progress import EmbedOutcome, ProgressCallback
@@ -322,11 +322,12 @@ class Indexer:
         try:
             for page_ids in itertools.batched(pending, config.embedding_page_size, strict=False):
                 page = await asyncio.to_thread(index.chunks_by_id, list(page_ids), at=job.at)
-                for batch in itertools.batched(page, config.embedding_batch_size, strict=False):
-                    texts = [embedding_text(c.name, c.content) for c in batch]
+                for batch in embedding_batches(page):
                     try:
                         async with self._gpu_lock:
-                            results = await asyncio.to_thread(embedder.embed, texts)
+                            results = await asyncio.to_thread(
+                                embedder.embed, batch["text"].to_list()
+                            )
                     except (RuntimeError, ValueError):
                         # A shutdown aborts the batch in progress: no failure.
                         if self._stopping.is_set():
@@ -344,10 +345,7 @@ class Indexer:
                             write_embedding_batch,
                             index,
                             job.at.repo,
-                            [
-                                (chunk.id, result)
-                                for chunk, result in zip(batch, results, strict=True)
-                            ],
+                            list(zip(batch["id"], results, strict=True)),
                         )
                     done += len(batch)
                     await self._emit(

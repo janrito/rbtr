@@ -51,4 +51,4 @@ def test_build_index_extraction_error_is_nonfatal(
     assert "bad.py" in result.errors[0]
     [registered] = index.repos()
     chunks = index.chunks(at=registered.at(sha))
-    assert any(c.file_path == "good.py" for c in chunks)
+    assert (chunks["file_path"] == "good.py").any()

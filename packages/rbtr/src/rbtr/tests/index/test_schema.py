@@ -141,7 +141,7 @@ def test_chunks_survive_matches_scenario(
         return
     if scenario.expected_chunks_survive:
         [repo] = index.repos()
-        assert index.chunks(at=repo.at("head")), "expected chunks to survive"
+        assert not index.chunks(at=repo.at("head")).is_empty(), "expected chunks to survive"
     else:
         assert index.repos() == [], "expected the index to be replaced"
         projects = Path(str(index.db_path)).parent / "index"
@@ -158,7 +158,7 @@ def test_embeddings_survive_matches_scenario(
         return
     [repo] = index.repos()
     chunks = index.chunks(at=repo.at("head"))
-    any_embedded = any(c.has_embedding for c in chunks)
+    any_embedded = chunks["has_embedding"].any()
     if scenario.expected_embeddings_survive:
         assert any_embedded, "expected some embedding to survive"
     else:
@@ -261,7 +261,7 @@ def test_second_open_in_process_is_locked_out(tmp_path: Path) -> None:
     try:
         with pytest.raises(IndexLockedError):
             Index(db_path)
-        assert index.chunks(at=repo.at("head"))
+        assert not index.chunks(at=repo.at("head")).is_empty()
     finally:
         index.close()
 
@@ -338,7 +338,7 @@ def test_opening_deletes_files_the_registry_does_not_name(tmp_path: Path) -> Non
         assert list(projects.iterdir()) == [named]
         assert not old_copy.exists()
         assert not old_spill.exists()
-        assert index.chunks(at=repo.at("head"))
+        assert not index.chunks(at=repo.at("head")).is_empty()
     finally:
         index.close()
 
@@ -419,7 +419,7 @@ def test_opening_brings_each_file_forward_or_leaves_it(
         index = Index(path, writable=migration.writable)
         try:
             [repo] = index.repos()
-            assert index.chunks(at=repo.at("head"))
+            assert not index.chunks(at=repo.at("head")).is_empty()
             assert not index.fulltext_matches("c1", within=[repo.at("head")], top_k=5).is_empty()
             assert index.replaced is None
         finally:
@@ -459,7 +459,7 @@ def test_a_deferred_migration_refuses_its_file_until_it_runs(
             index.chunks(at=repo.at("head"))
         index.migrate()
         assert not index.migrating
-        assert index.chunks(at=repo.at("head"))
+        assert not index.chunks(at=repo.at("head")).is_empty()
     finally:
         index.close()
 

@@ -20,6 +20,8 @@ import time
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING
 
+import dataframely as dy
+import polars as pl
 import structlog
 
 from rbtr import get_version
@@ -29,12 +31,12 @@ from rbtr.daemon.dto import (
     RefOuts,
     ResolvedRef,
     SearchHitOut,
-    SymbolOut,
-    SymbolRefOut,
+    symbol_refs,
+    symbols,
 )
 from rbtr.daemon.messages import (
     ActiveJob,
-    ChangedSymbol,
+    ChangedSymbols,
     ChangedSymbolsRequest,
     ChangedSymbolsResponse,
     DaemonConfigRequest,
@@ -69,7 +71,7 @@ from rbtr.daemon.messages import (
     WatchSetResponse,
 )
 from rbtr.domain.models import (
-    Chunk,
+    ChunkKind,
     GcCounts,
     QueryKind,
     RefSource,
@@ -88,7 +90,7 @@ from rbtr.git import (
 from rbtr.index.gc import run_gc, run_gc_all
 from rbtr.index.progress import RepoProgressCallback, _noop_repo_progress
 from rbtr.index.refs import ensure_indexed, latest_refs, resolve_read_ref
-from rbtr.index.results import changed_to_symbols, frame_to_chunks
+from rbtr.index.results import ChunkResultRow, SymbolRefRow, import_metadata
 from rbtr.index.search import search
 from rbtr.index.watch import forget_stale_repos, remove_stale_refs, unwatch_refs
 from rbtr.languages.manager import get_manager
@@ -186,21 +188,23 @@ def _search(
     )
 
 
-def _scope_chunks(chunks: list[Chunk], file_paths: list[str] | None) -> list[Chunk]:
-    """Filter chunks to *file_paths*; a no-op when it is empty or `None`."""
+def _scope_chunks(
+    frame: dy.DataFrame[ChunkResultRow], file_paths: list[str] | None
+) -> dy.DataFrame[ChunkResultRow]:
+    """*frame*'s rows at *file_paths*; all of them when it is empty or `None`."""
     if not file_paths:
-        return chunks
-    allowed = set(file_paths)
-    return [c for c in chunks if c.file_path in allowed]
+        return frame
+    return frame.filter(pl.col("file_path").is_in(file_paths)).pipe(
+        ChunkResultRow.validate, cast=True
+    )
 
 
 def handle_read_symbol(request: ReadSymbolRequest, index: Index) -> ReadSymbolResponse:
     repo = index.repo(request.repo_path)
     read = resolve_read_ref(index, repo, request.ref, require_indexed=True)
-    named = frame_to_chunks(index.name_matches(request.symbol, within=[read.at]))
-    scoped = _scope_chunks(named, request.file_paths)
+    named = index.name_matches(request.symbol, within=[read.at])
     return ReadSymbolResponse(
-        chunks=[SymbolOut.from_chunk(c) for c in scoped],
+        chunks=symbols(_scope_chunks(named, request.file_paths)),
         resolved=ResolvedRef(sha=read.at.snapshot_sha, source=read.source),
         file_paths=request.file_paths,
     )
@@ -209,11 +213,15 @@ def handle_read_symbol(request: ReadSymbolRequest, index: Index) -> ReadSymbolRe
 def handle_list_symbols(request: ListSymbolsRequest, index: Index) -> ListSymbolsResponse:
     repo = index.repo(request.repo_path)
     read = resolve_read_ref(index, repo, request.ref, require_indexed=True)
-    chunks = index.chunks(at=read.at, file_path=request.file_path)
+    frame = index.chunks(at=read.at, file_path=request.file_path)
     kinds = request.kinds
-    admitted = [c for c in chunks if kinds is None or kinds.admits(c.kind)]
+    if kinds is not None:
+        admitted = [kind for kind in ChunkKind if kinds.admits(kind)]
+        frame = frame.filter(pl.col("kind").is_in(admitted)).pipe(
+            ChunkResultRow.validate, cast=True
+        )
     return ListSymbolsResponse(
-        chunks=[SymbolRefOut.from_chunk(c) for c in admitted],
+        chunks=symbol_refs(frame),
         resolved=ResolvedRef(sha=read.at.snapshot_sha, source=read.source),
         file_path=request.file_path,
     )
@@ -222,9 +230,9 @@ def handle_list_symbols(request: ListSymbolsRequest, index: Index) -> ListSymbol
 def handle_find_refs(request: FindRefsRequest, index: Index) -> FindRefsResponse:
     repo = index.repo(request.repo_path)
     read = resolve_read_ref(index, repo, request.ref, require_indexed=True)
-    named = frame_to_chunks(index.name_matches(request.symbol, within=[read.at]))
+    named = index.name_matches(request.symbol, within=[read.at])
     chunks = _scope_chunks(named, request.file_paths)
-    frame = index.inbound_refs([chunk.id for chunk in chunks], at=read.at)
+    frame = index.inbound_refs(chunks["id"].to_list(), at=read.at)
     refs = RefOuts.validate_python(frame.to_dicts())
     return FindRefsResponse(
         refs=refs,
@@ -253,10 +261,14 @@ def handle_changed_symbols(request: ChangedSymbolsRequest, index: Index) -> Chan
         between=SnapshotRange(repo=repo, base_sha=base, head_sha=head),
         file_paths=request.file_paths,
     )
-    changes = [
-        ChangedSymbol(chunk=SymbolRefOut.from_chunk(chunk), change=change)
-        for chunk, change in changed_to_symbols(frame)
-    ]
+    changes = ChangedSymbols.validate_python(
+        frame.with_columns(import_metadata())
+        .select(
+            pl.struct(SymbolRefRow.column_names()).alias("chunk"),
+            pl.col("change_kind").alias("change"),
+        )
+        .to_dicts()
+    )
     return ChangedSymbolsResponse(
         changes=changes, base_sha=base, head_sha=head, file_paths=request.file_paths
     )
