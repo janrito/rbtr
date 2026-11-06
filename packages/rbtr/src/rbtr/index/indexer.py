@@ -74,7 +74,15 @@ class CollectJob:
     repo_path: ClassVar[None] = None
 
 
-type Job = BuildJob | EmbedJob | CollectJob
+@dataclass(frozen=True)
+class MigrateJob:
+    """Migrating the project files the index left waiting; it concerns every repository."""
+
+    kind: ClassVar[Literal["migrate"]] = "migrate"
+    repo_path: ClassVar[None] = None
+
+
+type Job = BuildJob | EmbedJob | CollectJob | MigrateJob
 
 
 @dataclass(frozen=True)
@@ -126,9 +134,9 @@ class IndexingError:
 
 @dataclass(frozen=True)
 class WorkEnded:
-    """Report the end of a tracked gc, however it ended."""
+    """Report the end of a tracked gc or migration, however it ended."""
 
-    work: CollectJob
+    work: CollectJob | MigrateJob
 
 
 type IndexerOutput = (
@@ -143,14 +151,14 @@ type IndexerOutput = (
 
 
 class Indexer:
-    """Build, embed, poll and maintain using caller-owned data, models and controls.
+    """Build, embed, poll, maintain and migrate using caller-owned data, models and controls.
 
     Records every running job (`snapshot`) and reports its progress and end
-    through `on_output`. Construct it on the loop that owns it; construction
-    seeds HEAD watches, so give it the writable Index to itself. The caller
-    starts `run`, `watch` and `maintain`, at most once each, on that loop.
-    Stop through `request_shutdown`, not cancellation, and await every
-    started operation before disposing of supplied resources.
+    through `on_output`. Construct it on the loop that owns it. The caller
+    awaits `migrate`, then starts `run`, `watch` and `maintain`, at most once
+    each, on that loop. Stop through `request_shutdown`, not cancellation,
+    and await every started operation before disposing of supplied
+    resources.
     """
 
     def __init__(
@@ -195,7 +203,6 @@ class Indexer:
         self._running: dict[str, RunningJob[Job]] = {}
         self._failed_builds: frozenset[watcher.FailedBuild] = frozenset()
         self._idle_since = time.monotonic()
-        self._backfill_head_watches(index)
 
     def snapshot(self) -> list[RunningJob[Job]]:
         """Return the work running now, empty when idle, from any thread."""
@@ -403,7 +410,7 @@ class Indexer:
         self._idle_since = time.monotonic()
 
     @contextlib.contextmanager
-    def track(self, job: CollectJob, phase: str) -> Iterator[ProgressCallback]:
+    def track(self, job: CollectJob | MigrateJob, phase: str) -> Iterator[ProgressCallback]:
         """Record *job* as running for the block, reporting progress and its end however it ends.
 
         Yields the `(phase, current, total)` callback.  Call it from a native
@@ -419,13 +426,28 @@ class Indexer:
             self._clear_active(run.job_id)
             self._emit_native(WorkEnded(job))
 
+    async def migrate(self) -> None:
+        """Migrate the project files the Index left waiting, under the writer semaphore; raises on failure."""
+        if not self._index.migrating:
+            return
+        async with self._write_sem:
+            await asyncio.to_thread(self._migrate)
+
+    def _migrate(self) -> None:
+        """Run the migration on a native thread, tracked as a `MigrateJob`."""
+        with self.track(MigrateJob(), "migrating") as report:
+            self._index.migrate(report)
+
     async def run(self) -> None:
         """Process jobs sequentially until stop, selecting immediately and after wakes.
 
-        Start `watch` separately to detect later Git changes. Job failures are
-        logged and selection continues; failed build targets stay suppressed in
-        this instance. Selection errors are raised to the caller.
+        Seeds a HEAD watch for every registered repo first. Start `watch`
+        separately to detect later Git changes. Job failures are logged and
+        selection continues; failed build targets stay suppressed in this
+        instance. Selection errors are raised to the caller.
         """
+        async with self._write_sem:
+            await asyncio.to_thread(self._backfill_head_watches, self._index)
         self._wake.set()
         while not self._stopping.is_set():
             await self._wake.wait()

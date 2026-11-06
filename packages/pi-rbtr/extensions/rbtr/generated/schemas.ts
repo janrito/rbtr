@@ -15,10 +15,20 @@ export const PROTOCOL_DEFS = {
     properties: {
       work: {
         discriminator: {
-          mapping: { build: "#/$defs/BuildWork", collect: "#/$defs/CollectWork", embed: "#/$defs/EmbedWork" },
+          mapping: {
+            build: "#/$defs/BuildWork",
+            collect: "#/$defs/CollectWork",
+            embed: "#/$defs/EmbedWork",
+            migrate: "#/$defs/MigrateWork",
+          },
           propertyName: "kind",
         },
-        oneOf: [{ $ref: "#/$defs/BuildWork" }, { $ref: "#/$defs/EmbedWork" }, { $ref: "#/$defs/CollectWork" }],
+        oneOf: [
+          { $ref: "#/$defs/BuildWork" },
+          { $ref: "#/$defs/EmbedWork" },
+          { $ref: "#/$defs/CollectWork" },
+          { $ref: "#/$defs/MigrateWork" },
+        ],
       },
       phase: { type: "string" },
       current: { type: "integer" },
@@ -411,8 +421,8 @@ export const PROTOCOL_DEFS = {
   },
   IndexState: {
     description:
-      "What the index holds for a status request.\n\n`NO_INDEX`         — no index file, or it holds no repository.\n`REPO_NOT_INDEXED` — the index holds other repositories, but not an\n                     indexed snapshot of this one; for every\n                     repository, none has one.\n`REF_NOT_INDEXED`  — this repository has indexed snapshots, but not\n                     the one a read without a ref uses, so reads\n                     fall back to the latest indexed commit\n                     (`RefSource.LATEST_INDEXED`).\n`INDEXED`          — reads find the snapshot they ask for.",
-    enum: ["no_index", "repo_not_indexed", "ref_not_indexed", "indexed"],
+      "What the index holds for a status request.\n\n`NO_INDEX`         — no index file, or it holds no repository.\n`REPO_NOT_INDEXED` — the index holds other repositories, but not an\n                     indexed snapshot of this one; for every\n                     repository, none has one.\n`REF_NOT_INDEXED`  — this repository has indexed snapshots, but not\n                     the one a read without a ref uses, so reads\n                     fall back to the latest indexed commit\n                     (`RefSource.LATEST_INDEXED`).\n`INDEXED`          — reads find the snapshot they ask for.\n`MIGRATING`        — the daemon is migrating the index's files, and\n                     reads that need them reply `index_in_progress`\n                     until it ends.",
+    enum: ["no_index", "repo_not_indexed", "ref_not_indexed", "indexed", "migrating"],
     title: "IndexState",
     type: "string",
   },
@@ -475,6 +485,22 @@ export const PROTOCOL_DEFS = {
     title: "ListSymbolsResponse",
     type: "object",
   },
+  MigrateWork: {
+    additionalProperties: false,
+    description: "Migrating the index's files to the schema this rbtr reads.",
+    properties: { kind: { const: "migrate", default: "migrate", type: "string" } },
+    title: "MigrateWork",
+    type: "object",
+    required: ["kind"],
+  },
+  MigrationEndedNotification: {
+    additionalProperties: false,
+    description: "Migrating the index's files ended, however it ended.",
+    properties: { kind: { const: "migration_ended", default: "migration_ended", type: "string" } },
+    title: "MigrationEndedNotification",
+    type: "object",
+    required: ["kind"],
+  },
   OkResponse: {
     additionalProperties: false,
     properties: { kind: { const: "ok", default: "ok", type: "string" } },
@@ -512,10 +538,20 @@ export const PROTOCOL_DEFS = {
       kind: { const: "progress", default: "progress", type: "string" },
       work: {
         discriminator: {
-          mapping: { build: "#/$defs/BuildWork", collect: "#/$defs/CollectWork", embed: "#/$defs/EmbedWork" },
+          mapping: {
+            build: "#/$defs/BuildWork",
+            collect: "#/$defs/CollectWork",
+            embed: "#/$defs/EmbedWork",
+            migrate: "#/$defs/MigrateWork",
+          },
           propertyName: "kind",
         },
-        oneOf: [{ $ref: "#/$defs/BuildWork" }, { $ref: "#/$defs/EmbedWork" }, { $ref: "#/$defs/CollectWork" }],
+        oneOf: [
+          { $ref: "#/$defs/BuildWork" },
+          { $ref: "#/$defs/EmbedWork" },
+          { $ref: "#/$defs/CollectWork" },
+          { $ref: "#/$defs/MigrateWork" },
+        ],
       },
       phase: { type: "string" },
       current: { type: "integer" },
@@ -1018,6 +1054,7 @@ export const PROTOCOL_DEFS = {
         embed_ended: "#/$defs/EmbedEndedNotification",
         gc_ended: "#/$defs/GcEndedNotification",
         index_error: "#/$defs/IndexErrorNotification",
+        migration_ended: "#/$defs/MigrationEndedNotification",
         progress: "#/$defs/ProgressNotification",
         ready: "#/$defs/ReadyNotification",
       },
@@ -1030,6 +1067,7 @@ export const PROTOCOL_DEFS = {
       { $ref: "#/$defs/AutoRebuildNotification" },
       { $ref: "#/$defs/IndexErrorNotification" },
       { $ref: "#/$defs/GcEndedNotification" },
+      { $ref: "#/$defs/MigrationEndedNotification" },
     ],
     title: "Notification",
   },

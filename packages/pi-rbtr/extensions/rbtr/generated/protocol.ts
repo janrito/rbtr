@@ -114,8 +114,11 @@ export type ChangeKind = "added" | "modified" | "removed";
  *                      fall back to the latest indexed commit
  *                      (`RefSource.LATEST_INDEXED`).
  * `INDEXED`          — reads find the snapshot they ask for.
+ * `MIGRATING`        — the daemon is migrating the index's files, and
+ *                      reads that need them reply `index_in_progress`
+ *                      until it ends.
  */
-export type IndexState = "no_index" | "repo_not_indexed" | "ref_not_indexed" | "indexed";
+export type IndexState = "no_index" | "repo_not_indexed" | "ref_not_indexed" | "indexed" | "migrating";
 export type JsonValue = unknown;
 export type Notification =
   | ProgressNotification
@@ -123,7 +126,8 @@ export type Notification =
   | EmbedEndedNotification
   | AutoRebuildNotification
   | IndexErrorNotification
-  | GcEndedNotification;
+  | GcEndedNotification
+  | MigrationEndedNotification;
 /**
  * How an embed run ended.
  *
@@ -661,7 +665,7 @@ export interface IndexedRef {
  * CLI doesn't need to reason about clock boundaries.
  */
 export interface ActiveJob {
-  work: BuildWork | EmbedWork | CollectWork;
+  work: BuildWork | EmbedWork | CollectWork | MigrateWork;
   phase: string;
   current: number;
   total: number;
@@ -688,6 +692,12 @@ export interface EmbedWork {
  */
 export interface CollectWork {
   kind: "collect";
+}
+/**
+ * Migrating the index's files to the schema this rbtr reads.
+ */
+export interface MigrateWork {
+  kind: "migrate";
 }
 /**
  * The daemon's live config plus the language plugins it loaded.
@@ -761,7 +771,7 @@ export interface ForgetResponse {
  */
 export interface ProgressNotification {
   kind: "progress";
-  work: BuildWork | EmbedWork | CollectWork;
+  work: BuildWork | EmbedWork | CollectWork | MigrateWork;
   phase: string;
   current: number;
   total: number;
@@ -805,6 +815,12 @@ export interface IndexErrorNotification {
  */
 export interface GcEndedNotification {
   kind: "gc_ended";
+}
+/**
+ * Migrating the index's files ended, however it ended.
+ */
+export interface MigrationEndedNotification {
+  kind: "migration_ended";
 }
 /**
  * CLI output for `rbtr daemon status`.

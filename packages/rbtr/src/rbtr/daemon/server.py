@@ -47,6 +47,7 @@ from rbtr.daemon.messages import (
     GcEndedNotification,
     GcRequest,
     IndexErrorNotification,
+    MigrationEndedNotification,
     Notification,
     ProgressNotification,
     ReadyNotification,
@@ -78,8 +79,9 @@ log = structlog.get_logger(__name__)
 class Daemon:
     """Serve code requests and background indexing for a caller-owned Index.
 
-    `serve` makes the indexer and the RPC on its loop, then indexes once
-    ready. With `index=None`, only configuration and shutdown are available.
+    `serve` makes the indexer and the RPC on its loop, migrates the files the
+    Index left waiting once ready, then indexes. With `index=None`, only
+    configuration and shutdown are available.
 
     Use `serve` once on one event loop. Stop through `request_shutdown` rather
     than cancellation, then await serving before closing the supplied Index.
@@ -224,6 +226,31 @@ class Daemon:
                         ),
                     )
 
+    def _require_languages(self, index: Index) -> None:
+        """Refuse an index holding languages this rbtr cannot load, unless allowed."""
+        get_manager().require_languages_loaded(
+            index.distinct_chunk_languages(), allow_missing=self._allow_missing_plugins
+        )
+
+    async def _prepare(
+        self, index: Index, indexer: Indexer, index_tasks: list[asyncio.Task[None]]
+    ) -> None:
+        """Have *indexer* migrate *index*'s waiting files, check their languages, then index."""
+        migrating = index.migrating
+        await indexer.migrate()
+        if migrating:
+            await asyncio.to_thread(self._require_languages, index)
+        if self._stopping.is_set():
+            return
+        for name, work in (
+            ("job_worker", indexer.run()),
+            ("watcher", indexer.watch()),
+            ("maintenance", indexer.maintain()),
+        ):
+            task = asyncio.create_task(work, name=name)
+            task.add_done_callback(self._stop_when_it_fails)
+            index_tasks.append(task)
+
     def wait_ready(self, timeout: float = 5.0) -> bool:
         """Wait up to `timeout` seconds for bound sockets and published discovery.
 
@@ -318,12 +345,10 @@ class Daemon:
         Scheduled warmup errors are suppressed. Individual request/job errors
         use their response/output paths.
         """
-        # Refuse before readiness if rebuilding would lose unavailable language data.
-        if self._index is not None:
-            get_manager().require_languages_loaded(
-                self._index.distinct_chunk_languages(),
-                allow_missing=self._allow_missing_plugins,
-            )
+        # Refuse before readiness if rebuilding would lose unavailable language
+        # data; files waiting for migration are checked in `_prepare`.
+        if self._index is not None and not self._index.migrating:
+            self._require_languages(self._index)
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         atexit.register(self._cleanup)
         if self._embedder is not None:
@@ -393,16 +418,12 @@ class Daemon:
                         asyncio.create_task(asyncio.to_thread(self._reranker.warmup))
                     )
             relay_task = asyncio.create_task(self._notification_relay(progress_pull, pub))
-            if indexer is not None:
-                index_tasks.extend(
-                    [
-                        asyncio.create_task(indexer.run(), name="job_worker"),
-                        asyncio.create_task(indexer.watch(), name="watcher"),
-                        asyncio.create_task(indexer.maintain(), name="maintenance"),
-                    ]
+            if index is not None and indexer is not None:
+                prepare = asyncio.create_task(
+                    self._prepare(index, indexer, index_tasks), name="prepare"
                 )
-            for task in index_tasks:
-                task.add_done_callback(self._stop_when_it_fails)
+                prepare.add_done_callback(self._stop_when_it_fails)
+                index_tasks.append(prepare)
 
         try:
             pub.bind(self.pub_addr)
@@ -462,8 +483,10 @@ class Daemon:
                 notification = AutoRebuildNotification(
                     repo_path=output.repo_path, new_ref=output.snapshot_sha
                 )
-            case WorkEnded():
+            case WorkEnded(work=CollectJob()):
                 notification = GcEndedNotification()
+            case WorkEnded():  # the end of a `MigrateJob`
+                notification = MigrationEndedNotification()
             case _:
                 assert_never(output)
         await self._notify_push.send(notification.model_dump_json().encode())

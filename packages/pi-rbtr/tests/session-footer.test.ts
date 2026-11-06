@@ -183,6 +183,19 @@ test("a gc's progress reaches the footer, and its end restores the index label",
   await until(() => pi.ui.statuses.at(-1) === label);
 });
 
+test("a migration's progress reaches the footer, and its end restores the index label", async ({ fakeDaemon, pi }) => {
+  await pi.start();
+  await until(() => / symbols$/.test(pi.ui.statuses.at(-1) ?? ""));
+  const label = pi.ui.statuses.at(-1);
+  // Published until it arrives: a subscriber misses what is sent before it joins.
+  await until(() => {
+    void fakeDaemon.publish({ kind: "progress", work: { kind: "migrate" }, phase: "migrating", current: 1, total: 2 });
+    return / migrating index files 1\/2…$/.test(pi.ui.statuses.at(-1) ?? "");
+  });
+  await fakeDaemon.publish({ kind: "migration_ended" });
+  await until(() => pi.ui.statuses.at(-1) === label);
+});
+
 describe("in rpc mode", () => {
   test("/rbtr-settings says it needs the terminal UI, and opens nothing", async ({ pi }) => {
     await pi.start({ mode: "rpc" });

@@ -45,6 +45,7 @@ from rbtr.daemon.messages import (
     IndexedRef,
     IndexState,
     ListSymbolsResponse,
+    MigrateWork,
     OkResponse,
     ReadSymbolResponse,
     SearchResponse,
@@ -507,6 +508,10 @@ def _render_status_response(response: StatusResponse) -> None:
     match response.state:
         case IndexState.NO_INDEX:
             _out.print("[red]✗[/]  the index does not exist")
+        case IndexState.MIGRATING:
+            _out.print(
+                f"[yellow]![/]  migrating the index's files; reads wait until it ends  {loc}"
+            )
         case IndexState.REPO_NOT_INDEXED if response.repo_path is None:
             _out.print(f"[red]✗[/]  no repo is indexed  {loc}")
         case IndexState.REPO_NOT_INDEXED:
@@ -558,6 +563,8 @@ def _fmt_active(job: ActiveJob) -> str:
             return f"[magenta]↻[/]  Embedding: {job.work.ref[:12]} — {counts} — {elapsed}"
         case CollectWork():
             return f"[cyan]⟳[/]  Collecting: {counts} — {elapsed}"
+        case MigrateWork():
+            return f"[cyan]⟳[/]  Migrating index files: {counts} — {elapsed}"
 
 
 def _render_watch_set_response(response: WatchSetResponse) -> None:

@@ -447,6 +447,10 @@ export function renderStatusResult(result: ToolResult, options: { isPartial: boo
   const crossRepo = new Set(indexed.map((ref) => ref.repo_path)).size > 1;
   if (response?.state === undefined || response.state === "no_index") {
     lines.push(theme.fg("error", "✗ the index does not exist"));
+  } else if (response.state === "migrating") {
+    lines.push(
+      theme.fg("warning", `! migrating the index's files; reads wait until it ends${formatSizeSuffix(response)}`),
+    );
   } else if (response.state === "repo_not_indexed") {
     const subject = response.repo_path == null ? "no repo is" : "this repo is not";
     lines.push(theme.fg("error", `✗ ${subject} indexed${formatSizeSuffix(response)}`));
@@ -516,6 +520,8 @@ function formatActiveJob(job: ActiveJob): string {
       return `\u21BB Embedding: ${shortSha(job.work.ref)} — ${formatJobCounts(job)} — ${elapsed}`;
     case "collect":
       return `⟳ Collecting: ${formatJobCounts(job)} — ${elapsed}`;
+    case "migrate":
+      return `⟳ Migrating index files: ${formatJobCounts(job)} — ${elapsed}`;
   }
 }
 
@@ -584,6 +590,8 @@ export function statusFooter(
   if (top && (status?.state === "indexed" || !daemon)) return { color: "success", text: footerLabel(top, daemon) };
   if (!daemon) return { color: "muted", text: "rbtr: not running" };
   switch (status?.state) {
+    case "migrating":
+      return { color: "muted", text: "rbtr: migrating index files…" };
     case "ref_not_indexed":
       return { color: "warning", text: "rbtr: ref not indexed" };
     case "repo_not_indexed":

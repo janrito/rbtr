@@ -320,24 +320,26 @@ def handle_status(
     index: Index,
     active_jobs: ActiveJobsFn | None = None,
 ) -> StatusResponse:
-    """Report index status for the repo at `request.repo_path`."""
-    repo = index.find_repo(request.repo_path)
-    if repo is None:
-        return StatusResponse(
-            state=IndexState.REPO_NOT_INDEXED if index.repos() else IndexState.NO_INDEX,
-            repo_path=request.repo_path,
-            db_path=index.db_path,
-            db_size_bytes=index.disk_size_bytes(),
-            indexed_refs=[],
-            watched=[],
-            active=active_jobs(request.repo_path) if active_jobs is not None else [],
-        )
+    """Report index status for the repo at `request.repo_path`.
+
+    While the index's files are migrated, nothing they hold is read.
+    """
+    repos: list[Repo] = []
+    counted: Mapping[SnapshotRef, SnapshotCounts] = {}
+    if index.migrating:
+        state = IndexState.MIGRATING
+    elif (repo := index.find_repo(request.repo_path)) is None:
+        state = IndexState.REPO_NOT_INDEXED if index.repos() else IndexState.NO_INDEX
+    else:
+        state = _read_state(index, repo)
+        repos = [repo]
+        counted = index.chunk_counts_by_snapshot(repo=repo)
     return _status(
         index,
-        _read_state(index, repo),
+        state,
         request.repo_path,
-        [repo],
-        index.chunk_counts_by_snapshot(repo=repo),
+        repos,
+        counted,
         active_jobs(request.repo_path) if active_jobs is not None else [],
     )
 
@@ -347,12 +349,17 @@ def handle_status_all(
     index: Index,
     active_jobs: ActiveJobsFn | None = None,
 ) -> StatusResponse:
-    """Report index status for every indexed repo."""
-    repos = index.repos()
-    counted = index.chunk_counts_by_snapshot()
-    if not repos:
+    """Report index status for every indexed repo.
+
+    While the index's files are migrated, nothing they hold is read.
+    """
+    repos: list[Repo] = []
+    counted: Mapping[SnapshotRef, SnapshotCounts] = {}
+    if index.migrating:
+        state = IndexState.MIGRATING
+    elif not (repos := index.repos()):
         state = IndexState.NO_INDEX
-    elif counted:
+    elif counted := index.chunk_counts_by_snapshot():
         state = IndexState.INDEXED
     else:
         state = IndexState.REPO_NOT_INDEXED

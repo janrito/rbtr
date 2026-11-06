@@ -1134,10 +1134,12 @@ which one registry update then names, as compaction does (see
 leaves the old file live. A copy that grew past
 `compact_growth_ratio` is compacted before the switch.
 
-The copies run during the open, unless the caller passes
-`Migrate.LATER`; until `Index.migrate` runs, a read or write of a
-waiting file raises `IndexMigratingError` (`index_in_progress`). The
-open logs `index_file_migrated` and `index_replaced`.
+The copies run during the open. The daemon passes `Migrate.LATER`
+instead, so it can report ready first (see
+[Daemon startup](#daemon-startup)); until `Index.migrate` runs, a read
+or write of a waiting file raises `IndexMigratingError`
+(`index_in_progress`). The open logs `index_file_migrated` and
+`index_replaced`.
 
 A migration keeps every column it does not change, vectors included.
 DuckDB cannot add a constraint with `ALTER`, so such a migration
@@ -1742,7 +1744,7 @@ still waiting for writer access, so an active job is not proof that its
 native computation has begun.
 
 The indexer keeps an immutable record of each running job: the build or
-embed it selected, and any gc run through `track`. A gc can
+embed it selected, and any gc or migration run through `track`. A gc can
 run beside an embed, which writes only between batches. A record's
 identity, start time and progress are replaced together, allowing a status reader on
 another thread to capture a coherent answer under a short lock. Holding
@@ -1870,7 +1872,8 @@ ready instead of treating that lock failure as immediate startup failure.
 
 The indexer belongs to the loop it reports through: its constructor takes
 the running loop, so the daemon creates it, and the RPC that uses it, in
-`serve`. Its constructor seeds a HEAD watch for every registered repo.
+`serve`. Its `run` seeds a HEAD watch for every registered repo before
+selecting work.
 
 Readiness has a narrower meaning than a fully prepared index. The runtime
 checks required language plugins, binds its sockets and publishes process
@@ -1878,6 +1881,15 @@ discovery before reporting ready. Models can still need loading and
 snapshots can still need building or embedding. Background selection makes
 an initial pass over stored intent without waiting for the first watcher
 poll.
+
+Migrating project files can take as long as a compaction, longer than
+clients wait for a daemon to start (`daemon_start_timeout`). So the daemon
+opens the index with `Migrate.LATER`, reports ready, then has the indexer
+migrate the waiting files under the writer semaphore before starting its
+other tasks. Meanwhile status says `migrating`, a read of a waiting file
+replies `index_in_progress`, and writes wait. The language check, which
+reads every file, runs after the migration. A failed migration stops the
+daemon.
 
 Discovery records the process identity and connection details, not work in
 progress. Process status consequently differs from a query of index state,
@@ -1982,16 +1994,17 @@ subdirectory or behind a symlink learns what its paths are relative to. `state`
 (`IndexState`) says what the index holds for the request: no repository at all, not this
 one, this one but not the snapshot a read without a ref would use (`resolve_read_ref`
 falls back to the latest indexed commit), or that snapshot. The daemon computes it where
-the index is read, so the CLI, the footer and the status tool word the same four cases
-alike. Per-ref state is grouped in `IndexedRef` (sha, symbolic names, chunk count, embed
-completeness) — a single list rather than parallel maps. `active` lists the work running
-now, each an `ActiveJob` whose `work` says what it does and to what: a build or an embed
-names its repo and snapshot, and a gc names none. Work on a snapshot is filtered to the
-requested repo, so a status query never leaks activity from unrelated repos; work that
-names no repo concerns every client and is listed in every status. Text renderers (CLI,
-TUI, LLM) derive output solely from the response model — never from external state like
-config. `watched` lists the repo's watch set (each
-`WatchedRef` carries the resolved sha and whether it is indexed yet).
+the index is read, so the CLI, the footer and the status tool word the same cases alike;
+while the daemon migrates the index's files, the state is `migrating`, read from no
+project file. Per-ref state is grouped in `IndexedRef` (sha, symbolic names, chunk
+count, embed completeness) — a single list rather than parallel maps. `active` lists the
+work running now, each an `ActiveJob` whose `work` says what it does and to what: a
+build or an embed names its repo and snapshot, and a gc names none. Work on a snapshot
+is filtered to the requested repo, so a status query never leaks activity from unrelated
+repos; work that names no repo concerns every client and is listed in every status. Text
+renderers (CLI, TUI, LLM) derive output solely from the response model — never from
+external state like config. `watched` lists the repo's watch set (each `WatchedRef`
+carries the resolved sha and whether it is indexed yet).
 
 PUB carries progress, in one form for all background work (`progress`, whose
 `work` is the same union `ActiveJob` carries), the end of each kind of work
@@ -2029,7 +2042,9 @@ Error responses carry a `code` field:
   `rbtr watch`.
 - `index_in_progress` — the daemon will index what the read
   needs without being asked; retry after the `ready`
-  notification.
+  notification. It also answers a read of a project file
+  the daemon is still migrating; retry after
+  `migration_ended`.
 - `repo_not_found` — the supplied path is not a Git checkout, or the index has not
   registered that checkout.
 - `index_locked` — another process holds the index's write
@@ -2232,8 +2247,8 @@ change does not work here: it re-extracts every checkout and
 re-embeds every chunk to change a column.
 
 **Opening the index migrates it.** Migration belongs to the `index`
-layer and reports through the log; the CLI and the daemon just open
-the index. Migrating in each command
+layer and reports through the log; the CLI just opens the index, and
+the daemon only chooses when the copies run. Migrating in each command
 instead repeats the work in every interface, and one that forgets opens
 an index it never brought forward.
 
@@ -2446,7 +2461,7 @@ request kind.
 (`ActiveJob`) and `progress` notifications carry a `work` union with one
 member per kind, saying what the work does and to what, so a gc on a
 snapshot cannot be expressed. Each kind keeps its own end notification
-(`ready`, `embed_ended`, `gc_ended`), because each
+(`ready`, `embed_ended`, `gc_ended`, `migration_ended`), because each
 carries that work's result. Separate start and progress notifications
 per kind would need a new form for every kind of work outside a repo,
 and status could not list them.
