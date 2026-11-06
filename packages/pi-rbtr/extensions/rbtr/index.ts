@@ -22,7 +22,7 @@ import { getSettingsListTheme, isBashToolResult, isReadToolResult } from "@earen
 import { Container, type SettingItem, SettingsList } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
-import { classifyDaemonFailure, decideStartupDecision } from "./classify.js";
+import { classifyDaemonFailure, decideStartupDecision, notificationRepo } from "./classify.js";
 import type { ResponseFor } from "./daemon-client.js";
 import { DaemonSession, DaemonUnavailableError, type ReconcileResult } from "./daemon-session.js";
 import { errorReply, type ResolvedCommand, resolveCommand, runRbtrJson, statusReport } from "./exec.js";
@@ -234,7 +234,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     let ended = false;
     let wake = () => {};
     const stop = session.onNotification((notification) => {
-      if (!("repo_path" in notification) || notification.repo_path !== repoRoot) return;
+      if (notificationRepo(notification) !== repoRoot) return;
       if (notification.kind === "progress" && waiting) onUpdate?.(waitingFor(notification));
       if (notification.kind === "ready" || notification.kind === "index_error") {
         ended = true;
@@ -566,13 +566,11 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       session.subscribe((notification) => {
         if (!footer) return;
         // One gc covers every repo the daemon watches, so its notifications name none.
-        if (notification.kind === "gc_started") {
-          footer.setSpinner("muted", (frame) => `rbtr: ${frame} collecting…`);
-          return;
-        }
-        if (notification.kind === "gc_progress") {
+        if (notification.kind === "progress" && notification.work.kind === "collect") {
           const { current, total } = notification;
-          footer.setSpinner("muted", (frame) => `rbtr: ${frame} collecting ${current}/${total}…`);
+          footer.setSpinner("muted", (frame) =>
+            total > 0 ? `rbtr: ${frame} collecting ${current}/${total}…` : `rbtr: ${frame} collecting…`,
+          );
           return;
         }
         if (notification.kind === "gc_ended") {
@@ -582,7 +580,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
           });
           return;
         }
-        if (notification.repo_path !== repoRoot) return;
+        if (notificationRepo(notification) !== repoRoot) return;
         switch (notification.kind) {
           case "progress": {
             const { phase, current, total } = notification;

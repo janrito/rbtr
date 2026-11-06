@@ -366,7 +366,7 @@ def subscribed(server: Daemon, repo_path: str) -> Iterator[zmq.Socket[bytes]]:
 
     A PUB socket drops what it publishes before a subscription reaches it,
     and the daemon has no handshake to say when one has.  So this sends a
-    dry-run gc of *repo_path*, which publishes `gc_started` and `gc_ended`
+    dry-run gc of *repo_path*, which publishes its progress and `gc_ended`
     and writes nothing, until that `gc_ended` arrives.  The probe's own
     notifications are read here, so the block sees only what it triggers.
     """

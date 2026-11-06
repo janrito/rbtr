@@ -7,10 +7,10 @@ import contextlib
 import itertools
 import threading
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from enum import Enum, auto
+from typing import ClassVar, Literal
 from uuid import uuid4
 
 import structlog
@@ -25,24 +25,34 @@ from rbtr.index.embed import write_embedding_batch
 from rbtr.index.embeddings import Embedder, embedding_text
 from rbtr.index.index import Index
 from rbtr.index.maintenance import run_maintenance
-from rbtr.index.progress import EmbedOutcome
+from rbtr.index.progress import EmbedOutcome, ProgressCallback
 from rbtr.logging import elapsed_ms
 
 log = structlog.get_logger(__name__)
+
+
+# A job's `kind`, `repo_path` and `ref` are read as the protocol's `Work` fields.
 
 
 @dataclass(frozen=True)
 class BuildJob:
     """Refs or snapshot SHAs selected for a build in one repository."""
 
+    kind: ClassVar[Literal["build"]] = "build"
     repo_path: str
     refs: tuple[str, ...]
+
+    @property
+    def ref(self) -> str:
+        """The first ref the build indexes."""
+        return self.refs[0]
 
 
 @dataclass(frozen=True)
 class EmbedJob:
     """A stored snapshot selected for embedding its chunks with missing vectors."""
 
+    kind: ClassVar[Literal["embed"]] = "embed"
     at: SnapshotRef
 
     @property
@@ -50,10 +60,26 @@ class EmbedJob:
         """The checkout containing this snapshot."""
         return self.at.repo.repo_path
 
+    @property
+    def ref(self) -> str:
+        """The snapshot whose chunks are embedded."""
+        return self.at.snapshot_sha
+
 
 @dataclass(frozen=True)
-class RunningJob[Work: BuildJob | EmbedJob]:
-    """Immutable progress for one selected background run.
+class CollectJob:
+    """A gc, from a request or from maintenance; it concerns every repository."""
+
+    kind: ClassVar[Literal["collect"]] = "collect"
+    repo_path: ClassVar[None] = None
+
+
+type Job = BuildJob | EmbedJob | CollectJob
+
+
+@dataclass(frozen=True)
+class RunningJob[Work: Job]:
+    """Immutable progress for one piece of running work.
 
     `started_at` uses the monotonic clock. An active run may still be waiting
     for its execution resource, before native work starts.
@@ -65,6 +91,11 @@ class RunningJob[Work: BuildJob | EmbedJob]:
     phase: str
     current: int = 0
     total: int = 0
+
+    @property
+    def elapsed_seconds(self) -> float:
+        """Seconds since the work started."""
+        return time.monotonic() - self.started_at
 
 
 @dataclass(frozen=True)
@@ -93,28 +124,19 @@ class IndexingError:
     message: str
 
 
-class CollectionPhase(Enum):
-    """Mark the start or end of a maintenance collection pass."""
-
-    STARTED = auto()
-    ENDED = auto()
-
-
 @dataclass(frozen=True)
-class CollectionProgress:
-    """Report current and total progress counts during maintenance collection."""
+class WorkEnded:
+    """Report the end of a tracked gc, however it ended."""
 
-    current: int
-    total: int
+    work: CollectJob
 
 
 type IndexerOutput = (
-    RunningJob[BuildJob | EmbedJob]
+    RunningJob[Job]
     | BuildReady
     | EmbeddingEnded
     | IndexingError
-    | CollectionPhase
-    | CollectionProgress
+    | WorkEnded
     | watcher.WatchedTarget
     | watcher.DirtyWorktree
 )
@@ -123,11 +145,12 @@ type IndexerOutput = (
 class Indexer:
     """Build, embed, poll and maintain using caller-owned data, models and controls.
 
-    Construct it on the loop that owns it; construction seeds HEAD watches,
-    so give it the writable Index to itself. The caller starts `run`,
-    `watch` and `maintain`, at most once each, on that loop. Stop through
-    `request_shutdown`, not cancellation, and await every started operation
-    before disposing of supplied resources.
+    Records every running job (`snapshot`) and reports its progress and end
+    through `on_output`. Construct it on the loop that owns it; construction
+    seeds HEAD watches, so give it the writable Index to itself. The caller
+    starts `run`, `watch` and `maintain`, at most once each, on that loop.
+    Stop through `request_shutdown`, not cancellation, and await every
+    started operation before disposing of supplied resources.
     """
 
     def __init__(
@@ -167,15 +190,17 @@ class Indexer:
         self._stopped = asyncio.Event()
         self._loop = asyncio.get_running_loop()
         self._state_lock = threading.Lock()
-        self._running_job: RunningJob[BuildJob | EmbedJob] | None = None
+        # The work running now, by job id; replaced whole under the lock.
+        # A gc can run beside an embed, which writes only between batches.
+        self._running: dict[str, RunningJob[Job]] = {}
         self._failed_builds: frozenset[watcher.FailedBuild] = frozenset()
         self._idle_since = time.monotonic()
         self._backfill_head_watches(index)
 
-    def snapshot(self) -> RunningJob[BuildJob | EmbedJob] | None:
-        """Return an immutable active-run snapshot, or `None` when idle, from any thread."""
+    def snapshot(self) -> list[RunningJob[Job]]:
+        """Return the work running now, empty when idle, from any thread."""
         with self._state_lock:
-            return self._running_job
+            return list(self._running.values())
 
     def wake(self) -> None:
         """Signal reselection without waiting, from any thread; repeated wakes coalesce.
@@ -202,12 +227,11 @@ class Indexer:
             await asyncio.wait_for(self._stopped.wait(), timeout=delay)
 
     async def _emit(self, output: IndexerOutput) -> None:
-        """Apply progress for the active run, then await the output callback."""
+        """Apply progress for running work, then await the output callback."""
         if isinstance(output, RunningJob):
             with self._state_lock:
-                active = self._running_job
-                if active is not None and active.job_id == output.job_id:
-                    self._running_job = output
+                if output.job_id in self._running:
+                    self._running = {**self._running, output.job_id: output}
         await self._on_output(output)
 
     def _emit_native(self, output: IndexerOutput) -> None:
@@ -365,23 +389,35 @@ class Indexer:
         to_embed = index.snapshots_to_embed()
         return EmbedJob(at=to_embed[0]) if to_embed else None
 
-    def _set_active[Work: BuildJob | EmbedJob](self, job: Work, job_id: str) -> RunningJob[Work]:
-        """Start one run on the owning loop and return its immutable identity."""
-        run = RunningJob(
-            work=job,
-            job_id=job_id,
-            started_at=time.monotonic(),
-            phase="starting" if isinstance(job, BuildJob) else "embedding",
-        )
+    def _set_active[Work: Job](self, job: Work, job_id: str, phase: str) -> RunningJob[Work]:
+        """Record *job* as running, from any thread, and return its immutable identity."""
+        run = RunningJob(work=job, job_id=job_id, started_at=time.monotonic(), phase=phase)
         with self._state_lock:
-            self._running_job = run
+            self._running = {**self._running, job_id: run}
         return run
 
-    def _clear_active(self) -> None:
-        """Clear the completed run on the owning loop."""
+    def _clear_active(self, job_id: str) -> None:
+        """Record that the work *job_id* has ended, from any thread."""
         with self._state_lock:
-            self._running_job = None
+            self._running = {k: v for k, v in self._running.items() if k != job_id}
         self._idle_since = time.monotonic()
+
+    @contextlib.contextmanager
+    def track(self, job: CollectJob, phase: str) -> Iterator[ProgressCallback]:
+        """Record *job* as running for the block, reporting progress and its end however it ends.
+
+        Yields the `(phase, current, total)` callback.  Call it from a native
+        thread while the owning loop runs.
+        """
+        run = self._set_active(job, uuid4().hex[:8], phase)
+        try:
+            self._emit_native(run)
+            yield lambda phase, current, total: self._emit_native(
+                replace(run, phase=phase, current=current, total=total)
+            )
+        finally:
+            self._clear_active(run.job_id)
+            self._emit_native(WorkEnded(job))
 
     async def run(self) -> None:
         """Process jobs sequentially until stop, selecting immediately and after wakes.
@@ -406,20 +442,19 @@ class Indexer:
                 job_ctx: dict[str, str] = {
                     "job_id": uuid4().hex[:8],
                     "repo": job.repo_path,
-                    "job_kind": "build" if isinstance(job, BuildJob) else "embed",
+                    "job_kind": job.kind,
+                    "ref": job.ref if isinstance(job, EmbedJob) else job.ref[:12],
                 }
-                if isinstance(job, EmbedJob):
-                    job_ctx["ref"] = job.at.snapshot_sha
-                else:
-                    job_ctx["ref"] = job.refs[0][:12]
                 # Bound for the job's lifetime; `to_thread` copies the
                 # context, so build/embed logs in worker threads carry it.
                 with structlog.contextvars.bound_contextvars(**job_ctx):
                     try:
                         if isinstance(job, EmbedJob):
-                            await self._run_embed_async(self._set_active(job, job_ctx["job_id"]))
+                            await self._run_embed_async(
+                                self._set_active(job, job_ctx["job_id"], "embedding")
+                            )
                         else:
-                            run = self._set_active(job, job_ctx["job_id"])
+                            run = self._set_active(job, job_ctx["job_id"], "starting")
                             async with self._write_sem:
                                 await asyncio.to_thread(self._run_build, run)
                     except Exception:
@@ -430,11 +465,11 @@ class Indexer:
                                     watcher.FailedBuild(job.repo_path, sha) for sha in job.refs
                                 )
                     finally:
-                        self._clear_active()
+                        self._clear_active(job_ctx["job_id"])
 
     def poll_interval(self) -> float:
-        """Return the configured busy interval for an active run, else idle interval."""
-        if self.snapshot() is not None:
+        """Return the configured busy interval while work runs, else idle interval."""
+        if self.snapshot():
             return self._busy_poll_interval
         return self._idle_poll_interval
 
@@ -475,7 +510,7 @@ class Indexer:
         Retirement uses each idle-interval poll. Maintenance requires configured
         `maintenance_idle_s` without a job; later passes wait `maintenance_interval_s`
         after the previous pass. Both hold the writer semaphore, and a started
-        pass finishes before stopping. Collection reports use `on_output`;
+        pass finishes before stopping. A pass is tracked as a `CollectJob`;
         errors are raised to the caller.
         """
         last_pass: float | None = None
@@ -491,7 +526,7 @@ class Indexer:
             if self._stopping.is_set():
                 return
             now = time.monotonic()
-            idle = self._running_job is None
+            idle = not self.snapshot()
             due = last_pass is None or now - last_pass >= config.maintenance_interval_s
             if idle and due and now - self._idle_since >= config.maintenance_idle_s:
                 async with self._write_sem:
@@ -501,16 +536,11 @@ class Indexer:
                 last_pass = time.monotonic()
 
     def _maintain(self, index: Index) -> None:
-        """Run a native maintenance pass and report its collection progress."""
+        """Run a native maintenance pass, tracked as a `CollectJob`."""
         log.info("maintenance_started")
-        self._emit_native(CollectionPhase.STARTED)
-        try:
+        with self.track(CollectJob(), "collecting") as report:
             run_maintenance(
                 index,
                 now=datetime.now(UTC),
-                on_progress=lambda _repo_path, done, total: self._emit_native(
-                    CollectionProgress(done, total)
-                ),
+                on_progress=lambda _repo_path, done, total: report("collecting", done, total),
             )
-        finally:
-            self._emit_native(CollectionPhase.ENDED)

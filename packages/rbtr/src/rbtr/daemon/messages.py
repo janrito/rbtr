@@ -552,24 +552,51 @@ class ChangedSymbolsResponse(BaseModel):
     file_paths: list[str] | None
 
 
+class BuildWork(BaseModel):
+    """Building the snapshot `ref` of the repository at `repo_path`."""
+
+    model_config = _STRICT
+    kind: Literal["build"] = "build"
+    repo_path: str
+    ref: str
+
+
+class EmbedWork(BaseModel):
+    """Embedding the chunks of the snapshot `ref` of the repository at `repo_path`."""
+
+    model_config = _STRICT
+    kind: Literal["embed"] = "embed"
+    repo_path: str
+    ref: str
+
+
+class CollectWork(BaseModel):
+    """Collecting garbage, from one repository or from every one."""
+
+    model_config = _STRICT
+    kind: Literal["collect"] = "collect"
+
+
+Work = Annotated[BuildWork | EmbedWork | CollectWork, Field(discriminator="kind")]
+"""What a piece of background work does, and what it does it to.
+
+Work on a snapshot names its repository; other work names none and
+concerns every client.
+"""
+
+
 class ActiveJob(BaseModel):
-    """A build or embed job currently running in the daemon.
+    """A piece of background work running in the daemon.
 
-    Used for both `active_build` and `active_embed` on
-    `StatusResponse` — the field name distinguishes them.
-
-    `ref` is the resolved SHA under build/embed.  `phase`
-    is the current stage (`"starting"`, `"parsing"`, or
-    `"embedding"`).  `current` / `total` come from the
-    orchestrator's progress callbacks; both are 0 until the
-    first callback fires.  `elapsed_seconds` is computed by
-    the daemon at snapshot time so the CLI doesn't need to
-    reason about clock boundaries.
+    `phase` is its current stage (`"starting"`, `"parsing"`,
+    `"embedding"`, `"collecting"`).  `current` / `total` come from the
+    work's progress callbacks; both are 0 until the first callback
+    fires.  `elapsed_seconds` is computed when the status is read, so the
+    CLI doesn't need to reason about clock boundaries.
     """
 
     model_config = _STRICT
-    repo_path: str
-    ref: str
+    work: Work
     phase: str
     current: int
     total: int
@@ -644,8 +671,9 @@ class StatusResponse(BaseModel):
     # Repo path -> untracked files, for repos over `max_untracked_files`,
     # whose untracked files the working-tree index leaves out.
     untracked_not_indexed: dict[str, int] = {}
-    active_build: ActiveJob | None = None
-    active_embed: ActiveJob | None = None
+    # Work running now: the repository's own, and work that concerns
+    # every repository.
+    active: list[ActiveJob] = []
 
 
 class DaemonConfigResponse(BaseModel):
@@ -739,9 +767,11 @@ response_adapter: TypeAdapter[Response] = TypeAdapter(Response)
 
 
 class ProgressNotification(BaseModel):
+    """Background work has reached *current* of *total* in its *phase*."""
+
     model_config = _STRICT
     kind: Literal["progress"] = "progress"
-    repo_path: str
+    work: Work
     phase: str
     current: int
     total: int
@@ -789,22 +819,6 @@ class IndexErrorNotification(BaseModel):
     message: str
 
 
-class GcStartedNotification(BaseModel):
-    """gc started."""
-
-    model_config = _STRICT
-    kind: Literal["gc_started"] = "gc_started"
-
-
-class GcProgressNotification(BaseModel):
-    """gc has collected *current* of the *total* repos it covers."""
-
-    model_config = _STRICT
-    kind: Literal["gc_progress"] = "gc_progress"
-    current: int
-    total: int
-
-
 class GcEndedNotification(BaseModel):
     """gc ended, however it ended."""
 
@@ -818,8 +832,6 @@ Notification = Annotated[
     | EmbedEndedNotification
     | AutoRebuildNotification
     | IndexErrorNotification
-    | GcStartedNotification
-    | GcProgressNotification
     | GcEndedNotification,
     Field(discriminator="kind"),
 ]
