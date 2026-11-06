@@ -79,6 +79,7 @@ class ChunkStagingRow(dy.Schema):
     name_tokens = dy.String(nullable=False)
     line_start = dy.Int32(nullable=False)
     line_end = dy.Int32(nullable=False)
+    # An import's metadata; null on every other chunk.
     metadata = dy.Struct(
         {
             "module": dy.String(nullable=False),
@@ -86,7 +87,7 @@ class ChunkStagingRow(dy.Schema):
             "dots": dy.String(nullable=False),
             "language_hint": dy.String(nullable=False),
         },
-        nullable=False,
+        nullable=True,
     )
     extraction_serial = dy.Int32(nullable=False)
 
@@ -146,8 +147,10 @@ def staged_chunks(chunks: list[TokenisedChunk]) -> dy.DataFrame[ChunkStagingRow]
     """
     if not chunks:
         return ChunkStagingRow.create_empty()
-    return pl.DataFrame(TokenisedChunks.dump_python(chunks, mode="json")).pipe(
-        ChunkStagingRow.validate, cast=True
+    return (
+        pl.DataFrame(TokenisedChunks.dump_python(chunks, mode="json"))
+        .with_columns(pl.when(pl.col("kind") == ChunkKind.IMPORT).then(pl.col("metadata")))
+        .pipe(ChunkStagingRow.validate, cast=True)
     )
 
 
