@@ -41,7 +41,7 @@ def fused(scenario: FuseScenario) -> tuple[FuseScenario, list[ScoredChunk]]:
             "name_tokens": [""] * n,
             "line_start": [1] * n,
             "line_end": [1] * n,
-            "metadata": [{"module": "", "names": "", "dots": ""}] * n,
+            "metadata": [{"module": "", "names": "", "dots": "", "language_hint": ""}] * n,
             "has_embedding": [False] * n,
             "lexical": [scenario.lexical.get(cid, 0.0) for cid in ids],
             "semantic": [scenario.semantic.get(cid, 0.0) for cid in ids],
