@@ -21,7 +21,6 @@ import pytest
 
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import (
-    BuildWork,
     ErrorResponse,
     SearchRequest,
     SearchResponse,
@@ -31,6 +30,7 @@ from rbtr.daemon.messages import (
     WatchSetResponse,
 )
 from rbtr.daemon.server import Daemon
+from rbtr.domain.models import BuildWork
 from rbtr.index.index import Index
 
 from .conftest import serving

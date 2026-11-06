@@ -49,6 +49,7 @@ from rbtr.domain.models import (
     IndexStats,
     QueryKind,
     RefsByRepo,
+    Work,
 )
 from rbtr.index.progress import EmbedOutcome
 
@@ -550,46 +551,6 @@ class ChangedSymbolsResponse(BaseModel):
     base_sha: str
     head_sha: str
     file_paths: list[str] | None
-
-
-class BuildWork(BaseModel):
-    """Building the snapshot `ref` of the repository at `repo_path`."""
-
-    model_config = _STRICT
-    kind: Literal["build"] = "build"
-    repo_path: str
-    ref: str
-
-
-class EmbedWork(BaseModel):
-    """Embedding the chunks of the snapshot `ref` of the repository at `repo_path`."""
-
-    model_config = _STRICT
-    kind: Literal["embed"] = "embed"
-    repo_path: str
-    ref: str
-
-
-class CollectWork(BaseModel):
-    """Collecting garbage, from one repository or from every one."""
-
-    model_config = _STRICT
-    kind: Literal["collect"] = "collect"
-
-
-class MigrateWork(BaseModel):
-    """Migrating the index's files to the schema this rbtr reads."""
-
-    model_config = _STRICT
-    kind: Literal["migrate"] = "migrate"
-
-
-Work = Annotated[BuildWork | EmbedWork | CollectWork | MigrateWork, Field(discriminator="kind")]
-"""What a piece of background work does, and what it does it to.
-
-Work on a snapshot names its repository; other work names none and
-concerns every client.
-"""
 
 
 class ActiveJob(BaseModel):

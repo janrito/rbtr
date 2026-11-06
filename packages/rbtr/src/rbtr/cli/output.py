@@ -31,12 +31,9 @@ from rbtr.config import config
 from rbtr.daemon.dto import RefOut, SearchHitOut, SymbolOut, SymbolRefOut
 from rbtr.daemon.messages import (
     ActiveJob,
-    BuildWork,
     ChangedSymbol,
     ChangedSymbolsResponse,
-    CollectWork,
     DaemonConfigResponse,
-    EmbedWork,
     ErrorCode,
     ErrorResponse,
     FindRefsResponse,
@@ -45,7 +42,6 @@ from rbtr.daemon.messages import (
     IndexedRef,
     IndexState,
     ListSymbolsResponse,
-    MigrateWork,
     OkResponse,
     ReadSymbolResponse,
     SearchResponse,
@@ -56,7 +52,7 @@ from rbtr.daemon.messages import (
     WatchSetResponse,
 )
 from rbtr.daemon.status import DaemonStatusReport
-from rbtr.domain.models import ChangeKind
+from rbtr.domain.models import BuildWork, ChangeKind, CollectWork, EmbedWork, MigrateWork
 from rbtr.errors import ExitCode, RbtrError
 
 # Shared change vocabulary with the pi/TUI renderer: sigil + rich

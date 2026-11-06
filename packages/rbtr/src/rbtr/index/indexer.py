@@ -10,13 +10,20 @@ import time
 from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import ClassVar, Literal
 from uuid import uuid4
 
 import structlog
 
 from rbtr.config import config
-from rbtr.domain.models import IndexResult, SnapshotCounts, SnapshotRef
+from rbtr.domain.models import (
+    BuildWork,
+    CollectWork,
+    EmbedWork,
+    IndexResult,
+    MigrateWork,
+    SnapshotCounts,
+    SnapshotRef,
+)
 from rbtr.errors import BuildStopped, RbtrError
 from rbtr.git import HEAD_REF, resolve_ref
 from rbtr.index import watcher
@@ -31,69 +38,63 @@ from rbtr.logging import elapsed_ms
 log = structlog.get_logger(__name__)
 
 
-# A job's `kind`, `repo_path` and `ref` are read as the protocol's `Work` fields.
-
-
 @dataclass(frozen=True)
 class BuildJob:
     """Refs or snapshot SHAs selected for a build in one repository."""
 
-    kind: ClassVar[Literal["build"]] = "build"
     repo_path: str
     refs: tuple[str, ...]
 
     @property
-    def ref(self) -> str:
-        """The first ref the build indexes."""
-        return self.refs[0]
+    def work(self) -> BuildWork:
+        """Building the first ref the build indexes."""
+        return BuildWork(repo_path=self.repo_path, ref=self.refs[0])
 
 
 @dataclass(frozen=True)
 class EmbedJob:
     """A stored snapshot selected for embedding its chunks with missing vectors."""
 
-    kind: ClassVar[Literal["embed"]] = "embed"
     at: SnapshotRef
 
     @property
-    def repo_path(self) -> str:
-        """The checkout containing this snapshot."""
-        return self.at.repo.repo_path
-
-    @property
-    def ref(self) -> str:
-        """The snapshot whose chunks are embedded."""
-        return self.at.snapshot_sha
+    def work(self) -> EmbedWork:
+        """Embedding this snapshot's chunks, in the checkout containing it."""
+        return EmbedWork(repo_path=self.at.repo.repo_path, ref=self.at.snapshot_sha)
 
 
 @dataclass(frozen=True)
 class CollectJob:
     """A gc, from a request or from maintenance; it concerns every repository."""
 
-    kind: ClassVar[Literal["collect"]] = "collect"
-    repo_path: ClassVar[None] = None
+    @property
+    def work(self) -> CollectWork:
+        """Collecting garbage."""
+        return CollectWork()
 
 
 @dataclass(frozen=True)
 class MigrateJob:
     """Migrating the project files the index left waiting; it concerns every repository."""
 
-    kind: ClassVar[Literal["migrate"]] = "migrate"
-    repo_path: ClassVar[None] = None
+    @property
+    def work(self) -> MigrateWork:
+        """Migrating the index's files."""
+        return MigrateWork()
 
 
 type Job = BuildJob | EmbedJob | CollectJob | MigrateJob
 
 
 @dataclass(frozen=True)
-class RunningJob[Work: Job]:
+class RunningJob[J: Job]:
     """Immutable progress for one piece of running work.
 
     `started_at` uses the monotonic clock. An active run may still be waiting
     for its execution resource, before native work starts.
     """
 
-    work: Work
+    job: J
     job_id: str
     started_at: float
     phase: str
@@ -260,7 +261,7 @@ class Indexer:
 
     def _run_build(self, run: RunningJob[BuildJob]) -> None:
         """Run one build on a native thread, reporting through its owning loop."""
-        job = run.work
+        job = run.job
         index = self._index
 
         def report(phase: str, done: int, total: int) -> None:
@@ -302,7 +303,7 @@ class Indexer:
 
     async def _run_embed_async(self, run: RunningJob[EmbedJob]) -> None:
         """Embed outstanding chunks with per-batch GPU and writer ownership."""
-        job = run.work
+        job = run.job
         index = self._index
         embedder = self._embedder
         if embedder is None:
@@ -396,9 +397,9 @@ class Indexer:
         to_embed = index.snapshots_to_embed()
         return EmbedJob(at=to_embed[0]) if to_embed else None
 
-    def _set_active[Work: Job](self, job: Work, job_id: str, phase: str) -> RunningJob[Work]:
+    def _set_active[J: Job](self, job: J, job_id: str, phase: str) -> RunningJob[J]:
         """Record *job* as running, from any thread, and return its immutable identity."""
-        run = RunningJob(work=job, job_id=job_id, started_at=time.monotonic(), phase=phase)
+        run = RunningJob(job=job, job_id=job_id, started_at=time.monotonic(), phase=phase)
         with self._state_lock:
             self._running = {**self._running, job_id: run}
         return run
@@ -461,11 +462,12 @@ class Indexer:
                 job = await asyncio.to_thread(self.next_job)
                 if job is None:
                     break
+                work = job.work
                 job_ctx: dict[str, str] = {
                     "job_id": uuid4().hex[:8],
-                    "repo": job.repo_path,
-                    "job_kind": job.kind,
-                    "ref": job.ref if isinstance(job, EmbedJob) else job.ref[:12],
+                    "repo": work.repo_path,
+                    "job_kind": work.kind,
+                    "ref": work.ref if isinstance(job, EmbedJob) else work.ref[:12],
                 }
                 # Bound for the job's lifetime; `to_thread` copies the
                 # context, so build/embed logs in worker threads carry it.
