@@ -1,8 +1,8 @@
 """Shipped test tools for rbtr, its language plugins and its other packages.
 
 What a test suite (in- or out-of-tree) can't easily re-derive: a
-pydantic-aware snapshot serialiser and a readable edge renderer, both keyed
-off `rbtr.domain.models`, and an isolated on-disk index. Other setup —
+pydantic-aware snapshot serialiser, a readable edge renderer, and an
+isolated on-disk index. Other setup —
 running extraction, loading samples — belongs in each suite's own fixtures,
 calling `rbtr.languages.extract.extract_file` directly.
 
@@ -34,14 +34,14 @@ from syrupy.extensions.single_file import SingleFileSnapshotExtension, WriteMode
 from tree_sitter import Parser
 
 from rbtr.daemon.status import is_pid_alive, read_status
-from rbtr.domain.models import Chunk, Chunks, Edge
+from rbtr.domain.models import Chunk, Chunks
 
 if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
     from syrupy.types import PropertyFilter, PropertyMatcher, SerializableData, SerializedData
     from tree_sitter import Language
 
-    from rbtr.languages.edges import EdgeChunkRow
+    from rbtr.languages.edges import EdgeChunkRow, InferredEdgeRow
 
 
 def edge_rows(chunks: list[Chunk]) -> dy.DataFrame[EdgeChunkRow]:
@@ -68,19 +68,36 @@ def edge_rows(chunks: list[Chunk]) -> dy.DataFrame[EdgeChunkRow]:
     )
 
 
-def render_edges(edges: list[Edge], chunks: list[Chunk]) -> list[str]:
+def render_edges(edges: dy.DataFrame[InferredEdgeRow], chunks: list[Chunk]) -> list[str]:
     """Render edges as readable, sorted `src -> tgt [kind]` lines.
 
     Joins each edge's endpoint ids back to their chunks so a snapshot shows
     *which* chunks are linked (raw ids are opaque hashes).
     """
-    by_id = {c.id: c for c in chunks}
+    labels = pl.DataFrame(
+        {"id": [c.id for c in chunks], "label": [f"{c.file_path}::{c.name}" for c in chunks]},
+        schema={"id": pl.String, "label": pl.String},
+    ).unique("id", keep="last")
 
-    def label(chunk_id: str) -> str:
-        c = by_id.get(chunk_id)
-        return f"{c.file_path}::{c.name}" if c is not None else f"<{chunk_id}>"
+    def label(end: str) -> pl.Expr:
+        return pl.coalesce(pl.col(f"{end}_label"), pl.format("<{}>", pl.col(f"{end}_id")))
 
-    return sorted(f"{label(e.source_id)} -> {label(e.target_id)} [{e.kind.value}]" for e in edges)
+    return (
+        edges.join(
+            labels.rename({"id": "source_id", "label": "source_label"}), on="source_id", how="left"
+        )
+        .join(
+            labels.rename({"id": "target_id", "label": "target_label"}), on="target_id", how="left"
+        )
+        .select(
+            pl.format(
+                "{} -> {} [{}]", label("source"), label("target"), pl.col("kind").cast(pl.String)
+            )
+        )
+        .to_series()
+        .sort()
+        .to_list()
+    )
 
 
 class PydanticSnapshotExtension(SingleFileSnapshotExtension):
@@ -110,7 +127,7 @@ def snapshot_json(snapshot: SnapshotAssertion) -> SnapshotAssertion:
     """syrupy snapshot fixture using `PydanticSnapshotExtension`.
 
     Auto-provided to every test suite via the `pytest11` entry point, so a
-    plugin package needs no conftest to snapshot `Chunk`/`Edge` output.
+    plugin package needs no conftest to snapshot `Chunk` and edge output.
     """
     return snapshot.use_extension(PydanticSnapshotExtension)
 

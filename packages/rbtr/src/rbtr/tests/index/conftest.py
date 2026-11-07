@@ -17,6 +17,7 @@ from __future__ import annotations
 from collections.abc import Generator
 from pathlib import Path
 
+import polars as pl
 import pygit2
 import pytest
 
@@ -24,7 +25,6 @@ from rbtr.domain.models import (
     Chunk,
     ChunkKind,
     Definition,
-    Edge,
     EdgeKind,
     FileSnapshot,
     Import,
@@ -39,6 +39,7 @@ from rbtr.index.build import build_index
 from rbtr.index.index import Index
 from rbtr.index.refs import latest_ref
 from rbtr.index.staging import TokenisedChunk
+from rbtr.languages.edges import InferredEdgeRow
 
 from ..conftest import make_commit
 
@@ -569,7 +570,7 @@ def ranking_edges(
     ranking_start_server: Chunk,
     ranking_test_config: Chunk,
     ranking_doc_section: Chunk,
-) -> list[Edge]:
+) -> list[dict[str, str]]:
     """Edge graph used by importance / structural ranking tests.
 
     The config class receives 2 inbound edges (import, start_server),
@@ -577,41 +578,41 @@ def ranking_edges(
     carry the chunks' real ids, so they point at rows that exist.
     """
     return [
-        Edge(
-            source_id=ranking_import_config.id,
-            target_id=ranking_config_class.id,
-            kind=EdgeKind.IMPORTS,
-            source_path=ranking_import_config.file_path,
-            target_path=ranking_config_class.file_path,
-        ),
-        Edge(
-            source_id=ranking_import_config.id,
-            target_id=ranking_load_config.id,
-            kind=EdgeKind.IMPORTS,
-            source_path=ranking_import_config.file_path,
-            target_path=ranking_load_config.file_path,
-        ),
-        Edge(
-            source_id=ranking_start_server.id,
-            target_id=ranking_config_class.id,
-            kind=EdgeKind.IMPORTS,
-            source_path=ranking_start_server.file_path,
-            target_path=ranking_config_class.file_path,
-        ),
-        Edge(
-            source_id=ranking_test_config.id,
-            target_id=ranking_load_config.id,
-            kind=EdgeKind.CALLS,
-            source_path=ranking_test_config.file_path,
-            target_path=ranking_load_config.file_path,
-        ),
-        Edge(
-            source_id=ranking_doc_section.id,
-            target_id=ranking_load_config.id,
-            kind=EdgeKind.DOCUMENTS,
-            source_path=ranking_doc_section.file_path,
-            target_path=ranking_load_config.file_path,
-        ),
+        {
+            "source_id": ranking_import_config.id,
+            "target_id": ranking_config_class.id,
+            "kind": EdgeKind.IMPORTS,
+            "source_path": ranking_import_config.file_path,
+            "target_path": ranking_config_class.file_path,
+        },
+        {
+            "source_id": ranking_import_config.id,
+            "target_id": ranking_load_config.id,
+            "kind": EdgeKind.IMPORTS,
+            "source_path": ranking_import_config.file_path,
+            "target_path": ranking_load_config.file_path,
+        },
+        {
+            "source_id": ranking_start_server.id,
+            "target_id": ranking_config_class.id,
+            "kind": EdgeKind.IMPORTS,
+            "source_path": ranking_start_server.file_path,
+            "target_path": ranking_config_class.file_path,
+        },
+        {
+            "source_id": ranking_test_config.id,
+            "target_id": ranking_load_config.id,
+            "kind": EdgeKind.CALLS,
+            "source_path": ranking_test_config.file_path,
+            "target_path": ranking_load_config.file_path,
+        },
+        {
+            "source_id": ranking_doc_section.id,
+            "target_id": ranking_load_config.id,
+            "kind": EdgeKind.DOCUMENTS,
+            "source_path": ranking_doc_section.file_path,
+            "target_path": ranking_load_config.file_path,
+        },
     ]
 
 
@@ -619,7 +620,7 @@ def ranking_edges(
 def ranking_index(
     ranking_commit: str,
     ranking_chunks: list[Chunk],
-    ranking_edges: list[Edge],
+    ranking_edges: list[dict[str, str]],
 ) -> Generator[Index]:
     """An in-memory Index pre-loaded with the ranking dataset."""
     # Written by hand, not built: `ranking_edges` holds a `calls` edge,
@@ -638,7 +639,10 @@ def ranking_index(
                 for c in ranking_chunks
             ],
         )
-        ws.insert_edges(ranking_edges, snapshot_sha=ranking_commit)
+        ws.insert_edges(
+            InferredEdgeRow.validate(pl.DataFrame(ranking_edges), cast=True),
+            snapshot_sha=ranking_commit,
+        )
     yield index
     index.close()
 

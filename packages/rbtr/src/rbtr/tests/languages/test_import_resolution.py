@@ -45,5 +45,5 @@ def test_language_import_reaches_the_imported_file(scenario: ImportScenario) -> 
     resolution = build_resolution_map(manager, manifests=scenario.extra_files)
     edges = infer_import_edges(edge_rows(chunks), repo_files, resolution)
 
-    reached = [e.target_path for e in edges]
+    reached = edges["target_path"].to_list()
     assert scenario.target in reached, f"{scenario.importer} names {scenario.target}, got {reached}"

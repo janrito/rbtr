@@ -1043,8 +1043,12 @@ win (7–32× for 3 vectors).
 The schemas behind these frames are split by direction:
 write/staging schemas live in `index/staging.py`, read-result
 schemas in `index/results.py`, kept independent by import-linter
-(a physical CQRS seam). `Chunk` is the write model: extraction
-builds it and `staged_chunks` writes it. Reads return frames: the
+(a physical CQRS seam). The writer takes what each producer
+makes. Extraction works one file at a time and builds objects:
+`Chunk`, whose span and role are checked as it is built, and the
+file's `FileSnapshot`. Edge inference works on sets and returns an
+`InferredEdgeRow` frame, which `staged_edges` scopes to a snapshot
+without converting it. Reads return frames: the
 handlers validate rows straight into the reply DTOs, search into
 `ScoredChunk`, and edge inference and the embedder work on the frame.
 
