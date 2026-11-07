@@ -1,11 +1,10 @@
-"""End-to-end cross-repo smoke tests via the real CLI subprocess.
+"""The end-to-end cross-repo test: the real CLI subprocess over two built repos.
 
-Seeds two repos into a per-test on-disk store (`isolated_db`),
-then drives `rbtr` as a subprocess to verify:
-- `search --scope all` merges hits from both repos (attributed),
-- workspace search/status stays scoped to one repo,
-- non-search tools (read-symbol) never surface another repo's data
-  even when a symbol name collides across repos.
+Builds two repos into a per-test on-disk store (`isolated_db`), then
+drives `rbtr` as a subprocess to check that `search --scope all` merges
+hits from both repos, attributed.  Workspace scoping and isolation are
+tested at the handler level (`daemon/test_cross_repo.py`) and over the
+socket (`daemon/test_handlers_cross_repo.py`).
 """
 
 from __future__ import annotations
@@ -80,44 +79,3 @@ def test_search_scope_all_merges_repos(two_repos: TwoRepos) -> None:
     # shows as both repos' paths present among the results.
     repo_paths = {hit["repo_path"] for hit in json.loads(r.stdout)["results"]}
     assert repo_paths == {two_repos.path_a, two_repos.path_b}
-
-
-def test_search_workspace_excludes_other_repo(two_repos: TwoRepos) -> None:
-    """A workspace search never surfaces the other repo's chunks."""
-    r = run_cli(["--json", "search", "shared_fn", "--repo-path", two_repos.path_b])
-    assert r.returncode == 0, r.stderr
-    hits = json.loads(r.stdout)["results"]
-    names = {hit["name"] for hit in hits}
-    assert "shared_fn" in names
-    # Repo A's unique symbol must not leak into a repo-B workspace search.
-    assert "alpha_fn" not in names
-    # repo_path is omitted (not null) for workspace hits.
-    assert all("repo_path" not in hit for hit in hits)
-
-
-def test_status_scope_all_lists_both_repos(two_repos: TwoRepos) -> None:
-    """`status --scope all` reports exactly the two indexed repos."""
-    r = run_cli(["--json", "status", "--scope", "all", "--repo-path", two_repos.path_a])
-    assert r.returncode == 0, r.stderr
-    payload = json.loads(r.stdout)
-    repo_paths = {ref["repo_path"] for ref in payload["indexed_refs"]}
-    assert repo_paths == {two_repos.path_a, two_repos.path_b}
-
-
-def test_status_workspace_single_repo(two_repos: TwoRepos) -> None:
-    """Workspace status reports only the path's repo."""
-    r = run_cli(["--json", "status", "--repo-path", two_repos.path_a])
-    assert r.returncode == 0, r.stderr
-    payload = json.loads(r.stdout)
-    assert all(ref["repo_path"] == two_repos.path_a for ref in payload["indexed_refs"])
-
-
-def test_read_symbol_isolated_to_repo(two_repos: TwoRepos) -> None:
-    """read-symbol for a colliding name returns only the path's repo."""
-    r = run_cli(["--json", "read-symbol", "shared_fn", "--repo-path", two_repos.path_a])
-    assert r.returncode == 0, r.stderr
-    # Both repos hold a `shared_fn`; the DTO carries no id, so isolation
-    # shows as a single chunk (a leak would emit the other repo's too).
-    chunks = json.loads(r.stdout)["chunks"]
-    assert len(chunks) == 1
-    assert chunks[0]["name"] == "shared_fn"
