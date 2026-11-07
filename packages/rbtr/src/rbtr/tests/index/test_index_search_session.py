@@ -14,12 +14,13 @@ from pytest_cases import fixture, parametrize_with_cases
 from rbtr.domain.models import SnapshotRef
 from rbtr.git import normalise_repo_path
 from rbtr.index.build import build_index
+from rbtr.index.embed import embed_index
+from rbtr.index.embeddings import Embedder
 from rbtr.index.index import Index
 from rbtr.index.search import search
 
 from ..conftest import make_commit
 from .cases_search import SearchScenario
-from .conftest import make_chunk, seed_index
 
 
 @fixture
@@ -153,13 +154,12 @@ def test_shared_chunk_found_via_fts_from_both_repos(
 
 
 def test_shared_chunk_found_via_semantic_from_both_repos(
-    shared_chunk_index: Index, shared_sha: str, shared_chunk_id: str
+    shared_chunk_index: Index, shared_sha: str, stubbed_embedder: Embedder
 ) -> None:
     """A shared chunk's single embedding is reachable by semantic search from either repo."""
     index = shared_chunk_index
     repo1, repo2 = index.repos()
-    with index.session(repo1) as ws:
-        ws.update_embeddings([shared_chunk_id], [[1.0, 0.0, 0.0, 0.0]])
+    embed_index(index, at=repo1.at(shared_sha), embedder=stubbed_embedder)
     query_vec = [1.0, 0.0, 0.0, 0.0]
     r1 = index.similar_matches([query_vec], within=[repo1.at(shared_sha)], top_k=5)
     r2 = index.similar_matches([query_vec], within=[repo2.at(shared_sha)], top_k=5)
@@ -194,16 +194,33 @@ def test_cross_repo_search_merges_both_repos(
 
 
 @pytest.fixture
-def semantic_ref(index: Index, head_ref: SnapshotRef) -> SnapshotRef:
-    """`head_ref`, seeded with two embedded chunks at different distances."""
-    close = make_chunk("close", name="close_match", path="close.py")
-    far = make_chunk("far", name="far_match", path="far.py")
-    seed_index(index, [close, far], head_ref)
-    vec_close = [0.9, 0.1, 0.1, 0.1]
-    vec_far = [0.3, 0.7, 0.7, 0.7]
-    with index.session(head_ref.repo) as ws:
-        ws.update_embeddings([close.id, far.id], [vec_close, vec_far])
-    return head_ref
+def stub_vectors() -> dict[str, list[float]]:
+    """Chosen vectors: `close_match` near `[1, 0, 0, 0]`, `far_match` away from it."""
+    return {
+        "close_match": [0.9, 0.1, 0.1, 0.1],
+        "far_match": [0.3, 0.7, 0.7, 0.7],
+        "shared_fn": [1.0, 0.0, 0.0, 0.0],
+    }
+
+
+@pytest.fixture
+def semantic_ref(
+    index: Index, git_repo: pygit2.Repository, repo_path: str, stubbed_embedder: Embedder
+) -> SnapshotRef:
+    """A built snapshot of two functions, embedded at different distances."""
+    close = b"""\
+def close_match():
+    pass
+"""
+    far = b"""\
+def far_match():
+    pass
+"""
+    sha = str(make_commit(git_repo, {"close.py": close, "far.py": far}, ref="refs/heads/semantic"))
+    build_index(repo_path, sha, index)
+    ref = index.register(repo_path).at(sha)
+    embed_index(index, at=ref, embedder=stubbed_embedder)
+    return ref
 
 
 def test_similar_matches_single_vector(index: Index, semantic_ref: SnapshotRef) -> None:
@@ -255,13 +272,8 @@ def test_unseeded_chunks_have_no_embedding(
     assert module_index.chunks(at=unembedded_ref)["has_embedding"].to_list() == [False]
 
 
-def test_seeded_chunks_have_embedding_flag(index: Index, head_ref: SnapshotRef) -> None:
-    chunk = make_chunk("a")
-    seed_index(index, [chunk], head_ref)
-    vec = [0.5, 0.5, 0.5, 0.5]
-    with index.session(head_ref.repo) as ws:
-        ws.update_embeddings([chunk.id], [vec])
-    assert index.chunks(at=head_ref)["has_embedding"].to_list() == [True]
+def test_embedded_chunks_have_embedding_flag(index: Index, semantic_ref: SnapshotRef) -> None:
+    assert index.chunks(at=semantic_ref)["has_embedding"].to_list() == [True, True]
 
 
 @pytest.fixture

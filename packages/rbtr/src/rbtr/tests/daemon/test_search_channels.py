@@ -24,13 +24,14 @@ from rbtr.config import WeightTriple, config
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import SearchRequest, SearchResponse
 from rbtr.daemon.server import Daemon
-from rbtr.domain.models import FileSnapshot
+from rbtr.index.build import build_index
+from rbtr.index.embed import embed_index
 from rbtr.index.embeddings import Embedder
 from rbtr.index.index import Index
 from rbtr.index.reranker import Reranker
 from rbtr.index.search import search
 
-from ..index.conftest import make_chunk
+from ..conftest import make_commit
 from .conftest import serving
 
 # Hand-crafted vectors so cosine similarity is controllable.
@@ -90,56 +91,54 @@ def channel_vecs() -> tuple[list[float], dict[str, list[float]]]:
 
 
 @pytest.fixture
-def channel_index(
-    fake_repo: str,
+def stub_vectors(
     channel_vecs: tuple[list[float], dict[str, list[float]]],
-    index: Index,
-) -> Index:
-    """Store seeded with chunks designed so the channels disagree.
+) -> dict[str, list[float]]:
+    """Each channel function's hand-crafted vector, normalised, for `StubModel`."""
+    _query_vec, chunk_vecs = channel_vecs
+    return {name: _normalise(vec) for name, vec in chunk_vecs.items()}
+
+
+@pytest.fixture
+def channel_index(fake_repo: str, index: Index, stubbed_embedder: Embedder) -> Index:
+    """`fake_repo` with HEAD built and embedded, its functions designed so the channels disagree.
 
     - "find_items": content about searching/finding (semantic
       likes it for "search for items") but a different name.
     - "search": exact name match (name channel).
     - "lookup": "search" repeated in content (lexical channel).
     """
-    _query_vec, chunk_vecs = channel_vecs
-    sha = str(pygit2.Repository(fake_repo).head.target)
-    specs = [
-        (
-            "ch_find",
-            "src/find.py",
-            "find_items",
-            "def find_items(query): search the database and find matching items",
-        ),
-        ("ch_search", "src/search.py", "search", "def search(q): return results"),
-        (
-            "ch_lookup",
-            "src/lookup.py",
-            "lookup",
-            "def lookup(term): search search search through the index to search",
-        ),
-        ("ch_greet", "src/greet.py", "greet", "def greet(name): return f'hello {name}'"),
-        ("ch_parse", "src/parse.py", "parse_config", "def parse_config(path): return load(path)"),
-    ]
-    repo = index.register(fake_repo)
-    with index.session(repo) as ws:
-        chunks = [
-            make_chunk(cid, name=name, content=content, path=path, blob=f"b_{cid}")
-            for cid, path, name, content in specs
-        ]
-        for c in chunks:
-            ws.add_chunk(c)
-        # Embeddings are NULL on insert; set them via update_embeddings.
-        ids = [c.id for c in chunks]
-        embeddings = [_normalise(chunk_vecs[c.name]) for c in chunks]
-        ws.update_embeddings(ids, embeddings)
-        ws.insert_snapshots(
-            [
-                FileSnapshot(snapshot_sha=sha, file_path=c.file_path, blob_sha=c.blob_sha)
-                for c in chunks
-            ],
-        )
-        ws.mark_indexed(snapshot_sha=sha)
+    find = b"""\
+def find_items(query):
+    '''Search the database and find matching items.'''
+"""
+    search_py = b"""\
+def search(q):
+    return results
+"""
+    lookup = b"""\
+def lookup(term):
+    '''Search search search through the index to search.'''
+"""
+    greet = b"""\
+def greet(name):
+    return f"hello {name}"
+"""
+    parse = b"""\
+def parse_config(path):
+    return load(path)
+"""
+    files = {
+        "src/find.py": find,
+        "src/search.py": search_py,
+        "src/lookup.py": lookup,
+        "src/greet.py": greet,
+        "src/parse.py": parse,
+    }
+    repo = pygit2.Repository(fake_repo)
+    sha = str(make_commit(repo, files, parents=[repo.head.peel(pygit2.Commit).id]))
+    build_index(fake_repo, sha, index)
+    embed_index(index, at=index.register(fake_repo).at(sha), embedder=stubbed_embedder)
     return index
 
 
