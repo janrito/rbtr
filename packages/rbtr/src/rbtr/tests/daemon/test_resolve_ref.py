@@ -17,10 +17,12 @@ from pytest_cases import fixture, parametrize_with_cases
 from rbtr.config import config
 from rbtr.domain.models import RefSource
 from rbtr.errors import IndexNotBuiltError
-from rbtr.git import worktree_tree_sha
+from rbtr.git import normalise_repo_path, worktree_tree_sha
+from rbtr.index.build import build_index
 from rbtr.index.index import Index
 from rbtr.index.refs import resolve_read_ref
 
+from ..conftest import make_commit
 from .cases_resolve_ref import RefScenario
 
 
@@ -70,15 +72,13 @@ def ref_index(
     ref_repo: pygit2.Repository,
     index: Index,
 ) -> Index:
-    repo = index.register(ref_repo.workdir)
-    with index.session(repo) as ws:
-        ws.mark_indexed(snapshot_sha=str(ref_repo.head.target))
-        if ref_scenario.tree_sha_indexed:
-            tree_sha = worktree_tree_sha(
-                ref_repo.workdir, max_untracked_files=config.max_untracked_files
-            )
-            if tree_sha is not None:
-                ws.mark_indexed(snapshot_sha=tree_sha)
+    build_index(ref_repo.workdir, str(ref_repo.head.target), index)
+    if ref_scenario.tree_sha_indexed:
+        tree_sha = worktree_tree_sha(
+            ref_repo.workdir, max_untracked_files=config.max_untracked_files
+        )
+        if tree_sha is not None:
+            build_index(ref_repo.workdir, tree_sha, index)
     return index
 
 
@@ -87,7 +87,7 @@ def test_resolve_read_ref(
     ref_repo: pygit2.Repository,
     ref_index: Index,
 ) -> None:
-    repo = ref_index.repo(ref_repo.workdir)
+    repo = ref_index.repo(normalise_repo_path(ref_repo.workdir))
     result = resolve_read_ref(ref_index, repo, ref_scenario.requested_ref)
 
     # Map symbolic names to actual SHAs.
@@ -128,10 +128,12 @@ def test_implicit_unindexed_head_falls_back_to_latest_indexed(
     """Implicit resolution prefers an older indexed commit over an
     unindexed HEAD rather than returning an empty result."""
     repo = _gate_repo(tmp_path, ref_sig)
-    older = "a" * 40
-    registered = index.register(repo.workdir)
-    with index.session(registered) as ws:
-        ws.mark_indexed(snapshot_sha=older)
+    older_file = b"""\
+x = 0
+"""
+    older = str(make_commit(repo, {"a.py": older_file}, ref="refs/heads/older"))
+    build_index(repo.workdir, older, index)  # HEAD stays unindexed
+    registered = index.register(normalise_repo_path(repo.workdir))
 
     result = resolve_read_ref(index, registered, None, require_indexed=True)
 

@@ -371,8 +371,28 @@ def test_rechunk_of_shared_blob_propagates_to_all_repos(
     assert index.chunks(at=repo2.at(shared_sha))["id"].to_list() == [rechunked.id]
 
 
+@pytest.fixture
+def two_paths_sha(git_repo: pygit2.Repository) -> str:
+    """A commit holding the same content at `a.py` and `b.py`."""
+    shared = b"""\
+def shared():
+    pass
+"""
+    return str(make_commit(git_repo, {"a.py": shared, "b.py": shared}, ref="refs/heads/two"))
+
+
+@pytest.fixture
+def one_path_sha(git_repo: pygit2.Repository) -> str:
+    """A commit holding that content at `a.py` only."""
+    shared = b"""\
+def shared():
+    pass
+"""
+    return str(make_commit(git_repo, {"a.py": shared}, ref="refs/heads/one"))
+
+
 def test_drop_snapshot_keeps_a_chunk_still_reachable_at_another_path(
-    index: Index,
+    index: Index, repo_path: str, two_paths_sha: str, one_path_sha: str
 ) -> None:
     """`drop_snapshot` keeps a chunk whose blob is referenced elsewhere.
 
@@ -381,22 +401,17 @@ def test_drop_snapshot_keeps_a_chunk_still_reachable_at_another_path(
     nothing: the chunk is still reachable at `a.py`, and deleting it
     would empty a file that has not changed.
     """
-    repo = index.register("/repo")
-    with index.session(repo) as ws:
-        shared = make_chunk("shared", path="a.py", blob="b")
-        ws.add_chunk(shared)
-        # c1 references the blob at both paths; c2 keeps only a.py.
-        ws.insert_snapshots([make_snap("c1", "a.py", "b"), make_snap("c1", "b.py", "b")])
-        ws.insert_snapshots([make_snap("c2", "a.py", "b")])
-        ws.mark_indexed(snapshot_sha="c1")
-        ws.mark_indexed(snapshot_sha="c2")
+    build_index(repo_path, two_paths_sha, index)
+    build_index(repo_path, one_path_sha, index)
+    repo = index.register(repo_path)
+    shared = index.chunks(at=repo.at(one_path_sha))["id"].to_list()
 
     with index.session(repo) as ws:
-        dropped = ws.drop_snapshot(snapshot_sha="c1")
+        dropped = ws.drop_snapshot(snapshot_sha=two_paths_sha)
 
     assert dropped.chunks == 0
     assert index.count_orphan_chunks() == 0
-    assert index.chunks(at=repo.at("c2"))["id"].to_list() == [shared.id]
+    assert index.chunks(at=repo.at(one_path_sha))["id"].to_list() == shared
 
 
 def test_inbound_refs_to_shared_chunk_resolve_per_repo(
@@ -419,25 +434,32 @@ def test_inbound_refs_to_shared_chunk_resolve_per_repo(
 
 @fixture
 @parametrize_with_cases("scenario", cases=".cases_read", has_tag="gc_counts")
-def gc_count_query(
-    scenario: GcCountScenario, project_index: Index
-) -> tuple[Index, GcCountScenario]:
-    index = project_index
-    # Claims first, one session per repo; then the chunks, which a
-    # session may add only for blobs some snapshot of the project claims.
-    repos = index.repos()
-    for g in scenario.groups:
-        with index.session(repos[g.checkout]) as ws:
-            ws.insert_snapshots(g.snapshots)
-            ws.mark_indexed(snapshot_sha=g.snapshot_sha)
-    with index.session(repos[0]) as ws:
-        for c in scenario.chunks:
-            ws.add_chunk(c)
-    return index, scenario
+def gc_count(scenario: GcCountScenario) -> GcCountScenario:
+    return scenario
+
+
+@pytest.fixture
+def gc_count_shas(
+    gc_count: GcCountScenario,
+    project_index: Index,
+    git_repo: pygit2.Repository,
+    repo_path: str,
+    linked_worktree: pygit2.Repository,
+) -> dict[str, str]:
+    """Each of the scenario's commits built in its checkout; returns each label's commit."""
+    paths = [repo_path, normalise_repo_path(linked_worktree.workdir)]
+    shas: dict[str, str] = {}
+    for commit in gc_count.commits:
+        ref = f"refs/heads/{commit.label}"
+        # The label is the message too, so two commits of one tree stay two commits.
+        sha = str(make_commit(git_repo, commit.files, message=commit.label, ref=ref))
+        build_index(paths[commit.checkout], sha, project_index)
+        shas[commit.label] = sha
+    return shas
 
 
 def test_gc_chunk_split_counts(
-    gc_count_query: tuple[Index, GcCountScenario],
+    gc_count: GcCountScenario, gc_count_shas: dict[str, str], project_index: Index
 ) -> None:
     """`count_gc_chunk_split` splits candidate chunks into dropped vs kept.
 
@@ -445,13 +467,13 @@ def test_gc_chunk_split_counts(
     outside the drop set still references its `(blob_sha, file_path)`,
     else it is dropped.
     """
-    index, s = gc_count_query
-    split = index.count_gc_chunk_split(index.repos()[s.drop_checkout], s.drop_shas)
-    assert (split.dropped, split.kept) == (s.expected_dropped, s.expected_kept)
+    drop = project_index.repos()[gc_count.drop_checkout]
+    split = project_index.count_gc_chunk_split(drop, [gc_count_shas[c] for c in gc_count.drop])
+    assert (split.dropped, split.kept) == (gc_count.expected_dropped, gc_count.expected_kept)
 
 
 def test_gc_chunk_split_agrees_with_real_deletion(
-    gc_count_query: tuple[Index, GcCountScenario],
+    gc_count: GcCountScenario, gc_count_shas: dict[str, str], project_index: Index
 ) -> None:
     """The predicted drop count matches a real deletion, leaving no orphans.
 
@@ -462,14 +484,15 @@ def test_gc_chunk_split_agrees_with_real_deletion(
     orphan-free. Both sides are read off the same reference graph, so
     they must never diverge.
     """
-    index, s = gc_count_query
-    drop = index.repos()[s.drop_checkout]
-    predicted_dropped = index.count_gc_chunk_split(drop, s.drop_shas).dropped
+    index = project_index
+    drop = index.repos()[gc_count.drop_checkout]
+    drop_shas = [gc_count_shas[c] for c in gc_count.drop]
+    predicted_dropped = index.count_gc_chunk_split(drop, drop_shas).dropped
 
     with index.reader(drop) as cur:
         ((before,),) = cur.sql("SELECT count(*) FROM chunks").fetchall()
     with index.session(drop) as ws:
-        for sha in s.drop_shas:
+        for sha in drop_shas:
             ws.drop_snapshot(snapshot_sha=sha)
     with index.reader(drop) as cur:
         ((after,),) = cur.sql("SELECT count(*) FROM chunks").fetchall()
@@ -536,21 +559,28 @@ def test_forget_leaves_orphan_chunks_for_gc(only_in_repo1: Index) -> None:
     assert index.count_orphan_chunks() == 1
 
 
-def test_an_indexed_snapshot_with_no_chunks_counts_zero(index: Index) -> None:
+@pytest.fixture
+def nothing_to_index_ref(index: Index, git_repo: pygit2.Repository, repo_path: str) -> SnapshotRef:
+    """A commit of an empty tree, built: indexed, with nothing to extract."""
+    sha = str(make_commit(git_repo, {}, ref="refs/heads/empty"))
+    build_index(repo_path, sha, index)
+    return index.register(repo_path).at(sha)
+
+
+def test_an_indexed_snapshot_with_no_chunks_counts_zero(
+    index: Index, nothing_to_index_ref: SnapshotRef
+) -> None:
     """A commit that yielded nothing to index is still reported, at zero.
 
     `mark_indexed` records completion for any tree, including one that
     held nothing extractable, so the query answers for it with a row of
     zeroes and the caller reads a figure rather than supplying one.
     """
-    repo = index.register("/r")
-    with index.session(repo) as ws:
-        ws.mark_indexed(snapshot_sha="c1")
-
-    counts = index.chunk_counts_for_snapshot(at=repo.at("c1"))
+    counts = index.chunk_counts_for_snapshot(at=nothing_to_index_ref)
     assert counts.total == 0
     assert counts.is_fully_embedded, "nothing outstanding means no embed work"
-    assert [ref.snapshot_sha for ref in index.chunk_counts_by_snapshot(repo=repo)] == ["c1"]
+    snapshots = index.chunk_counts_by_snapshot(repo=nothing_to_index_ref.repo)
+    assert [ref.snapshot_sha for ref in snapshots] == [nothing_to_index_ref.snapshot_sha]
 
 
 @parametrize_with_cases("scenario", cases=".cases_read", has_tag="embed_order")

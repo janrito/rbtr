@@ -267,26 +267,26 @@ def case_blob_is_current_multilanguage_embedded_bump() -> BlobCurrentScenario:
 
 
 @dataclass(frozen=True)
-class SnapshotGroup:
-    """FileSnapshots for one commit of one checkout of `project_store`.
+class CheckoutCommit:
+    """A commit to build in one checkout of `project_index`.
 
-    *checkout* is the checkout's position in `project_store.repos()`: 0
-    is the main checkout, 1 its linked worktree.
+    *checkout* is the checkout's position in `project_index.repos()`: 0
+    is the main checkout, 1 its linked worktree.  *label* names the
+    commit, so a drop set can refer to it.
     """
 
     checkout: int
-    snapshot_sha: str
-    snapshots: list[FileSnapshot]
+    label: str
+    files: dict[str, bytes]
 
 
 @dataclass(frozen=True)
 class GcCountScenario:
-    """Seed data + a drop set + expected (dropped, kept) chunk counts."""
+    """Commits to build + a drop set (by label) + expected (dropped, kept) chunk counts."""
 
-    chunks: list[TokenisedChunk]
-    groups: list[SnapshotGroup]
+    commits: list[CheckoutCommit]
     drop_checkout: int
-    drop_shas: list[str]
+    drop: list[str]
     expected_dropped: int
     expected_kept: int
 
@@ -294,12 +294,14 @@ class GcCountScenario:
 @case(tags=["gc_counts"])
 def case_gc_split_last_reference() -> GcCountScenario:
     """The drop removes the chunk's only reference → dropped."""
-    c = make_chunk("only", path="a.py", blob="b1")
+    only = b"""\
+def only():
+    pass
+"""
     return GcCountScenario(
-        chunks=[c],
-        groups=[SnapshotGroup(0, "c1", [make_snap("c1", "a.py", "b1")])],
+        commits=[CheckoutCommit(0, "c1", {"a.py": only})],
         drop_checkout=0,
-        drop_shas=["c1"],
+        drop=["c1"],
         expected_dropped=1,
         expected_kept=0,
     )
@@ -308,15 +310,17 @@ def case_gc_split_last_reference() -> GcCountScenario:
 @case(tags=["gc_counts"])
 def case_gc_split_shared_cross_repo() -> GcCountScenario:
     """Another repo references the same blob+path → kept."""
-    c = make_chunk("shared", path="x.py", blob="b")
+    shared = b"""\
+def shared():
+    pass
+"""
     return GcCountScenario(
-        chunks=[c],
-        groups=[
-            SnapshotGroup(0, "c1", [make_snap("c1", "x.py", "b")]),
-            SnapshotGroup(1, "c2", [make_snap("c2", "x.py", "b")]),
+        commits=[
+            CheckoutCommit(0, "c1", {"x.py": shared}),
+            CheckoutCommit(1, "c2", {"x.py": shared}),
         ],
         drop_checkout=0,
-        drop_shas=["c1"],
+        drop=["c1"],
         expected_dropped=0,
         expected_kept=1,
     )
@@ -325,15 +329,17 @@ def case_gc_split_shared_cross_repo() -> GcCountScenario:
 @case(tags=["gc_counts"])
 def case_gc_split_shared_same_repo_other_ref() -> GcCountScenario:
     """A surviving ref of the same repo references the chunk → kept."""
-    c = make_chunk("multi", path="a.py", blob="b")
+    multi = b"""\
+def multi():
+    pass
+"""
     return GcCountScenario(
-        chunks=[c],
-        groups=[
-            SnapshotGroup(0, "c1", [make_snap("c1", "a.py", "b")]),
-            SnapshotGroup(0, "c2", [make_snap("c2", "a.py", "b")]),
+        commits=[
+            CheckoutCommit(0, "c1", {"a.py": multi}),
+            CheckoutCommit(0, "c2", {"a.py": multi}),
         ],
         drop_checkout=0,
-        drop_shas=["c1"],
+        drop=["c1"],
         expected_dropped=0,
         expected_kept=1,
     )
@@ -342,20 +348,21 @@ def case_gc_split_shared_same_repo_other_ref() -> GcCountScenario:
 @case(tags=["gc_counts"])
 def case_gc_split_mixed() -> GcCountScenario:
     """One candidate loses its last reference; another survives via c2."""
-    gone = make_chunk("gone", path="a.py", blob="ba")
-    stays = make_chunk("stays", path="b.py", blob="bb")
+    gone = b"""\
+def gone():
+    pass
+"""
+    stays = b"""\
+def stays():
+    pass
+"""
     return GcCountScenario(
-        chunks=[gone, stays],
-        groups=[
-            SnapshotGroup(
-                0,
-                "c1",
-                [make_snap("c1", "a.py", "ba"), make_snap("c1", "b.py", "bb")],
-            ),
-            SnapshotGroup(0, "c2", [make_snap("c2", "b.py", "bb")]),
+        commits=[
+            CheckoutCommit(0, "c1", {"a.py": gone, "b.py": stays}),
+            CheckoutCommit(0, "c2", {"b.py": stays}),
         ],
         drop_checkout=0,
-        drop_shas=["c1"],
+        drop=["c1"],
         expected_dropped=1,
         expected_kept=1,
     )
