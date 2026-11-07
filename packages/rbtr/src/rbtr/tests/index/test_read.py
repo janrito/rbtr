@@ -13,7 +13,6 @@ import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.domain.models import (
-    ChunkKind,
     Edge,
     EdgeKind,
     Import,
@@ -119,89 +118,36 @@ def test_delete_chunks_for_blobs_removes_target(index: Index) -> None:
         assert ws.blob_is_current("b2", "", {"": 1}) is True
 
 
-def test_edges_returns_all(index: Index) -> None:
-    """Edges inserted for a commit are all returned."""
-    e1 = Edge(
-        source_id="a",
-        target_id="b",
-        kind=EdgeKind.IMPORTS,
-        source_path="src/a.py",
-        target_path="src/b.py",
-    )
-    e2 = Edge(
-        source_id="c",
-        target_id="d",
-        kind=EdgeKind.DOCUMENTS,
-        source_path="src/c.py",
-        target_path="src/d.py",
-    )
-
-    repo = index.register("/repo")
-    with index.session(repo) as ws:
-        ws.insert_edges([e1, e2], snapshot_sha="head")
-
-    edges = index.edges(within=[repo.at("head")])
-    assert len(edges) == 2
+def test_edges_returns_all(index: Index, import_graph: SnapshotRef) -> None:
+    """Every edge the build inferred at a snapshot is returned, of every kind."""
+    edges = index.edges(within=[import_graph])
+    assert edges.select("source_path", "target_path", "kind").sort("source_path").to_dicts() == [
+        {"source_path": "README.md", "target_path": "src/m.py", "kind": "documents"},
+        {"source_path": "src/app.py", "target_path": "src/m.py", "kind": "imports"},
+    ]
 
 
-def test_edges_filter_by_kind(index: Index) -> None:
-    """Filtering edges by kind returns only matching."""
-    e1 = Edge(
-        source_id="a",
-        target_id="b",
-        kind=EdgeKind.IMPORTS,
-        source_path="src/a.py",
-        target_path="src/b.py",
-    )
-    e2 = Edge(
-        source_id="c",
-        target_id="d",
-        kind=EdgeKind.DOCUMENTS,
-        source_path="src/c.py",
-        target_path="src/d.py",
-    )
-
-    repo = index.register("/repo")
-    with index.session(repo) as ws:
-        ws.insert_edges([e1, e2], snapshot_sha="head")
-
-    edges = index.edges(within=[repo.at("head")], kind=EdgeKind.IMPORTS)
-    assert edges["kind"].to_list() == [EdgeKind.IMPORTS.value]
+def test_edges_filter_by_kind(index: Index, import_graph: SnapshotRef) -> None:
+    """Filtering edges by kind returns only that kind."""
+    edges = index.edges(within=[import_graph], kind=EdgeKind.IMPORTS)
+    assert edges.select("source_path", "kind").to_dicts() == [
+        {"source_path": "src/app.py", "kind": "imports"}
+    ]
 
 
-def test_inbound_refs_resolves_source(index: Index) -> None:
+def test_inbound_refs_resolves_source(index: Index, import_graph: SnapshotRef) -> None:
     """Each inbound edge resolves to its source chunk plus the edge kind."""
-    src = make_chunk(
-        "imp", name="from m import fn", path="app.py", blob="b_app", kind=ChunkKind.IMPORT
-    )
-    target = make_chunk("fn", path="m.py", blob="b_m")
-    repo = index.register("/repo")
-    with index.session(repo) as ws:
-        ws.add_chunk(src)
-        ws.add_chunk(target)
-        ws.insert_snapshots(
-            [make_snap("head", "app.py", "b_app"), make_snap("head", "m.py", "b_m")]
-        )
-        ws.insert_edges(
-            [
-                Edge(
-                    source_id=src.id,
-                    target_id=target.id,
-                    kind=EdgeKind.IMPORTS,
-                    source_path=src.file_path,
-                    target_path=target.file_path,
-                )
-            ],
-            snapshot_sha="head",
-        )
-
-    frame = index.inbound_refs([target.id], at=repo.at("head"))
-    assert frame.height == 1
-    row = frame.to_dicts()[0]
-    assert row["name"] == "from m import fn"
-    assert row["kind"] == "import"
-    assert row["file_path"] == "app.py"
-    assert row["edge"] == "imports"
+    fn = index.chunks(at=import_graph, name="fn")["id"].item()
+    frame = index.inbound_refs([fn], at=import_graph)
+    assert frame.select("file_path", "name", "kind", "edge").sort("file_path").to_dicts() == [
+        {"file_path": "README.md", "name": "src/m.py", "kind": "import", "edge": "documents"},
+        {
+            "file_path": "src/app.py",
+            "name": "from src.m import fn",
+            "kind": "import",
+            "edge": "imports",
+        },
+    ]
 
 
 def test_a_read_leaves_the_cursor_free_for_the_next(index: Index, head_ref: SnapshotRef) -> None:
@@ -412,8 +358,7 @@ def test_drop_snapshot_keeps_a_chunk_still_reachable_at_another_path(
 
 
 def test_inbound_refs_to_shared_chunk_resolve_per_repo(
-    shared_chunk_index: Index,
-    shared_chunk: TokenisedChunk,
+    index: Index, shared_target: tuple[SnapshotRef, SnapshotRef]
 ) -> None:
     """inbound_refs to a shared chunk returns only the querying repo's referrers.
 
@@ -421,57 +366,11 @@ def test_inbound_refs_to_shared_chunk_resolve_per_repo(
     shared chunk from its own importer. Querying the shared target must
     resolve the querying repo's referrer, never the other repo's.
     """
-    index = shared_chunk_index
-    repo1, repo2 = index.repos()
-    with index.session(repo1) as ws:
-        imp1 = make_chunk(
-            "imp1",
-            name="from m import shared_fn",
-            path="a.py",
-            blob="b_imp1",
-            kind=ChunkKind.IMPORT,
-        )
-        ws.add_chunk(imp1)
-        ws.insert_snapshots([make_snap("head", "a.py", "b_imp1")])
-        ws.insert_edges(
-            [
-                Edge(
-                    source_id=imp1.id,
-                    target_id=shared_chunk.id,
-                    kind=EdgeKind.IMPORTS,
-                    source_path=imp1.file_path,
-                    target_path=shared_chunk.file_path,
-                )
-            ],
-            snapshot_sha="head",
-        )
-    with index.session(repo2) as ws:
-        imp2 = make_chunk(
-            "imp2",
-            name="from m import shared_fn",
-            path="b.py",
-            blob="b_imp2",
-            kind=ChunkKind.IMPORT,
-        )
-        ws.add_chunk(imp2)
-        ws.insert_snapshots([make_snap("head", "b.py", "b_imp2")])
-        ws.insert_edges(
-            [
-                Edge(
-                    source_id=imp2.id,
-                    target_id=shared_chunk.id,
-                    kind=EdgeKind.IMPORTS,
-                    source_path=imp2.file_path,
-                    target_path=shared_chunk.file_path,
-                )
-            ],
-            snapshot_sha="head",
-        )
-
-    r1 = index.inbound_refs([shared_chunk.id], at=repo1.at("head")).to_dicts()
-    r2 = index.inbound_refs([shared_chunk.id], at=repo2.at("head")).to_dicts()
-    assert [row["file_path"] for row in r1] == ["a.py"]
-    assert [row["file_path"] for row in r2] == ["b.py"]
+    main, other = shared_target
+    fn = index.chunks(at=main, name="fn")["id"].item()
+    assert index.chunks(at=other, name="fn")["id"].to_list() == [fn], "one shared chunk"
+    assert index.inbound_refs([fn], at=main)["file_path"].to_list() == ["a.py"]
+    assert index.inbound_refs([fn], at=other)["file_path"].to_list() == ["b.py"]
 
 
 @fixture

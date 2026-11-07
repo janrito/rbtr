@@ -7,14 +7,17 @@ IDF, persistence, and unified search.
 
 from __future__ import annotations
 
+import pygit2
 import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.domain.models import ChunkKind, Edge, EdgeKind, SnapshotRef
+from rbtr.domain.models import SnapshotRef
+from rbtr.index.build import build_index
 from rbtr.index.index import Index
 from rbtr.index.search import search
 from rbtr.index.staging import TokenisedChunk
 
+from ..conftest import make_commit
 from .cases_search import SearchScenario
 from .conftest import make_chunk, seed_index
 
@@ -227,30 +230,18 @@ def test_idf_neutralised_common_term(index: Index, idf_ref: SnapshotRef) -> None
 
 
 @pytest.fixture
-def unified_ref(index: Index, head_ref: SnapshotRef) -> SnapshotRef:
-    """`head_ref`, seeded with chunks and one edge between them."""
-    s = SearchScenario(
-        chunks=[
-            make_chunk("a", name="AppConfig", kind=ChunkKind.CLASS, path="a.py"),
-            make_chunk("b", name="load_config", kind=ChunkKind.FUNCTION, path="b.py"),
-        ],
-        query="config",
+def unified_ref(index: Index, git_repo: pygit2.Repository, repo_path: str) -> SnapshotRef:
+    """`git_repo` built at a commit where `b.py` imports the class `a.py` defines."""
+    sha = make_commit(
+        git_repo,
+        {
+            "a.py": b"class AppConfig:\n    pass\n",
+            "b.py": b"from a import AppConfig\n\n\ndef load_config():\n    return AppConfig()\n",
+        },
+        ref="refs/heads/unified",
     )
-    seed_index(index, s.chunks, head_ref)
-    with index.session(head_ref.repo) as ws:
-        ws.insert_edges(
-            [
-                Edge(
-                    source_id="b",
-                    target_id="a",
-                    kind=EdgeKind.IMPORTS,
-                    source_path="src/b.py",
-                    target_path="src/a.py",
-                )
-            ],
-            snapshot_sha=head_ref.snapshot_sha,
-        )
-    return head_ref
+    build_index(repo_path, str(sha), index)
+    return index.register(repo_path).at(str(sha))
 
 
 def test_unified_search_returns_results_with_breakdown(
