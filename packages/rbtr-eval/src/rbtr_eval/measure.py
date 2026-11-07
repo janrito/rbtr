@@ -38,11 +38,12 @@ from rbtr.cli.output import progress_reporter
 from rbtr.config import config
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import SearchRequest, SearchResponse
-from rbtr.domain.models import ChunkKind, QueryKind
+from rbtr.domain.models import ChunkKind, EmbeddingState, QueryKind
 from rbtr.index.classify import classify_query
 from rbtr.index.index import Index
 from rbtr_eval.agg import Dimension, SearchMetrics, search_metric_aggs
 from rbtr_eval.charts import render_vl_to_png
+from rbtr_eval.corpus import Corpus, corpus_refs
 from rbtr_eval.formatting import md_table
 from rbtr_eval.queries import load_all_queries
 from rbtr_eval.rbtr_cli import daemon_session
@@ -204,34 +205,19 @@ class MetricsFile(BaseModel):
     arms: dict[str, dict[str, dict[str, int | float | None]]]
 
 
-_TRUNCATED_CHUNKS_SQL = (
-    resources.files("rbtr_eval.sql").joinpath("truncated_chunks.sql").read_text()
-)
+def truncated_targets(index: Index, corpus: Corpus) -> dy.DataFrame[TruncatedTarget]:
+    """The chunks at *corpus*'s refs whose embedding input was truncated, keyed like a query's target.
 
-
-def _truncated_targets(db_path: Path) -> dy.DataFrame[TruncatedTarget]:
-    """The chunks whose embedding input was truncated, read from the index at *db_path*.
-
-    Reads each repo's truncated chunks from its project's file; the
-    daemon is stopped by this point.  Empty when no index exists.
+    The measure stage runs after `gc --keep head-only`, so each repo's
+    corpus ref is its only snapshot.
     """
-    if not db_path.exists():
-        return TruncatedTarget.create_empty()
-
-    index = Index(db_path)
-    frames = []
-    for repo in index.repos():
-        with index.reader(repo) as cur:
-            frame = cur.sql(_TRUNCATED_CHUNKS_SQL, params={"repo_id": repo.repo_id}).pl()
-        frames.append(frame.with_columns(pl.lit(repo.repo_path).alias("path")))
-    index.close()
-    trunc = pl.concat(frames) if frames else pl.DataFrame()
-
-    if trunc.is_empty():
-        return TruncatedTarget.create_empty()
-
+    located = pl.concat(
+        index.chunks(at=ref).with_columns(slug=pl.lit(ref.repo.repo_path.rsplit("/", 1)[-1]))
+        for ref in corpus.refs
+    )
     return (
-        trunc.with_columns(pl.col("path").str.split("/").list.last().alias("slug"))
+        located.filter(pl.col("embedding_state") == EmbeddingState.TRUNCATED)
+        .rename({"kind": "symbol_kind"})
         .select("slug", *IDENTITY_COLUMNS)
         .unique()
         .pipe(TruncatedTarget.validate, cast=True)
@@ -725,7 +711,10 @@ class MeasureCmd(BaseModel):
             batch = _run_searches(client, queries, self.repos_dir)
         elapsed_seconds = time.monotonic() - t0
 
-        outcomes = _score_outcomes(batch, _truncated_targets(config.db_path))
+        index = Index(str(config.db_path))
+        truncated = truncated_targets(index, corpus_refs(index))
+        index.close()
+        outcomes = _score_outcomes(batch, truncated)
         arm_metrics = _arm_metrics(outcomes)
         breakdowns = _breakdowns(outcomes)
 

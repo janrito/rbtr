@@ -263,7 +263,6 @@ stages:
       - src/rbtr_eval/templates/mrr_by_repo.vl.json
       - src/rbtr_eval/templates/mrr_by_provenance.vl.json
       - src/rbtr_eval/templates/mrr_by_kind.vl.json
-      - src/rbtr_eval/sql/truncated_chunks.sql
       - ../rbtr/src/rbtr
       - data/rendered_config.json
       - ${per_repo_dir}
