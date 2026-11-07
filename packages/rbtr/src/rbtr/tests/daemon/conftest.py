@@ -33,14 +33,13 @@ from rbtr.daemon.messages import (
     notification_adapter,
 )
 from rbtr.daemon.server import Daemon
-from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot, GcMode, IndexResult, Repo
+from rbtr.domain.models import GcMode, IndexResult, Repo
 from rbtr.index.build import build_index
 from rbtr.index.embeddings import Embedder
 from rbtr.index.index import Index
 from rbtr.index.progress import ProgressCallback, RepoProgressCallback
-from rbtr.index.staging import TokenisedChunk
 
-from ..index.conftest import make_chunk
+from ..conftest import make_commit
 
 
 @pytest.fixture
@@ -213,69 +212,32 @@ def fake_repo_subdir(fake_repo: str) -> str:
 
 @pytest.fixture
 def daemon_commit(fake_repo: str) -> str:
-    """HEAD SHA of the fake repo — used as the indexed commit."""
-    repo = pygit2.Repository(fake_repo)
-    return str(repo.head.target)
+    """A commit on `fake_repo`'s `main`, now its HEAD: a config module and an app importing it.
 
-
-@pytest.fixture
-def daemon_chunks() -> list[TokenisedChunk]:
-    """A function, a variable, a class, and an import of the function."""
-    return [
-        make_chunk(
-            "fn_config",
-            name="load_config",
-            content="def load_config(path):\n    return open(path).read()\n",
-            path="src/config.py",
-            blob="blob_config",
-            kind=ChunkKind.FUNCTION,
-        ),
-        make_chunk(
-            "var_config",
-            name="MAX_SIZE",
-            content="MAX_SIZE = 100\n",
-            path="src/config.py",
-            blob="blob_config",
-            kind=ChunkKind.VARIABLE,
-        ),
-        make_chunk(
-            "cls_app",
-            name="Application",
-            content="class Application:\n    pass\n",
-            path="src/app.py",
-            blob="blob_app",
-            kind=ChunkKind.CLASS,
-        ),
-        make_chunk(
-            "imp_config",
-            name="from config import load_config",
-            content="from config import load_config",
-            path="src/app.py",
-            blob="blob_app",
-            kind=ChunkKind.IMPORT,
-        ),
-    ]
-
-
-@pytest.fixture
-def daemon_edges(daemon_chunks: list[TokenisedChunk]) -> list[Edge]:
-    """The import chunk edges into the function it imports.
-
-    Built from the chunks themselves: an id is derived from content, so
-    an edge written with a literal would point at nothing.
+    `src/config.py` holds a variable and a function, `src/app.py` a
+    class and an import of the function, so a build gives one chunk of
+    each kind and an `imports` edge.
     """
-    by_name = {c.name: c for c in daemon_chunks}
-    imp = by_name["from config import load_config"]
-    fn = by_name["load_config"]
-    return [
-        Edge(
-            source_id=imp.id,
-            target_id=fn.id,
-            kind=EdgeKind.IMPORTS,
-            source_path=imp.file_path,
-            target_path=fn.file_path,
-        ),
-    ]
+    config_py = b"""\
+MAX_SIZE = 100
+
+
+def load_config(path):
+    return open(path).read()
+"""
+    app_py = b"""\
+from config import load_config
+
+
+class Application:
+    pass
+"""
+    repo = pygit2.Repository(fake_repo)
+    files = {"src/config.py": config_py, "src/app.py": app_py}
+    sha = str(make_commit(repo, files, parents=[repo.head.peel(pygit2.Commit).id]))
+    # The files on disk match HEAD, as after a real commit, so the worktree is clean.
+    repo.checkout_head(strategy=pygit2.GIT_CHECKOUT_FORCE)  # type: ignore[no-untyped-call]  # pygit2 untyped
+    return sha
 
 
 @pytest.fixture
@@ -305,71 +267,44 @@ def empty_index() -> Generator[Index]:
 
 
 @pytest.fixture
-def seeded_index(
-    fake_repo: str,
-    daemon_commit: str,
-    daemon_chunks: list[TokenisedChunk],
-    daemon_edges: list[Edge],
-    index: Index,
-) -> Index:
-    """The root store pre-loaded with daemon test data for one repo."""
-    chunks = daemon_chunks
-    repo = index.register(fake_repo)
-    with index.session(repo) as ws:
-        for c in chunks:
-            ws.add_chunk(c)
-        ws.insert_snapshots(
-            [
-                FileSnapshot(snapshot_sha=daemon_commit, file_path=c.file_path, blob_sha=c.blob_sha)
-                for c in chunks
-            ],
-        )
-        ws.insert_edges(daemon_edges, snapshot_sha=daemon_commit)
-        ws.mark_indexed(snapshot_sha=daemon_commit)
+def seeded_index(fake_repo: str, daemon_commit: str, index: Index) -> Index:
+    """The root store with `fake_repo` built at `daemon_commit`."""
+    build_index(fake_repo, daemon_commit, index)
     return index
 
 
 @pytest.fixture
-def changed_head(seeded_index: Index, fake_repo: str) -> str:
-    """Add a second indexed commit to `seeded_index`; return its SHA.
+def changed_head(seeded_index: Index, fake_repo: str, daemon_commit: str) -> str:
+    """A second commit after `daemon_commit`, built into `seeded_index`; returns its SHA.
 
-    Diffs against the base commit (`daemon_commit`): `load_config` is
-    modified and a new `helper` is added. The head SHA is synthetic —
-    the diff is keyed on the stored snapshots, not on git tree content.
+    `load_config` is modified and a new `helper` is added. The commit is
+    on a branch of its own, so `fake_repo`'s HEAD stays `daemon_commit`.
     """
-    head = "f" * 40
-    repo = seeded_index.repo(fake_repo)
-    with seeded_index.session(repo) as ws:
-        ws.add_chunk(
-            make_chunk(
-                "fn_config_v2",
-                name="load_config",
-                content="def load_config(path):\n    with open(path) as f:\n        return f.read()\n",
-                path="src/config.py",
-                blob="blob_config_v2",
-                kind=ChunkKind.FUNCTION,
-            )
-        )
-        ws.add_chunk(
-            make_chunk(
-                "fn_helper",
-                name="helper",
-                content="def helper():\n    return 1\n",
-                path="src/config.py",
-                blob="blob_config_v2",
-                kind=ChunkKind.FUNCTION,
-            )
-        )
-        ws.insert_snapshots(
-            [
-                FileSnapshot(
-                    snapshot_sha=head, file_path="src/config.py", blob_sha="blob_config_v2"
-                ),
-                FileSnapshot(snapshot_sha=head, file_path="src/app.py", blob_sha="blob_app"),
-            ],
-        )
-        ws.mark_indexed(snapshot_sha=head)
-    return head
+    config_py = b"""\
+MAX_SIZE = 100
+
+
+def load_config(path):
+    with open(path) as f:
+        return f.read()
+
+
+def helper():
+    return 1
+"""
+    app_py = b"""\
+from config import load_config
+
+
+class Application:
+    pass
+"""
+    repo = pygit2.Repository(fake_repo)
+    files = {"src/config.py": config_py, "src/app.py": app_py}
+    parents = [pygit2.Oid(hex=daemon_commit)]
+    sha = str(make_commit(repo, files, parents=parents, ref="refs/heads/changed"))
+    build_index(fake_repo, sha, seeded_index)
+    return sha
 
 
 @contextlib.contextmanager

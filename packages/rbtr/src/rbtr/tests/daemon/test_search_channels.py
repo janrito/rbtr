@@ -137,6 +137,7 @@ def parse_config(path):
     }
     repo = pygit2.Repository(fake_repo)
     sha = str(make_commit(repo, files, parents=[repo.head.peel(pygit2.Commit).id]))
+    repo.checkout_head(strategy=pygit2.GIT_CHECKOUT_FORCE)  # type: ignore[no-untyped-call]  # pygit2 untyped
     build_index(fake_repo, sha, index)
     embed_index(index, at=index.register(fake_repo).at(sha), embedder=stubbed_embedder)
     return index

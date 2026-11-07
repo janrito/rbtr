@@ -42,21 +42,16 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.server import Daemon
 from rbtr.domain.models import (
-    ChunkKind,
-    Definition,
-    FileSnapshot,
     GcCounts,
     GcMode,
     SnapshotRef,
-    Span,
 )
-from rbtr.domain.tokenise import tokenise_code
 from rbtr.index import watcher
+from rbtr.index.build import build_index
 from rbtr.index.embeddings import Embedder
 from rbtr.index.gc import run_gc
 from rbtr.index.index import Index
 from rbtr.index.progress import EmbedOutcome
-from rbtr.index.staging import TokenisedChunk
 
 from ..conftest import StubModel, make_commit
 from .conftest import serving
@@ -231,47 +226,26 @@ def write_lock_held(
 
 @pytest.fixture
 def embedded_snapshot(fake_repo: str, index: Index) -> SnapshotRef:
-    """`fake_repo` registered in `index`, at its HEAD commit.
+    """`fake_repo` at a new HEAD holding 50 one-function modules, registered in `index`.
 
     The id comes back from the registration, so the ref names a repo
     that exists, and the SHA is git's own rather than a literal.
     """
-    repo = index.register(fake_repo)
-    return repo.at(str(pygit2.Repository(fake_repo).head.target))
+    template = """\
+def func_{i}(x):
+    return x + {i}
+"""
+    files = {f"src/mod_{i}.py": template.format(i=i).encode() for i in range(50)}
+    repo = pygit2.Repository(fake_repo)
+    sha = str(make_commit(repo, files, parents=[repo.head.peel(pygit2.Commit).id]))
+    repo.checkout_head(strategy=pygit2.GIT_CHECKOUT_FORCE)  # type: ignore[no-untyped-call]  # pygit2 untyped
+    return index.register(fake_repo).at(sha)
 
 
 @pytest.fixture
 def embeddable_index(index: Index, embedded_snapshot: SnapshotRef) -> Index:
-    """Store with 50 chunks at `embedded_snapshot` that have no embeddings."""
-    chunks: list[TokenisedChunk] = []
-    for i in range(50):
-        name = f"func_{i}"
-        content = f"def func_{i}(x):\n    return x + {i}\n"
-        chunks.append(
-            TokenisedChunk(
-                blob_sha=f"blob_{i}",
-                file_path=f"src/mod_{i}.py",
-                role=Definition(kind=ChunkKind.FUNCTION, name=name),
-                content=content,
-                content_tokens=tokenise_code(content),
-                name_tokens=tokenise_code(name),
-                span=Span(start=1, end=2),
-            )
-        )
-    with index.session(embedded_snapshot.repo) as session:
-        for c in chunks:
-            session.add_chunk(c)
-        session.insert_snapshots(
-            [
-                FileSnapshot(
-                    snapshot_sha=embedded_snapshot.snapshot_sha,
-                    file_path=c.file_path,
-                    blob_sha=c.blob_sha,
-                )
-                for c in chunks
-            ],
-        )
-        session.mark_indexed(snapshot_sha=embedded_snapshot.snapshot_sha)
+    """Store with `embedded_snapshot` built: 50 chunks with no embeddings."""
+    build_index(embedded_snapshot.repo.repo_path, embedded_snapshot.snapshot_sha, index)
     return index
 
 
@@ -352,15 +326,15 @@ def commit_during_first_batch(
     starts, the wait times out and the test fails on its own assertions
     rather than here.
 
-    `make_commit` writes only git objects, so the file goes into the
-    working tree too, leaving the tree matching HEAD.
+    `make_commit` writes only git objects, so the commit is checked out
+    too, leaving the working tree matching HEAD.
     """
     embed_held_at_first_batch.first_batch_started.wait(timeout=10)
     repo = pygit2.Repository(fake_repo)
     sha = str(
         make_commit(repo, {"later.py": b"x = 1\n"}, parents=[repo.head.peel(pygit2.Commit).id])
     )
-    (Path(fake_repo) / "later.py").write_bytes(b"x = 1\n")
+    repo.checkout_head(strategy=pygit2.GIT_CHECKOUT_FORCE)  # type: ignore[no-untyped-call]  # pygit2 untyped
     embed_held_at_first_batch.first_batch_released.set()
     return sha
 
