@@ -120,7 +120,7 @@ def seed_index(index: Index, chunks: list[TokenisedChunk], ref: SnapshotRef) -> 
     with index.session(ref.repo) as ws:
         for c in chunks:
             ws.add_chunk(c)
-        ws.insert_snapshots(
+        ws.replace_snapshots(
             [
                 FileSnapshot(
                     snapshot_sha=ref.snapshot_sha,
@@ -130,6 +130,7 @@ def seed_index(index: Index, chunks: list[TokenisedChunk], ref: SnapshotRef) -> 
                 )
                 for c in chunks
             ],
+            snapshot_sha=ref.snapshot_sha,
         )
         ws.mark_indexed(snapshot_sha=ref.snapshot_sha)
 
@@ -631,15 +632,16 @@ def ranking_index(
         for c in ranking_chunks:
             tc = c if isinstance(c, TokenisedChunk) else TokenisedChunk(**c.model_dump())
             ws.add_chunk(tc)
-        ws.insert_snapshots(
+        ws.replace_snapshots(
             [
                 FileSnapshot(
                     snapshot_sha=ranking_commit, file_path=c.file_path, blob_sha=c.blob_sha
                 )
                 for c in ranking_chunks
             ],
+            snapshot_sha=ranking_commit,
         )
-        ws.insert_edges(
+        ws.replace_edges(
             InferredEdgeRow.validate(pl.DataFrame(ranking_edges), cast=True),
             snapshot_sha=ranking_commit,
         )

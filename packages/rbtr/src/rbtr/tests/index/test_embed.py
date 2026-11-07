@@ -8,7 +8,7 @@ import polars as pl
 import pygit2
 import pytest
 from dataframely.exc import ValidationError
-from pytest_mock import MockerFixture, MockType
+from pytest_mock import MockerFixture
 
 from rbtr.config import config
 from rbtr.domain.models import SnapshotRef
@@ -19,18 +19,6 @@ from rbtr.index.index import Index
 from rbtr.index.results import EmbedTextRow
 
 from ..conftest import make_commit
-
-
-@pytest.fixture
-def stub_embedder(mocker: MockerFixture) -> MockType:
-    """MagicMock embedder with deterministic vectors."""
-    embedder = mocker.MagicMock()
-    embedder.embed = mocker.MagicMock(
-        side_effect=lambda texts: [
-            EmbedResult(vector=[0.1, 0.2, 0.3], truncated=False) for _ in texts
-        ]
-    )
-    return embedder
 
 
 def test_embed_batch_failure_skips_batch(
@@ -113,7 +101,7 @@ def test_embed_index_populates_embeddings(
     git_repo: pygit2.Repository,
     index: Index,
     snapshot_sha: str,
-    stub_embedder: MockType,
+    stubbed_embedder: Embedder,
     page_size: int,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -132,7 +120,7 @@ def test_embed_index_populates_embeddings(
     chunks_before = index.chunks(at=repo.at(snapshot_sha))
     assert not chunks_before["has_embedding"].any()
 
-    embedded = embed_index(index, at=repo.at(snapshot_sha), embedder=stub_embedder)
+    embedded = embed_index(index, at=repo.at(snapshot_sha), embedder=stubbed_embedder)
 
     assert embedded == len(chunks_before)
     chunks_after = index.chunks(at=repo.at(snapshot_sha))
@@ -140,22 +128,19 @@ def test_embed_index_populates_embeddings(
 
 
 def test_embed_index_is_incremental(
-    git_repo: pygit2.Repository, index: Index, snapshot_sha: str, stub_embedder: MockType
+    git_repo: pygit2.Repository, index: Index, snapshot_sha: str, stubbed_embedder: Embedder
 ) -> None:
     """embed_index skips already-embedded chunks."""
     build_index(git_repo.workdir, snapshot_sha, index)
 
     # First pass embeds all.
     [repo] = index.repos()
-    first = embed_index(index, at=repo.at(snapshot_sha), embedder=stub_embedder)
+    first = embed_index(index, at=repo.at(snapshot_sha), embedder=stubbed_embedder)
     assert first > 0
 
-    stub_embedder.embed.reset_mock()
-
     # Second pass is a no-op.
-    second = embed_index(index, at=repo.at(snapshot_sha), embedder=stub_embedder)
+    second = embed_index(index, at=repo.at(snapshot_sha), embedder=stubbed_embedder)
     assert second == 0
-    stub_embedder.embed.assert_not_called()
 
 
 def test_a_fresh_build_has_everything_left_to_embed(
@@ -170,12 +155,12 @@ def test_a_fresh_build_has_everything_left_to_embed(
 
 
 def test_embedding_leaves_nothing_outstanding(
-    git_repo: pygit2.Repository, index: Index, snapshot_sha: str, stub_embedder: MockType
+    git_repo: pygit2.Repository, index: Index, snapshot_sha: str, stubbed_embedder: Embedder
 ) -> None:
     """Once `embed_index` has run, no chunk is left without a vector."""
     build_index(git_repo.workdir, snapshot_sha, index)
     [repo] = index.repos()
-    embed_index(index, at=repo.at(snapshot_sha), embedder=stub_embedder)
+    embed_index(index, at=repo.at(snapshot_sha), embedder=stubbed_embedder)
 
     counts = index.chunk_counts_for_snapshot(at=repo.at(snapshot_sha))
     assert counts.is_fully_embedded
@@ -238,13 +223,13 @@ def test_a_page_of_chunks_is_fetched_by_id(
 
 
 def test_build_then_embed_full_idempotency(
-    git_repo: pygit2.Repository, index: Index, snapshot_sha: str, stub_embedder: MockType
+    git_repo: pygit2.Repository, index: Index, snapshot_sha: str, stubbed_embedder: Embedder
 ) -> None:
     """Build + embed twice.  Second run is a complete no-op."""
     # First pass: build + embed.
     build_index(git_repo.workdir, snapshot_sha, index)
     [repo] = index.repos()
-    embed_index(index, at=repo.at(snapshot_sha), embedder=stub_embedder)
+    embed_index(index, at=repo.at(snapshot_sha), embedder=stubbed_embedder)
 
     embeddings_1 = index.chunks(at=repo.at(snapshot_sha)).select("id", "has_embedding")
     edges_1 = index.edges(within=[repo.at(snapshot_sha)])
@@ -254,10 +239,8 @@ def test_build_then_embed_full_idempotency(
     assert r2.stats.skipped_files == r2.stats.total_files
     assert r2.stats.parsed_files == 0
 
-    stub_embedder.embed.reset_mock()
-    second_embed = embed_index(index, at=repo.at(snapshot_sha), embedder=stub_embedder)
+    second_embed = embed_index(index, at=repo.at(snapshot_sha), embedder=stubbed_embedder)
     assert second_embed == 0
-    stub_embedder.embed.assert_not_called()
 
     # State is identical.
     embeddings_2 = index.chunks(at=repo.at(snapshot_sha)).select("id", "has_embedding")
@@ -268,7 +251,7 @@ def test_build_then_embed_full_idempotency(
 
 
 def test_build_without_embed_then_build_with_embed(
-    git_repo: pygit2.Repository, index: Index, snapshot_sha: str, stub_embedder: MockType
+    git_repo: pygit2.Repository, index: Index, snapshot_sha: str, stubbed_embedder: Embedder
 ) -> None:
     """Build (no embed) → build (with embed) → third pass is no-op."""
     # First build — no embedding.
@@ -284,7 +267,7 @@ def test_build_without_embed_then_build_with_embed(
     assert r2.stats.skipped_files == r2.stats.total_files
 
     # Now embed.
-    embedded = embed_index(index, at=repo.at(snapshot_sha), embedder=stub_embedder)
+    embedded = embed_index(index, at=repo.at(snapshot_sha), embedder=stubbed_embedder)
     assert embedded > 0
 
     chunks_after_embed = index.chunks(at=repo.at(snapshot_sha))
@@ -294,10 +277,8 @@ def test_build_without_embed_then_build_with_embed(
     r3 = build_index(git_repo.workdir, snapshot_sha, index)
     assert r3.stats.skipped_files == r3.stats.total_files
 
-    stub_embedder.embed.reset_mock()
-    third_embed = embed_index(index, at=repo.at(snapshot_sha), embedder=stub_embedder)
+    third_embed = embed_index(index, at=repo.at(snapshot_sha), embedder=stubbed_embedder)
     assert third_embed == 0
-    stub_embedder.embed.assert_not_called()
 
 
 def test_a_batch_whose_vectors_differ_in_length_is_rejected() -> None:

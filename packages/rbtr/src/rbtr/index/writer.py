@@ -54,7 +54,7 @@ class WriteSession:
     ```python
     with index.session(repo) as ws:
         ws.add_chunk(chunk)                        # buffered, content-addressed
-        ws.insert_edges(edges, snapshot_sha=sha)   # immediate, under the repo
+        ws.replace_edges(edges, snapshot_sha=sha)  # immediate, under the repo
     # exit: flush buffer + commit + FTS rebuild; rollback on exception
     ```
 
@@ -273,14 +273,6 @@ class WriteSession:
             _REMOVE_WATCHED_REFS_SQL, {"repo_id": self._repo.repo_id, "refs": refs}
         )
 
-    def insert_snapshots(self, snapshots: list[FileSnapshot]) -> None:
-        """Batch insert snapshots."""
-        if not snapshots:
-            return
-        self._bulk_insert(
-            _UPSERT_SNAPSHOTS_SQL, staged_file_snapshots(snapshots, self._repo.repo_id)
-        )
-
     def replace_snapshots(self, snapshots: list[FileSnapshot], *, snapshot_sha: str) -> None:
         """Atomically replace all of the repo's snapshots at *snapshot_sha*."""
         self._flush_chunks()
@@ -288,13 +280,10 @@ class WriteSession:
         self._cursor.execute(
             _DELETE_SNAPSHOTS_SQL, {"repo_id": self._repo.repo_id, "snapshot_sha": snapshot_sha}
         )
-        self.insert_snapshots(snapshots)
-
-    def insert_edges(self, edges: dy.DataFrame[InferredEdgeRow], *, snapshot_sha: str) -> None:
-        """Batch insert edges of the repo's snapshot *snapshot_sha*."""
-        if edges.is_empty():
-            return
-        self._bulk_insert(_INSERT_EDGES_SQL, staged_edges(edges, at=self._repo.at(snapshot_sha)))
+        if snapshots:
+            self._bulk_insert(
+                _UPSERT_SNAPSHOTS_SQL, staged_file_snapshots(snapshots, self._repo.repo_id)
+            )
 
     def replace_edges(self, edges: dy.DataFrame[InferredEdgeRow], *, snapshot_sha: str) -> None:
         """Atomically replace all edges of the repo's snapshot *snapshot_sha*."""
@@ -302,7 +291,10 @@ class WriteSession:
         self._cursor.execute(
             _DELETE_EDGES_SQL, {"repo_id": self._repo.repo_id, "snapshot_sha": snapshot_sha}
         )
-        self.insert_edges(edges, snapshot_sha=snapshot_sha)
+        if not edges.is_empty():
+            self._bulk_insert(
+                _INSERT_EDGES_SQL, staged_edges(edges, at=self._repo.at(snapshot_sha))
+            )
 
     def update_embeddings(self, embeddings: dy.DataFrame[EmbeddingStagingRow]) -> None:
         """Set each chunk's embedding and truncation flag from *embeddings*.

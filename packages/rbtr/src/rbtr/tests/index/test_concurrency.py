@@ -31,7 +31,7 @@ def test_commit_makes_writes_visible_during_concurrent_work(
         with index.session(repo) as session:
             for c in [math_func, http_func, string_func]:
                 session.add_chunk(c)
-            session.insert_snapshots(
+            session.replace_snapshots(
                 [
                     FileSnapshot(
                         snapshot_sha="head",
@@ -40,8 +40,9 @@ def test_commit_makes_writes_visible_during_concurrent_work(
                     )
                     for c in [math_func, http_func, string_func]
                 ],
+                snapshot_sha="head",
             )
-            session.insert_edges(
+            session.replace_edges(
                 InferredEdgeRow.validate(
                     pl.DataFrame(
                         [
@@ -112,11 +113,12 @@ def test_concurrent_batch_and_search(tmp_path: Path) -> None:
     with index.session(repo) as session:
         for c in chunks:
             session.add_chunk(c)
-        session.insert_snapshots(
+        session.replace_snapshots(
             [
                 FileSnapshot(snapshot_sha="head", file_path=c.file_path, blob_sha=c.blob_sha)
                 for c in chunks
             ],
+            snapshot_sha="head",
         )
 
     errors: list[str] = []
@@ -131,14 +133,17 @@ def test_concurrent_batch_and_search(tmp_path: Path) -> None:
                 content=f"def extra_{i}(): common_term",
                 path=f"src/extra_{i}.py",
             )
+            # Each batch is a snapshot of its own, as each build is.
+            batch = f"batch_{i}"
             with index.session(repo) as session:
                 session.add_chunk(extra)
-                session.insert_snapshots(
+                session.replace_snapshots(
                     [
                         FileSnapshot(
-                            snapshot_sha="head", file_path=extra.file_path, blob_sha=extra.blob_sha
+                            snapshot_sha=batch, file_path=extra.file_path, blob_sha=extra.blob_sha
                         )
                     ],
+                    snapshot_sha=batch,
                 )
         stop.set()
 
@@ -179,22 +184,24 @@ def test_index_survives_threads_that_write_and_exit(
     repo = index.register("/repo")
     seen: list[int] = []
 
-    def write(chunk: TokenisedChunk) -> None:
+    def write(chunks: list[TokenisedChunk]) -> None:
+        """Write `head` as a build does: the snapshot's every file, replacing the last."""
         with index.session(repo) as session:
-            session.add_chunk(chunk)
-            session.insert_snapshots(
+            for chunk in chunks:
+                session.add_chunk(chunk)
+            session.replace_snapshots(
                 [
-                    FileSnapshot(
-                        snapshot_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha
-                    )
+                    FileSnapshot(snapshot_sha="head", file_path=c.file_path, blob_sha=c.blob_sha)
+                    for c in chunks
                 ],
+                snapshot_sha="head",
             )
 
     def read() -> None:
         seen.append(len(index.chunks(at=repo.at("head"))))
 
-    for chunk in (math_func, http_func):
-        for work in (lambda c=chunk: write(c), read):
+    for chunks in ([math_func], [math_func, http_func]):
+        for work in (lambda c=chunks: write(c), read):
             thread = threading.Thread(target=work)
             thread.start()
             thread.join()
