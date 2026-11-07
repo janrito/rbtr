@@ -264,6 +264,25 @@ def repo_path(git_repo: pygit2.Repository) -> str:
     return normalise_repo_path(git_repo.workdir)
 
 
+@pytest.fixture(scope="module")
+def module_index() -> Generator[Index]:
+    """In-memory writable Index shared by one module's tests.
+
+    For snapshots every test in a module only reads: built once, not
+    once per test.  A test that writes uses `index`.
+    """
+    s = Index(writable=True)
+    yield s
+    s.close()
+
+
+@pytest.fixture(scope="module")
+def module_repo(tmp_path_factory: pytest.TempPathFactory) -> pygit2.Repository:
+    """Empty git repo shared by one module's tests, for `module_index` builds."""
+    path = tmp_path_factory.mktemp("module-repo")
+    return pygit2.init_repository(str(path), bare=False, initial_head="main")
+
+
 @pytest.fixture(autouse=True)
 def _test_dirs() -> None:
     """Validate and create the dirs set by ``[tool.pytest_env]``, and check
