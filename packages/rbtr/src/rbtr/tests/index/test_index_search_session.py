@@ -11,7 +11,7 @@ import pygit2
 import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.domain.models import SnapshotRef
+from rbtr.domain.models import EmbeddingState, SnapshotRef
 from rbtr.git import normalise_repo_path
 from rbtr.index.build import build_index
 from rbtr.index.embed import embed_index
@@ -269,11 +269,13 @@ def test_similar_matches_empty(module_index: Index, unembedded_ref: SnapshotRef)
 def test_unseeded_chunks_have_no_embedding(
     module_index: Index, unembedded_ref: SnapshotRef
 ) -> None:
-    assert module_index.chunks(at=unembedded_ref)["has_embedding"].to_list() == [False]
+    assert module_index.chunks(at=unembedded_ref)["embedding_state"].to_list() == [
+        EmbeddingState.NONE
+    ]
 
 
 def test_embedded_chunks_have_embedding_flag(index: Index, semantic_ref: SnapshotRef) -> None:
-    assert index.chunks(at=semantic_ref)["has_embedding"].to_list() == [True, True]
+    assert index.chunks(at=semantic_ref)["embedding_state"].to_list() == [EmbeddingState.FULL] * 2
 
 
 @pytest.fixture

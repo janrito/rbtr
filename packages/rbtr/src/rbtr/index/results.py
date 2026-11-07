@@ -21,6 +21,7 @@ from rbtr.domain.models import (
     ChangeKind,
     ChunkKind,
     EdgeKind,
+    EmbeddingState,
     Repo,
     SnapshotCounts,
     SnapshotRef,
@@ -191,13 +192,13 @@ class ChunkResultRow(_ChunkIdentity):
 
     Sources `repo_id` from the `file_snapshots` join (so a chunk
     shared by several repos stays a distinct row in cross-repo search)
-    and `has_embedding` — whether the chunk has a stored embedding, a
-    boolean existence check so reads need not load the full 1024-float
-    vector.
+    and `embedding_state` — whether the chunk has a stored embedding,
+    and whether its text was truncated to make it, so reads need not
+    load the full vector.
     """
 
     repo_id = dy.Int32(nullable=False)
-    has_embedding = dy.Bool(nullable=False)
+    embedding_state = dy.Enum(s.value for s in EmbeddingState)
 
 
 class ChunkContentRow(dy.Schema):
@@ -294,13 +295,13 @@ class FusionInputRow(ChunkResultRow, _SignalColumns):
 class FusedRow(_ChunkIdentity, _SignalColumns):
     """Fusion output: identity, signals, and scoring.
 
-    `has_embedding` marks whether the chunk has a stored embedding.
+    `embedding_state` says whether the chunk has a stored embedding.
     `repo_id` is carried through so results can be attributed to their
     repo in cross-repo search.
     """
 
     repo_id = dy.Int32(nullable=False)
-    has_embedding = dy.Bool(nullable=False)
+    embedding_state = dy.Enum(s.value for s in EmbeddingState)
     score = dy.Float64(nullable=False)
     name_match = dy.Float64(nullable=False)
     kind_boost = dy.Float64(nullable=False)
