@@ -1,6 +1,6 @@
 """Behaviour tests and invariant guards for the tune objective.
 
-The objective `_rescore_and_rank |> _mean_mrr` is what Bayesian
+The objective `rescore_and_rank |> mean_mrr` is what Bayesian
 optimisation drives; the tests prove a better weight triple scores
 higher than a worse one, and guard the invariants that
 keep the search well-formed (a valid probability simplex, a complete
@@ -26,16 +26,15 @@ from rbtr_eval.tune import (
     TrialRow,
     TuneReport,
     Verdict,
-    _impact_breakdowns,
-    _mean_mrr,
-    _paired_delta_se,
-    _pool_recall,
-    _render_tuning_report,
-    _rescore_and_rank,
-    _simplex_from_unit_square,
-    _toml_snippet,
-    _top_trial_spread,
-    _verdict,
+    impact_breakdowns,
+    mean_mrr,
+    paired_delta_se,
+    pool_recall,
+    render_tuning_report,
+    rescore_and_rank,
+    simplex_from_unit_square,
+    top_trial_spread,
+    verdict,
 )
 
 
@@ -59,10 +58,10 @@ def test_objective_scores_weight_triples(
     makes tuning worthwhile — plus the empty-candidates and
     outside-top-10 guards (null rank, zero MRR, no crash).
     """
-    ranks = _rescore_and_rank(candidates, queries, weights)
+    ranks = rescore_and_rank(candidates, queries, weights)
     assert ranks["rank"].to_list() == expected_ranks
 
-    mrr = _mean_mrr(ranks)
+    mrr = mean_mrr(ranks)
     assert mrr == pytest.approx(expected_mrr, abs=1e-6)
 
 
@@ -127,11 +126,11 @@ def test_a_target_below_rank_10_still_counts_toward_the_pool_ceiling(
     """
     candidates, meta = deep_pool
 
-    ranks = _rescore_and_rank(candidates, meta, (0.4, 0.3, 0.3))
-    recall = _pool_recall(candidates, meta)
+    ranks = rescore_and_rank(candidates, meta, (0.4, 0.3, 0.3))
+    recall = pool_recall(candidates, meta)
 
     assert ranks["rank"].to_list() == [None]
-    assert _mean_mrr(ranks) == pytest.approx(0.0)
+    assert mean_mrr(ranks) == pytest.approx(0.0)
     assert recall == pytest.approx(1.0)
 
     # A target in the top 10 is necessarily in the pool, so the ceiling
@@ -154,7 +153,7 @@ def test_a_target_absent_from_the_pool_lowers_the_ceiling(
         ScoredCandidate.validate, cast=True
     )
 
-    assert _pool_recall(without_target, meta) == pytest.approx(0.0)
+    assert pool_recall(without_target, meta) == pytest.approx(0.0)
 
 
 @pytest.mark.parametrize(
@@ -173,7 +172,7 @@ def test_simplex_maps_unit_square_to_valid_triple(
     result is always a valid probability triple (sums to 1, in `[0, 1]`)
     — guarding against an invalid weight triple reaching search.
     """
-    result = _simplex_from_unit_square(u, v)
+    result = simplex_from_unit_square(u, v)
     assert result == pytest.approx(expected)
     assert sum(result) == pytest.approx(1.0)
     assert all(0.0 <= c <= 1.0 for c in result)
@@ -285,7 +284,7 @@ def test_paired_error_measures_the_spread_of_the_differences(
         for ranks in (baseline_ranks, best_ranks)
     ]
 
-    assert _paired_delta_se(*frames) == pytest.approx(expected_se)
+    assert paired_delta_se(*frames) == pytest.approx(expected_se)
 
 
 @pytest.mark.parametrize(
@@ -306,7 +305,7 @@ def test_verdict_needs_the_delta_to_clear_twice_its_error(
     The boundary case (delta exactly twice the error) withholds: the
     comparison is strict, so a tie is not evidence.
     """
-    assert _verdict(delta, delta_se) is expected
+    assert verdict(delta, delta_se) is expected
 
 
 @pytest.fixture
@@ -340,7 +339,7 @@ def test_spread_exposes_an_objective_that_cannot_choose(
     The spread shows the top ten covering most of the alpha axis while
     their scores differ in the fourth decimal.
     """
-    spread = _top_trial_spread(flat_objective_trials)
+    spread = top_trial_spread(flat_objective_trials)
 
     row = spread.row(0, named=True)
     assert row["kind"] == "concept"
@@ -360,7 +359,7 @@ def test_spread_is_reported_per_kind(flat_objective_trials: list[TrialRow]) -> N
         {**trial, "kind": "code", "mrr": 0.8} for trial in flat_objective_trials
     ]
 
-    spread = _top_trial_spread([*flat_objective_trials, *code_trials])
+    spread = top_trial_spread([*flat_objective_trials, *code_trials])
 
     assert spread["kind"].to_list() == ["concept", "code"]
     assert spread.filter(pl.col("kind") == "code")["mrr_range"].item() == pytest.approx(0.0)
@@ -425,9 +424,9 @@ def test_result_table_reports_every_kind_against_its_error(
     printed beside its own uncertainty and a verdict, a delta inside
     the noise is visible as one.
     """
-    rendered = _render_tuning_report(
+    rendered = render_tuning_report(
         two_kind_report,
-        _top_trial_spread(flat_objective_trials),
+        top_trial_spread(flat_objective_trials),
         impact_overall,
         ImpactBreakdown.create_empty(),
         pl.DataFrame({"slug": ["r"], "n_queries": [50]}),
@@ -445,13 +444,15 @@ def test_result_table_reports_every_kind_against_its_error(
     assert "withhold" in result_section
 
 
-def test_toml_snippet_is_valid_toml() -> None:
-    """The report snippet parses as TOML and round-trips the weights.
+def toml_block(rendered: str) -> str:
+    """The TOML snippet TUNING.md holds, as the operator copies it."""
+    return rendered.split("```toml\n", 1)[1].split("```", 1)[0]
 
-    Guards against emitting config the operator cannot paste into
-    `rbtr`'s settings.
-    """
-    report = pl.DataFrame(
+
+@pytest.fixture
+def recommended_report() -> dy.DataFrame[TuneReport]:
+    """Two kinds, both recommended."""
+    return pl.DataFrame(
         {
             "kind": ["concept", "identifier"],
             "best_alpha": [0.5, 0.05],
@@ -473,15 +474,34 @@ def test_toml_snippet_is_valid_toml() -> None:
         }
     ).pipe(TuneReport.validate, cast=True)
 
-    parsed = tomllib.loads(_toml_snippet(report))
 
-    weights = parsed["search_weights"]
+def test_the_reports_toml_snippet_parses_and_round_trips_the_weights(
+    recommended_report: dy.DataFrame[TuneReport],
+    impact_overall: dy.DataFrame[ImpactOverall],
+    flat_objective_trials: list[TrialRow],
+) -> None:
+    """The snippet TUNING.md holds parses as TOML and round-trips the weights.
+
+    Guards against emitting config the operator cannot paste into
+    `rbtr`'s settings.
+    """
+    rendered = render_tuning_report(
+        recommended_report,
+        top_trial_spread(flat_objective_trials),
+        impact_overall,
+        ImpactBreakdown.create_empty(),
+        pl.DataFrame({"slug": ["r"], "n_queries": [50]}),
+    )
+
+    weights = tomllib.loads(toml_block(rendered))["search_weights"]
     assert weights["concept"] == {"alpha": 0.5, "beta": 0.3, "gamma": 0.2}
     assert weights["identifier"] == {"alpha": 0.05, "beta": 0.2, "gamma": 0.75}
 
 
-def test_toml_snippet_comments_out_a_withheld_kind(
+def test_the_reports_toml_snippet_comments_out_a_withheld_kind(
     two_kind_report: dy.DataFrame[TuneReport],
+    impact_overall: dy.DataFrame[ImpactOverall],
+    flat_objective_trials: list[TrialRow],
 ) -> None:
     """Weights the report declined to recommend cannot be pasted by accident.
 
@@ -489,10 +509,18 @@ def test_toml_snippet_comments_out_a_withheld_kind(
     read but commented out; pasting the snippet ships only the kind the
     report stands behind. The result must still parse as TOML.
     """
-    snippet = _toml_snippet(two_kind_report)
-    parsed = tomllib.loads(snippet)
+    rendered = render_tuning_report(
+        two_kind_report,
+        top_trial_spread(flat_objective_trials),
+        impact_overall,
+        ImpactBreakdown.create_empty(),
+        pl.DataFrame({"slug": ["r"], "n_queries": [50]}),
+    )
 
-    assert parsed["search_weights"] == {"concept": {"alpha": 0.5, "beta": 0.3, "gamma": 0.2}}
+    snippet = toml_block(rendered)
+    assert tomllib.loads(snippet)["search_weights"] == {
+        "concept": {"alpha": 0.5, "beta": 0.3, "gamma": 0.2}
+    }
     assert "# [search_weights.identifier]" in snippet
     assert "# gamma = 0.75" in snippet
 
@@ -523,7 +551,7 @@ def test_impact_compares_the_weights_per_dimension_value(
     baseline_by_repo: dy.DataFrame[DetailedOutcome], best_by_repo: dy.DataFrame[DetailedOutcome]
 ) -> None:
     """Each repo's MRR under both weight sets, and the change between them."""
-    by_repo = _impact_breakdowns(baseline_by_repo, best_by_repo).filter(
+    by_repo = impact_breakdowns(baseline_by_repo, best_by_repo).filter(
         pl.col("dimension") == "slug"
     )
 

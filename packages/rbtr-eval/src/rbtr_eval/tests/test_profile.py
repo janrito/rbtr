@@ -11,7 +11,7 @@ import dataframely as dy
 import polars as pl
 import pytest
 
-from rbtr_eval.profile import _dropped_languages, _examples, _query_counts, _render_report
+from rbtr_eval.profile import dropped_languages, examples, query_counts, render_report
 from rbtr_eval.shared_schemas import QueryRow, RepoHeader
 
 
@@ -69,7 +69,7 @@ def test_counts_show_present_kinds_not_absent_ones(
     absent, answering "are we missing comment/config queries?" from the
     dataset alone.
     """
-    counts = _query_counts(queries)
+    counts = query_counts(queries)
 
     assert set(counts["symbol_kind"].cast(pl.String)) == {"function", "doc_section"}
 
@@ -83,9 +83,9 @@ def test_queries_classify_by_text_and_examples_show_it(
     Both `load_config` queries target one function; the name classifies
     as an identifier and the question as a concept.
     """
-    examples = _examples(queries, per_provenance=3, seed=0)
+    shown = examples(queries, per_provenance=3, seed=0)
 
-    kind_of = dict(zip(examples["text"], examples["query_kind"], strict=True))
+    kind_of = dict(zip(shown["text"], shown["query_kind"], strict=True))
     assert kind_of["load_config"] == "identifier"
     assert kind_of["how does configuration loading resolve overrides"] == "concept"
 
@@ -96,9 +96,9 @@ def test_report_lists_exclusions_and_threshold(
 ) -> None:
     """The report names the kinds no queries are generated for and the
     below-threshold drop status, so both are visible pre-measurement."""
-    dropped = _dropped_languages(headers)
-    report = _render_report(
-        _query_counts(queries), dropped, _examples(queries, per_provenance=3, seed=0), headers
+    dropped = dropped_languages(headers)
+    report = render_report(
+        query_counts(queries), dropped, examples(queries, per_provenance=3, seed=0), headers
     )
 
     assert dropped.is_empty()
