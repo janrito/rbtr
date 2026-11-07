@@ -13,7 +13,6 @@ from pathlib import Path
 import duckdb
 import polars as pl
 import pytest
-from dataframely.exc import ValidationError
 from pydantic import ValidationError as ModelValidationError
 from pytest_cases import parametrize_with_cases
 from pytest_mock import MockerFixture
@@ -22,7 +21,7 @@ from rbtr.config import config
 from rbtr.domain.models import EdgeKind, FileSnapshot, Repo, SnapshotRef, Span
 from rbtr.errors import RepoNotFoundError
 from rbtr.index.index import Index
-from rbtr.index.staging import TokenisedChunk
+from rbtr.index.staging import EmbeddingStagingRow, TokenisedChunk
 from rbtr.languages.edges import InferredEdgeRow
 
 from .cases_index_repos import RepoSequence
@@ -221,7 +220,7 @@ def test_empty_operations_are_noops(index: Index) -> None:
     with index.session(repo) as ws:
         ws.insert_snapshots([])
         ws.insert_edges(InferredEdgeRow.create_empty(), snapshot_sha="c1")
-        ws.update_embeddings([], [])
+        ws.update_embeddings(EmbeddingStagingRow.create_empty())
         ws.delete_chunks_for_blobs(set(), file_language="")
 
 
@@ -341,7 +340,18 @@ def test_update_embeddings_round_trip(index: Index) -> None:
 
     vec = [0.1, 0.2, 0.3]
     with index.session(repo) as ws:
-        ws.update_embeddings([chunk_a.id, chunk_b.id], [vec, vec], truncated=[True, False])
+        ws.update_embeddings(
+            EmbeddingStagingRow.validate(
+                pl.DataFrame(
+                    {
+                        "id": [chunk_a.id, chunk_b.id],
+                        "embedding": [vec, vec],
+                        "embedding_truncated": [True, False],
+                    }
+                ),
+                cast=True,
+            )
+        )
 
     # After embedding — both flagged as embedded.
     chunks = index.chunks(at=repo.at("c1"))
@@ -354,25 +364,6 @@ def test_update_embeddings_round_trip(index: Index) -> None:
     by_id = {row[0]: row[1] for row in rows}
     assert by_id[chunk_a.id] is True
     assert by_id[chunk_b.id] is False
-
-
-def test_update_embeddings_rejects_mixed_dims(index: Index) -> None:
-    """A batch with vectors of differing lengths is rejected.
-
-    All embeddings come from one model, so they must share a
-    length; the staging frame enforces this.
-    """
-    repo = index.register("/repo")
-    with index.session(repo) as ws:
-        chunk_a = make_chunk("a")
-        chunk_b = make_chunk("b", blob="blob_b", path="g.py")
-        ws.add_chunk(chunk_a)
-        ws.add_chunk(chunk_b)
-        ws.insert_snapshots(
-            [make_snap("head", c.file_path, c.blob_sha) for c in (chunk_a, chunk_b)]
-        )
-        with pytest.raises(ValidationError):
-            ws.update_embeddings(["a", "b"], [[0.1, 0.2, 0.3], [0.4, 0.5]])
 
 
 def test_replacing_a_snapshot_with_nothing_hides_its_chunks(

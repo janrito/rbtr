@@ -16,6 +16,7 @@ from rbtr.domain.models import EdgeKind
 from rbtr.git import normalise_repo_path
 from rbtr.index.build import build_index
 from rbtr.index.index import Index
+from rbtr.index.staging import EmbeddingStagingRow
 from rbtr.languages.edges import InferredEdgeRow
 from rbtr.tests.conftest import make_commit
 from rbtr_eval.corpus import Corpus, corpus_refs
@@ -83,7 +84,14 @@ def index_with_residue(tmp_path: Path) -> Index:
             snapshot_sha=INDEXED,
         )
         ws.mark_indexed(snapshot_sha=INDEXED)
-        ws.update_embeddings([fn.id], [[0.5] * 768])
+        ws.update_embeddings(
+            EmbeddingStagingRow.validate(
+                pl.DataFrame({"id": [fn.id], "embedding": [[0.5] * 768]}).with_columns(
+                    embedding_truncated=False
+                ),
+                cast=True,
+            )
+        )
 
     return index
 
@@ -177,7 +185,14 @@ def test_writing_an_embedding_moves_only_the_embed_ready_hash(
     assert unembedded, "fixture must leave a chunk to embed"
 
     with index_with_residue.session(repo) as ws:
-        ws.update_embeddings(unembedded, [[0.25] * 768 for _ in unembedded])
+        ws.update_embeddings(
+            EmbeddingStagingRow.validate(
+                pl.DataFrame(
+                    {"id": unembedded, "embedding": [[0.25] * 768 for _ in unembedded]}
+                ).with_columns(embedding_truncated=False),
+                cast=True,
+            )
+        )
 
     assert _sentinel_hash(index_with_residue, embed=True) != before_embed
     assert _sentinel_hash(index_with_residue, embed=False) == before_chunks

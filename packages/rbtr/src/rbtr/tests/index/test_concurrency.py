@@ -9,7 +9,7 @@ import polars as pl
 
 from rbtr.domain.models import EdgeKind, FileSnapshot
 from rbtr.index.index import Index
-from rbtr.index.staging import TokenisedChunk
+from rbtr.index.staging import EmbeddingStagingRow, TokenisedChunk
 from rbtr.languages.edges import InferredEdgeRow
 
 from .conftest import make_chunk
@@ -60,9 +60,30 @@ def test_commit_makes_writes_visible_during_concurrent_work(
             )
         first_done.set()
         with index.session(repo) as session:
-            session.update_embeddings([math_func.id], [[0.1, 0.2, 0.3]])
-            session.update_embeddings([http_func.id], [[0.3, 0.4, 0.5]])
-            session.update_embeddings([string_func.id], [[0.5, 0.6, 0.7]])
+            session.update_embeddings(
+                EmbeddingStagingRow.validate(
+                    pl.DataFrame(
+                        {"id": [math_func.id], "embedding": [[0.1, 0.2, 0.3]]}
+                    ).with_columns(embedding_truncated=False),
+                    cast=True,
+                )
+            )
+            session.update_embeddings(
+                EmbeddingStagingRow.validate(
+                    pl.DataFrame(
+                        {"id": [http_func.id], "embedding": [[0.3, 0.4, 0.5]]}
+                    ).with_columns(embedding_truncated=False),
+                    cast=True,
+                )
+            )
+            session.update_embeddings(
+                EmbeddingStagingRow.validate(
+                    pl.DataFrame(
+                        {"id": [string_func.id], "embedding": [[0.5, 0.6, 0.7]]}
+                    ).with_columns(embedding_truncated=False),
+                    cast=True,
+                )
+            )
 
     t = threading.Thread(target=writer)
     t.start()
