@@ -34,7 +34,6 @@ from pydantic import TypeAdapter
 from syrupy.extensions.single_file import SingleFileSnapshotExtension, WriteMode
 
 from rbtr.daemon.status import is_pid_alive, read_status
-from rbtr.domain.models import Chunk, Chunks
 
 if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
@@ -43,31 +42,6 @@ if TYPE_CHECKING:
     from rbtr.domain.models import SnapshotRef
     from rbtr.index.index import Index
     from rbtr.index.results import ChunkResultRow, EdgeResultRow
-    from rbtr.languages.edges import EdgeChunkRow
-
-
-def edge_rows(chunks: list[Chunk]) -> dy.DataFrame[EdgeChunkRow]:
-    """*chunks*, in order, as `infer_import_edges` reads them.
-
-    The build selects the same columns from what it read back from the
-    index; a plugin's tests take them from what extraction yielded.
-    """
-    # deferred: `rbtr.languages` imports `rbtr.config`, which this plugin
-    # must not load before pytest-env applies (see `isolated_db`).
-    from rbtr.index.staging import ChunkStagingRow
-    from rbtr.languages.edges import EdgeChunkRow
-
-    role = pl.Struct({"kind": pl.String, "name": pl.String, "meta": ChunkStagingRow.metadata.dtype})
-    return (
-        pl.DataFrame(Chunks.dump_python(chunks, mode="json"), schema_overrides={"role": role})
-        .with_columns(pl.col("role").struct.unnest())
-        .with_columns(
-            pl.col("name").fill_null(""),
-            pl.col("meta").struct.unnest(),
-            line_start=pl.col("span").struct.field("start"),
-        )
-        .pipe(EdgeChunkRow.validate, cast=True)
-    )
 
 
 def render_edges(

@@ -530,10 +530,10 @@ extraction loop reads it while the content is in hand, and
 edge pass itself reads no files.
 
 Whether each language's own syntax reaches a file is pinned per
-language by `test_import_resolution.py`, which extracts two real
-files in nested directories and follows the edge. Nested because
-two files at the repository root cannot tell a sibling reference
-from a root-relative one.
+language by `cases_edges.py`, whose cases build two real files in
+nested directories and read back the edges the build infers. Nested
+because two files at the repository root cannot tell a sibling
+reference from a root-relative one.
 
 Powers `find-refs` and the importance signal in search
 ranking. `find-refs` first resolves the user's symbol *name*
