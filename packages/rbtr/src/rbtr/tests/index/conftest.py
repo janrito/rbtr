@@ -23,10 +23,15 @@ import pytest
 from rbtr.domain.models import (
     Chunk,
     ChunkKind,
+    Definition,
     Edge,
     EdgeKind,
     FileSnapshot,
+    Import,
+    ImportMeta,
+    Section,
     SnapshotRef,
+    Span,
 )
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.index.build import build_index
@@ -70,19 +75,19 @@ def make_chunk(
     """
     name = name or handle
     content = content or f"def {name}(): pass"
-    return TokenisedChunk(
-        blob_sha=blob or f"blob_{handle}",
-        file_path=path,
-        kind=kind,
-        name=name,
-        scope=scope,
-        content=content,
-        content_tokens=tokenise_code(content),
-        name_tokens=tokenise_code(name),
-        line_start=1,
-        line_end=1,
-        language=language,
-        file_language=language if file_language is None else file_language,
+    return TokenisedChunk.model_validate(
+        {
+            "blob_sha": blob or f"blob_{handle}",
+            "file_path": path,
+            "role": {"kind": kind, "name": name, "meta": {}},
+            "scope": scope,
+            "content": content,
+            "content_tokens": tokenise_code(content),
+            "name_tokens": tokenise_code(name),
+            "span": {"start": 1, "end": 1},
+            "language": language,
+            "file_language": language if file_language is None else file_language,
+        }
     )
 
 
@@ -345,13 +350,11 @@ class AppConfig:
     return TokenisedChunk(
         blob_sha="blob_config",
         file_path="src/config.py",
-        kind=ChunkKind.CLASS,
-        name=name,
+        role=Definition(kind=ChunkKind.CLASS, name=name),
         content=content,
         content_tokens=tokenise_code(content),
         name_tokens=tokenise_code(name),
-        line_start=1,
-        line_end=5,
+        span=Span(start=1, end=5),
     )
 
 
@@ -367,13 +370,11 @@ def load_config(path: str) -> AppConfig:
     return TokenisedChunk(
         blob_sha="blob_config",
         file_path="src/config.py",
-        kind=ChunkKind.FUNCTION,
-        name=name,
+        role=Definition(kind=ChunkKind.FUNCTION, name=name),
         content=content,
         content_tokens=tokenise_code(content),
         name_tokens=tokenise_code(name),
-        line_start=10,
-        line_end=14,
+        span=Span(start=10, end=14),
     )
 
 
@@ -384,13 +385,11 @@ def ranking_import_config() -> Chunk:
     return TokenisedChunk(
         blob_sha="blob_server",
         file_path="src/server.py",
-        kind=ChunkKind.IMPORT,
-        name=name,
+        role=Import(name=name, meta=ImportMeta()),
         content=content,
         content_tokens=tokenise_code(content),
         name_tokens=tokenise_code(name),
-        line_start=1,
-        line_end=1,
+        span=Span(start=1, end=1),
     )
 
 
@@ -405,13 +404,11 @@ def start_server(config: AppConfig) -> None:
     return TokenisedChunk(
         blob_sha="blob_server",
         file_path="src/server.py",
-        kind=ChunkKind.FUNCTION,
-        name=name,
+        role=Definition(kind=ChunkKind.FUNCTION, name=name),
         content=content,
         content_tokens=tokenise_code(content),
         name_tokens=tokenise_code(name),
-        line_start=5,
-        line_end=8,
+        span=Span(start=5, end=8),
     )
 
 
@@ -430,13 +427,11 @@ def test_load_config():
     return TokenisedChunk(
         blob_sha="blob_test_config",
         file_path="tests/test_config.py",
-        kind=ChunkKind.FUNCTION,
-        name=name,
+        role=Definition(kind=ChunkKind.FUNCTION, name=name),
         content=content,
         content_tokens=tokenise_code(content),
         name_tokens=tokenise_code(name),
-        line_start=1,
-        line_end=7,
+        span=Span(start=1, end=7),
     )
 
 
@@ -452,13 +447,11 @@ Set `database_url` and `max_retries` as needed.
     return TokenisedChunk(
         blob_sha="blob_docs",
         file_path="docs/setup.md",
-        kind=ChunkKind.DOC_SECTION,
-        name=name,
+        role=Section(kind=ChunkKind.DOC_SECTION, name=name),
         content=content,
         content_tokens=tokenise_code(content),
         name_tokens=tokenise_code(name),
-        line_start=1,
-        line_end=5,
+        span=Span(start=1, end=5),
     )
 
 
@@ -571,16 +564,14 @@ def math_func() -> TokenisedChunk:
     return TokenisedChunk(
         blob_sha="blob_math",
         file_path="src/math_utils.py",
-        kind=ChunkKind.FUNCTION,
-        name="calculate_standard_deviation",
+        role=Definition(kind=ChunkKind.FUNCTION, name="calculate_standard_deviation"),
         content="""\
 def calculate_standard_deviation(values: list[float]) -> float:
     mean = sum(values) / len(values)
     variance = sum((x - mean) ** 2 for x in values) / len(values)
     return variance ** 0.5
 """,
-        line_start=1,
-        line_end=4,
+        span=Span(start=1, end=4),
     )
 
 
@@ -589,8 +580,7 @@ def http_func() -> TokenisedChunk:
     return TokenisedChunk(
         blob_sha="blob_http",
         file_path="src/api/client.py",
-        kind=ChunkKind.FUNCTION,
-        name="fetch_json_from_endpoint",
+        role=Definition(kind=ChunkKind.FUNCTION, name="fetch_json_from_endpoint"),
         content="""\
 async def fetch_json_from_endpoint(url: str, headers: dict) -> dict:
     async with httpx.AsyncClient() as client:
@@ -598,8 +588,7 @@ async def fetch_json_from_endpoint(url: str, headers: dict) -> dict:
         response.raise_for_status()
         return response.json()
 """,
-        line_start=10,
-        line_end=15,
+        span=Span(start=10, end=15),
     )
 
 
@@ -608,14 +597,12 @@ def string_func() -> TokenisedChunk:
     return TokenisedChunk(
         blob_sha="blob_string",
         file_path="src/text/normalize.py",
-        kind=ChunkKind.FUNCTION,
-        name="normalize_whitespace",
+        role=Definition(kind=ChunkKind.FUNCTION, name="normalize_whitespace"),
         content="""\
 def normalize_whitespace(text: str) -> str:
     import re
     collapsed = re.sub(r'\\s+', ' ', text)
     return collapsed.strip()
 """,
-        line_start=1,
-        line_end=4,
+        span=Span(start=1, end=4),
     )

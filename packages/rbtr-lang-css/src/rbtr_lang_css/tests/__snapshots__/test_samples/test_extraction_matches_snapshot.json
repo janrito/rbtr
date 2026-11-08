@@ -2,380 +2,362 @@
   {
     "blob_sha": "sha1",
     "file_path": "css.css",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "css",
     "file_language": "css",
     "content": "/* Greeter styles.\n *\n * The CSS plugin extracts rule sets, @media, @charset, and @keyframes\n * as doc sections, and @import statements as imports. */",
-    "line_start": 1,
-    "line_end": 4,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 4
     },
     "id": "9a0889317229f181"
   },
   {
     "blob_sha": "sha1",
     "file_path": "css.css",
-    "kind": "config_key",
-    "name": "",
+    "role": {
+      "kind": "config_key",
+      "name": ""
+    },
     "scope": "",
     "language": "css",
     "file_language": "css",
     "content": "@charset \"UTF-8\";",
-    "line_start": 6,
-    "line_end": 6,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 6,
+      "end": 6
     },
     "id": "201b42fa975466e2"
   },
   {
     "blob_sha": "sha1",
     "file_path": "css.css",
-    "kind": "import",
-    "name": "@import url(\"reset.css\");",
+    "role": {
+      "kind": "import",
+      "name": "@import url(\"reset.css\");",
+      "meta": {
+        "module": "reset.css",
+        "names": "",
+        "dots": "",
+        "language_hint": ""
+      }
+    },
     "scope": "",
     "language": "css",
     "file_language": "css",
     "content": "@import url(\"reset.css\");",
-    "line_start": 8,
-    "line_end": 8,
-    "metadata": {
-      "module": "reset.css",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 8,
+      "end": 8
     },
     "id": "cbf97254020d81bd"
   },
   {
     "blob_sha": "sha1",
     "file_path": "css.css",
-    "kind": "import",
-    "name": "@import \"theme.css\";",
+    "role": {
+      "kind": "import",
+      "name": "@import \"theme.css\";",
+      "meta": {
+        "module": "theme.css",
+        "names": "",
+        "dots": "",
+        "language_hint": ""
+      }
+    },
     "scope": "",
     "language": "css",
     "file_language": "css",
     "content": "@import \"theme.css\";",
-    "line_start": 9,
-    "line_end": 9,
-    "metadata": {
-      "module": "theme.css",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 9,
+      "end": 9
     },
     "id": "832cecbb8b3403fe"
   },
   {
     "blob_sha": "sha1",
     "file_path": "css.css",
-    "kind": "class",
-    "name": ":root",
+    "role": {
+      "kind": "class",
+      "name": ":root"
+    },
     "scope": "",
     "language": "css",
     "file_language": "css",
     "content": ":root {\n  --greeting-color: #333;\n}",
-    "line_start": 11,
-    "line_end": 13,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 11,
+      "end": 13
     },
     "id": "e62985770721d590"
   },
   {
     "blob_sha": "sha1",
     "file_path": "css.css",
-    "kind": "variable",
-    "name": "--greeting-color",
+    "role": {
+      "kind": "variable",
+      "name": "--greeting-color"
+    },
     "scope": ":root",
     "language": "css",
     "file_language": "css",
     "content": "--greeting-color: #333;",
-    "line_start": 12,
-    "line_end": 12,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 12,
+      "end": 12
     },
     "id": "b90cc82662414f51"
   },
   {
     "blob_sha": "sha1",
     "file_path": "css.css",
-    "kind": "class",
-    "name": ".greeter",
+    "role": {
+      "kind": "class",
+      "name": ".greeter"
+    },
     "scope": "",
     "language": "css",
     "file_language": "css",
     "content": ".greeter {\n  color: var(--greeting-color);\n  font-weight: bold;\n  .greeting-label {\n    text-transform: uppercase;\n  }\n}",
-    "line_start": 15,
-    "line_end": 21,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 15,
+      "end": 21
     },
     "id": "0e53178978ed3263"
   },
   {
     "blob_sha": "sha1",
     "file_path": "css.css",
-    "kind": "class",
-    "name": ".greeting-label",
+    "role": {
+      "kind": "class",
+      "name": ".greeting-label"
+    },
     "scope": ".greeter",
     "language": "css",
     "file_language": "css",
     "content": ".greeting-label {\n    text-transform: uppercase;\n  }",
-    "line_start": 18,
-    "line_end": 20,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 18,
+      "end": 20
     },
     "id": "32e37f98d1abb442"
   },
   {
     "blob_sha": "sha1",
     "file_path": "css.css",
-    "kind": "class",
-    "name": "",
+    "role": {
+      "kind": "class",
+      "name": ""
+    },
     "scope": "",
     "language": "css",
     "file_language": "css",
     "content": "@media (max-width: 600px) {\n  .greeter {\n    font-size: 14px;\n  }\n}",
-    "line_start": 23,
-    "line_end": 27,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 23,
+      "end": 27
     },
     "id": "139fd08b20e2104e"
   },
   {
     "blob_sha": "sha1",
     "file_path": "css.css",
-    "kind": "class",
-    "name": ".greeter",
+    "role": {
+      "kind": "class",
+      "name": ".greeter"
+    },
     "scope": "",
     "language": "css",
     "file_language": "css",
     "content": ".greeter {\n    font-size: 14px;\n  }",
-    "line_start": 24,
-    "line_end": 26,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 24,
+      "end": 26
     },
     "id": "bc40befb59eb6693"
   },
   {
     "blob_sha": "sha1",
     "file_path": "css.css",
-    "kind": "class",
-    "name": "greeting-fade",
+    "role": {
+      "kind": "class",
+      "name": "greeting-fade"
+    },
     "scope": "",
     "language": "css",
     "file_language": "css",
     "content": "@keyframes greeting-fade {\n  from {\n    opacity: 0;\n  }\n  to {\n    opacity: 1;\n  }\n}",
-    "line_start": 29,
-    "line_end": 36,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 29,
+      "end": 36
     },
     "id": "ac5a0c0be7138359"
   },
   {
     "blob_sha": "sha1",
     "file_path": "css.css",
-    "kind": "import",
-    "name": "@import \"partials/dark.css\";",
+    "role": {
+      "kind": "import",
+      "name": "@import \"partials/dark.css\";",
+      "meta": {
+        "module": "partials/dark.css",
+        "names": "",
+        "dots": "",
+        "language_hint": ""
+      }
+    },
     "scope": "",
     "language": "css",
     "file_language": "css",
     "content": "@import \"partials/dark.css\";",
-    "line_start": 38,
-    "line_end": 38,
-    "metadata": {
-      "module": "partials/dark.css",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 38,
+      "end": 38
     },
     "id": "8b2906e0d46c28e6"
   },
   {
     "blob_sha": "sha1",
     "file_path": "partials/dark.css",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "css",
     "file_language": "css",
     "content": "/* Imported by css.css. Imports its own sibling by bare name, which only\n   resolves relative to this directory. */",
-    "line_start": 1,
-    "line_end": 2,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 2
     },
     "id": "30e3b78720e6932b"
   },
   {
     "blob_sha": "sha1",
     "file_path": "partials/dark.css",
-    "kind": "import",
-    "name": "@import \"palette.css\";",
+    "role": {
+      "kind": "import",
+      "name": "@import \"palette.css\";",
+      "meta": {
+        "module": "palette.css",
+        "names": "",
+        "dots": "",
+        "language_hint": ""
+      }
+    },
     "scope": "",
     "language": "css",
     "file_language": "css",
     "content": "@import \"palette.css\";",
-    "line_start": 3,
-    "line_end": 3,
-    "metadata": {
-      "module": "palette.css",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 3,
+      "end": 3
     },
     "id": "11011a8ec682e572"
   },
   {
     "blob_sha": "sha1",
     "file_path": "partials/dark.css",
-    "kind": "class",
-    "name": ".greeting--dark",
+    "role": {
+      "kind": "class",
+      "name": ".greeting--dark"
+    },
     "scope": "",
     "language": "css",
     "file_language": "css",
     "content": ".greeting--dark {\n  color: var(--ink);\n}",
-    "line_start": 5,
-    "line_end": 7,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 5,
+      "end": 7
     },
     "id": "7beceb826171befc"
   },
   {
     "blob_sha": "sha1",
     "file_path": "partials/palette.css",
-    "kind": "class",
-    "name": ":root",
+    "role": {
+      "kind": "class",
+      "name": ":root"
+    },
     "scope": "",
     "language": "css",
     "file_language": "css",
     "content": "/* Imported by partials/dark.css as a bare sibling. */\n:root {\n  --ink: #eeeeee;\n}",
-    "line_start": 1,
-    "line_end": 4,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 4
     },
     "id": "acdf532d0945bb9d"
   },
   {
     "blob_sha": "sha1",
     "file_path": "partials/palette.css",
-    "kind": "variable",
-    "name": "--ink",
+    "role": {
+      "kind": "variable",
+      "name": "--ink"
+    },
     "scope": ":root",
     "language": "css",
     "file_language": "css",
     "content": "--ink: #eeeeee;",
-    "line_start": 3,
-    "line_end": 3,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 3,
+      "end": 3
     },
     "id": "ec54218724ce0cb6"
   },
   {
     "blob_sha": "sha1",
     "file_path": "reset.css",
-    "kind": "class",
-    "name": "*",
+    "role": {
+      "kind": "class",
+      "name": "*"
+    },
     "scope": "",
     "language": "css",
     "file_language": "css",
     "content": "* {\n  margin: 0;\n}",
-    "line_start": 1,
-    "line_end": 3,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 3
     },
     "id": "f3d13f9312e11df2"
   },
   {
     "blob_sha": "sha1",
     "file_path": "theme.css",
-    "kind": "class",
-    "name": ":root",
+    "role": {
+      "kind": "class",
+      "name": ":root"
+    },
     "scope": "",
     "language": "css",
     "file_language": "css",
     "content": ":root {\n  --greeting-color: #333;\n}",
-    "line_start": 1,
-    "line_end": 3,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 3
     },
     "id": "53ac44be42ab8233"
   },
   {
     "blob_sha": "sha1",
     "file_path": "theme.css",
-    "kind": "variable",
-    "name": "--greeting-color",
+    "role": {
+      "kind": "variable",
+      "name": "--greeting-color"
+    },
     "scope": ":root",
     "language": "css",
     "file_language": "css",
     "content": "--greeting-color: #333;",
-    "line_start": 2,
-    "line_end": 2,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 2,
+      "end": 2
     },
     "id": "dfc190708e8af07c"
   }

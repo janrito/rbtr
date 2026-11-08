@@ -25,7 +25,12 @@ from pytest_cases import filters as ft, fixture, parametrize_with_cases
 from pytest_mock import MockerFixture
 
 from rbtr.config import config, index_dir_of
-from rbtr.domain.models import ChunkKind, FileSnapshot, ImportMeta
+from rbtr.domain.models import (
+    FileSnapshot,
+    Import,
+    ImportMeta,
+    Span,
+)
 from rbtr.errors import (
     IndexLockedError,
     IndexMigratingError,
@@ -554,12 +559,9 @@ def test_a_project_file_from_2026_10_0_keeps_its_import_metadata(tmp_path: Path)
     imp = TokenisedChunk(
         blob_sha="blob_app",
         file_path="app.py",
-        kind=ChunkKind.IMPORT,
-        name="import os",
+        role=Import(name="import os", meta=ImportMeta(module="os")),
         content="import os",
-        line_start=1,
-        line_end=1,
-        metadata=ImportMeta(module="os"),
+        span=Span(start=1, end=1),
     )
     fn = make_chunk("load", path="app.py", blob="blob_app")
     seed = Index(path, writable=True)

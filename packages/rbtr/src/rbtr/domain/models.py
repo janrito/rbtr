@@ -113,6 +113,82 @@ class ImportMeta(BaseModel):
     resolver uses `import_targets`."""
 
 
+class Definition(BaseModel, frozen=True):
+    """A construct the code defines: a function, class, method or variable.
+
+    `name` is empty for one written without a name, such as an arrow
+    function assigned nowhere.
+    """
+
+    kind: Literal[
+        ChunkKind.FUNCTION,
+        ChunkKind.CLASS,
+        ChunkKind.METHOD,
+        ChunkKind.VARIABLE,
+        ChunkKind.MIGRATION,
+        ChunkKind.TEST_FUNCTION,
+        ChunkKind.API_ENDPOINT,
+    ]
+    name: str
+
+
+class Section(BaseModel, frozen=True):
+    """A part of a document or a data file: a heading's section, a key.
+
+    `name` is empty for one with no title, such as a heading-less
+    paragraph or a CSS `@media` block.
+    """
+
+    kind: Literal[ChunkKind.DOC_SECTION, ChunkKind.CONFIG_KEY]
+    name: str
+
+
+class Import(BaseModel, frozen=True):
+    """A statement or link bringing in another file, module or symbol."""
+
+    kind: Literal[ChunkKind.IMPORT] = ChunkKind.IMPORT
+    name: str
+    meta: ImportMeta
+
+
+class Comment(BaseModel, frozen=True):
+    """A comment or docstring standing on its own, with nothing to name."""
+
+    kind: Literal[ChunkKind.COMMENT] = ChunkKind.COMMENT
+
+    @property
+    def name(self) -> str:
+        return ""
+
+
+class RawSlice(BaseModel, frozen=True):
+    """A run of lines cut from a file no grammar reads, with nothing to name."""
+
+    kind: Literal[ChunkKind.RAW_CHUNK] = ChunkKind.RAW_CHUNK
+
+    @property
+    def name(self) -> str:
+        return ""
+
+
+type Role = Annotated[Definition | Section | Import | Comment | RawSlice, Discriminator("kind")]
+"""What a chunk is, carrying exactly the data that kind of chunk has."""
+
+
+class Span(BaseModel, frozen=True):
+    """The lines a chunk occupies: 1-based, inclusive, never ending before it starts."""
+
+    start: int
+    end: int
+
+    @model_validator(mode="after")
+    def _ends_after_it_starts(self) -> Span:
+        if self.end < self.start:
+            msg = f"a span cannot end (line {self.end}) before it starts (line {self.start})"
+            raise ValueError(msg)
+        return self
+
+
 class Chunk(BaseModel, frozen=True):
     """A single indexed unit of code, documentation, or configuration.
 
@@ -134,8 +210,7 @@ class Chunk(BaseModel, frozen=True):
 
     blob_sha: str
     file_path: str
-    kind: ChunkKind
-    name: str
+    role: Role
     scope: str = ""
     language: str = ""
     file_language: str = ""
@@ -148,10 +223,24 @@ class Chunk(BaseModel, frozen=True):
     which for an embedded block is the block's, not the file's.
     """
     content: str
-    line_start: int
-    line_end: int
-    metadata: ImportMeta = Field(default_factory=ImportMeta)
+    span: Span
     has_embedding: bool = Field(default=False, exclude=True)
+
+    @property
+    def kind(self) -> ChunkKind:
+        return self.role.kind
+
+    @property
+    def name(self) -> str:
+        return self.role.name
+
+    @property
+    def line_start(self) -> int:
+        return self.span.start
+
+    @property
+    def line_end(self) -> int:
+        return self.span.end
 
     @field_validator("scope", mode="before")
     @classmethod
@@ -190,19 +279,6 @@ class Chunk(BaseModel, frozen=True):
             f"{self.name}:{self.line_start}:{self.line_end}"
         )
         return hashlib.blake2b(raw.encode(), digest_size=8).hexdigest()
-
-    @model_validator(mode="after")
-    def _check_unnamed_kinds(self) -> Chunk:
-        """Reject a name on a kind with no identifier to hold one.
-
-        A remark and a slice of lines have nothing to name. Every other
-        kind *may* be unnamed — an arrow function, a CSS `@media` block, a
-        `@charset` rule, a heading-less paragraph — so this runs one way.
-        """
-        if self.kind in {ChunkKind.COMMENT, ChunkKind.RAW_CHUNK} and self.name:
-            msg = f"{self.kind} carries no name, got {self.name!r}"
-            raise ValueError(msg)
-        return self
 
 
 class ScoredChunk(BaseModel, frozen=True):

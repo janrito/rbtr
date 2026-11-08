@@ -189,9 +189,10 @@ Rules:
 - **Store nested data as a DuckDB `STRUCT` or `LIST`, not JSON
   text.** A polars `Struct` registers as a DuckDB `STRUCT` and reads
   back as one, so the shape is declared in the schema and nothing
-  parses strings row by row. Reshape with polars expressions on the
-  whole frame, not with per-row Python, and read the columns back as
-  rows rather than rebuilding the model.
+  parses strings row by row. Reshape models into columns with polars
+  struct expressions on the whole frame (`staged_chunks` spreads a
+  chunk's role with `struct.field`), not with per-row Python, and
+  read the columns back as rows rather than rebuilding the model.
 - **It is thread-safe by cursor.** `registered_views` binds the
   views on the thread-local cursor, and rbtr uses one such cursor
   per thread, so concurrent calls on different threads register

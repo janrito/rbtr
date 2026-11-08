@@ -52,11 +52,18 @@ def edge_rows(chunks: list[Chunk]) -> dy.DataFrame[EdgeChunkRow]:
     """
     # deferred: `rbtr.languages` imports `rbtr.config`, which this plugin
     # must not load before pytest-env applies (see `isolated_db`).
+    from rbtr.index.staging import ChunkStagingRow
     from rbtr.languages.edges import EdgeChunkRow
 
+    role = pl.Struct({"kind": pl.String, "name": pl.String, "meta": ChunkStagingRow.metadata.dtype})
     return (
-        pl.DataFrame(Chunks.dump_python(chunks, mode="json"))
-        .with_columns(pl.col("metadata").struct.unnest())
+        pl.DataFrame(Chunks.dump_python(chunks, mode="json"), schema_overrides={"role": role})
+        .with_columns(pl.col("role").struct.unnest())
+        .with_columns(
+            pl.col("name").fill_null(""),
+            pl.col("meta").struct.unnest(),
+            line_start=pl.col("span").struct.field("start"),
+        )
         .pipe(EdgeChunkRow.validate, cast=True)
     )
 

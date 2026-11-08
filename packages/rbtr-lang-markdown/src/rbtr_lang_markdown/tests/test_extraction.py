@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pytest_cases import parametrize_with_cases
 
-from rbtr.domain.models import ChunkKind
+from rbtr.domain.models import ChunkKind, Import
 from rbtr.git import FileEntry
 from rbtr.languages.extract import extract_file
 
@@ -120,9 +120,9 @@ def test_md_local_link_produces_import() -> None:
 See [other doc](other.md) for details.
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
     assert len(imports) == 1
-    assert imports[0].metadata.module == "other.md"
+    assert imports[0].meta.module == "other.md"
 
 
 def test_md_link_with_fragment_sets_names() -> None:
@@ -133,10 +133,10 @@ def test_md_link_with_fragment_sets_names() -> None:
 See [API section](api.md#my-function) for the API.
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
     assert len(imports) == 1
-    assert imports[0].metadata.module == "api.md"
-    assert imports[0].metadata.names == "my-function"
+    assert imports[0].meta.module == "api.md"
+    assert imports[0].meta.names == "my-function"
 
 
 def test_md_relative_link_produces_import() -> None:
@@ -147,9 +147,9 @@ def test_md_relative_link_produces_import() -> None:
 See [source](../src/foo.py) for details.
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
     assert len(imports) == 1
-    assert imports[0].metadata.module == "../src/foo.py"
+    assert imports[0].meta.module == "../src/foo.py"
 
 
 def test_md_external_link_skipped() -> None:
@@ -160,7 +160,7 @@ def test_md_external_link_skipped() -> None:
 See [example](https://example.com) and [mail](mailto:a@b.com).
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
     assert imports == []
 
 
@@ -172,7 +172,7 @@ def test_md_fragment_only_link_skipped() -> None:
 See [below](#details) for more.
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
     assert imports == []
 
 
@@ -184,8 +184,8 @@ def test_md_multiple_links_in_one_section() -> None:
 See [a](one.md) and [b](two.py) here.
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
-    modules = {c.metadata.module for c in imports}
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
+    modules = {c.meta.module for c in imports}
     assert modules == {"one.md", "two.py"}
 
 
@@ -197,5 +197,5 @@ def test_md_bare_mention_no_import() -> None:
 Call do_stuff to process the data.
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
     assert imports == []

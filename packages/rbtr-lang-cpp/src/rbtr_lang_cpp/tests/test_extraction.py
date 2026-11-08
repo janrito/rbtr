@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pytest_cases import parametrize_with_cases
 
-from rbtr.domain.models import ChunkKind, ImportMeta
+from rbtr.domain.models import ChunkKind, Import, ImportMeta
 from rbtr.git import FileEntry
 from rbtr.languages.extract import extract_file
 
@@ -38,6 +38,6 @@ def test_extracts_all_expected_kinds(
 def test_extracts_import_metadata(lang: str, source: str, expected: dict) -> None:
     """First import chunk has the expected metadata."""
     chunks = extract_file(FileEntry("input", "sha1", source.encode()), lang)
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
     assert len(imports) >= 1, f"no import chunks extracted from {source!r}"
-    assert imports[0].metadata == ImportMeta(**expected)
+    assert imports[0].meta == ImportMeta(**expected)

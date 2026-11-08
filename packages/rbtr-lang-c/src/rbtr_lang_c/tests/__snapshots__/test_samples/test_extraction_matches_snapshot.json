@@ -2,570 +2,520 @@
   {
     "blob_sha": "sha1",
     "file_path": "c.c",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "/* Greeter — format greetings for named recipients.\n *\n * The C plugin extracts functions, function prototypes, struct/union/\n * enum/typedef type definitions (as classes), top-level variables\n * (including pointer-declared globals), function/object-like macros,\n * and #include imports (system and local). */",
-    "line_start": 1,
-    "line_end": 6,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 6
     },
     "id": "671af27916e08aa4"
   },
   {
     "blob_sha": "sha1",
     "file_path": "c.c",
-    "kind": "import",
-    "name": "#include <stdio.h>",
+    "role": {
+      "kind": "import",
+      "name": "#include <stdio.h>",
+      "meta": {
+        "module": "stdio.h",
+        "names": "",
+        "dots": "",
+        "language_hint": ""
+      }
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "#include <stdio.h>\n",
-    "line_start": 8,
-    "line_end": 8,
-    "metadata": {
-      "module": "stdio.h",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 8,
+      "end": 8
     },
     "id": "9bff01cc40e3cda4"
   },
   {
     "blob_sha": "sha1",
     "file_path": "c.c",
-    "kind": "import",
-    "name": "#include \"greeter.h\"",
+    "role": {
+      "kind": "import",
+      "name": "#include \"greeter.h\"",
+      "meta": {
+        "module": "greeter.h",
+        "names": "",
+        "dots": "",
+        "language_hint": ""
+      }
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "#include \"greeter.h\"\n",
-    "line_start": 9,
-    "line_end": 9,
-    "metadata": {
-      "module": "greeter.h",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 9,
+      "end": 9
     },
     "id": "f841654bacd2cd5a"
   },
   {
     "blob_sha": "sha1",
     "file_path": "c.c",
-    "kind": "variable",
-    "name": "MAX_NAME",
+    "role": {
+      "kind": "variable",
+      "name": "MAX_NAME"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "#define MAX_NAME 64\n",
-    "line_start": 11,
-    "line_end": 11,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 11,
+      "end": 11
     },
     "id": "4887328b39e1ad46"
   },
   {
     "blob_sha": "sha1",
     "file_path": "c.c",
-    "kind": "function",
-    "name": "SQUARE",
+    "role": {
+      "kind": "function",
+      "name": "SQUARE"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "#define SQUARE(x) ((x) * (x))\n",
-    "line_start": 12,
-    "line_end": 12,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 12,
+      "end": 12
     },
     "id": "8d3e9e31880f6c2d"
   },
   {
     "blob_sha": "sha1",
     "file_path": "c.c",
-    "kind": "variable",
-    "name": "greeter_count",
+    "role": {
+      "kind": "variable",
+      "name": "greeter_count"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "int greeter_count = 0;",
-    "line_start": 14,
-    "line_end": 14,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 14,
+      "end": 14
     },
     "id": "f96e969b47b3894b"
   },
   {
     "blob_sha": "sha1",
     "file_path": "c.c",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "// trailing comment: its own chunk, not folded",
-    "line_start": 14,
-    "line_end": 14,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 14,
+      "end": 14
     },
     "id": "f5aea743d10bb3dc"
   },
   {
     "blob_sha": "sha1",
     "file_path": "c.c",
-    "kind": "variable",
-    "name": "default_prefix",
+    "role": {
+      "kind": "variable",
+      "name": "default_prefix"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "const char *default_prefix = \"Hello\";",
-    "line_start": 15,
-    "line_end": 15,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 15,
+      "end": 15
     },
     "id": "4d902ff2946beef2"
   },
   {
     "blob_sha": "sha1",
     "file_path": "c.c",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "/* Standalone note, separated by blank lines from any definition. */\n/* Second line of the same block. */",
-    "line_start": 17,
-    "line_end": 18,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 17,
+      "end": 18
     },
     "id": "c63b7b29139120e6"
   },
   {
     "blob_sha": "sha1",
     "file_path": "c.c",
-    "kind": "class",
-    "name": "Greeter",
+    "role": {
+      "kind": "class",
+      "name": "Greeter"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "/* A greeter holding a prefix string. */\nstruct Greeter {\n    const char *prefix;\n}",
-    "line_start": 20,
-    "line_end": 23,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 20,
+      "end": 23
     },
     "id": "5a04d7c056a1eae5"
   },
   {
     "blob_sha": "sha1",
     "file_path": "c.c",
-    "kind": "class",
-    "name": "Greeter",
+    "role": {
+      "kind": "class",
+      "name": "Greeter"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "typedef struct Greeter Greeter;",
-    "line_start": 25,
-    "line_end": 25,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 25,
+      "end": 25
     },
     "id": "89a9210587fd1dd7"
   },
   {
     "blob_sha": "sha1",
     "file_path": "c.c",
-    "kind": "class",
-    "name": "GreetCallback",
+    "role": {
+      "kind": "class",
+      "name": "GreetCallback"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "/* A callback invoked for each formatted greeting. */\ntypedef void (*GreetCallback)(const char *line);",
-    "line_start": 27,
-    "line_end": 28,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 27,
+      "end": 28
     },
     "id": "ee48b2198927667f"
   },
   {
     "blob_sha": "sha1",
     "file_path": "c.c",
-    "kind": "class",
-    "name": "Payload",
+    "role": {
+      "kind": "class",
+      "name": "Payload"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "/* A tagged greeting payload. */\nunion Payload {\n    int code;\n    const char *text;\n}",
-    "line_start": 30,
-    "line_end": 34,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 30,
+      "end": 34
     },
     "id": "94af451e2538078b"
   },
   {
     "blob_sha": "sha1",
     "file_path": "c.c",
-    "kind": "class",
-    "name": "Locale",
+    "role": {
+      "kind": "class",
+      "name": "Locale"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "enum Locale { LOCALE_EN, LOCALE_FR }",
-    "line_start": 36,
-    "line_end": 36,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 36,
+      "end": 36
     },
     "id": "a5341b3dfd6d4b14"
   },
   {
     "blob_sha": "sha1",
     "file_path": "c.c",
-    "kind": "variable",
-    "name": "LOCALE_EN",
+    "role": {
+      "kind": "variable",
+      "name": "LOCALE_EN"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "LOCALE_EN",
-    "line_start": 36,
-    "line_end": 36,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 36,
+      "end": 36
     },
     "id": "a1a70f2979aba10f"
   },
   {
     "blob_sha": "sha1",
     "file_path": "c.c",
-    "kind": "variable",
-    "name": "LOCALE_FR",
+    "role": {
+      "kind": "variable",
+      "name": "LOCALE_FR"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "LOCALE_FR",
-    "line_start": 36,
-    "line_end": 36,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 36,
+      "end": 36
     },
     "id": "acfd32f2946ac945"
   },
   {
     "blob_sha": "sha1",
     "file_path": "c.c",
-    "kind": "function",
-    "name": "greeter_default",
+    "role": {
+      "kind": "function",
+      "name": "greeter_default"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "/* Build a greeter with the default prefix. */\nGreeter greeter_default(void);",
-    "line_start": 38,
-    "line_end": 39,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 38,
+      "end": 39
     },
     "id": "1bb2cd010b690084"
   },
   {
     "blob_sha": "sha1",
     "file_path": "c.c",
-    "kind": "function",
-    "name": "format_greeting",
+    "role": {
+      "kind": "function",
+      "name": "format_greeting"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "/* Format a greeting for `name` into `buf`. */\nint format_greeting(const Greeter *g, const char *name, char *buf, int n) {\n    return snprintf(buf, (size_t)n, \"%s, %s\", g->prefix, name);\n}",
-    "line_start": 41,
-    "line_end": 44,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 41,
+      "end": 44
     },
     "id": "b148e129e5a8d0f1"
   },
   {
     "blob_sha": "sha1",
     "file_path": "greeter.h",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "/* Header companion for c.c — declares the greeter API.\n *\n * Resolves the `#include \"greeter.h\"` edge and exercises C prototype and\n * type-definition capture (declared, not defined, here). */",
-    "line_start": 1,
-    "line_end": 4,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 4
     },
     "id": "9030eab5aed3851a"
   },
   {
     "blob_sha": "sha1",
     "file_path": "greeter.h",
-    "kind": "variable",
-    "name": "GREETER_H",
+    "role": {
+      "kind": "variable",
+      "name": "GREETER_H"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "#define GREETER_H\n",
-    "line_start": 6,
-    "line_end": 6,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 6,
+      "end": 6
     },
     "id": "901edb57f11ddea3"
   },
   {
     "blob_sha": "sha1",
     "file_path": "greeter.h",
-    "kind": "variable",
-    "name": "MAX_NAME",
+    "role": {
+      "kind": "variable",
+      "name": "MAX_NAME"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "#define MAX_NAME 64\n",
-    "line_start": 8,
-    "line_end": 8,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 8,
+      "end": 8
     },
     "id": "4789087046c6a5de"
   },
   {
     "blob_sha": "sha1",
     "file_path": "greeter.h",
-    "kind": "class",
-    "name": "Greeter",
+    "role": {
+      "kind": "class",
+      "name": "Greeter"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "/* A greeter holding a prefix string. */\nstruct Greeter {\n    const char *prefix;\n}",
-    "line_start": 10,
-    "line_end": 13,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 10,
+      "end": 13
     },
     "id": "f892b8224d857c05"
   },
   {
     "blob_sha": "sha1",
     "file_path": "greeter.h",
-    "kind": "class",
-    "name": "Greeter",
+    "role": {
+      "kind": "class",
+      "name": "Greeter"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "typedef struct Greeter Greeter;",
-    "line_start": 15,
-    "line_end": 15,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 15,
+      "end": 15
     },
     "id": "fc9e5d4af7a20b60"
   },
   {
     "blob_sha": "sha1",
     "file_path": "greeter.h",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "/* Build a greeter with the default prefix. */",
-    "line_start": 17,
-    "line_end": 17,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 17,
+      "end": 17
     },
     "id": "6020c10898fb5005"
   },
   {
     "blob_sha": "sha1",
     "file_path": "greeter.h",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "/* Format a greeting for `name` into `buf`. */",
-    "line_start": 20,
-    "line_end": 20,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 20,
+      "end": 20
     },
     "id": "c5b79b393f2730e2"
   },
   {
     "blob_sha": "sha1",
     "file_path": "util/text.c",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "/* Includes its own sibling by bare name. */",
-    "line_start": 1,
-    "line_end": 1,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 1
     },
     "id": "0754ac7dd958f3ae"
   },
   {
     "blob_sha": "sha1",
     "file_path": "util/text.c",
-    "kind": "import",
-    "name": "#include \"text.h\"",
+    "role": {
+      "kind": "import",
+      "name": "#include \"text.h\"",
+      "meta": {
+        "module": "text.h",
+        "names": "",
+        "dots": "",
+        "language_hint": ""
+      }
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "#include \"text.h\"\n",
-    "line_start": 2,
-    "line_end": 2,
-    "metadata": {
-      "module": "text.h",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 2,
+      "end": 2
     },
     "id": "94415905fb20f19f"
   },
   {
     "blob_sha": "sha1",
     "file_path": "util/text.c",
-    "kind": "function",
-    "name": "text_length",
+    "role": {
+      "kind": "function",
+      "name": "text_length"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "int text_length(const char *s) {\n  int n = 0;\n  while (s[n] != '\\0') {\n    n++;\n  }\n  return n;\n}",
-    "line_start": 4,
-    "line_end": 10,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 4,
+      "end": 10
     },
     "id": "9de16b293ce6c7f8"
   },
   {
     "blob_sha": "sha1",
     "file_path": "util/text.h",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "/* Included by util/text.c as a bare sibling, which only resolves relative\n   to this directory. */",
-    "line_start": 1,
-    "line_end": 2,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 2
     },
     "id": "9ff3e5ac780a7e90"
   },
   {
     "blob_sha": "sha1",
     "file_path": "util/text.h",
-    "kind": "variable",
-    "name": "GREETER_UTIL_TEXT_H",
+    "role": {
+      "kind": "variable",
+      "name": "GREETER_UTIL_TEXT_H"
+    },
     "scope": "",
     "language": "c",
     "file_language": "c",
     "content": "#define GREETER_UTIL_TEXT_H\n",
-    "line_start": 4,
-    "line_end": 4,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 4,
+      "end": 4
     },
     "id": "46c2713ca66abfa3"
   }

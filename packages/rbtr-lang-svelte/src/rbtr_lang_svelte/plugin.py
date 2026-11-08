@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 
 from tree_sitter import Parser
 
-from rbtr.domain.models import Chunk, ChunkKind
+from rbtr.domain.models import Chunk, ChunkKind, Comment, Section, Span
 from rbtr.languages.chunks import last_line
 from rbtr.languages.registration import LanguageRegistration, load_query
 
@@ -57,12 +57,9 @@ def _template_chunk(
     return Chunk(
         blob_sha=blob_sha,
         file_path=file_path,
-        kind=ChunkKind.DOC_SECTION,
-        name=name,
-        scope="",
+        role=Section(kind=ChunkKind.DOC_SECTION, name=name),
         content=text,
-        line_start=line_start + 1,
-        line_end=line_end,
+        span=Span(start=line_start + 1, end=line_end),
     )
 
 
@@ -101,12 +98,9 @@ def chunk_sfc(
         yield Chunk(
             blob_sha=blob_sha,
             file_path=file_path,
-            kind=ChunkKind.COMMENT,
-            name="",
-            scope="",
+            role=Comment(),
             content=text.strip(),
-            line_start=node.start_point[0] + 1,
-            line_end=last_line(node),
+            span=Span(start=node.start_point[0] + 1, end=last_line(node)),
         )
 
 

@@ -2,76 +2,67 @@
   {
     "blob_sha": "sha1",
     "file_path": "sql_duckdb.sql",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "sql",
     "file_language": "sql",
     "content": "-- DuckDB dialect sample — LIST/STRUCT types, CTAS, CREATE MACRO.",
-    "line_start": 1,
-    "line_end": 1,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 1
     },
     "id": "0202263c4558210b"
   },
   {
     "blob_sha": "sha1",
     "file_path": "sql_duckdb.sql",
-    "kind": "class",
-    "name": "users",
+    "role": {
+      "kind": "class",
+      "name": "users"
+    },
     "scope": "",
     "language": "sql",
     "file_language": "sql",
     "content": "CREATE TABLE users (\n    id BIGINT PRIMARY KEY,\n    email VARCHAR NOT NULL,\n    tags VARCHAR[],\n    profile STRUCT(name VARCHAR, age INTEGER)",
-    "line_start": 3,
-    "line_end": 7,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 3,
+      "end": 7
     },
     "id": "bbc0c1d3c758c83c"
   },
   {
     "blob_sha": "sha1",
     "file_path": "sql_duckdb.sql",
-    "kind": "class",
-    "name": "recent",
+    "role": {
+      "kind": "class",
+      "name": "recent"
+    },
     "scope": "",
     "language": "sql",
     "file_language": "sql",
     "content": "CREATE TABLE recent AS SELECT * FROM users LIMIT 10",
-    "line_start": 10,
-    "line_end": 10,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 10,
+      "end": 10
     },
     "id": "9a7eceaf6e76be85"
   },
   {
     "blob_sha": "sha1",
     "file_path": "sql_duckdb.sql",
-    "kind": "class",
-    "name": "emails",
+    "role": {
+      "kind": "class",
+      "name": "emails"
+    },
     "scope": "",
     "language": "sql",
     "file_language": "sql",
     "content": "CREATE VIEW emails AS SELECT email FROM users",
-    "line_start": 14,
-    "line_end": 14,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 14,
+      "end": 14
     },
     "id": "c401891794cc2bc1"
   }

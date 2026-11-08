@@ -422,9 +422,10 @@ distribution:
   as their wrap `resolver` argument and delegate to it, so plugins never
   import the built-ins; those built-ins live in the private
   `rbtr.languages._resolvers`.)
-- `rbtr.domain.models` — `Chunk`, `ChunkKind`, `ImportMeta`. A chunk's
-  `id` is a property over its own fields, so a plugin yields chunks and
-  never computes an identity.
+- `rbtr.domain.models` — `Chunk`, its roles (`Definition`, `Section`,
+  `Import`, `Comment`, `RawSlice`), `Span`, `ChunkKind` and `ImportMeta`.
+  A chunk's `id` is a property over its own fields, so a plugin yields
+  chunks and never computes an identity.
 - `rbtr.languages.chunks` — `chunk_plaintext`, and `last_line`,
   which turns a tree-sitter end point into the 1-based last line a
   node occupies. The query engine and every chunker share it, so a
@@ -1658,8 +1659,8 @@ The read commands (`search`, `read-symbol`, `list-symbols`,
 `find-refs`, `changed-symbols`) do not return the index's rows or
 `ScoredChunk`. Those carry persistence detail — identity hashes
 (`id`, `blob_sha`), the embedding flag, the full ranking-signal
-breakdown, import metadata on every chunk — that no caller needs
-and that adds noise and tokens to an agent's context. Handlers instead
+breakdown, every role's payload — that no caller needs and that
+adds noise and tokens to an agent's context. Handlers instead
 project to output DTOs in `rbtr.daemon.dto` (`SymbolRefOut`,
 `SymbolOut`, `SearchHitOut`, `RefOut`): a curated, low-noise
 public contract. The boundary is also a vocabulary shift: the
@@ -2258,12 +2259,25 @@ from the version it records. Replacing the index on every breaking
 change does not work here: it re-extracts every checkout and
 re-embeds every chunk to change a column.
 
-**Import metadata is a struct column.** `chunks.metadata` holds an
-import's metadata as a `STRUCT` of its fields, and `NULL` on every
-other chunk; a frame carries it as a polars struct both ways. JSON
-text in that column does not work here: it moves encoding and parsing
-into per-row Python, where a struct passes between DuckDB and polars
-as Arrow.
+**A chunk's role is one value; its row spreads it.** A chunk holds
+one role (`Definition`, `Section`, `Import`, `Comment`, `RawSlice`)
+carrying exactly the data that kind of chunk has, so a comment cannot
+have a name and only an import has import metadata; `kind` and `name`
+are read from the role. The `chunks` table keeps a column for each of
+`kind`, `name`, `line_start` and `line_end`, which SQL filters and the
+id use, and stores whatever else the role carries in `metadata`, a
+`STRUCT` holding the union of the role payloads' fields (`NULL` for a
+role with none). `staged_chunks` spreads a chunk into that row with
+polars expressions over the whole frame. Reads keep the row: the role's
+invariants hold because the write checked them, and gathering role and
+span back into a `Chunk` on every read checked them again and made
+reading a snapshot's chunks measurably slower than reading flat rows.
+JSON text
+in `metadata` does not work here: it moves encoding and parsing into
+per-row Python, where a struct passes between DuckDB and polars as
+Arrow. A `Chunk` subtype per kind does not work here either: every
+consumer of `Chunk` would change, where a role changes only the code
+that builds chunks.
 
 **Opening the index migrates it.** Migration belongs to the `index`
 layer and reports through the log; the CLI just opens the index, and

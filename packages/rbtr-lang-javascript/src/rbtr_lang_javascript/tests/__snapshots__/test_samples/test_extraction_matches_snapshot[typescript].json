@@ -2,608 +2,559 @@
   {
     "blob_sha": "sha1",
     "file_path": "config.ts",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "// Locale configuration for the greeter.",
-    "line_start": 1,
-    "line_end": 1,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 1
     },
     "id": "b0eec444d8e60c22"
   },
   {
     "blob_sha": "sha1",
     "file_path": "config.ts",
-    "kind": "variable",
-    "name": "LOCALE",
+    "role": {
+      "kind": "variable",
+      "name": "LOCALE"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "LOCALE = \"en\"",
-    "line_start": 2,
-    "line_end": 2,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 2,
+      "end": 2
     },
     "id": "5f9edd7bad619288"
   },
   {
     "blob_sha": "sha1",
     "file_path": "types.ts",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "// Shared greeter types.",
-    "line_start": 1,
-    "line_end": 1,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 1
     },
     "id": "b0eec444d8e60c22"
   },
   {
     "blob_sha": "sha1",
     "file_path": "types.ts",
-    "kind": "class",
-    "name": "Formatter",
+    "role": {
+      "kind": "class",
+      "name": "Formatter"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "type Formatter = (name: string) => string;",
-    "line_start": 2,
-    "line_end": 2,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 2,
+      "end": 2
     },
     "id": "2e0575e39be1d6e2"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "// Greeter — format greetings for named recipients.\n//\n// The TypeScript plugin extracts function declarations, arrow functions\n// bound to consts, classes, module variables, and imports, with\n// namespaces forming a scope. It also captures interfaces, enums, type\n// aliases, and abstract classes (all as classes), and class/interface\n// members as methods, including get/set accessors and abstract method\n// signatures.",
-    "line_start": 1,
-    "line_end": 8,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 8
     },
     "id": "f4410e2ed1c60de3"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "import",
-    "name": "import { LOCALE } from \"./config\";",
+    "role": {
+      "kind": "import",
+      "name": "import { LOCALE } from \"./config\";",
+      "meta": {
+        "module": "config",
+        "names": "LOCALE",
+        "dots": "1",
+        "language_hint": ""
+      }
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "import { LOCALE } from \"./config\";",
-    "line_start": 10,
-    "line_end": 10,
-    "metadata": {
-      "module": "config",
-      "names": "LOCALE",
-      "dots": "1",
-      "language_hint": ""
+    "span": {
+      "start": 10,
+      "end": 10
     },
     "id": "54ff9600b7fb43ce"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "import",
-    "name": "import type { Formatter } from \"./types\";",
+    "role": {
+      "kind": "import",
+      "name": "import type { Formatter } from \"./types\";",
+      "meta": {
+        "module": "types",
+        "names": "Formatter",
+        "dots": "1",
+        "language_hint": ""
+      }
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "import type { Formatter } from \"./types\";",
-    "line_start": 11,
-    "line_end": 11,
-    "metadata": {
-      "module": "types",
-      "names": "Formatter",
-      "dots": "1",
-      "language_hint": ""
+    "span": {
+      "start": 11,
+      "end": 11
     },
     "id": "41f2d22ae2e87ce4"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "variable",
-    "name": "DEFAULT_GREETING",
+    "role": {
+      "kind": "variable",
+      "name": "DEFAULT_GREETING"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "DEFAULT_GREETING: string = \"Hello\"",
-    "line_start": 13,
-    "line_end": 13,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 13,
+      "end": 13
     },
     "id": "ff20304e43bdbfaa"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "/** Tone of a greeting. */",
-    "line_start": 15,
-    "line_end": 15,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 15,
+      "end": 15
     },
     "id": "f64407600d07d5d0"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "class",
-    "name": "Tone",
+    "role": {
+      "kind": "class",
+      "name": "Tone"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "enum Tone {\n  Formal,\n  Casual,\n}",
-    "line_start": 16,
-    "line_end": 19,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 16,
+      "end": 19
     },
     "id": "8926ce2eefea6fdc"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "variable",
-    "name": "Formal",
+    "role": {
+      "kind": "variable",
+      "name": "Formal"
+    },
     "scope": "Tone",
     "language": "typescript",
     "file_language": "typescript",
     "content": "Formal",
-    "line_start": 17,
-    "line_end": 17,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 17,
+      "end": 17
     },
     "id": "ed03661cab8ecda0"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "variable",
-    "name": "Casual",
+    "role": {
+      "kind": "variable",
+      "name": "Casual"
+    },
     "scope": "Tone",
     "language": "typescript",
     "file_language": "typescript",
     "content": "Casual",
-    "line_start": 18,
-    "line_end": 18,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 18,
+      "end": 18
     },
     "id": "61359ab45e8e5ea9"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "/** A function that formats a greeting for a name. */",
-    "line_start": 21,
-    "line_end": 21,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 21,
+      "end": 21
     },
     "id": "c8c5c45a50394706"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "class",
-    "name": "GreetingFn",
+    "role": {
+      "kind": "class",
+      "name": "GreetingFn"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "type GreetingFn = (name: string) => string;",
-    "line_start": 22,
-    "line_end": 22,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 22,
+      "end": 22
     },
     "id": "69b9646a1d8c1995"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "/** Format a greeting for a name. */",
-    "line_start": 24,
-    "line_end": 24,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 24,
+      "end": 24
     },
     "id": "07ecb22e31eead78"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "function",
-    "name": "formatGreeting",
+    "role": {
+      "kind": "function",
+      "name": "formatGreeting"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "function formatGreeting(name: string): string {\n  return `${DEFAULT_GREETING}, ${name} (${LOCALE})`;\n}",
-    "line_start": 25,
-    "line_end": 27,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 25,
+      "end": 27
     },
     "id": "f2b7b3c9f62d2f45"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "function",
-    "name": "cachedDefault",
+    "role": {
+      "kind": "function",
+      "name": "cachedDefault"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "const cachedDefault = (): string => DEFAULT_GREETING;",
-    "line_start": 29,
-    "line_end": 29,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 29,
+      "end": 29
     },
     "id": "7eef9204c8d20925"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "/** A greeting formatter contract. */",
-    "line_start": 31,
-    "line_end": 31,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 31,
+      "end": 31
     },
     "id": "14b22aadb55ea7ac"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "class",
-    "name": "Greeting",
+    "role": {
+      "kind": "class",
+      "name": "Greeting"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "interface Greeting {\n  text: string;\n  format: Formatter;\n  render(name: string): string;\n}",
-    "line_start": 32,
-    "line_end": 36,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 32,
+      "end": 36
     },
     "id": "d0e4a2c5140f9837"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "method",
-    "name": "render",
+    "role": {
+      "kind": "method",
+      "name": "render"
+    },
     "scope": "Greeting",
     "language": "typescript",
     "file_language": "typescript",
     "content": "render(name: string): string",
-    "line_start": 35,
-    "line_end": 35,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 35,
+      "end": 35
     },
     "id": "d3d4f8403e85eb9c"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "class",
-    "name": "AbstractGreeter",
+    "role": {
+      "kind": "class",
+      "name": "AbstractGreeter"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "/** Base greeter defining the prefix contract. */\nabstract class AbstractGreeter {\n  protected x: string = DEFAULT_GREETING;\n\n  abstract greet(name: string): string;\n\n  get prefix(): string {\n    return this.x;\n  }\n\n  set prefix(value: string) {\n    this.x = value;\n  }\n}",
-    "line_start": 38,
-    "line_end": 51,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 38,
+      "end": 51
     },
     "id": "890fe4a27edf3d3c"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "method",
-    "name": "greet",
+    "role": {
+      "kind": "method",
+      "name": "greet"
+    },
     "scope": "AbstractGreeter",
     "language": "typescript",
     "file_language": "typescript",
     "content": "abstract greet(name: string): string",
-    "line_start": 42,
-    "line_end": 42,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 42,
+      "end": 42
     },
     "id": "3b001730462bbae2"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "method",
-    "name": "prefix",
+    "role": {
+      "kind": "method",
+      "name": "prefix"
+    },
     "scope": "AbstractGreeter",
     "language": "typescript",
     "file_language": "typescript",
     "content": "get prefix(): string {\n    return this.x;\n  }",
-    "line_start": 44,
-    "line_end": 46,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 44,
+      "end": 46
     },
     "id": "81d338b5d444b69a"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "method",
-    "name": "prefix",
+    "role": {
+      "kind": "method",
+      "name": "prefix"
+    },
     "scope": "AbstractGreeter",
     "language": "typescript",
     "file_language": "typescript",
     "content": "set prefix(value: string) {\n    this.x = value;\n  }",
-    "line_start": 48,
-    "line_end": 50,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 48,
+      "end": 50
     },
     "id": "cef81622d6b2bc7f"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "/** Stateful greeter holding a prefix. */",
-    "line_start": 53,
-    "line_end": 53,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 53,
+      "end": 53
     },
     "id": "d644a19c79a741ec"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "class",
-    "name": "Greeter",
+    "role": {
+      "kind": "class",
+      "name": "Greeter"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "class Greeter extends AbstractGreeter {\n  greet(name: string): string {\n    return `${this.x}, ${name}`;\n  }\n}",
-    "line_start": 54,
-    "line_end": 58,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 54,
+      "end": 58
     },
     "id": "a87be9f79adf18c9"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "method",
-    "name": "greet",
+    "role": {
+      "kind": "method",
+      "name": "greet"
+    },
     "scope": "Greeter",
     "language": "typescript",
     "file_language": "typescript",
     "content": "greet(name: string): string {\n    return `${this.x}, ${name}`;\n  }",
-    "line_start": 55,
-    "line_end": 57,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 55,
+      "end": 57
     },
     "id": "7e513d6aa6306610"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "class",
-    "name": "util",
+    "role": {
+      "kind": "class",
+      "name": "util"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "namespace util {\n  export function trim(value: string): string {\n    return value.trim();\n  }\n}",
-    "line_start": 60,
-    "line_end": 64,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 60,
+      "end": 64
     },
     "id": "86b1469beecf8c96"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "function",
-    "name": "trim",
+    "role": {
+      "kind": "function",
+      "name": "trim"
+    },
     "scope": "util",
     "language": "typescript",
     "file_language": "typescript",
     "content": "function trim(value: string): string {\n    return value.trim();\n  }",
-    "line_start": 61,
-    "line_end": 63,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 61,
+      "end": 63
     },
     "id": "bcab5fad63de22c9"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "// Re-exported so a consumer reaches these without naming their file.",
-    "line_start": 66,
-    "line_end": 66,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 66,
+      "end": 66
     },
     "id": "c74ac4631f65977e"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "import",
-    "name": "export { Locale } from \"./types\";",
+    "role": {
+      "kind": "import",
+      "name": "export { Locale } from \"./types\";",
+      "meta": {
+        "module": "types",
+        "names": "",
+        "dots": "1",
+        "language_hint": ""
+      }
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "export { Locale } from \"./types\";",
-    "line_start": 67,
-    "line_end": 67,
-    "metadata": {
-      "module": "types",
-      "names": "",
-      "dots": "1",
-      "language_hint": ""
+    "span": {
+      "start": 67,
+      "end": 67
     },
     "id": "7086161a86e476e1"
   },
   {
     "blob_sha": "sha1",
     "file_path": "typescript.ts",
-    "kind": "import",
-    "name": "export * from \"./config\";",
+    "role": {
+      "kind": "import",
+      "name": "export * from \"./config\";",
+      "meta": {
+        "module": "config",
+        "names": "",
+        "dots": "1",
+        "language_hint": ""
+      }
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "export * from \"./config\";",
-    "line_start": 68,
-    "line_end": 68,
-    "metadata": {
-      "module": "config",
-      "names": "",
-      "dots": "1",
-      "language_hint": ""
+    "span": {
+      "start": 68,
+      "end": 68
     },
     "id": "fbf278e7135316e2"
   }

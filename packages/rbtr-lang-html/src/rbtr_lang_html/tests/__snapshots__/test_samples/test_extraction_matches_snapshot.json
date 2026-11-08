@@ -2,380 +2,354 @@
   {
     "blob_sha": "sha1",
     "file_path": "greeter.js",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "javascript",
     "file_language": "javascript",
     "content": "// Client-side greeter.",
-    "line_start": 1,
-    "line_end": 1,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 1
     },
     "id": "1086b120f17a34b9"
   },
   {
     "blob_sha": "sha1",
     "file_path": "greeter.js",
-    "kind": "function",
-    "name": "greet",
+    "role": {
+      "kind": "function",
+      "name": "greet"
+    },
     "scope": "",
     "language": "javascript",
     "file_language": "javascript",
     "content": "function greet(name) {\n  return `Hello, ${name}`;\n}",
-    "line_start": 2,
-    "line_end": 4,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 2,
+      "end": 4
     },
     "id": "0622b12891ac9cdc"
   },
   {
     "blob_sha": "sha1",
     "file_path": "html.html",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "html",
     "file_language": "html",
     "content": "<!-- Greeter page. The HTML plugin extracts <script src>/<link href>\n     as imports (with a language hint) and major <body> elements as\n     doc sections. -->",
-    "line_start": 2,
-    "line_end": 4,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 2,
+      "end": 4
     },
     "id": "df0cb4650d419a7c"
   },
   {
     "blob_sha": "sha1",
     "file_path": "html.html",
-    "kind": "doc_section",
-    "name": "head",
+    "role": {
+      "kind": "doc_section",
+      "name": "head"
+    },
     "scope": "",
     "language": "html",
     "file_language": "html",
     "content": "<head>\n    <title>Greeter</title>\n    <link rel=\"stylesheet\" href=\"styles.css\">\n    <script src=\"greeter.js\"></script>\n    <style>\n      .greeter {\n        font-family: system-ui;\n      }\n    </style>\n  </head>",
-    "line_start": 6,
-    "line_end": 15,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 6,
+      "end": 15
     },
     "id": "8b6caffda7ad3b29"
   },
   {
     "blob_sha": "sha1",
     "file_path": "html.html",
-    "kind": "import",
-    "name": "<link rel=\"stylesheet\" href=\"styles.css\">",
+    "role": {
+      "kind": "import",
+      "name": "<link rel=\"stylesheet\" href=\"styles.css\">",
+      "meta": {
+        "module": "styles.css",
+        "names": "",
+        "dots": "",
+        "language_hint": "css"
+      }
+    },
     "scope": "",
     "language": "html",
     "file_language": "html",
     "content": "<link rel=\"stylesheet\" href=\"styles.css\">\n    ",
-    "line_start": 8,
-    "line_end": 9,
-    "metadata": {
-      "module": "styles.css",
-      "names": "",
-      "dots": "",
-      "language_hint": "css"
+    "span": {
+      "start": 8,
+      "end": 9
     },
     "id": "74784d330d51707b"
   },
   {
     "blob_sha": "sha1",
     "file_path": "html.html",
-    "kind": "import",
-    "name": "<script src=\"greeter.js\"></script>",
+    "role": {
+      "kind": "import",
+      "name": "<script src=\"greeter.js\"></script>",
+      "meta": {
+        "module": "greeter.js",
+        "names": "",
+        "dots": "",
+        "language_hint": "javascript"
+      }
+    },
     "scope": "",
     "language": "html",
     "file_language": "html",
     "content": "<script src=\"greeter.js\"></script>",
-    "line_start": 9,
-    "line_end": 9,
-    "metadata": {
-      "module": "greeter.js",
-      "names": "",
-      "dots": "",
-      "language_hint": "javascript"
+    "span": {
+      "start": 9,
+      "end": 9
     },
     "id": "da346ac121464c2b"
   },
   {
     "blob_sha": "sha1",
     "file_path": "html.html",
-    "kind": "doc_section",
-    "name": "body",
+    "role": {
+      "kind": "doc_section",
+      "name": "body"
+    },
     "scope": "",
     "language": "html",
     "file_language": "html",
     "content": "<body>\n    <header class=\"page-header\">\n      <h1>Greeter</h1>\n    </header>\n    <main id=\"content\">\n      <section id=\"intro\">\n        <p>Format greetings for named recipients.</p>\n      </section>\n    </main>\n    <footer>\n      <small>Greeter &mdash; a greetings library.</small>\n    </footer>\n    <script>\n      function init() {\n        return greet(\"world\");\n      }\n    </script>\n  </body>",
-    "line_start": 16,
-    "line_end": 33,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 16,
+      "end": 33
     },
     "id": "8c9ed79d9778bcb8"
   },
   {
     "blob_sha": "sha1",
     "file_path": "html.html",
-    "kind": "doc_section",
-    "name": "header",
+    "role": {
+      "kind": "doc_section",
+      "name": "header"
+    },
     "scope": "",
     "language": "html",
     "file_language": "html",
     "content": "<header class=\"page-header\">\n      <h1>Greeter</h1>\n    </header>",
-    "line_start": 17,
-    "line_end": 19,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 17,
+      "end": 19
     },
     "id": "be2a2586545ab335"
   },
   {
     "blob_sha": "sha1",
     "file_path": "html.html",
-    "kind": "doc_section",
-    "name": "content",
+    "role": {
+      "kind": "doc_section",
+      "name": "content"
+    },
     "scope": "",
     "language": "html",
     "file_language": "html",
     "content": "<main id=\"content\">\n      <section id=\"intro\">\n        <p>Format greetings for named recipients.</p>\n      </section>\n    </main>",
-    "line_start": 20,
-    "line_end": 24,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 20,
+      "end": 24
     },
     "id": "a55b5c4e1e5c6f38"
   },
   {
     "blob_sha": "sha1",
     "file_path": "html.html",
-    "kind": "doc_section",
-    "name": "intro",
+    "role": {
+      "kind": "doc_section",
+      "name": "intro"
+    },
     "scope": "",
     "language": "html",
     "file_language": "html",
     "content": "<section id=\"intro\">\n        <p>Format greetings for named recipients.</p>\n      </section>",
-    "line_start": 21,
-    "line_end": 23,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 21,
+      "end": 23
     },
     "id": "2633ecb762f41b95"
   },
   {
     "blob_sha": "sha1",
     "file_path": "html.html",
-    "kind": "doc_section",
-    "name": "footer",
+    "role": {
+      "kind": "doc_section",
+      "name": "footer"
+    },
     "scope": "",
     "language": "html",
     "file_language": "html",
     "content": "<footer>\n      <small>Greeter &mdash; a greetings library.</small>\n    </footer>",
-    "line_start": 25,
-    "line_end": 27,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 25,
+      "end": 27
     },
     "id": "b036defcfc351337"
   },
   {
     "blob_sha": "sha1",
     "file_path": "html.html",
-    "kind": "class",
-    "name": ".greeter",
+    "role": {
+      "kind": "class",
+      "name": ".greeter"
+    },
     "scope": "",
     "language": "css",
     "file_language": "html",
     "content": ".greeter {\n        font-family: system-ui;\n      }",
-    "line_start": 11,
-    "line_end": 13,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 11,
+      "end": 13
     },
     "id": "722491d8d6786030"
   },
   {
     "blob_sha": "sha1",
     "file_path": "html.html",
-    "kind": "function",
-    "name": "init",
+    "role": {
+      "kind": "function",
+      "name": "init"
+    },
     "scope": "",
     "language": "javascript",
     "file_language": "html",
     "content": "function init() {\n        return greet(\"world\");\n      }",
-    "line_start": 29,
-    "line_end": 31,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 29,
+      "end": 31
     },
     "id": "ab46b1ed9ad7e266"
   },
   {
     "blob_sha": "sha1",
     "file_path": "pages/about.html",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "html",
     "file_language": "html",
     "content": "<!-- Linked from html.html. Its script src is a bare sibling, which only\n     resolves relative to this directory. -->",
-    "line_start": 1,
-    "line_end": 2,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 2
     },
     "id": "685e10d015c11d95"
   },
   {
     "blob_sha": "sha1",
     "file_path": "pages/about.html",
-    "kind": "doc_section",
-    "name": "head",
+    "role": {
+      "kind": "doc_section",
+      "name": "head"
+    },
     "scope": "",
     "language": "html",
     "file_language": "html",
     "content": "<head>\n    <script src=\"about.js\"></script>\n  </head>",
-    "line_start": 4,
-    "line_end": 6,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 4,
+      "end": 6
     },
     "id": "3b7525e08faf54be"
   },
   {
     "blob_sha": "sha1",
     "file_path": "pages/about.html",
-    "kind": "import",
-    "name": "<script src=\"about.js\"></script>",
+    "role": {
+      "kind": "import",
+      "name": "<script src=\"about.js\"></script>",
+      "meta": {
+        "module": "about.js",
+        "names": "",
+        "dots": "",
+        "language_hint": "javascript"
+      }
+    },
     "scope": "",
     "language": "html",
     "file_language": "html",
     "content": "<script src=\"about.js\"></script>",
-    "line_start": 5,
-    "line_end": 5,
-    "metadata": {
-      "module": "about.js",
-      "names": "",
-      "dots": "",
-      "language_hint": "javascript"
+    "span": {
+      "start": 5,
+      "end": 5
     },
     "id": "869b48c31de20a5d"
   },
   {
     "blob_sha": "sha1",
     "file_path": "pages/about.html",
-    "kind": "doc_section",
-    "name": "body",
+    "role": {
+      "kind": "doc_section",
+      "name": "body"
+    },
     "scope": "",
     "language": "html",
     "file_language": "html",
     "content": "<body>\n    <h1>About</h1>\n  </body>",
-    "line_start": 7,
-    "line_end": 9,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 7,
+      "end": 9
     },
     "id": "8c81895e570fa47d"
   },
   {
     "blob_sha": "sha1",
     "file_path": "pages/about.js",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "javascript",
     "file_language": "javascript",
     "content": "// Referenced from pages/about.html as a bare sibling.",
-    "line_start": 1,
-    "line_end": 1,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 1
     },
     "id": "1086b120f17a34b9"
   },
   {
     "blob_sha": "sha1",
     "file_path": "pages/about.js",
-    "kind": "function",
-    "name": "describe",
+    "role": {
+      "kind": "function",
+      "name": "describe"
+    },
     "scope": "",
     "language": "javascript",
     "file_language": "javascript",
     "content": "function describe() {\n  return \"about\";\n}",
-    "line_start": 2,
-    "line_end": 4,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 2,
+      "end": 4
     },
     "id": "e8f56e596019719c"
   },
   {
     "blob_sha": "sha1",
     "file_path": "styles.css",
-    "kind": "class",
-    "name": ".greeter",
+    "role": {
+      "kind": "class",
+      "name": ".greeter"
+    },
     "scope": "",
     "language": "css",
     "file_language": "css",
     "content": ".greeter {\n  color: #333;\n}",
-    "line_start": 1,
-    "line_end": 3,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 3
     },
     "id": "6f956de079e5ad55"
   }

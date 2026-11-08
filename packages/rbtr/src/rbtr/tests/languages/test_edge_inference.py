@@ -121,17 +121,15 @@ def inferred(scenario: EdgeScenario) -> tuple[EdgeScenario, list[Edge], dict[str
     translated through this map.
     """
     chunks = [
-        Chunk(
-            blob_sha=f"sha_{spec.id}",
-            file_path=spec.file_path,
-            kind=spec.kind,
-            name=spec.name,
-            language=spec.language,
-            content=spec.content,
-            line_start=1,
-            line_end=1,
-            scope="",
-            metadata=spec.metadata,
+        Chunk.model_validate(
+            {
+                "blob_sha": f"sha_{spec.id}",
+                "file_path": spec.file_path,
+                "role": {"kind": spec.kind, "name": spec.name, "meta": spec.metadata},
+                "language": spec.language,
+                "content": spec.content,
+                "span": {"start": 1, "end": 1},
+            }
         )
         for spec in scenario.chunks
     ]
@@ -495,24 +493,22 @@ def test_a_name_twice_in_a_file_is_reached_at_its_first_line() -> None:
     The rows arrive later line first, so row order cannot decide it.
     """
 
-    def chunk(
-        file_path: str, kind: ChunkKind, name: str, line: int, meta: ImportMeta | None = None
-    ) -> Chunk:
-        return Chunk(
-            blob_sha=f"sha_{file_path}",
-            file_path=file_path,
-            kind=kind,
-            name=name,
-            language="python",
-            content="",
-            line_start=line,
-            line_end=line,
-            metadata=meta or ImportMeta(),
+    def chunk(file_path: str, role: dict[str, object], line: int) -> Chunk:
+        return Chunk.model_validate(
+            {
+                "blob_sha": f"sha_{file_path}",
+                "file_path": file_path,
+                "role": role,
+                "language": "python",
+                "content": "",
+                "span": {"start": line, "end": line},
+            }
         )
 
-    later = chunk("b.py", ChunkKind.FUNCTION, "f", line=10)
-    earlier = chunk("b.py", ChunkKind.FUNCTION, "f", line=2)
-    importer = chunk("a.py", ChunkKind.IMPORT, "b", line=1, meta=ImportMeta(module="b", names="f"))
+    later = chunk("b.py", {"kind": ChunkKind.FUNCTION, "name": "f"}, line=10)
+    earlier = chunk("b.py", {"kind": ChunkKind.FUNCTION, "name": "f"}, line=2)
+    meta = ImportMeta(module="b", names="f")
+    importer = chunk("a.py", {"kind": ChunkKind.IMPORT, "name": "b", "meta": meta}, line=1)
     resolution = ImportResolution(
         extensions=(".py",), index_files=(), source_roots=("",), path_substitutions=()
     )

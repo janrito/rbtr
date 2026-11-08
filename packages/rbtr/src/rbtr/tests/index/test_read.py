@@ -12,7 +12,15 @@ from __future__ import annotations
 import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.domain.models import ChunkKind, Edge, EdgeKind, ImportMeta, SnapshotRef
+from rbtr.domain.models import (
+    ChunkKind,
+    Edge,
+    EdgeKind,
+    Import,
+    ImportMeta,
+    SnapshotRef,
+    Span,
+)
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
@@ -212,13 +220,12 @@ def script_import() -> TokenisedChunk:
     return TokenisedChunk(
         blob_sha="blob_page",
         file_path="page.html",
-        kind=ChunkKind.IMPORT,
-        name="greeter.js",
+        role=Import(
+            name="greeter.js", meta=ImportMeta(module="greeter.js", language_hint="javascript")
+        ),
         content=content,
         content_tokens=tokenise_code(content),
-        line_start=3,
-        line_end=3,
-        metadata=ImportMeta(module="greeter.js", language_hint="javascript"),
+        span=Span(start=3, end=3),
     )
 
 
