@@ -78,10 +78,6 @@ def render_edges(edges: dy.DataFrame[InferredEdgeRow], chunks: list[Chunk]) -> l
         {"id": [c.id for c in chunks], "label": [f"{c.file_path}::{c.name}" for c in chunks]},
         schema={"id": pl.String, "label": pl.String},
     ).unique("id", keep="last")
-
-    def label(end: str) -> pl.Expr:
-        return pl.coalesce(pl.col(f"{end}_label"), pl.format("<{}>", pl.col(f"{end}_id")))
-
     return (
         edges.join(
             labels.rename({"id": "source_id", "label": "source_label"}), on="source_id", how="left"
@@ -91,7 +87,7 @@ def render_edges(edges: dy.DataFrame[InferredEdgeRow], chunks: list[Chunk]) -> l
         )
         .select(
             pl.format(
-                "{} -> {} [{}]", label("source"), label("target"), pl.col("kind").cast(pl.String)
+                "{} -> {} [{}]", "source_label", "target_label", pl.col("kind").cast(pl.String)
             )
         )
         .to_series()
