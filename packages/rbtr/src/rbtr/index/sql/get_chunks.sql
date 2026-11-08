@@ -33,4 +33,4 @@ WHERE
   AND ($file_path IS NULL OR fs.file_path = $file_path)
   AND ($kind IS NULL OR c.kind = $kind)
   AND ($name IS NULL OR c.name = $name)
-ORDER BY fs.file_path, c.line_start
+ORDER BY fs.file_path, c.line_start, c.line_end, c.kind, c.name, c.id
