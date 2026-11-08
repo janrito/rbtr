@@ -22,7 +22,7 @@ from __future__ import annotations
 import os
 import signal
 import time
-from collections.abc import Generator, Iterator
+from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -39,7 +39,6 @@ from rbtr.domain.models import Chunk, Chunks
 if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
     from syrupy.types import PropertyFilter, PropertyMatcher, SerializableData, SerializedData
-    from tree_sitter import Node
 
     from rbtr.languages.edges import EdgeChunkRow, InferredEdgeRow
 
@@ -163,15 +162,16 @@ def assert_fully_chunked(file_path: str, text: str, chunks: list[Chunk], languag
     ]
     covered = {line for start, end in spans for line in range(start, end + 1)}
 
-    def dropped(node: Node) -> Iterator[tuple[str, int]]:
-        for child in node.named_children:
-            lines = set(range(child.start_point[0] + 1, last_line(child) + 1))
-            if not lines & covered:
-                yield (child.type, child.start_point[0] + 1)
-            elif not lines <= covered:
-                yield from dropped(child)
-
-    missing = list(dropped(tree.root_node))
+    missing: list[tuple[str, int]] = []
+    # Nodes still to look at, the next on top, so they are visited in source order.
+    pending = tree.root_node.named_children[::-1]
+    while pending:
+        node = pending.pop()
+        lines = set(range(node.start_point[0] + 1, last_line(node) + 1))
+        if not lines & covered:
+            missing.append((node.type, node.start_point[0] + 1))
+        elif not lines <= covered:
+            pending.extend(node.named_children[::-1])
     if missing:
         # Raised rather than asserted: this ships, and `-O` strips an assert.
         raise DroppedBlocks(file_path, missing)
