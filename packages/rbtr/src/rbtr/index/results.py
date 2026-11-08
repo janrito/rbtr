@@ -19,9 +19,7 @@ import polars as pl
 
 from rbtr.domain.models import (
     ChangeKind,
-    Chunk,
     ChunkKind,
-    Chunks,
     EdgeKind,
     Repo,
     SnapshotCounts,
@@ -334,17 +332,6 @@ def chunk_ids_view(chunk_ids: list[str]) -> dy.DataFrame[ChunkIdRow]:
     """Build the `_chunk_ids` join view from a page of chunk ids."""
     frame = pl.DataFrame({"id": chunk_ids}, schema={"id": pl.String})
     return ChunkIdRow.validate(frame, cast=True)
-
-
-def frame_to_chunks(frame: dy.DataFrame[ChunkResultRow]) -> list[Chunk]:
-    """Convert a validated chunk-result frame to `Chunk` models.
-
-    A chunk with no import metadata stores a null struct; its `Chunk`
-    gets the empty `ImportMeta`.
-    """
-    empty = pl.struct(pl.lit("").alias(name) for name in frame["metadata"].struct.fields)
-    filled = frame.with_columns(pl.col("metadata").fill_null(empty))
-    return Chunks.validate_python(filled.to_dicts())
 
 
 _IMPORT_FIELDS = ("module", "names", "dots", "language_hint")

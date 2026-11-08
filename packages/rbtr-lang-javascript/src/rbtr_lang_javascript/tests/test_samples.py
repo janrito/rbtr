@@ -18,7 +18,7 @@ from rbtr.git import FileEntry
 from rbtr.languages.edges import build_resolution_map, infer_import_edges
 from rbtr.languages.extract import extract_file
 from rbtr.languages.manager import get_manager
-from rbtr.testing import render_edges
+from rbtr.testing import edge_rows, render_edges
 
 if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
@@ -61,7 +61,7 @@ def edges(project: list[tuple[str, str]], chunks: list[Chunk]) -> list[Edge]:
     """Import edges inferred across the project's files."""
     manager = get_manager()
     repo_files = {path for path, _ in project}
-    return infer_import_edges(chunks, repo_files, build_resolution_map(manager))
+    return infer_import_edges(edge_rows(chunks), repo_files, build_resolution_map(manager))
 
 
 def test_emits_expected_kinds(chunks: list[Chunk]) -> None:

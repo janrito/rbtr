@@ -15,6 +15,7 @@ from rbtr.git import FileEntry
 from rbtr.languages.edges import build_resolution_map, infer_import_edges
 from rbtr.languages.extract import extract_file
 from rbtr.languages.manager import get_manager
+from rbtr.testing import edge_rows
 
 from .cases_import_resolution import ImportScenario
 
@@ -41,7 +42,7 @@ def test_language_import_reaches_the_imported_file(scenario: ImportScenario) -> 
 
     repo_files = {scenario.importer, scenario.target, *scenario.extra_files}
     resolution = build_resolution_map(manager, manifests=scenario.extra_files)
-    edges = infer_import_edges(chunks, repo_files, resolution)
+    edges = infer_import_edges(edge_rows(chunks), repo_files, resolution)
 
     reached = [e.target_path for e in edges]
     assert scenario.target in reached, f"{scenario.importer} names {scenario.target}, got {reached}"
