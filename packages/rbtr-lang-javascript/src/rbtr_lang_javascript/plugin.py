@@ -100,7 +100,7 @@ def extract_import_meta(
         dots, cleaned = parse_path_relative(raw_module)
         if dots:
             meta.dots = str(dots)
-        # Strip file extensions so edges.py can match without guessing.
+        # Strip file extensions so module resolution can match without guessing.
         cleaned = str(PurePosixPath(cleaned).with_suffix("")) or cleaned
         meta.module = cleaned
 

@@ -97,8 +97,8 @@ class ImportMeta(BaseModel):
     """Structured import data extracted by tree-sitter.
 
     All fields default to empty — different import styles
-    populate different subsets.  `edges.py` reads these fields
-    without knowing the source language.
+    populate different subsets.  Edge inference and module
+    resolution read these fields without knowing the source language.
     """
 
     module: str = ""

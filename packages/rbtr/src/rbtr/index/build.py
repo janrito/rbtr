@@ -43,10 +43,11 @@ from rbtr.index.progress import ProgressCallback, _noop_progress
 from rbtr.index.results import ChunkResultRow
 from rbtr.index.staging import TokenisedChunk
 from rbtr.languages.chunks import detect_prose_format, host_presence_chunk
-from rbtr.languages.edges import EdgeChunkRow, build_resolution_map, infer_import_edges
+from rbtr.languages.edges import EdgeChunkRow, infer_import_edges
 from rbtr.languages.extract import extract_file
 from rbtr.languages.manager import get_manager
 from rbtr.languages.plaintext import PLAINTEXT
+from rbtr.languages.resolution import build_resolution_map
 from rbtr.rbtrignore import load_ignore
 
 log = structlog.get_logger(__name__)

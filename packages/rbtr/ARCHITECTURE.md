@@ -476,20 +476,22 @@ reaches:
   document it reaches, as a Markdown link's fragment names a
   heading, so a data language's keys are in the symbol index.
 
-Import resolution maps a module string to a repo file. A
-reference carrying its own depth — `../b`, or a `dots` the
-extractor set — is anchored to the importing file and has one
-place to look. Anything else is tried from the repository root
-first, then, for a `ModuleStyle.PATH` language, beside the
+Import resolution (`languages/resolution.py`) maps a module
+string to repo files, by the rules each language plugin declares
+on its registration. A reference carrying its own depth — `../b`,
+or a `dots` the extractor set — is anchored to the importing file
+and has one place to look. Anything else is looked for from the
+repository root: under each source root, then as a *suffix* of a
+candidate file path (so `rbtr.index.index` →
+`…/rbtr/index/index.py`, which lets a single index span a
+monorepo), then as a package directory. A `ModuleStyle.PATH`
+reference found nowhere from the root is tried beside the
 importing file: `@import "b.css"` in `css/a.css` means
-`css/b.css`, and the root is tried first so a reference that
-already resolves keeps the file it resolved to. Failing both, a
-dotted path matches as a *suffix* of a candidate file path (so
-`rbtr.index.index` → `…/rbtr/index/index.py`) — which lets a
-single index span a monorepo. `module_style` and
-`source_roots` tune the mapping per language; ambiguous
-matches are dropped rather than guessed, and a file never
-resolves to itself.
+`css/b.css`, and the root comes first so a reference that already
+resolves keeps the file it resolved to. `module_style` and
+`source_roots` tune the mapping per language; ambiguous matches
+are dropped rather than guessed, and a file never resolves to
+itself.
 
 Some references name a directory rather than a file. Where the
 language names a directory's stand-in — `__init__.py`,
