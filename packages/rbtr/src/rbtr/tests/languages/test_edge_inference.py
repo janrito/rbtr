@@ -6,15 +6,16 @@ from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.domain.models import (
     Chunk,
-    ChunkKind,
     Edge,
     EdgeKind,
-    ImportMeta,
 )
+from rbtr.git import FileEntry
 from rbtr.languages.edges import (
     infer_import_edges,
 )
-from rbtr.languages.resolution import ImportResolution
+from rbtr.languages.extract import extract_file
+from rbtr.languages.manager import get_manager
+from rbtr.languages.resolution import build_resolution_map
 from rbtr.testing import edge_rows
 
 from .cases_edges import EdgeScenario
@@ -68,33 +69,22 @@ def test_inference_edge_kind_is_correct(
 
 
 def test_a_name_twice_in_a_file_is_reached_at_its_first_line() -> None:
-    """Of two symbols an import names in one file, it reaches the one earlier in the file.
+    """Of two definitions an import names in one file, it reaches the one earlier in the file.
 
     The rows arrive later line first, so row order cannot decide it.
     """
+    importer = extract_file(FileEntry("a.py", "sha_a", b"from b import f\n"), "python")
+    target_source = b"""\
+def f():
+    return 1
 
-    def chunk(file_path: str, role: dict[str, object], line: int) -> Chunk:
-        return Chunk.model_validate(
-            {
-                "blob_sha": f"sha_{file_path}",
-                "file_path": file_path,
-                "role": role,
-                "language": "python",
-                "content": "",
-                "span": {"start": line, "end": line},
-            }
-        )
 
-    later = chunk("b.py", {"kind": ChunkKind.FUNCTION, "name": "f"}, line=10)
-    earlier = chunk("b.py", {"kind": ChunkKind.FUNCTION, "name": "f"}, line=2)
-    meta = ImportMeta(module="b", names="f")
-    importer = chunk("a.py", {"kind": ChunkKind.IMPORT, "name": "b", "meta": meta}, line=1)
-    resolution = ImportResolution(
-        extensions=(".py",), index_files=(), source_roots=("",), path_substitutions=()
-    )
+def f():
+    return 2
+"""
+    target = extract_file(FileEntry("b.py", "sha_b", target_source), "python")
+    rows = edge_rows([*importer, *target][::-1])
 
-    edges = infer_import_edges(
-        edge_rows([importer, later, earlier]), {"a.py", "b.py"}, {"python": resolution}
-    )
+    edges = infer_import_edges(rows, {"a.py", "b.py"}, build_resolution_map(get_manager()))
 
-    assert [e.target_id for e in edges] == [earlier.id]
+    assert [e.target_id for e in edges] == [c.id for c in target if c.span.start == 1]
