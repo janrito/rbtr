@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import functools
 import threading
 import time
 from pathlib import Path
@@ -32,12 +31,6 @@ from .cases_work_queue import NextJobScenario
 from .conftest import serving, subscribed
 
 
-def _stop_at_edges(stop: threading.Event, phase: str, _done: int, _total: int) -> None:
-    """Stop a build once its chunks are written, before it marks the snapshot indexed."""
-    if phase == "edges":
-        stop.set()
-
-
 @fixture
 @parametrize_with_cases("scenario", cases=".cases_work_queue", has_tag="next_job")
 def next_job(scenario: NextJobScenario) -> NextJobScenario:
@@ -58,6 +51,7 @@ def next_job_shas(
     """
     repos = {"a": fake_repo, "b": second_repo}
     shas: dict[str, str] = {}
+    stop = threading.Event()
     for n, snap in enumerate(next_job.snapshots):
         path = repos[snap.repo]
         source = f"""\
@@ -69,14 +63,17 @@ def fn{n}():
         if snap.indexed:
             build_index(path, sha, index)
         else:
-            stop = threading.Event()
+            stop.clear()
             with pytest.raises(BuildStopped):
                 build_index(
                     path,
                     sha,
                     index,
                     stop=stop,
-                    on_progress=functools.partial(_stop_at_edges, stop),
+                    # Stopped once its chunks are written, before it marks the snapshot indexed.
+                    on_progress=lambda phase, _done, _total: (
+                        stop.set() if phase == "edges" else None
+                    ),
                 )
         if snap.embedded:
             embed_index(index, at=index.register(path).at(sha), embedder=stubbed_embedder)
