@@ -1,177 +1,108 @@
 [
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "comment",
     "file_path": "main.tf",
-    "role": {
-      "kind": "comment"
-    },
     "scope": "",
     "language": "hcl",
-    "file_language": "hcl",
     "content": "# Greeter service infrastructure.\n#\n# The HCL plugin extracts each top-level block as a doc section, named by its\n# type and labels: a bare block by its type (terraform), a variable/output by\n# its name, a resource by its type and name.",
-    "span": {
-      "start": 1,
-      "end": 5
-    },
-    "id": "7d2924582868db42"
+    "line_start": 1,
+    "line_end": 5
   },
   {
-    "blob_sha": "sha1",
+    "name": "terraform",
+    "kind": "config_key",
     "file_path": "main.tf",
-    "role": {
-      "kind": "config_key",
-      "name": "terraform"
-    },
     "scope": "",
     "language": "hcl",
-    "file_language": "hcl",
     "content": "terraform {\n  required_version = \">= 1.5\"\n}",
-    "span": {
-      "start": 7,
-      "end": 9
-    },
-    "id": "f58842c77d1a871a"
+    "line_start": 7,
+    "line_end": 9
   },
   {
-    "blob_sha": "sha1",
+    "name": "variable region",
+    "kind": "config_key",
     "file_path": "main.tf",
-    "role": {
-      "kind": "config_key",
-      "name": "variable region"
-    },
     "scope": "",
     "language": "hcl",
-    "file_language": "hcl",
     "content": "variable \"region\" {\n  description = \"Deployment region for the greeter service.\"\n  type        = string\n  default     = \"us-east-1\"\n}",
-    "span": {
-      "start": 11,
-      "end": 15
-    },
-    "id": "3e495ada0ca309cb"
+    "line_start": 11,
+    "line_end": 15
   },
   {
-    "blob_sha": "sha1",
+    "name": "resource aws_instance greeter",
+    "kind": "config_key",
     "file_path": "main.tf",
-    "role": {
-      "kind": "config_key",
-      "name": "resource aws_instance greeter"
-    },
     "scope": "",
     "language": "hcl",
-    "file_language": "hcl",
     "content": "resource \"aws_instance\" \"greeter\" {\n  ami           = \"ami-0abc123\"\n  instance_type = \"t3.micro\"\n\n  tags = {\n    Name = \"greeter\"\n  }\n}",
-    "span": {
-      "start": 17,
-      "end": 24
-    },
-    "id": "0bb9553077557d9d"
+    "line_start": 17,
+    "line_end": 24
   },
   {
-    "blob_sha": "sha1",
+    "name": "output greeter_ip",
+    "kind": "config_key",
     "file_path": "main.tf",
-    "role": {
-      "kind": "config_key",
-      "name": "output greeter_ip"
-    },
     "scope": "",
     "language": "hcl",
-    "file_language": "hcl",
     "content": "output \"greeter_ip\" {\n  description = \"Public IP of the greeter instance.\"\n  value       = aws_instance.greeter.public_ip\n}",
-    "span": {
-      "start": 26,
-      "end": 29
-    },
-    "id": "52d00073c71d16e6"
+    "line_start": 26,
+    "line_end": 29
   },
   {
-    "blob_sha": "sha1",
+    "name": "module greeter",
+    "kind": "config_key",
     "file_path": "main.tf",
-    "role": {
-      "kind": "config_key",
-      "name": "module greeter"
-    },
     "scope": "",
     "language": "hcl",
-    "file_language": "hcl",
     "content": "module \"greeter\" {\n  source = \"./modules/greeter\"\n}",
-    "span": {
-      "start": 31,
-      "end": 33
-    },
-    "id": "d08d3f48a7c705df"
+    "line_start": 31,
+    "line_end": 33
   },
   {
-    "blob_sha": "sha1",
+    "name": "module \"greeter\" {\n  source = \"./modules/greeter\"\n}",
+    "kind": "import",
     "file_path": "main.tf",
-    "role": {
-      "kind": "import",
-      "name": "module \"greeter\" {\n  source = \"./modules/greeter\"\n}",
-      "meta": {
-        "module": "./modules/greeter",
-        "names": "",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
     "scope": "",
     "language": "hcl",
-    "file_language": "hcl",
     "content": "module \"greeter\" {\n  source = \"./modules/greeter\"\n}",
-    "span": {
-      "start": 31,
-      "end": 33
-    },
-    "id": "04b63f6a4402d449"
+    "line_start": 31,
+    "line_end": 33,
+    "metadata": {
+      "module": "./modules/greeter",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
   },
   {
-    "blob_sha": "sha1",
+    "name": "variable name",
+    "kind": "config_key",
     "file_path": "modules/greeter/main.tf",
-    "role": {
-      "kind": "config_key",
-      "name": "variable name"
-    },
     "scope": "",
     "language": "hcl",
-    "file_language": "hcl",
     "content": "# The module main.tf reads via `source = \"./modules/greeter\"`. A Terraform\n# module is a directory, so the reference reaches every .tf file in it.\nvariable \"name\" {\n  type    = string\n  default = \"world\"\n}",
-    "span": {
-      "start": 1,
-      "end": 6
-    },
-    "id": "6473410d3fce61e5"
+    "line_start": 1,
+    "line_end": 6
   },
   {
-    "blob_sha": "sha1",
+    "name": "output greeting",
+    "kind": "config_key",
     "file_path": "modules/greeter/main.tf",
-    "role": {
-      "kind": "config_key",
-      "name": "output greeting"
-    },
     "scope": "",
     "language": "hcl",
-    "file_language": "hcl",
     "content": "output \"greeting\" {\n  value = \"Hello, ${var.name}\"\n}",
-    "span": {
-      "start": 8,
-      "end": 10
-    },
-    "id": "7d290195d36951c4"
+    "line_start": 8,
+    "line_end": 10
   },
   {
-    "blob_sha": "sha1",
+    "name": "terraform",
+    "kind": "config_key",
     "file_path": "modules/greeter/versions.tf",
-    "role": {
-      "kind": "config_key",
-      "name": "terraform"
-    },
     "scope": "",
     "language": "hcl",
-    "file_language": "hcl",
     "content": "# A second file of the same module, reached by the same reference.\nterraform {\n  required_version = \">= 1.6\"\n}",
-    "span": {
-      "start": 1,
-      "end": 4
-    },
-    "id": "b86fbf09f6da8746"
+    "line_start": 1,
+    "line_end": 4
   }
 ]

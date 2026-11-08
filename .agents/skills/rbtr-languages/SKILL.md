@@ -249,9 +249,9 @@ no query names").
 
 A fragment is a gap report, not a target. Read the gaps two ways:
 
-- **A sample's snapshot.** Each `test_samples.py` runs
-  `test_every_line_reaches_a_chunk`, and the snapshot shows every fragment the
-  sample leaves. A fragment holding a definition is a missing capture: a C
+- **A sample's snapshot.** Each `test_samples.py` snapshots the symbols a
+  build of the sample holds, fragments among them, and the lines no chunk
+  spans. A fragment holding a definition is a missing capture: a C
   prototype inside an `#ifndef` guard, a Python decorator left outside its
   function's chunk.
 - **rbtr-eval's `INDEX.md`.** Its fragments table counts, per language, the
@@ -356,7 +356,8 @@ Curated per-language verdicts (take / modify / ignore) and the
 ## Testing
 
 Each language has a sample mini-project under its package's `tests/samples/`
-(one or more files), golden-snapshotted (full `model_dump_json`),
-coverage-checked, and parse-clean-checked. See **rbtr-testing**. Samples are
+(one or more files), built as rbtr builds a repository, golden-snapshotted
+(the symbols `read-symbol` returns, the edges, and the lines no chunk spans),
+and parse-clean-checked. See **rbtr-testing**. Samples are
 exempt from the repo's linters/type-checker (they're fixtures) — validated
 only by their own tests.

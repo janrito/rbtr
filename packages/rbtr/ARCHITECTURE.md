@@ -448,13 +448,26 @@ Each plugin owns its samples, beside its code:
 exercising the constructs that plugin extracts. They are both
 worked examples of extraction and golden-tested fixtures.
 
-A plugin's `test_samples.py` runs the real per-file entry point
-(`rbtr.languages.extract.extract_file`) over the sample tree and
-compares the result against a committed snapshot under
-`__snapshots__/`, so any drift in extraction output turns the
-test red. The `snapshot_json` fixture that serialises chunks to
-canonical JSON ships with core's pytest plugin
-(`rbtr.testing`), so a plugin needs no `conftest.py`.
+A plugin's `test_samples.py` builds the sample tree with
+`build_index`, as rbtr builds a repository, and compares what the
+index then holds against committed snapshots under `__snapshots__/`:
+the symbols `read-symbol` returns, the edges, and the lines no chunk
+spans. Any drift in extraction output turns the test red. Core's
+pytest plugin (`rbtr.testing`) commits and builds the sample
+(`sample_index`, `sample_ref`) and serialises the replies
+(`snapshot_json`), so a plugin needs no `conftest.py`.
+
+The snapshots record the reply shape, not the write model (`Chunk`),
+so a change to how chunks are written or stored changes no snapshot
+unless what a user reads changes too. A sample test does not extract
+each file and infer edges itself: that repeats the build and drifts
+from it, as a file no plugin claims is plaintext only in a build. Nor
+do the build and the tests share a pure files-to-chunks-and-edges
+function: the build is incremental, extracting only blobs the store
+lacks and inferring edges from everything the store holds for the
+snapshot, so such a function would be a path production never takes.
+Revisit that if building a sample becomes too slow to run once per
+test module.
 
 Regenerate every plugin's snapshots after an intended extraction
 change with `just snapshots`, and review the diff before
