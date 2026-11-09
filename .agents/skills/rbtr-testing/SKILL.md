@@ -116,12 +116,12 @@ does that level's work itself. The work then drifts from
 production, and every change to an internal shape ripples through
 the tests. Work at these levels:
 
-- **Use cases, the bulk.** Input as files or arguments, results
-  read back through `Index` reads, or through the reply DTOs in
-  `rbtr.daemon.dto` where a reply shape exists. A plugin's sample
-  test builds its sample with `sample_index` rather than extracting
-  each file and inferring edges itself; an edge case is a set of
-  files built with `build_index`, not chunks written by hand.
+- **Use cases, the bulk.** Input as files or arguments, results read back through
+  `Index` reads, or through the reply DTOs in `rbtr.daemon.dto` where a reply shape
+  exists. A plugin's sample test reads its built sample through `sample_symbols` and
+  `sample_edges`, plain values with no index or frame behind them, rather than
+  extracting each file and inferring edges itself; an edge case is a set of files built
+  with `build_index`, not chunks written by hand.
 - **A small low-level core.** Only for a rule a use case cannot
   isolate, such as the order rows reach inference in, or one that
   would need too many builds, such as module resolution's steps.

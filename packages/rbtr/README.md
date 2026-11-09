@@ -909,17 +909,14 @@ def test_extracts_expected_symbols(lang, source, expected):
 A sample test builds a committed example project and snapshots what the
 index then holds, guarding extraction against drift. The test module
 names the sample with a module-scoped `sample_dir` fixture; the
-`rbtr[test]` plugin commits it to a fresh repository, builds it into an
-in-memory index as `sample_index`, and names the built snapshot
-`sample_ref`:
+`rbtr[test]` plugin commits it to a fresh repository, builds it, and
+hands the tests what the build holds as plain values:
 
 ```python
 # test_samples.py
 from pathlib import Path
 
 import pytest
-from rbtr.daemon.dto import symbols
-from rbtr.testing import render_edges, uncovered_lines
 
 
 @pytest.fixture(scope="module")
@@ -927,24 +924,28 @@ def sample_dir():
     return Path(__file__).parent / "samples" / "swift"
 
 
-def test_extraction_matches_snapshot(sample_index, sample_ref, snapshot_json):
-    assert symbols(sample_index.chunks(at=sample_ref)) == snapshot_json
+def test_parses_cleanly(sample_parse_errors):
+    assert sample_parse_errors == []
 
 
-def test_edges_match_snapshot(sample_index, sample_ref, snapshot_json):
-    chunks = sample_index.chunks(at=sample_ref)
-    assert render_edges(sample_index.edges(within=[sample_ref]), chunks) == snapshot_json
+def test_extraction_matches_snapshot(sample_symbols, snapshot_json):
+    assert sample_symbols == snapshot_json
 
 
-def test_uncovered_lines_match_snapshot(sample_dir, sample_index, sample_ref, snapshot_json):
-    assert uncovered_lines(sample_dir, sample_index.chunks(at=sample_ref)) == snapshot_json
+def test_edges_match_snapshot(sample_edges, snapshot_json):
+    assert sample_edges == snapshot_json
+
+
+def test_uncovered_lines_match_snapshot(sample_uncovered_lines, snapshot_json):
+    assert sample_uncovered_lines == snapshot_json
 ```
 
-The first snapshot holds the symbols `read-symbol` returns.
-`render_edges` turns opaque edge ids into readable
-`file::name -> file::name [kind]` lines. `uncovered_lines` lists each
-non-blank line no chunk spans, which should be syntax with nothing to
-search, such as a closing brace. Regenerate the golden files after an
+`sample_symbols` are the symbols `read-symbol` returns. `sample_edges`
+are the edges, as readable `file::name -> file::name [kind]` lines.
+`sample_uncovered_lines` lists each non-blank line no chunk spans, which
+should be syntax with nothing to search, such as a closing brace.
+`sample_parse_errors` names each file that does not parse in the
+language the build read it as. Regenerate the golden files after an
 intended change with `pytest --snapshot-update`.
 
 ### Installing the plugin

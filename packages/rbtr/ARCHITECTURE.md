@@ -453,9 +453,11 @@ A plugin's `test_samples.py` builds the sample tree with
 index then holds against committed snapshots under `__snapshots__/`:
 the symbols `read-symbol` returns, the edges, and the lines no chunk
 spans. Any drift in extraction output turns the test red. Core's
-pytest plugin (`rbtr.testing`) commits and builds the sample
-(`sample_index`, `sample_ref`) and serialises the replies
-(`snapshot_json`), so a plugin needs no `conftest.py`.
+pytest plugin (`rbtr.testing`) commits and builds the sample and
+hands the tests what the build holds as plain values
+(`sample_symbols`, `sample_edges`, `sample_uncovered_lines`,
+`sample_parse_errors`), so a plugin needs no `conftest.py` and
+reaches neither the index nor its frames.
 
 The snapshots record the reply shape, not the write model (`Chunk`),
 so a change to how chunks are written or stored changes no snapshot
