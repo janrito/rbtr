@@ -45,7 +45,7 @@ from importlib.resources import files
 from typing import TYPE_CHECKING
 
 from rbtr.domain.models import Chunk, ImportMeta
-from rbtr.languages._resolvers import DefaultImport, DefaultName, DefaultScope
+from rbtr.languages._resolvers import DefaultAnchors, DefaultImport, DefaultName, DefaultScope
 
 if TYPE_CHECKING:
     from tree_sitter import Language, Node, Range
@@ -90,6 +90,16 @@ engine calls and the shape of the built-in default. `ImportExtractor` is what
 with *resolver* the current resolver handed in so the override can delegate
 (read captures first, then walk the node — Python/JS multi-name imports, Rust
 scoped paths). The decorator composes the override over the built-in.
+"""
+
+type AnchorResolver = Callable[[Node, dict[str, list[Node]]], tuple[str, ...]]
+type AnchorExtractor = Callable[[AnchorResolver, Node, dict[str, list[Node]]], tuple[str, ...]]
+"""Section-anchor resolver and its wrap-style override.
+
+`AnchorResolver` — `(node, captures) -> tuple[str, ...]` — gives the anchors
+a captured section answers to: what a link's fragment names it by. The
+built-in gives none. `AnchorExtractor` is what `@reg.anchor_extractor`
+accepts, with *resolver* handed in to delegate (HTML: an element's `id`).
 """
 
 type NameResolver = Callable[[str, Node, dict[str, list[Node]]], str]
@@ -356,6 +366,9 @@ class LanguageRegistration:
     _import_resolver: ImportResolver = field(
         default_factory=DefaultImport, init=False, compare=False, repr=False
     )
+    _anchor_resolver: AnchorResolver = field(
+        default_factory=DefaultAnchors, init=False, compare=False, repr=False
+    )
     _manifest_reader: ManifestReader | None = field(
         default=None, init=False, compare=False, repr=False
     )
@@ -388,6 +401,11 @@ class LanguageRegistration:
         object.__setattr__(self, "_import_resolver", functools.partial(fn, self._import_resolver))
         return fn
 
+    def anchor_extractor(self, fn: AnchorExtractor) -> AnchorExtractor:
+        """Compose a custom section-anchor resolver over the current one."""
+        object.__setattr__(self, "_anchor_resolver", functools.partial(fn, self._anchor_resolver))
+        return fn
+
     def manifest_reader(self, fn: ManifestReader) -> ManifestReader:
         """Set the reader for this language's `manifest`."""
         object.__setattr__(self, "_manifest_reader", fn)
@@ -413,6 +431,9 @@ class LanguageRegistration:
 
     def resolve_name(self, capture_name: str, node: Node, captures: dict[str, list[Node]]) -> str:
         return self._name_resolver(capture_name, node, captures)
+
+    def resolve_anchors(self, node: Node, captures: dict[str, list[Node]]) -> tuple[str, ...]:
+        return self._anchor_resolver(node, captures)
 
     def resolve_scope(
         self, capture_name: str, node: Node, captures: dict[str, list[Node]]

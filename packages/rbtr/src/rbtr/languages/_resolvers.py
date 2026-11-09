@@ -101,3 +101,15 @@ class DefaultImport:
             if len(raw) > 1 and raw.startswith(opening) and raw.endswith(closing):
                 return raw[1:-1]
         return raw
+
+
+class DefaultAnchors:
+    """Built-in anchor resolver: none.
+
+    A section answers to the anchors its language's renderers give it,
+    which only a language knows; most languages have none, and an override
+    returns its own (HTML: an element's `id`).
+    """
+
+    def __call__(self, _node: Node, _captures: dict[str, list[Node]]) -> tuple[str, ...]:
+        return ()

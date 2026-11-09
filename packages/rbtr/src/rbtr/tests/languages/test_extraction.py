@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from rbtr.config import config
-from rbtr.domain.models import ChunkKind, Fragment
+from rbtr.domain.models import ChunkKind, Fragment, Section
 from rbtr.git import FileEntry
 from rbtr.languages.extract import extract_file
 from rbtr.languages.manager import get_manager
@@ -60,6 +60,23 @@ def test_scope_extractor_owns_scope_address() -> None:
     chunks = list(extract_symbols(reg, "test.py", "sha1", src, grammar))
     assert len(chunks) == 1
     assert chunks[0].scope == "a::b"
+
+
+def test_anchor_extractor_gives_a_section_its_anchors() -> None:
+    """An `anchor_extractor` sets the anchors of the sections a query captures."""
+    grammar = get_manager().grammar("python")
+    assert grammar is not None
+    query = "(class_definition name: (identifier) @_section_name) @doc_section\n"
+    src = b"""\
+class Intro:
+    pass
+"""
+    reg = LanguageRegistration(id="faketest", extraction=QueryExtraction(query=query))
+    reg.anchor_extractor(lambda _resolver, _node, _captures: ("intro", "the-intro"))
+    chunks = list(extract_symbols(reg, "test.py", "sha1", src, grammar))
+    assert [c.role.meta.anchors for c in chunks if isinstance(c.role, Section)] == [
+        ("intro", "the-intro")
+    ]
 
 
 def test_unknown_capture_name_ignored() -> None:

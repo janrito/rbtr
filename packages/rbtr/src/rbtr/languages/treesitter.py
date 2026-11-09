@@ -29,6 +29,7 @@ from rbtr.domain.models import (
     RawSlice,
     Role,
     Section,
+    SectionMeta,
     Span,
 )
 from rbtr.languages._resolvers import NAME_CAPTURE_KEY
@@ -369,7 +370,8 @@ def _captured(
                     name=name, meta=registered_language.resolve_import(node, capture_dict)
                 )
             case ChunkKind.DOC_SECTION | ChunkKind.CONFIG_KEY as kind:
-                role = Section(kind=kind, name=name)
+                anchors = registered_language.resolve_anchors(node, capture_dict)
+                role = Section(kind=kind, name=name, meta=SectionMeta(anchors=anchors))
             case ChunkKind.COMMENT:
                 role = Comment()
             case ChunkKind.RAW_CHUNK:

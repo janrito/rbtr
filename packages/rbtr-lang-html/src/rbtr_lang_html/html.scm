@@ -19,3 +19,14 @@
        (quoted_attribute_value (attribute_value) @_import_module)))]
   (#eq? @_lt "link")
   (#eq? @_h "href")) @import
+
+; A link to another page in the repository. An external URL (a scheme or
+; `//`) is not a cross-reference, and a link to an anchor on its own page
+; (`#top`) names no file yet.
+(element
+  (start_tag (tag_name) @_at
+    (attribute (attribute_name) @_ah
+      (quoted_attribute_value (attribute_value) @_import_module)))
+  (#eq? @_at "a")
+  (#eq? @_ah "href")
+  (#not-match? @_import_module "^([a-zA-Z][a-zA-Z0-9+.-]*:|#|//)")) @import

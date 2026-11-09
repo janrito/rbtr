@@ -107,9 +107,9 @@
     "file_path": "html.html",
     "scope": "",
     "language": "html",
-    "content": "<body>\n    <header class=\"page-header\">\n      <h1>Greeter</h1>\n    </header>\n    <main id=\"content\">\n      <section id=\"intro\">\n        <p>Format greetings for named recipients.</p>\n      </section>\n    </main>\n    <footer>\n      <small>Greeter &mdash; a greetings library.</small>\n    </footer>\n    <script>\n      function init() {\n        return greet(\"world\");\n      }\n    </script>\n  </body>",
+    "content": "<body>\n    <header class=\"page-header\">\n      <h1>Greeter</h1>\n    </header>\n    <main id=\"content\">\n      <section id=\"intro\">\n        <p>Format greetings for named recipients.</p>\n        <p>Meet <a href=\"pages/about.html#team\">the team</a>.</p>\n      </section>\n    </main>\n    <footer>\n      <small>Greeter &mdash; a greetings library.</small>\n    </footer>\n    <script>\n      function init() {\n        return greet(\"world\");\n      }\n    </script>\n  </body>",
     "line_start": 16,
-    "line_end": 33
+    "line_end": 34
   },
   {
     "name": "header",
@@ -127,9 +127,9 @@
     "file_path": "html.html",
     "scope": "",
     "language": "html",
-    "content": "<main id=\"content\">\n      <section id=\"intro\">\n        <p>Format greetings for named recipients.</p>\n      </section>\n    </main>",
+    "content": "<main id=\"content\">\n      <section id=\"intro\">\n        <p>Format greetings for named recipients.</p>\n        <p>Meet <a href=\"pages/about.html#team\">the team</a>.</p>\n      </section>\n    </main>",
     "line_start": 20,
-    "line_end": 24
+    "line_end": 25
   },
   {
     "name": "intro",
@@ -137,9 +137,25 @@
     "file_path": "html.html",
     "scope": "",
     "language": "html",
-    "content": "<section id=\"intro\">\n        <p>Format greetings for named recipients.</p>\n      </section>",
+    "content": "<section id=\"intro\">\n        <p>Format greetings for named recipients.</p>\n        <p>Meet <a href=\"pages/about.html#team\">the team</a>.</p>\n      </section>",
     "line_start": 21,
-    "line_end": 23
+    "line_end": 24
+  },
+  {
+    "name": "<a href=\"pages/about.html#team\">the team</a>",
+    "kind": "import",
+    "file_path": "html.html",
+    "scope": "",
+    "language": "html",
+    "content": "<a href=\"pages/about.html#team\">the team</a>",
+    "line_start": 23,
+    "line_end": 23,
+    "metadata": {
+      "module": "pages/about.html",
+      "names": "team",
+      "dots": "",
+      "language_hint": ""
+    }
   },
   {
     "name": "footer",
@@ -148,8 +164,8 @@
     "scope": "",
     "language": "html",
     "content": "<footer>\n      <small>Greeter &mdash; a greetings library.</small>\n    </footer>",
-    "line_start": 25,
-    "line_end": 27
+    "line_start": 26,
+    "line_end": 28
   },
   {
     "name": "init",
@@ -158,8 +174,8 @@
     "scope": "",
     "language": "javascript",
     "content": "function init() {\n        return greet(\"world\");\n      }",
-    "line_start": 29,
-    "line_end": 31
+    "line_start": 30,
+    "line_end": 32
   },
   {
     "name": "",
@@ -168,8 +184,8 @@
     "scope": "",
     "language": "html",
     "content": "</html>",
-    "line_start": 34,
-    "line_end": 34
+    "line_start": 35,
+    "line_end": 35
   },
   {
     "name": "",
@@ -223,9 +239,35 @@
     "file_path": "pages/about.html",
     "scope": "",
     "language": "html",
-    "content": "<body>\n    <h1>About</h1>\n  </body>",
+    "content": "<body>\n    <h1>About</h1>\n    <section id=\"team\">\n      <p>Who writes the greeter.</p>\n      <p>Back to <a href=\"../html.html#intro\">the introduction</a>.</p>\n    </section>\n  </body>",
     "line_start": 7,
-    "line_end": 9
+    "line_end": 13
+  },
+  {
+    "name": "team",
+    "kind": "doc_section",
+    "file_path": "pages/about.html",
+    "scope": "",
+    "language": "html",
+    "content": "<section id=\"team\">\n      <p>Who writes the greeter.</p>\n      <p>Back to <a href=\"../html.html#intro\">the introduction</a>.</p>\n    </section>",
+    "line_start": 9,
+    "line_end": 12
+  },
+  {
+    "name": "<a href=\"../html.html#intro\">the introduction</a>",
+    "kind": "import",
+    "file_path": "pages/about.html",
+    "scope": "",
+    "language": "html",
+    "content": "<a href=\"../html.html#intro\">the introduction</a>",
+    "line_start": 11,
+    "line_end": 11,
+    "metadata": {
+      "module": "../html.html",
+      "names": "intro",
+      "dots": "",
+      "language_hint": ""
+    }
   },
   {
     "name": "",
@@ -234,8 +276,8 @@
     "scope": "",
     "language": "html",
     "content": "</html>",
-    "line_start": 10,
-    "line_end": 10
+    "line_start": 14,
+    "line_end": 14
   },
   {
     "name": "",

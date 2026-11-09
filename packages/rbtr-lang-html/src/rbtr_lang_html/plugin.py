@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING
 
 from rbtr.domain.models import ImportMeta
 from rbtr.languages.registration import (
+    AnchorResolver,
     ImportResolver,
     LanguageRegistration,
     NameResolver,
@@ -75,7 +76,7 @@ html = LanguageRegistration(
     ),
     injection_query=load_query(__package__, "injections"),
     import_targets=frozenset({"javascript", "typescript", "css"}),
-    extraction_serial=4,
+    extraction_serial=5,
 )
 
 
@@ -101,7 +102,27 @@ def _element_name(
 def _import_meta(
     resolver: ImportResolver, node: Node, captures: dict[str, list[Node]]
 ) -> ImportMeta:
-    """Import metadata with a language hint from the element kind."""
+    """Import metadata from the element kind: a script, a stylesheet, or a link to a page.
+
+    A `<script src>` imports JavaScript and a `<link href>` CSS, each hinted
+    so it resolves by that language's rules. An `<a href>` names a page, and
+    its fragment the anchor it links to.
+    """
     meta = resolver(node, captures)
-    meta.language_hint = "javascript" if node.type == "script_element" else "css"
+    if node.type == "script_element":
+        meta.language_hint = "javascript"
+    elif captures.get("_at"):
+        meta.module, _, meta.names = meta.module.partition("#")
+    else:
+        meta.language_hint = "css"
     return meta
+
+
+@html.anchor_extractor
+def _element_anchors(
+    resolver: AnchorResolver, node: Node, captures: dict[str, list[Node]]
+) -> tuple[str, ...]:
+    """A section element answers to its `id`, as a link's fragment names it."""
+    start_tag = next((c for c in node.children if c.type == "start_tag"), None)
+    element_id = _get_attr(start_tag, "id") if start_tag is not None else None
+    return (element_id,) if element_id else resolver(node, captures)
