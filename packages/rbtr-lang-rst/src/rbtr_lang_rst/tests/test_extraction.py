@@ -239,6 +239,38 @@ See `the guide <other.rst>`_ for details.
     assert imports[0].meta.module == "other.rst"
 
 
+def test_rst_reference_fragment_names_an_anchor() -> None:
+    """RST `text <path#id>`_ names an anchor in that file; `text <#id>`_ one in this file."""
+    src = """\
+Title
+=====
+
+See `the setup <guide.rst#setup>`_ and `the title <#title>`_.
+"""
+    chunks = extract_file(FileEntry("docs/index.rst", "sha1", src.encode()), "rst")
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
+    assert [(i.meta.module, i.meta.names) for i in imports] == [
+        ("guide.rst", "setup"),
+        ("index.rst", "title"),
+    ]
+
+
+def test_rst_ref_role_names_a_label() -> None:
+    """RST :ref:`label` and :ref:`text <label>` name the label, in no file."""
+    src = """\
+Title
+=====
+
+See :ref:`intro-label` and :ref:`the intro <Other Label>`.
+"""
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
+    assert [(i.meta.module, i.meta.names) for i in imports] == [
+        ("", "intro-label"),
+        ("", "other-label"),
+    ]
+
+
 def test_rst_reference_external_skipped() -> None:
     """RST `text <url>`_ with external URL produces no import."""
     src = """\

@@ -19,13 +19,15 @@ Extracted chunks::
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
 from tree_sitter import Parser, Query, QueryCursor
 
-from rbtr.domain.models import Chunk, ChunkKind, Import, ImportMeta, Section, Span
+from rbtr.domain.models import Chunk, ChunkKind, Import, ImportMeta, Section, SectionMeta, Span
 from rbtr.languages.chunks import last_line
 from rbtr.languages.registration import LanguageRegistration, load_query
+from rbtr_lang_rst.anchors import make_id, section_ids
 
 if TYPE_CHECKING:
     from tree_sitter import Language, Node, Range
@@ -37,6 +39,8 @@ _EXTERNAL_SCHEMES = ("http://", "https://", "mailto:", "ftp://")
 _SYMBOL_ROLES = frozenset({":func:", ":class:", ":meth:", ":attr:"})
 # RST roles that reference a document/module by path.
 _PATH_ROLES = frozenset({":doc:", ":mod:"})
+# RST roles that reference a label, wherever in the project it is set.
+_LABEL_ROLES = frozenset({":ref:"})
 
 
 def _rst_title_text(section: Node) -> str:
@@ -137,10 +141,33 @@ def _sectioned_chunks(
             if char and char not in adornment_levels:
                 adornment_levels[char] = len(adornment_levels) + 1
 
+    # Each section's anchors: the id docutils gives its title, and the
+    # labels (`.. _name:`) set directly before it.
+    titles = [_rst_title_text(child) for child in children if child.type == "section"]
+    anchors: list[tuple[str, ...]] = []
+    labels: list[str] = []
+    for child in children:
+        if child.type == "target":
+            name = child.child_by_field_name("name") or next(
+                (c for c in child.children if c.type == "name"), None
+            )
+            if name is not None and name.text is not None:
+                labels.append(make_id(name.text.decode().strip("_:")))
+        elif child.type == "section":
+            anchors.append(tuple(labels))
+            labels = []
+        else:
+            labels = []
+    section_anchors = iter(
+        tuple(dict.fromkeys((section_id, *set_by_label)))
+        for section_id, set_by_label in zip(section_ids(titles), anchors, strict=True)
+    )
+
     # Walk siblings: associate content with preceding section.
     chunks: list[Chunk] = []
     scope_stack: list[tuple[str, int]] = []
     current_title = ""
+    current_anchors: tuple[str, ...] = ()
     current_start = 0
     current_line_start = 1
     in_section = False
@@ -163,7 +190,11 @@ def _sectioned_chunks(
                             {
                                 "blob_sha": blob_sha,
                                 "file_path": file_path,
-                                "role": Section(kind=ChunkKind.DOC_SECTION, name=current_title),
+                                "role": Section(
+                                    kind=ChunkKind.DOC_SECTION,
+                                    name=current_title,
+                                    meta=SectionMeta(anchors=current_anchors),
+                                ),
                                 "scope": [t for t, _ in scope_stack[:-1]],
                                 "content": text,
                                 "span": Span(start=current_line_start, end=child.start_point[0]),
@@ -181,6 +212,7 @@ def _sectioned_chunks(
                 scope_stack.pop()
 
             current_title = title
+            current_anchors = next(section_anchors)
             current_start = child.start_byte
             current_line_start = child.start_point[0] + 1
             in_section = True
@@ -197,7 +229,11 @@ def _sectioned_chunks(
                     {
                         "blob_sha": blob_sha,
                         "file_path": file_path,
-                        "role": Section(kind=ChunkKind.DOC_SECTION, name=current_title),
+                        "role": Section(
+                            kind=ChunkKind.DOC_SECTION,
+                            name=current_title,
+                            meta=SectionMeta(anchors=current_anchors),
+                        ),
                         "scope": [t for t, _ in scope_stack_for_scope],
                         "content": text,
                         "span": Span(start=current_line_start, end=last_line(root)),
@@ -267,6 +303,14 @@ def _extract_references(
                 meta.names = target
             elif role_text in _PATH_ROLES:
                 meta.module = target
+            elif role_text in _LABEL_ROLES:
+                # `:ref:`text <label>`` names the label in its angle brackets.
+                label = (
+                    target[target.rfind("<") + 1 : target.rfind(">")]
+                    if target.endswith(">")
+                    else target
+                )
+                meta.names = make_id(label)
             else:
                 continue
 
@@ -316,10 +360,17 @@ def _extract_references(
                 url = text[lt + 1 : gt]
                 if any(url.startswith(s) for s in _EXTERNAL_SCHEMES):
                     continue
+                # Split path#fragment; a fragment alone names an anchor in this document.
+                module, _, fragment = url.partition("#")
                 yield Chunk(
                     blob_sha=blob_sha,
                     file_path=file_path,
-                    role=Import(name=text, meta=ImportMeta(module=url)),
+                    role=Import(
+                        name=text,
+                        meta=ImportMeta(
+                            module=module or PurePosixPath(file_path).name, names=fragment
+                        ),
+                    ),
                     content=text,
                     span=Span(start=ref_node.start_point[0] + 1, end=last_line(ref_node)),
                 )
@@ -330,7 +381,7 @@ rst = LanguageRegistration(
     extensions=frozenset({".rst"}),
     grammar_module="tree_sitter_rst",
     prose=True,
-    extraction_serial=4,
+    extraction_serial=5,
 )
 
 rst.chunker(chunk_rst)

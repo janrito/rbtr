@@ -3,6 +3,10 @@
   "rst.rst:::doc:`config` -> config.rst::Config [documents]",
   "rst.rst:::doc:`topics/intro` -> topics/intro.rst::Intro [documents]",
   "rst.rst:::func:`format_greeting` -> helpers.py::format_greeting [documents]",
+  "rst.rst:::ref:`the options <greeting-options>` -> guide.rst::Greeting options [documents]",
+  "rst.rst::`the guide <guide.rst>`_ -> guide.rst::Greeting options [documents]",
   "rst.rst::`the guide <guide.rst>`_ -> guide.rst::Guide [documents]",
+  "rst.rst::`the guide's options <guide.rst#greeting-options>`_ -> guide.rst::Greeting options [documents]",
+  "rst.rst::`usage <#usage>`_ -> rst.rst::Usage [documents]",
   "topics/intro.rst:::doc:`detail` -> topics/detail.rst::Detail [documents]"
 ]

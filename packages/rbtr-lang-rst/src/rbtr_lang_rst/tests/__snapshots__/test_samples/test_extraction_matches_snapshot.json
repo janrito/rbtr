@@ -15,9 +15,19 @@
     "file_path": "guide.rst",
     "scope": "",
     "language": "rst",
-    "content": "Guide\n=====\n\nUsage guide.",
+    "content": "Guide\n=====\n\nUsage guide.\n\n.. _greeting-options:",
     "line_start": 1,
-    "line_end": 4
+    "line_end": 7
+  },
+  {
+    "name": "Greeting options",
+    "kind": "doc_section",
+    "file_path": "guide.rst",
+    "scope": "Guide",
+    "language": "rst",
+    "content": "Greeting options\n----------------\n\nChoose a salutation and a locale.",
+    "line_start": 8,
+    "line_end": 11
   },
   {
     "name": "",
@@ -251,9 +261,9 @@
     "file_path": "rst.rst",
     "scope": "Greeter::Usage",
     "language": "rst",
-    "content": "Locales\n~~~~~~~\n\nSupported locales live in :mod:`greeter.locales`.\n\nSee :doc:`topics/intro` to begin.",
+    "content": "Locales\n~~~~~~~\n\nSupported locales live in :mod:`greeter.locales`.\n\nSee :doc:`topics/intro` to begin, :ref:`the options <greeting-options>`,\n`the guide's options <guide.rst#greeting-options>`_, and `usage <#usage>`_.",
     "line_start": 19,
-    "line_end": 24
+    "line_end": 25
   },
   {
     "name": ":mod:`greeter.locales`",
@@ -283,6 +293,54 @@
     "metadata": {
       "module": "topics/intro",
       "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "name": ":ref:`the options <greeting-options>`",
+    "kind": "import",
+    "file_path": "rst.rst",
+    "scope": "",
+    "language": "rst",
+    "content": ":ref:`the options <greeting-options>`",
+    "line_start": 24,
+    "line_end": 24,
+    "metadata": {
+      "module": "",
+      "names": "greeting-options",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "name": "`the guide's options <guide.rst#greeting-options>`_",
+    "kind": "import",
+    "file_path": "rst.rst",
+    "scope": "",
+    "language": "rst",
+    "content": "`the guide's options <guide.rst#greeting-options>`_",
+    "line_start": 25,
+    "line_end": 25,
+    "metadata": {
+      "module": "guide.rst",
+      "names": "greeting-options",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "name": "`usage <#usage>`_",
+    "kind": "import",
+    "file_path": "rst.rst",
+    "scope": "",
+    "language": "rst",
+    "content": "`usage <#usage>`_",
+    "line_start": 25,
+    "line_end": 25,
+    "metadata": {
+      "module": "rst.rst",
+      "names": "usage",
       "dots": "",
       "language_hint": ""
     }

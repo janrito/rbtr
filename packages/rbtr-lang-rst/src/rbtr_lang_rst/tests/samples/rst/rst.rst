@@ -21,4 +21,5 @@ Locales
 
 Supported locales live in :mod:`greeter.locales`.
 
-See :doc:`topics/intro` to begin.
+See :doc:`topics/intro` to begin, :ref:`the options <greeting-options>`,
+`the guide's options <guide.rst#greeting-options>`_, and `usage <#usage>`_.
