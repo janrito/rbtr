@@ -145,7 +145,7 @@ Four checks on any code in a test:
   stored changes no snapshot.
 
 Small reshapers of values a test already has are fine:
-`render_edges`, `uncovered_lines`, the eval's row builders.
+the sample fixtures' renderings, the eval's row builders.
 
 ## Test structure
 

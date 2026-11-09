@@ -1,0 +1,6 @@
+[
+  "web/index.html::<link rel=\"stylesheet\" href=\"styles.css\"> -> web/styles.css::.banner [imports]",
+  "web/index.html::<script src=\"../lib/core.js\"></script> -> lib/core.js::boot [imports]",
+  "web/index.html::<script src=\"../lib/core.js\"></script> -> lib/core.js::halt [imports]",
+  "web/index.html::<script src=\"./app.js\"></script> -> web/app.js::start [imports]"
+]

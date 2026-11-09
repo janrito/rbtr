@@ -1,0 +1,4 @@
+[
+  "pkg/a.py::import pkg.models -> pkg/models.py::User [imports]",
+  "pkg/a.py::import pkg.models -> pkg/models.py::load [imports]"
+]
