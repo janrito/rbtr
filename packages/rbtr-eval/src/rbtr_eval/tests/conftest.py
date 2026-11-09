@@ -24,14 +24,11 @@ import pygit2
 import pytest
 
 from rbtr.domain.models import (
-    FileSnapshot,
     SnapshotRef,
 )
-from rbtr.domain.tokenise import tokenise_code
 from rbtr.git import normalise_repo_path
 from rbtr.index.build import build_index
 from rbtr.index.index import Index
-from rbtr.index.staging import TokenisedChunk
 from rbtr.tests.conftest import make_commit
 from rbtr_eval.shared_schemas import RepoHeader
 
@@ -103,47 +100,6 @@ def index() -> Generator[Index]:
     s = Index(writable=True)
     yield s
     s.close()
-
-
-def chunk(*, file_path: str, kind: str, name: str) -> TokenisedChunk:
-    """Build one python chunk, tokenised as the indexer would leave it.
-
-    `blob_sha` is derived from *file_path* so every chunk in a file
-    shares one blob, which `file_snapshots` requires — its key is
-    `(repo_id, snapshot_sha, file_path)`, one blob per path.
-
-    The chunk's id follows from its content, so a test names a chunk
-    by passing the object around and reading its `.id`.
-    """
-    content = f"{name}\n"
-    return TokenisedChunk.model_validate(
-        {
-            "blob_sha": f"blob_{file_path}",
-            "file_path": file_path,
-            "role": {"kind": kind, "name": name, "meta": {}},
-            "language": "python",
-            "file_language": "python",
-            "content": content,
-            "content_tokens": tokenise_code(content),
-            "name_tokens": tokenise_code(name),
-            "span": {"start": 1, "end": 1},
-        }
-    )
-
-
-def snap(snapshot_sha: str, chunk: TokenisedChunk, *, path: str | None = None) -> FileSnapshot:
-    """A snapshot row reaching *chunk*, at its own path or a copy's.
-
-    Blob and language come from the chunk, because those two are what
-    pair a file to its chunks — a row that names one without the other
-    reaches nothing.
-    """
-    return FileSnapshot(
-        snapshot_sha=snapshot_sha,
-        file_path=chunk.file_path if path is None else path,
-        blob_sha=chunk.blob_sha,
-        detected_language=chunk.file_language,
-    )
 
 
 @pytest.fixture

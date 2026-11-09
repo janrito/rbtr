@@ -9,19 +9,18 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-import polars as pl
 import pygit2
 import pytest
+from pytest_mock import MockerFixture
 
-from rbtr.domain.models import EdgeKind
 from rbtr.errors import BuildStopped
 from rbtr.git import normalise_repo_path
 from rbtr.index.build import build_index
+from rbtr.index.embed import embed_index
+from rbtr.index.embeddings import Embedder
 from rbtr.index.index import Index
-from rbtr.index.staging import EmbeddingStagingRow
-from rbtr.languages.edges import InferredEdgeRow
-from rbtr.tests.conftest import make_commit
-from rbtr_eval.corpus import Corpus, corpus_refs
+from rbtr.tests.conftest import StubModel, make_commit
+from rbtr_eval.corpus import corpus_refs
 from rbtr_eval.index_stage import (
     embedding_counts,
     fragment_counts,
@@ -32,71 +31,45 @@ from rbtr_eval.index_stage import (
     sentinel_hash,
     totals,
 )
-from rbtr_eval.tests.conftest import chunk, snap
-
-INDEXED = "1" * 40
-RESIDUE = "2" * 40
-
-
-def corpus_of(index: Index) -> Corpus:
-    """The indexed snapshot of *index*'s one repo.
-
-    In the pipeline `corpus_refs` builds this from the repos' HEADs;
-    these indexes have no git repo behind them, so the refs are named
-    here.
-    """
-    [repo] = index.repos()
-    return Corpus(refs=(repo.at(INDEXED),))
 
 
 @pytest.fixture
 def index_with_residue(tmp_path: Path) -> Index:
-    """One repo holding an indexed snapshot and a never-indexed one.
+    """One repo: HEAD built, and a second commit whose build stopped before it was marked indexed.
 
-    The indexed snapshot carries `app.py` with an import chunk and a
-    function chunk, and one edge between them; the function is
-    embedded, the import is not.  The residue snapshot — a build that
-    crashed before `mark_indexed` — carries a second file whose chunk
-    must not be counted anywhere.
+    HEAD holds `app.py`, importing `load` from `cfg.py`: an import, a
+    function and one edge between them, none embedded. The second commit
+    adds `gone.py`; its build stops after writing chunks, so no count may
+    include them.
     """
+    app = b"""\
+from cfg import load
+"""
+    cfg = b"""\
+def load():
+    return 1
+"""
+    gone = b"""\
+def dead():
+    return 0
+"""
+    repo = pygit2.init_repository(str(tmp_path / "repo"), bare=False, initial_head="main")
+    head = make_commit(repo, {"app.py": app, "cfg.py": cfg})
+    residue = make_commit(
+        repo, {"app.py": app, "cfg.py": cfg, "gone.py": gone}, parents=[head], ref="refs/heads/wip"
+    )
     index = Index(str(tmp_path / "index" / "index.duckdb"), writable=True)
-    imp = chunk(file_path="app.py", kind="import", name="import cfg")
-    fn = chunk(file_path="app.py", kind="function", name="load")
-    orphan = chunk(file_path="gone.py", kind="function", name="dead")
-
-    repo = index.register(str(tmp_path / "repo"))
-    with index.session(repo) as ws:
-        for sha, chunks in ((INDEXED, [imp, fn]), (RESIDUE, [orphan])):
-            for c in chunks:
-                ws.add_chunk(c)
-            ws.replace_snapshots([snap(sha, chunks[0])], snapshot_sha=sha)
-        ws.replace_edges(
-            InferredEdgeRow.validate(
-                pl.DataFrame(
-                    [
-                        {
-                            "source_id": imp.id,
-                            "target_id": fn.id,
-                            "kind": EdgeKind.IMPORTS,
-                            "source_path": imp.file_path,
-                            "target_path": fn.file_path,
-                        }
-                    ]
-                ),
-                cast=True,
-            ),
-            snapshot_sha=INDEXED,
+    path = normalise_repo_path(repo.workdir)
+    build_index(path, str(head), index)
+    stop = threading.Event()
+    with pytest.raises(BuildStopped):
+        build_index(
+            path,
+            str(residue),
+            index,
+            stop=stop,
+            on_progress=lambda phase, _done, _total: stop.set() if phase == "edges" else None,
         )
-        ws.mark_indexed(snapshot_sha=INDEXED)
-        ws.update_embeddings(
-            EmbeddingStagingRow.validate(
-                pl.DataFrame({"id": [fn.id], "embedding": [[0.5] * 768]}).with_columns(
-                    embedding_truncated=False
-                ),
-                cast=True,
-            )
-        )
-
     return index
 
 
@@ -187,19 +160,19 @@ def test_fragments_are_counted_by_language_and_by_node_type(index_with_fragments
 
 def test_counts_describe_only_indexed_snapshots(index_with_residue: Index) -> None:
     """A snapshot never marked indexed contributes to no count."""
-    corpus = corpus_of(index_with_residue)
+    corpus = corpus_refs(index_with_residue)
     assert repo_counts(index_with_residue, corpus).rows(named=True) == [
         {"repo": "repo", "chunks": 2, "locations": 2, "edges": 1}
     ]
     assert totals(index_with_residue, corpus) == (2, 2, 1)
     assert embedding_counts(index_with_residue, corpus).rows(named=True) == [
-        {"repo": "repo", "chunks": 2, "embedded": 1, "truncated": 0}
+        {"repo": "repo", "chunks": 2, "embedded": 0, "truncated": 0}
     ]
 
 
 def test_dimension_tables_attribute_each_edge_to_both_endpoints(index_with_residue: Index) -> None:
     """An edge counts outbound for its source kind, inbound for its target."""
-    corpus = corpus_of(index_with_residue)
+    corpus = corpus_refs(index_with_residue)
     assert kind_counts(index_with_residue, corpus).rows(named=True) == [
         {"kind": "function", "n": 1, "outbound_edges": 0, "inbound_edges": 1},
         {"kind": "import", "n": 1, "outbound_edges": 1, "inbound_edges": 0},
@@ -223,8 +196,8 @@ def test_a_vendored_file_counts_once_as_content_and_twice_as_location(
 @pytest.mark.parametrize(
     ("embed", "expected"),
     [
-        (False, "80d06b379c6ccfbbd9dd327e6c595c3af0e74a01731cee298330f7ef2707b012"),
-        (True, "d3e23b5f7fe5de491b8f9ff2eeec02f8d8087cb607f96c6f98633ac4ed6c30ca"),
+        (False, "4fa49d6bc870f587f9d8506a401ebbbb482ca64c1c16f480da9338d2c113b45d"),
+        (True, "b84c74874dfc0634c893d7e0bea855cbf4c4ddb4ae201440d7a3b914af9d007f"),
     ],
     ids=["chunks-ready", "embed-ready"],
 )
@@ -242,7 +215,7 @@ def test_the_sentinel_hash_is_fixed_for_a_given_index(
 
 
 def test_writing_an_embedding_moves_only_the_embed_ready_hash(
-    index_with_residue: Index,
+    index_with_residue: Index, mocker: MockerFixture
 ) -> None:
     """Embedding progress is what the embed-ready sentinel tracks.
 
@@ -251,19 +224,15 @@ def test_writing_an_embedding_moves_only_the_embed_ready_hash(
     """
     before_chunks = sentinel_hash(index_with_residue, embed=False)
     before_embed = sentinel_hash(index_with_residue, embed=True)
-    [repo] = index_with_residue.repos()
-    unembedded = index_with_residue.unembedded_chunk_ids(at=repo.at(INDEXED))
-    assert unembedded, "fixture must leave a chunk to embed"
+    [head] = corpus_refs(index_with_residue).refs
+    assert index_with_residue.unembedded_chunk_ids(at=head), "fixture must leave a chunk to embed"
 
-    with index_with_residue.session(repo) as ws:
-        ws.update_embeddings(
-            EmbeddingStagingRow.validate(
-                pl.DataFrame(
-                    {"id": unembedded, "embedding": [[0.25] * 768 for _ in unembedded]}
-                ).with_columns(embedding_truncated=False),
-                cast=True,
-            )
-        )
+    mocker.patch("rbtr.index.embeddings._load_model", return_value=StubModel())
+    embedder = Embedder()
+    try:
+        embed_index(index_with_residue, at=head, embedder=embedder)
+    finally:
+        embedder.close()
 
     assert sentinel_hash(index_with_residue, embed=True) != before_embed
     assert sentinel_hash(index_with_residue, embed=False) == before_chunks
