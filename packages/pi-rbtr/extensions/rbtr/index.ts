@@ -66,6 +66,9 @@ const { version: EXTENSION_VERSION } = require("../../package.json") as { versio
  */
 const READ_CLI_TIMEOUT_MS = 150_000;
 
+/** How long a status asked of the CLI may take, as long as starting or stopping the daemon. */
+const STATUS_CLI_TIMEOUT_MS = 15_000;
+
 /** How long a read waits for a build of what it asks for before giving rbtr's "in progress" reply. */
 const BUILD_WAIT_MS = 30_000;
 
@@ -333,7 +336,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     }
     if (!resolved) return null;
     try {
-      return await runRbtrJson<StatusResponse>(pi, resolved, ["status"], { timeout: 5000 });
+      return await runRbtrJson<StatusResponse>(pi, resolved, ["status"], { timeout: STATUS_CLI_TIMEOUT_MS });
     } catch (err) {
       if (err instanceof RbtrReplyError) return { kind: "error", code: err.code, message: err.message };
       return null;
@@ -1334,7 +1337,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
           () => {
             if (!resolved) throw new Error("rbtr CLI not available");
             const args = scope === "all" ? ["status", "--scope", "all"] : ["status"];
-            return runRbtrJson<StatusResponse>(pi, resolved, args, { timeout: 5000 });
+            return runRbtrJson<StatusResponse>(pi, resolved, args, { timeout: STATUS_CLI_TIMEOUT_MS });
           },
           signal,
         );

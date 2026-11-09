@@ -96,6 +96,25 @@ describe("with a daemon of its own", () => {
     }
   });
 
+  describe("with the CLI slow to answer", () => {
+    test.override({ slow: { "python3 -m rbtr --json status": 6000 } });
+
+    test("the footer keeps the index's counts when the daemon stops", async ({ cli, processes: _, pi }) => {
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+      try {
+        const last = () => pi.ui.statuses.at(-1) ?? "";
+        await pi.start();
+        await until(() => INDEXED.test(last()));
+        cli("daemon", "stop");
+        vi.advanceTimersByTime(HEALTH_CHECK_MS);
+        await until(() => last() !== "" && !INDEXED.test(last()));
+        expect(last()).toMatch(INDEXED_NO_DAEMON);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   test("a health check that ends after its session was replaced reports nothing", async ({
     heldRbtr,
     processes,
