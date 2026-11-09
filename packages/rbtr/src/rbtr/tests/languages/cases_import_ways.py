@@ -19,7 +19,7 @@ class ImportWayScenario:
     An edge is `(source id, target id, kind)`.
     """
 
-    rows: dict[str, list[str | int | None]]
+    rows: dict[str, list[str | int | list[str] | None]]
     repo_files: frozenset[str]
     expected: frozenset[tuple[str, str, str]]
 
@@ -37,6 +37,7 @@ def case_a_bare_import_brings_in_definitions() -> ImportWayScenario:
             "module": ["lib.code", None, None, None, "other.code", None, None],
             "names": ["", None, None, None, "", None, None],
             "dots": ["", None, None, None, "", None, None],
+            "anchors": [None] * 7,
             "language_hint": ["", None, None, None, "", None, None],
         },
         repo_files=frozenset({"app.code", "lib.code"}),
@@ -63,6 +64,7 @@ def case_a_named_import_reaches_each_name_it_finds() -> ImportWayScenario:
             "module": ["lib.code", None, None],
             "names": ["f,missing", None, None],
             "dots": ["", None, None],
+            "anchors": [None] * 3,
             "language_hint": ["", None, None],
         },
         repo_files=frozenset({"app.code", "lib.code"}),
@@ -83,6 +85,7 @@ def case_a_name_no_symbol_holds_reaches_a_section_of_that_name() -> ImportWaySce
             "module": ["guide.prose", None, None],
             "names": ["Usage", None, None],
             "dots": ["", None, None],
+            "anchors": [None] * 3,
             "language_hint": ["", None, None],
         },
         repo_files=frozenset({"readme.prose", "guide.prose"}),
@@ -103,6 +106,7 @@ def case_prose_naming_a_symbol_documents_the_first_of_that_name() -> ImportWaySc
             "module": ["", None, None],
             "names": ["f", None, None],
             "dots": ["", None, None],
+            "anchors": [None] * 3,
             "language_hint": ["", None, None],
         },
         repo_files=frozenset({"readme.prose", "a.code", "b.code"}),
@@ -128,6 +132,7 @@ def case_an_import_with_no_module_reaches_files_its_words_name() -> ImportWaySce
             "module": ["", None, None, None, None],
             "names": ["", None, None, None, None],
             "dots": ["", None, None, None, None],
+            "anchors": [None] * 5,
             "language_hint": ["", None, None, None, None],
         },
         repo_files=frozenset({"app.code", "helpers.code", "io.code", "pkg/index.code"}),
@@ -148,8 +153,86 @@ def case_a_file_does_not_import_itself() -> ImportWayScenario:
             "module": ["lib.code", None],
             "names": ["", None],
             "dots": ["", None],
+            "anchors": [None] * 2,
             "language_hint": ["", None],
         },
         repo_files=frozenset({"lib.code"}),
         expected=frozenset(),
+    )
+
+
+def case_a_link_reaches_a_section_by_any_of_its_anchors() -> ImportWayScenario:
+    """A link naming an anchor reaches the section that answers to it, through any of its anchors.
+
+    Renderers anchor one heading differently, so a section answers to
+    several anchors; the other section answers to none of the names.
+    """
+    return ImportWayScenario(
+        rows={
+            "id": ["hyphenated", "underscored", "getting_started", "other"],
+            "file_path": ["readme.prose", "readme.prose", "guide.prose", "guide.prose"],
+            "line_start": [1, 2, 1, 5],
+            "kind": ["import", "import", "doc_section", "doc_section"],
+            "name": [
+                "guide.prose#getting-started",
+                "guide.prose#getting_started",
+                "Getting Started",
+                "Other",
+            ],
+            "language": ["prose"] * 4,
+            "module": ["guide.prose", "guide.prose", None, None],
+            "names": ["getting-started", "getting_started", None, None],
+            "dots": ["", "", None, None],
+            "anchors": [None, None, ["getting-started", "getting_started"], ["other"]],
+            "language_hint": ["", "", None, None],
+        },
+        repo_files=frozenset({"readme.prose", "guide.prose"}),
+        expected=frozenset(
+            {
+                ("hyphenated", "getting_started", "documents"),
+                ("underscored", "getting_started", "documents"),
+            }
+        ),
+    )
+
+
+def case_a_link_reaches_an_anchor_in_its_own_file() -> ImportWayScenario:
+    """A link whose module is its own file reaches a section of that file by anchor."""
+    return ImportWayScenario(
+        rows={
+            "id": ["link", "usage"],
+            "file_path": ["guide.prose", "guide.prose"],
+            "line_start": [1, 5],
+            "kind": ["import", "doc_section"],
+            "name": ["#usage", "Usage"],
+            "language": ["prose"] * 2,
+            "module": ["guide.prose", None],
+            "names": ["usage", None],
+            "dots": ["", None],
+            "anchors": [None, ["usage"]],
+            "language_hint": ["", None],
+        },
+        repo_files=frozenset({"guide.prose"}),
+        expected=frozenset({("link", "usage", "documents")}),
+    )
+
+
+def case_prose_naming_a_label_documents_the_first_section_with_it() -> ImportWayScenario:
+    """Prose naming a label and no file documents the first section answering to it, by file and line."""
+    return ImportWayScenario(
+        rows={
+            "id": ["ref", "intro_in_b", "intro_in_a"],
+            "file_path": ["index.prose", "b.prose", "a.prose"],
+            "line_start": [1, 1, 9],
+            "kind": ["import", "doc_section", "doc_section"],
+            "name": [":ref:`intro`", "Introduction", "Introduction"],
+            "language": ["prose"] * 3,
+            "module": ["", None, None],
+            "names": ["intro", None, None],
+            "dots": ["", None, None],
+            "anchors": [None, ["intro"], ["intro"]],
+            "language_hint": ["", None, None],
+        },
+        repo_files=frozenset({"index.prose", "a.prose", "b.prose"}),
+        expected=frozenset({("ref", "intro_in_a", "documents")}),
     )

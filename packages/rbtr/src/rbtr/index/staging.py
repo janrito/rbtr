@@ -91,6 +91,7 @@ class ChunkStagingRow(dy.Schema):
             "dots": dy.String(nullable=True),
             "language_hint": dy.String(nullable=True),
             "node_types": dy.List(dy.String(), nullable=True),
+            "anchors": dy.List(dy.String(), nullable=True),
         },
         nullable=True,
     )

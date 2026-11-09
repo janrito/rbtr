@@ -145,6 +145,16 @@ class Definition(BaseModel, frozen=True):
     name: str
 
 
+class SectionMeta(BaseModel, frozen=True):
+    """The anchors a section answers to: what a link's fragment names it by.
+
+    A renderer derives a heading's anchor from its text, each by its own
+    rule, and an author can set one; a section answers to all of them.
+    """
+
+    anchors: tuple[str, ...] = ()
+
+
 class Section(BaseModel, frozen=True):
     """A part of a document or a data file: a heading's section, a key.
 
@@ -154,6 +164,7 @@ class Section(BaseModel, frozen=True):
 
     kind: Literal[ChunkKind.DOC_SECTION, ChunkKind.CONFIG_KEY]
     name: str
+    meta: SectionMeta = SectionMeta()
 
 
 class Import(BaseModel, frozen=True):

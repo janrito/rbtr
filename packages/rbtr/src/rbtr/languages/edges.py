@@ -51,6 +51,7 @@ class EdgeChunkRow(dy.Schema):
     names = dy.String(nullable=True)
     dots = dy.String(nullable=True)
     language_hint = dy.String(nullable=True)
+    anchors = dy.List(dy.String(), nullable=True)
 
 
 class ImportWay(StrEnum):
@@ -230,26 +231,34 @@ def _bare_edges(
 def _named_edges(
     imports: dy.DataFrame[ImportRow],
     symbols: dy.DataFrame[EdgeChunkRow],
-    sections: dy.DataFrame[EdgeChunkRow],
+    section_keys: pl.DataFrame,
 ) -> dy.DataFrame[InferredEdgeRow]:
     """A named import (`from X import Y`) reaches each named symbol in its files.
 
-    A name no symbol there has reaches a doc section of that name
-    instead (`doc.md#a-heading`).
+    A name no symbol there has reaches a doc section that answers to it,
+    by its title or an anchor (`doc.md#a-heading`).
     """
-
-    def by_name(targets: dy.DataFrame[EdgeChunkRow], alias: str) -> pl.DataFrame:
-        return targets.select(
-            pl.col("file_path").alias("target_path"),
-            pl.col("name").alias("target_name"),
-            pl.col("id").alias(alias),
-        )
-
     keys = ["target_path", "target_name"]
     return (
         _named(_module_files(imports).filter(pl.col("names") != ""))
-        .join(by_name(symbols, "symbol_id"), on=keys, how="left")
-        .join(by_name(sections, "section_id"), on=keys, how="left")
+        .join(
+            symbols.select(
+                pl.col("file_path").alias("target_path"),
+                pl.col("name").alias("target_name"),
+                pl.col("id").alias("symbol_id"),
+            ),
+            on=keys,
+            how="left",
+        )
+        .join(
+            section_keys.select(
+                pl.col("file_path").alias("target_path"),
+                pl.col("key").alias("target_name"),
+                pl.col("id").alias("section_id"),
+            ),
+            on=keys,
+            how="left",
+        )
         .with_columns(target_id=pl.coalesce("symbol_id", "section_id"))
         .drop_nulls("target_id")
         .pipe(InferredEdgeRow.validate, cast=True)
@@ -257,21 +266,39 @@ def _named_edges(
 
 
 def _name_edges(
-    imports: dy.DataFrame[ImportRow], symbols: dy.DataFrame[EdgeChunkRow]
+    imports: dy.DataFrame[ImportRow], symbols: dy.DataFrame[EdgeChunkRow], anchors: pl.DataFrame
 ) -> dy.DataFrame[InferredEdgeRow]:
-    """A `NAME` import documents the first symbol of each name it names, wherever it is."""
-    first_by_name = symbols.unique("name", keep="first", maintain_order=True)
+    """A `NAME` import documents the first symbol of each name it names, wherever it is.
+
+    A name no symbol has documents the first section answering to it as
+    an anchor instead (an rST `:ref:` label).
+    """
     return (
         _named(imports.filter(pl.col("way") == ImportWay.NAME))
         .join(
-            first_by_name.select(
+            symbols.unique("name", keep="first", maintain_order=True).select(
                 pl.col("name").alias("target_name"),
-                pl.col("id").alias("target_id"),
-                pl.col("file_path").alias("target_path"),
+                pl.col("id").alias("symbol_id"),
+                pl.col("file_path").alias("symbol_path"),
             ),
             on="target_name",
+            how="left",
         )
-        .with_columns(kind=pl.lit(EdgeKind.DOCUMENTS))
+        .join(
+            anchors.unique("key", keep="first", maintain_order=True).select(
+                pl.col("key").alias("target_name"),
+                pl.col("id").alias("section_id"),
+                pl.col("file_path").alias("section_path"),
+            ),
+            on="target_name",
+            how="left",
+        )
+        .with_columns(
+            target_id=pl.coalesce("symbol_id", "section_id"),
+            target_path=pl.coalesce("symbol_path", "section_path"),
+            kind=pl.lit(EdgeKind.DOCUMENTS),
+        )
+        .drop_nulls("target_id")
         .pipe(InferredEdgeRow.validate, cast=True)
     )
 
@@ -334,10 +361,18 @@ def infer_import_edges(
         .unique(["file_path", "name"], keep="first", maintain_order=True)
         .pipe(EdgeChunkRow.validate)
     )
-    sections = (
-        chunks.filter(pl.col("kind") == ChunkKind.DOC_SECTION)
-        .unique(["file_path", "name"], keep="first", maintain_order=True)
-        .pipe(EdgeChunkRow.validate)
+    sections = chunks.filter(pl.col("kind") == ChunkKind.DOC_SECTION)
+    # A section answers to each of its anchors, and to its title.
+    anchors = (
+        sections.select("id", "file_path", "line_start", key="anchors")
+        .explode("key")
+        .drop_nulls("key")
+    )
+    section_keys = (
+        pl.concat([sections.select("id", "file_path", "line_start", key="name"), anchors])
+        .filter(pl.col("key") != "")
+        .sort("file_path", "line_start", maintain_order=True)
+        .unique(["file_path", "key"], keep="first", maintain_order=True)
     )
     importable = chunks.filter(_brought_into_scope()).pipe(EdgeChunkRow.validate)
     rules = resolution_map or {}
@@ -347,8 +382,8 @@ def infer_import_edges(
     edges = pl.concat(
         [
             _bare_edges(imports, importable),
-            _named_edges(imports, symbols, sections),
-            _name_edges(imports, symbols),
+            _named_edges(imports, symbols, section_keys),
+            _name_edges(imports, symbols, anchors),
             _text_edges(imports, symbols, repo_files, index_stems),
         ]
     )

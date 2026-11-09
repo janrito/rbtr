@@ -47,7 +47,12 @@ CREATE TABLE IF NOT EXISTS chunks (
   -- module, names, relative depth and target language; a fragment's
   -- syntax node types.  NULL for a role that carries nothing.
   metadata STRUCT(
-    module TEXT, names TEXT, dots TEXT, language_hint TEXT, node_types TEXT[]
+    module TEXT,
+    names TEXT,
+    dots TEXT,
+    language_hint TEXT,
+    node_types TEXT[],
+    anchors TEXT[]
   ),
   -- Variable-length embedding vector; dimension is determined by
   -- the model (see ARCHITECTURE.md "Embedding column").

@@ -10,7 +10,12 @@ ALTER TABLE chunks ALTER metadata DROP DEFAULT;
 ALTER TABLE chunks ALTER metadata DROP NOT NULL;
 
 ALTER TABLE chunks ALTER metadata TYPE STRUCT(
-  module TEXT, names TEXT, dots TEXT, language_hint TEXT, node_types TEXT[]
+  module TEXT,
+  names TEXT,
+  dots TEXT,
+  language_hint TEXT,
+  node_types TEXT[],
+  anchors TEXT[]
 ) USING CASE
   WHEN kind = 'import'
     THEN STRUCT_PACK(
@@ -19,7 +24,8 @@ ALTER TABLE chunks ALTER metadata TYPE STRUCT(
       dots := COALESCE(JSON_EXTRACT_STRING(metadata, '$.dots'), ''),
       language_hint
       := COALESCE(JSON_EXTRACT_STRING(metadata, '$.language_hint'), ''),
-      node_types := NULL::TEXT[]
+      node_types := NULL::TEXT[],
+      anchors := NULL::TEXT[]
     )
 END;
 

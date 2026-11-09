@@ -63,6 +63,7 @@ def test_a_name_twice_in_a_file_is_reached_at_its_first_line(
             "module": ["b.code", None, None],
             "names": ["f", None, None],
             "dots": ["", None, None],
+            "anchors": [None, None, None],
             "language_hint": ["", None, None],
         }
     ).pipe(EdgeChunkRow.validate, cast=True)

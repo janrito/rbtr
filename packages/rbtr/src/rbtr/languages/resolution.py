@@ -132,7 +132,8 @@ def import_files(
             beside = _climb(file_path, 1, module)
             if beside is not None and beside != module:
                 found = module_files(beside, repo_files, resolution, importer_ext)
-    return [f for f in found if f != file_path]
+    # A file does not import itself whole; it may name something in itself.
+    return [f for f in found if meta.names or f != file_path]
 
 
 def module_files(

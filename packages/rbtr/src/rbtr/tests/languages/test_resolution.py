@@ -465,3 +465,18 @@ def test_resolve_suffix_tie_break(
     assert module_files(module, files, resolution, importer_ext) == (
         [] if expected is None else [expected]
     )
+
+
+@pytest.mark.parametrize(
+    ("names", "expected"),
+    [("usage", ["guide.md"]), ("", [])],
+    ids=["naming-something", "naming-nothing"],
+)
+def test_a_file_reaches_itself_only_to_name_something(names: str, expected: list[str]) -> None:
+    """An import of its own file reaches it when it names something in it, never whole."""
+    resolution = ImportResolution(
+        extensions=(".md",), index_files=(), source_roots=("",), path_substitutions=()
+    )
+    meta = ImportMeta(module="guide.md", names=names)
+    found = import_files(meta, "guide.md", "lang", {"guide.md"}, {"lang": resolution})
+    assert found == expected

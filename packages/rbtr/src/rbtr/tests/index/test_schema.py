@@ -608,7 +608,14 @@ UPDATE meta SET value = '2026.10.0' WHERE key = 'schema_version';
         ("function", None),
         (
             "import",
-            {"module": "os", "names": "", "dots": "", "language_hint": "", "node_types": None},
+            {
+                "module": "os",
+                "names": "",
+                "dots": "",
+                "language_hint": "",
+                "node_types": None,
+                "anchors": None,
+            },
         ),
     ]
 
