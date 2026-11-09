@@ -1,3 +1,4 @@
 [
+  "pkg/a.py::from pkg.b import helper -> pkg/b.py::helper [imports]",
   "python.py::from .config import LOCALE -> config.py::LOCALE [imports]"
 ]

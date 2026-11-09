@@ -104,5 +104,41 @@
     "content": "# A second file of the same module, reached by the same reference.\nterraform {\n  required_version = \">= 1.6\"\n}",
     "line_start": 1,
     "line_end": 4
+  },
+  {
+    "name": "module x",
+    "kind": "config_key",
+    "file_path": "tf/a.tf",
+    "scope": "",
+    "language": "hcl",
+    "content": "module \"x\" {\n  source = \"./b\"\n}",
+    "line_start": 1,
+    "line_end": 3
+  },
+  {
+    "name": "module \"x\" {\n  source = \"./b\"\n}",
+    "kind": "import",
+    "file_path": "tf/a.tf",
+    "scope": "",
+    "language": "hcl",
+    "content": "module \"x\" {\n  source = \"./b\"\n}",
+    "line_start": 1,
+    "line_end": 3,
+    "metadata": {
+      "module": "./b",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "name": "resource null_resource y",
+    "kind": "config_key",
+    "file_path": "tf/b/main.tf",
+    "scope": "",
+    "language": "hcl",
+    "content": "resource \"null_resource\" \"y\" {}",
+    "line_start": 1,
+    "line_end": 1
   }
 ]
