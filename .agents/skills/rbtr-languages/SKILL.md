@@ -264,6 +264,14 @@ becomes a named chunk), and bump `extraction_serial`. A node type with no
 searchable identity (a Go `package` clause, `#pragma once`, a parse error)
 stays a fragment: that is what fragments are for.
 
+## Anchors
+
+A section answers to the anchors a link's fragment names it by. A plugin
+gives them while extracting (a chunker on its `Section`, a query plugin
+through `anchor_extractor`), by its renderers' own rules, checked against
+the renderers themselves. How and why: the `rbtr` README ("Chunker-based
+plugin") and ARCHITECTURE ("Dependency graph").
+
 ## Scope & promotion (engine layers — already generic)
 
 Set on the language's `QueryExtraction` (the `extraction` field);

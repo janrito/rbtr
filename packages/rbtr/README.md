@@ -730,7 +730,7 @@ does this identically for every language — see
 
 ### When a query is not enough
 
-Four overrides handle what captures cannot express. Each attaches to
+Five overrides handle what captures cannot express. Each attaches to
 the registration as a decorator, or as a plain call to reuse an
 existing function:
 
@@ -739,9 +739,10 @@ existing function:
 | `name_extractor`   | a display name the query cannot capture — an HCL block named by its type and labels                   |
 | `scope_extractor`  | a scope tree ancestry cannot reach — a CSS nested rule under its parent selector, a TOML dotted table |
 | `import_extractor` | import metadata needing a node walk                                                                   |
+| `anchor_extractor` | the anchors a section answers to, as a link's fragment names it — an HTML element's `id`              |
 | `chunker`          | a whole language whose structure captures cannot express                                              |
 
-The first three are **wrap-style**, like pydantic's `WrapValidator`:
+The first four are **wrap-style**, like pydantic's `WrapValidator`:
 the first argument is the built-in resolver, so you delegate to it and
 refine the result rather than importing the default.
 
@@ -853,6 +854,12 @@ Spans are 1-based and inclusive. Take the last line from
 consumes its trailing newline ends at column 0 of a row it does
 not occupy, so adding one to the end row overshoots such a node
 by a line.
+
+A link's fragment names a section by its anchor. Give a section every
+anchor your language's renderers derive from its heading, numbering
+repeats as they do, and any its author sets:
+`Section(kind=..., name=..., meta=SectionMeta(anchors=(...)))`. A query
+plugin returns them from an `anchor_extractor`.
 
 ### Testing the plugin
 

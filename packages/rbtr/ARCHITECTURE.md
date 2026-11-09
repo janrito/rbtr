@@ -511,8 +511,9 @@ importing file: `@import "b.css"` in `css/a.css` means
 `css/b.css`, and the root comes first so a reference that already
 resolves keeps the file it resolved to. `module_style` and
 `source_roots` tune the mapping per language; ambiguous matches
-are dropped rather than guessed, and a file never resolves to
-itself.
+are dropped rather than guessed, and a file resolves to itself only
+for a reference that names something in it (a link to an anchor in
+its own document), never whole.
 
 Some references name a directory rather than a file. Where the
 language names a directory's stand-in — `__init__.py`,
@@ -523,6 +524,26 @@ and the reference reaches all of them: a Go package is its
 directory, a Terraform module is a directory of `.tf` files. A
 Markdown link to a directory reaches nothing, which is why this
 is declared rather than assumed.
+
+A reference's fragment names a section by its *anchor*, which a
+renderer derives from the heading by its own rule: GitHub, MkDocs and
+Pandoc make three different anchors of `Café -- au lait`, and
+docutils a fourth for the same rST title. A section therefore
+carries every anchor it answers to (`SectionMeta`), and a reference
+that names something reaches a section whose title or any anchor
+equals the name; prose naming a label and no file (an rST `:ref:`)
+reaches the first section answering to it. The plugin gives a
+section its anchors while extracting, a chunker on the `Section` it
+builds and a query plugin through `anchor_extractor`, because only
+the plugin knows its renderers' rules, and only extraction sees the
+whole document that a repeated heading's number depends on. Core
+matches stored anchors and names no rule.
+
+A registration-declared slug function, applied by inference to each
+section's title at every build, does not work here: it cannot number
+repeated headings without per-file ordering logic of its own, and it
+runs a Python function over every section of every build. Revisit it
+only for a language whose anchors depend on the title alone.
 
 A prefix a language's imports carry may be written down in the
 repository rather than in the language: `go.mod` states `module
