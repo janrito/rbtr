@@ -139,6 +139,20 @@ See [API section](api.md#my-function) for the API.
     assert imports[0].meta.names == "my-function"
 
 
+def test_md_link_within_the_document_names_its_own_file() -> None:
+    """Markdown [text](#section) imports the anchor from the document it is in."""
+    src = """\
+# Guide
+
+Jump to [usage](#usage).
+
+## Usage
+"""
+    chunks = extract_file(FileEntry("docs/guide.md", "sha1", src.encode()), "markdown")
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
+    assert [(i.meta.module, i.meta.names) for i in imports] == [("guide.md", "usage")]
+
+
 def test_md_relative_link_produces_import() -> None:
     """Markdown [text](../src/foo.py) with relative path produces import."""
     src = """\
@@ -158,18 +172,6 @@ def test_md_external_link_skipped() -> None:
 # Guide
 
 See [example](https://example.com) and [mail](mailto:a@b.com).
-"""
-    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
-    imports = [c.role for c in chunks if isinstance(c.role, Import)]
-    assert imports == []
-
-
-def test_md_fragment_only_link_skipped() -> None:
-    """Markdown #-only links (same-file anchors) produce no import."""
-    src = """\
-# Guide
-
-See [below](#details) for more.
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
     imports = [c.role for c in chunks if isinstance(c.role, Import)]

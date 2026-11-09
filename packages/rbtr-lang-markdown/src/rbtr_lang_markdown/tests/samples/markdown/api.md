@@ -1,6 +1,6 @@
 # API
 
-## format-greeting
+## Format a greeting — the helper
 
 Formats a greeting for a name.
 

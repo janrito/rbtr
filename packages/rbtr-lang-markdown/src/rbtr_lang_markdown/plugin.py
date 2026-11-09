@@ -20,14 +20,17 @@ Extracted chunks::
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
 from tree_sitter import Language, Parser, Query, QueryCursor
 
-from rbtr.domain.models import Chunk, ChunkKind, Import, ImportMeta, Section, Span
+from rbtr.domain.models import Chunk, ChunkKind, Import, ImportMeta, Section, SectionMeta, Span
 from rbtr.languages.chunks import chunk_plaintext, last_line
 from rbtr.languages.registration import LanguageRegistration, load_query
+from rbtr_lang_markdown.anchors import heading_anchors
 
 if TYPE_CHECKING:
     from tree_sitter import Node, Range
@@ -37,6 +40,16 @@ _EXTERNAL_SCHEMES = ("http://", "https://", "mailto:", "ftp://")
 
 # Block-level query: captures headed sections.
 _SECTION_QUERY = load_query(__package__, "sections")
+
+# Inline syntax a renderer does not show as a heading's text: code and
+# emphasis delimiters, a link's destination and title, and HTML tags.
+_UNRENDERED = frozenset(
+    {"code_span_delimiter", "emphasis_delimiter", "link_destination", "link_title", "html_tag"}
+)
+_LINK_PUNCTUATION = frozenset({"[", "]", "(", ")", "!"})
+
+# An `<a>` tag that sets an anchor with `id` or `name`.
+_ANCHOR_TAG = re.compile(r"<a\b[^>]*?\b(?:id|name)\s*=\s*[\"']([^\"']+)[\"']", re.IGNORECASE)
 
 # Injection query: a fenced code block delegates its content to the language
 # named in the fence's info string (```python, ```sh). The info-string name
@@ -87,6 +100,38 @@ def _section_own_content(node: Node, content_bytes: bytes) -> str:
     return content_bytes[node.start_byte : end_byte].decode("utf-8", errors="replace").strip()
 
 
+def _rendered_text(inline_parser: Parser, raw: bytes) -> str:
+    """A heading's text as a renderer shows it: code without backticks, a link as its text."""
+    tree = inline_parser.parse(raw)
+    hidden: list[tuple[int, int]] = []
+    pending = [tree.root_node]
+    while pending:
+        node = pending.pop()
+        link_part = node.parent is not None and node.parent.type.endswith(("link", "image"))
+        if node.type in _UNRENDERED or (link_part and node.type in _LINK_PUNCTUATION):
+            hidden.append((node.start_byte, node.end_byte))
+        else:
+            pending.extend(node.children)
+    shown = bytearray()
+    position = 0
+    for start, end in sorted(hidden):
+        shown += raw[position:start]
+        position = max(position, end)
+    shown += raw[position:]
+    return shown.decode("utf-8", errors="replace").strip()
+
+
+def _set_anchors(section: Node) -> list[str]:
+    """The anchors an `<a id>` or `<a name>` sets in the section's own paragraphs and HTML."""
+    own = []
+    for child in section.children:
+        if child.type == section.type:
+            break
+        if child.type in ("paragraph", "html_block") and child.text is not None:
+            own.extend(_ANCHOR_TAG.findall(child.text.decode("utf-8", errors="replace")))
+    return own
+
+
 def _extract_sections(
     content_bytes: bytes,
     grammar: Language,
@@ -110,7 +155,14 @@ def _extract_sections(
 
     **Content** is trimmed to exclude nested subsections — see
     `_section_own_content`.
+
+    **Anchors** are what each common renderer makes of the heading
+    (`heading_anchors`), and any the section sets itself with `<a id>` or
+    `<a name>`.
     """
+    import tree_sitter_markdown  # deferred: heavy native lib
+
+    inline_parser = Parser(Language(tree_sitter_markdown.inline_language()))
     query = Query(grammar, _SECTION_QUERY)
     parser = Parser(grammar)
     if ranges is not None:
@@ -123,14 +175,17 @@ def _extract_sections(
     # scope ("Top::Mid") for each section.
     scope_stack: list[str] = []
 
-    for _pattern_idx, capture_dict in matches:
-        section_nodes = capture_dict.get("doc_section", [])
-        name_nodes = capture_dict.get("_section_name", [])
-        if not section_nodes or not name_nodes:
-            continue
+    headed = [
+        (capture_dict["doc_section"][0], capture_dict["_section_name"][0])
+        for _pattern_idx, capture_dict in matches
+        if capture_dict.get("doc_section") and capture_dict.get("_section_name")
+    ]
+    anchors = heading_anchors(
+        [_rendered_text(inline_parser, heading.text or b"") for _node, heading in headed]
+    )
 
-        node = section_nodes[0]
-        name = name_nodes[0].text.decode("utf-8", errors="replace") if name_nodes[0].text else ""
+    for (node, heading), rendered_anchors in zip(headed, anchors, strict=True):
+        name = heading.text.decode("utf-8", errors="replace") if heading.text else ""
 
         # Maintain the scope stack: pop back to this section's
         # depth, read scope, then push the current heading.
@@ -145,11 +200,16 @@ def _extract_sections(
             continue
 
         line_start = node.start_point[0] + 1
+        section_anchors = tuple(dict.fromkeys((*rendered_anchors, *_set_anchors(node))))
         yield Chunk.model_validate(
             {
                 "blob_sha": blob_sha,
                 "file_path": file_path,
-                "role": Section(kind=ChunkKind.DOC_SECTION, name=name),
+                "role": Section(
+                    kind=ChunkKind.DOC_SECTION,
+                    name=name,
+                    meta=SectionMeta(anchors=section_anchors),
+                ),
                 "scope": scope_segments,
                 "language": "markdown",
                 "content": text,
@@ -196,8 +256,8 @@ def _extract_links(
     """Extract local links as IMPORT chunks using the inline parser.
 
     Parses the full content with `tree_sitter_markdown.inline_language()`
-    and queries for `inline_link` nodes.  External URLs and same-file
-    fragment-only links are skipped.
+    and queries for `inline_link` nodes.  External URLs are skipped; a
+    fragment alone (`#usage`) names an anchor in the document itself.
     """
     import tree_sitter_markdown  # deferred: heavy native lib
 
@@ -214,15 +274,17 @@ def _extract_links(
                 continue
             dest = dest_node.text.decode("utf-8", errors="replace")
 
-            # Skip external URLs and fragment-only anchors.
-            if any(dest.startswith(s) for s in _EXTERNAL_SCHEMES) or dest.startswith("#"):
+            # Skip external URLs.
+            if any(dest.startswith(s) for s in _EXTERNAL_SCHEMES):
                 continue
 
-            # Split path#fragment.
+            # Split path#fragment; a fragment alone names an anchor in this document.
             module = dest
             names = ""
             if "#" in dest:
                 module, names = dest.rsplit("#", 1)
+            if not module:
+                module = PurePosixPath(file_path).name
 
             yield Chunk(
                 blob_sha=blob_sha,
@@ -239,7 +301,7 @@ markdown = LanguageRegistration(
     grammar_module="tree_sitter_markdown",
     injection_query=load_query(__package__, "injections"),
     prose=True,
-    extraction_serial=5,
+    extraction_serial=6,
 )
 
 markdown.chunker(chunk_markdown)

@@ -21,13 +21,7 @@ if TYPE_CHECKING:
     scope="module",
     params=[
         "links",
-        pytest.param(
-            "link-to-a-heading",
-            marks=pytest.mark.xfail(
-                reason="a link names a heading by its anchor (`#details`), a section by its text",
-                strict=True,
-            ),
-        ),
+        "link-to-a-heading",
     ],
 )
 def sample_dir(request: pytest.FixtureRequest) -> Path:
