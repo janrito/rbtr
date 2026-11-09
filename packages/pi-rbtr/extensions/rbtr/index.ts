@@ -25,7 +25,14 @@ import { Type } from "typebox";
 import { classifyDaemonFailure, decideStartupDecision, notificationRepo } from "./classify.js";
 import type { ResponseFor } from "./daemon-client.js";
 import { DaemonSession, DaemonUnavailableError, type ReconcileResult } from "./daemon-session.js";
-import { errorReply, type ResolvedCommand, resolveCommand, runRbtrJson, statusReport } from "./exec.js";
+import {
+  errorReply,
+  PROBE_TIMEOUT_MS,
+  type ResolvedCommand,
+  resolveCommand,
+  runRbtrJson,
+  statusReport,
+} from "./exec.js";
 import { Footer } from "./footer.js";
 import type {
   ChangedSymbolsResponse,
@@ -430,15 +437,17 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     // tools run the CLI.
     const found = await resolveCommand(pi, settings.command);
     if (!isCurrent()) return;
-    if (found.kind === "failed") {
-      // Why rbtr did not run is unknown here; not being installed is the
-      // likeliest cause, so the hint says so.
+    if (found.kind !== "found") {
       cli = "missing";
       footer?.setStatic("error", "rbtr: cannot run");
+      // Why rbtr did not run is unknown here; not being installed is the
+      // likeliest cause, so the hint says so.
       ctx.ui.notify(
-        `rbtr could not be run (${found.command.description}: ${found.reason}). ` +
-          "It may not be installed: uv tool install rbtr\n" +
-          'Or set command in .pi/rbtr-index.json to "uvx" or "uvx --from <path>"',
+        found.kind === "silent"
+          ? `rbtr did not answer within ${PROBE_TIMEOUT_MS / 1000} s (${found.command.description}).`
+          : `rbtr could not be run (${found.command.description}: ${found.reason}). ` +
+              "It may not be installed: uv tool install rbtr\n" +
+              'Or set command in .pi/rbtr-index.json to "uvx" or "uvx --from <path>"',
         "warning",
       );
       return;

@@ -300,6 +300,7 @@ export const test = base.extend<{
   frozenDaemon: { freeze(): void; thaw(): void };
   fakeDaemon: FakeDaemonHandle;
   missing: ("python3" | "rbtr" | "uvx")[];
+  slow: Record<string, number>;
   processes: () => string[];
   settingsScope: "global" | "project";
   holdOn: string;
@@ -481,6 +482,10 @@ export const test = base.extend<{
   // `test.override`.
   missing: [],
 
+  // The command lines `processes` starts slowly: each waits its milliseconds
+  // before running. Set it with `test.override`.
+  slow: {},
+
   // `runningDaemon`, which `freeze()` stops with SIGSTOP: alive, but
   // answering nothing until `thaw()`, which teardown also calls. Freezing is
   // the test's step, after whatever must still reach the daemon.
@@ -536,17 +541,23 @@ export const test = base.extend<{
 
   // The command lines of the `python3`, `rbtr` and `uvx` processes started
   // during the test, in order. Recording wrappers go first on PATH, then
-  // stand-ins for the `missing` programs, which exit 127.
-  processes: async ({ temp, rbtr: _, missing }, use) => {
+  // stand-ins for the `missing` programs, which exit 127. The wrappers start
+  // the `slow` command lines late.
+  processes: async ({ temp, rbtr: _, missing, slow }, use) => {
     const dir = mkdtempSync(join(temp, "rbtr-wrappers-"));
     const absent = mkdtempSync(join(temp, "rbtr-missing-"));
     const log = join(dir, "log");
     writeFileSync(log, "");
     for (const name of ["python3", "rbtr", "uvx"]) symlinkSync(join(FIXTURES, "record-process.ts"), join(dir, name));
     for (const name of missing) symlinkSync(join(FIXTURES, "not-installed.ts"), join(absent, name));
-    const saved = { PATH: process.env.PATH, RECORDED_PROCESSES: process.env.RECORDED_PROCESSES };
+    const saved = {
+      PATH: process.env.PATH,
+      RECORDED_PROCESSES: process.env.RECORDED_PROCESSES,
+      SLOW_COMMANDS: process.env.SLOW_COMMANDS,
+    };
     process.env.PATH = [dir, absent, saved.PATH ?? ""].join(delimiter);
     process.env.RECORDED_PROCESSES = log;
+    process.env.SLOW_COMMANDS = JSON.stringify(slow);
     await use(() =>
       readFileSync(log, "utf8")
         .split("\n")
