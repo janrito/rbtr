@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
 from pytest_cases import parametrize_with_cases
 
 from rbtr.git import FileEntry
-from rbtr.languages.extract import extract_file
+from rbtr.languages.extract import docstring, extract_file
 
 
 @parametrize_with_cases(
@@ -41,3 +42,31 @@ def test_leading_doc_folds_into_symbol(lang: str, source: str, name: str, snippe
         c for c in extract_file(FileEntry("input", "sha1", source.encode()), lang) if c.name == name
     )
     assert snippet in chunk.content
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (
+            """\
+/// Return a friendly greeting.
+fn greet(name: &str) -> String {
+    name.to_string()
+}
+""",
+            "/// Return a friendly greeting.\n",
+        ),
+        (
+            """\
+fn greet(name: &str) -> String {
+    name.to_string()
+}
+""",
+            None,
+        ),
+    ],
+    ids=["doc-comment", "undocumented"],
+)
+def test_docstring_is_the_doc_comment_as_written(source: str, expected: str | None) -> None:
+    """`docstring` returns the first documented symbol's doc comment as written, or none."""
+    assert docstring(source, "rust") == expected

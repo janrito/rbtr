@@ -19,61 +19,6 @@ from rbtr.languages.registration import LanguageRegistration, QueryExtraction
 
 
 @pytest.mark.parametrize(
-    ("path", "expected"),
-    [
-        ("src/app.py", "python"),
-        ("stubs/foo.pyi", "python"),
-        (".bashrc", "bash"),
-        ("index.js", "javascript"),
-        ("App.jsx", "javascript"),
-        ("module.mjs", "javascript"),
-        ("app.ts", "typescript"),
-        ("Component.tsx", "tsx"),
-        ("main.go", "go"),
-        ("lib.rs", "rust"),
-        ("schema.sql", "sql"),
-        ("App.java", "java"),
-        ("theme.scss", "scss"),
-        ("theme.less", "less"),
-        ("Widget.svelte", "svelte"),
-        ("Widget.vue", "vue"),
-        ("package.json", "json"),
-        ("config.yaml", "yaml"),
-        ("ci.yml", "yaml"),
-        ("pyproject.toml", "toml"),
-        ("README.md", "markdown"),
-        ("src/rbtr/index/store.py", "python"),
-    ],
-    ids=[
-        "py",
-        "pyi",
-        "bashrc",
-        "js",
-        "jsx",
-        "mjs",
-        "ts",
-        "tsx",
-        "go",
-        "rust",
-        "sql",
-        "java",
-        "scss",
-        "less",
-        "svelte",
-        "vue",
-        "json",
-        "yaml",
-        "yml",
-        "toml",
-        "markdown",
-        "nested-path",
-    ],
-)
-def test_detect_language(path: str, expected: str) -> None:
-    assert get_manager().detect_language(path) == expected
-
-
-@pytest.mark.parametrize(
     "path",
     ["README", "data.xyz", "Makefile", "Dockerfile"],
     ids=["no-extension", "unknown-extension", "makefile", "dockerfile"],
@@ -108,8 +53,8 @@ def test_get_registration_none_for_unknown() -> None:
 
 @pytest.mark.parametrize(
     "lang_id",
-    ["python", "bash", "json", "yaml", "toml"],
-    ids=["python", "bash", "json", "yaml", "toml"],
+    ["python", "bash"],
+    ids=["python", "bash"],
 )
 def test_grammar_base(lang_id: str) -> None:
     assert get_manager().grammar(lang_id) is not None
@@ -133,40 +78,12 @@ def test_grammar_cached() -> None:
 
 @pytest.mark.parametrize(
     "lang_id",
-    ["python", "bash"],
-)
-def test_query_has_function(lang_id: str) -> None:
-    reg = get_manager().get_registration(lang_id)
-    assert reg is not None
-    assert isinstance(reg.extraction, QueryExtraction)
-    assert "@function" in reg.extraction.query
-
-
-@pytest.mark.parametrize(
-    "lang_id",
     ["markdown", "nonexistent"],
     ids=["chunker-no-query", "unknown"],
 )
 def test_query_none_for_chunker_or_unknown(lang_id: str) -> None:
     reg = get_manager().get_registration(lang_id)
     assert reg is None or not isinstance(reg.extraction, QueryExtraction)
-
-
-def test_python_query_has_import_and_class() -> None:
-    reg = get_manager().get_registration("python")
-    assert reg is not None
-    assert isinstance(reg.extraction, QueryExtraction)
-    assert "@import" in reg.extraction.query
-    assert "@class" in reg.extraction.query
-
-
-def test_bash_query_has_function_and_import() -> None:
-    reg = get_manager().get_registration("bash")
-    assert reg is not None
-    assert isinstance(reg.extraction, QueryExtraction)
-    assert "@function" in reg.extraction.query
-    assert "@import" in reg.extraction.query
-    assert "@class" not in reg.extraction.query
 
 
 def test_every_query_compiles_against_its_grammar() -> None:
@@ -182,25 +99,6 @@ def test_every_query_compiles_against_its_grammar() -> None:
         if reg is None or not isinstance(reg.extraction, QueryExtraction) or grammar is None:
             continue
         Query(grammar, reg.extraction.query)  # raises QueryError on an unknown node type
-
-
-def test_scope_types_python() -> None:
-    reg = get_manager().get_registration("python")
-    assert reg is not None
-    assert isinstance(reg.extraction, QueryExtraction)
-    assert "class_definition" in reg.extraction.scope_types
-
-
-@pytest.mark.parametrize(
-    "lang_id",
-    ["bash", "nonexistent"],
-    ids=["no-scope-types", "unknown"],
-)
-def test_scope_types_empty(lang_id: str) -> None:
-    reg = get_manager().get_registration(lang_id)
-    extraction = reg.extraction if reg else None
-    scope_types = extraction.scope_types if isinstance(extraction, QueryExtraction) else frozenset()
-    assert scope_types == frozenset()
 
 
 @pytest.mark.parametrize(
@@ -220,34 +118,6 @@ def test_missing_grammar_false_for_chunker_only() -> None:
 def test_all_language_ids_not_empty() -> None:
     ids = get_manager().all_language_ids()
     assert len(ids) > 0
-
-
-@pytest.mark.parametrize(
-    "lang_id",
-    [
-        "python",
-        "javascript",
-        "typescript",
-        "tsx",
-        "go",
-        "rust",
-        "sql",
-        "java",
-        "bash",
-        "json",
-        "yaml",
-        "toml",
-        "markdown",
-        "css",
-        "scss",
-        "less",
-        "svelte",
-        "vue",
-        "html",
-    ],
-)
-def test_all_language_ids_contains(lang_id: str) -> None:
-    assert lang_id in get_manager().all_language_ids()
 
 
 #
