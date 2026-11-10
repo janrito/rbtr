@@ -20,13 +20,16 @@ from rbtr.languages.extract import extract_file
     ),
     [
         pytest.param(
-            "pkg.json",
-            '{"name": "test", "version": "1.0"}',
-            "json",
-            ChunkKind.CONFIG_KEY,
-            None,
+            "mod.py",
+            """\
+def greet():
+    return 1
+""",
+            "python",
+            ChunkKind.FUNCTION,
+            "greet",
             1,
-            id="json",
+            id="python",
         ),
         pytest.param(
             "doc.md",
@@ -54,30 +57,6 @@ Body text.
             "Title",
             1,
             id="rst",
-        ),
-        pytest.param(
-            "config.toml",
-            """\
-[project]
-name = 'rbtr'
-""",
-            "toml",
-            None,
-            "project",
-            1,
-            id="toml",
-        ),
-        pytest.param(
-            "ci.yml",
-            """\
-name: CI
-on: [push]
-""",
-            "yaml",
-            None,
-            None,
-            1,
-            id="yaml",
         ),
         pytest.param(
             "CHANGES.txt",

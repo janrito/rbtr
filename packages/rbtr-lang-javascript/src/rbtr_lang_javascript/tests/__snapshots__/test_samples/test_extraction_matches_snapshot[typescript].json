@@ -20,6 +20,32 @@
     "line_end": 2
   },
   {
+    "name": "import { helper } from './b';",
+    "kind": "import",
+    "file_path": "src/a.ts",
+    "scope": "",
+    "language": "typescript",
+    "content": "import { helper } from './b';",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "b",
+      "names": "helper",
+      "dots": "1",
+      "language_hint": ""
+    }
+  },
+  {
+    "name": "helper",
+    "kind": "function",
+    "file_path": "src/b.ts",
+    "scope": "",
+    "language": "typescript",
+    "content": "function helper(): number {\n  return 1;\n}",
+    "line_start": 1,
+    "line_end": 3
+  },
+  {
     "name": "",
     "kind": "comment",
     "file_path": "types.ts",

@@ -2,8 +2,8 @@
 
 What a test suite (in- or out-of-tree) can't easily re-derive: a
 pydantic-aware snapshot serialiser, a sample project built as rbtr
-builds a repository, readable renderings of what a build holds, and an
-isolated on-disk index.
+builds a repository and read back as plain values, and an isolated
+on-disk index.
 
 Also a pytest plugin (the `pytest11` entry point on `rbtr`): it provides the
 `snapshot_json` and `isolated_db` fixtures, and, for a test module that
@@ -13,7 +13,7 @@ them with no conftest boilerplate.
 
 Always shipped (a normal module); it imports `syrupy` and `pytest`, so it is
 only *importable* with the `rbtr[test]` extra installed — exactly the test
-context that uses it. `render_edges` and the sample fixtures are projections
+context that uses it. The sample fixtures are projections
 feeding snapshot assertions; keep them projections — do not fold them into
 `assert_*` helpers, which would hide syrupy's snapshot comparison.
 """
@@ -45,36 +45,7 @@ if TYPE_CHECKING:
     from rbtr.daemon.dto import SymbolOut
     from rbtr.domain.models import SnapshotRef
     from rbtr.index.index import Index
-    from rbtr.index.results import ChunkResultRow, EdgeResultRow
-
-
-def render_edges(
-    edges: dy.DataFrame[EdgeResultRow], chunks: dy.DataFrame[ChunkResultRow]
-) -> list[str]:
-    """Render edges as readable, sorted `src -> tgt [kind]` lines.
-
-    Joins each edge's endpoint ids back to their chunks so a snapshot shows
-    *which* chunks are linked (raw ids are opaque hashes).
-    """
-    labels = chunks.select("id", label=pl.format("{}::{}", "file_path", "name")).unique(
-        "id", keep="last"
-    )
-    return (
-        edges.join(
-            labels.rename({"id": "source_id", "label": "source_label"}), on="source_id", how="left"
-        )
-        .join(
-            labels.rename({"id": "target_id", "label": "target_label"}), on="target_id", how="left"
-        )
-        .select(
-            pl.format(
-                "{} -> {} [{}]", "source_label", "target_label", pl.col("kind").cast(pl.String)
-            )
-        )
-        .to_series()
-        .sort()
-        .to_list()
-    )
+    from rbtr.index.results import ChunkResultRow
 
 
 class PydanticSnapshotExtension(SingleFileSnapshotExtension):
@@ -166,8 +137,30 @@ def sample_symbols(_sample_chunks: dy.DataFrame[ChunkResultRow]) -> list[SymbolO
 def sample_edges(
     _sample_index: Index, _sample_ref: SnapshotRef, _sample_chunks: dy.DataFrame[ChunkResultRow]
 ) -> list[str]:
-    """The edges the build of `sample_dir` infers, as `render_edges` lines."""
-    return render_edges(_sample_index.edges(within=[_sample_ref]), _sample_chunks)
+    """The edges the build of `sample_dir` infers, as sorted `source -> target [kind]` lines.
+
+    Each end is named `path::name`, since raw chunk ids are opaque hashes.
+    """
+    labels = _sample_chunks.select("id", label=pl.format("{}::{}", "file_path", "name")).unique(
+        "id", keep="last"
+    )
+    return (
+        _sample_index.edges(within=[_sample_ref])
+        .join(
+            labels.rename({"id": "source_id", "label": "source_label"}), on="source_id", how="left"
+        )
+        .join(
+            labels.rename({"id": "target_id", "label": "target_label"}), on="target_id", how="left"
+        )
+        .select(
+            pl.format(
+                "{} -> {} [{}]", "source_label", "target_label", pl.col("kind").cast(pl.String)
+            )
+        )
+        .to_series()
+        .sort()
+        .to_list()
+    )
 
 
 @pytest.fixture(scope="module")

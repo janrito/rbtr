@@ -162,6 +162,32 @@
     "line_end": 40
   },
   {
+    "name": "source ./b.sh",
+    "kind": "import",
+    "file_path": "bin/a.sh",
+    "scope": "",
+    "language": "bash",
+    "content": "source ./b.sh",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "./b.sh",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "name": "helper",
+    "kind": "function",
+    "file_path": "bin/b.sh",
+    "scope": "",
+    "language": "bash",
+    "content": "helper() {\n  :\n}",
+    "line_start": 1,
+    "line_end": 3
+  },
+  {
     "name": "RED",
     "kind": "variable",
     "file_path": "lib/colours.sh",
