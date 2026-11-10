@@ -34,10 +34,13 @@ from rbtr.domain.models import (
     Span,
 )
 from rbtr.domain.tokenise import tokenise_code
+from rbtr.git import normalise_repo_path
 from rbtr.index.build import build_index
 from rbtr.index.index import Index
 from rbtr.index.refs import latest_ref
 from rbtr.index.staging import TokenisedChunk
+
+from ..conftest import make_commit
 
 # ═════════════════════════════════════════════════════════════════════
 # Builders (no side effects, no hidden state)
@@ -147,32 +150,116 @@ def head_ref(index: Index) -> SnapshotRef:
 
 
 @pytest.fixture
-def shared_chunk() -> TokenisedChunk:
-    """The single chunk that `shared_chunk_index`'s two repos share."""
-    return make_chunk("shared_fn", path="x.py", blob="b_shared")
+def shared_sha(git_repo: pygit2.Repository) -> str:
+    """A commit of `git_repo` holding only `x.py`, which defines `shared_fn`."""
+    x = b"""\
+def shared_fn():
+    pass
+"""
+    return str(make_commit(git_repo, {"x.py": x}, ref="refs/heads/shared"))
 
 
 @pytest.fixture
-def shared_chunk_index(project_index: Index, shared_chunk: TokenisedChunk) -> Index:
-    """An index where one chunk is shared by repo 1 and repo 2.
+def shared_chunk_index(
+    index: Index, shared_sha: str, repo_path: str, linked_worktree: pygit2.Repository
+) -> Index:
+    """Both checkouts of one project built at `shared_sha`, so they share one chunk.
 
-    Models byte-identical content in two checkouts of one project
-    (`project_index`): the blob (and so the chunk `id`) coincides. The
-    chunk is inserted **once** in the project's file; each repo records
-    a snapshot referencing the same blob — mirroring the
-    `blob_is_current` skip that happens when a second checkout indexes
-    already-chunked content.
+    The main checkout is repo 1 and the linked worktree repo 2. The
+    second build finds the blob already chunked and only records its
+    snapshot, as a second checkout does in production.
     """
-    index = project_index
-    repo1, repo2 = project_index.repos()
-    with index.session(repo1) as ws:
-        ws.add_chunk(shared_chunk)
-        ws.insert_snapshots([make_snap("head", "x.py", "b_shared")])
-        ws.mark_indexed(snapshot_sha="head")
-    with index.session(repo2) as ws:
-        ws.insert_snapshots([make_snap("head", "x.py", "b_shared")])
-        ws.mark_indexed(snapshot_sha="head")
+    build_index(repo_path, shared_sha, index)
+    build_index(normalise_repo_path(linked_worktree.workdir), shared_sha, index)
     return index
+
+
+@pytest.fixture
+def shared_chunk_id(shared_chunk_index: Index, shared_sha: str) -> str:
+    """The id of `shared_fn`, the one chunk `shared_chunk_index`'s repos share."""
+    repo1 = shared_chunk_index.repos()[0]
+    return str(shared_chunk_index.chunks(at=repo1.at(shared_sha), name="shared_fn")["id"].item())
+
+
+@pytest.fixture
+def m_py() -> bytes:
+    """`m.py`, defining `fn`: byte-identical wherever it is committed."""
+    return b"""\
+def fn():
+    return 1
+"""
+
+
+@pytest.fixture
+def importer_a_sha(git_repo: pygit2.Repository, m_py: bytes) -> str:
+    """A commit holding `m.py` and `a.py`, which imports `fn` from it."""
+    a = b"""\
+from m import fn
+"""
+    return str(make_commit(git_repo, {"m.py": m_py, "a.py": a}, ref="refs/heads/a"))
+
+
+@pytest.fixture
+def importer_b_sha(git_repo: pygit2.Repository, m_py: bytes) -> str:
+    """A commit holding `m.py` and `b.py`, which imports `fn` from it."""
+    b = b"""\
+from m import fn
+"""
+    return str(make_commit(git_repo, {"m.py": m_py, "b.py": b}, ref="refs/heads/b"))
+
+
+@pytest.fixture
+def shared_target(
+    index: Index,
+    repo_path: str,
+    linked_worktree: pygit2.Repository,
+    importer_a_sha: str,
+    importer_b_sha: str,
+) -> Index:
+    """Two checkouts of one project, each importing `fn` from its own copy of `m.py`.
+
+    The main checkout (repo 1) is built at `importer_a_sha` and the
+    linked worktree (repo 2) at `importer_b_sha`. `m.py` is the same in
+    both, so `fn` is one chunk the two snapshots share.
+    """
+    build_index(repo_path, importer_a_sha, index)
+    build_index(normalise_repo_path(linked_worktree.workdir), importer_b_sha, index)
+    return index
+
+
+# ═════════════════════════════════════════════════════════════════════
+# Edges built from source
+# ═════════════════════════════════════════════════════════════════════
+
+
+@pytest.fixture(scope="module")
+def import_graph(module_index: Index, module_repo: pygit2.Repository) -> SnapshotRef:
+    """A snapshot, built into `module_index`, where code imports a function and prose links to its file.
+
+    `src/app.py` imports `fn` from `src/m.py`, an `imports` edge;
+    `README.md` links to `src/m.py`, a `documents` edge to `fn`.
+    """
+    m = b"""\
+def fn():
+    return 1
+"""
+    app = b"""\
+from src.m import fn
+
+
+def run():
+    return fn()
+"""
+    readme = b"""\
+# Guide
+
+See [fn](src/m.py).
+"""
+    files = {"src/m.py": m, "src/app.py": app, "README.md": readme}
+    sha = str(make_commit(module_repo, files, ref="refs/heads/graph"))
+    path = normalise_repo_path(module_repo.workdir)
+    build_index(path, sha, module_index)
+    return module_index.register(path).at(sha)
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -535,6 +622,8 @@ def ranking_index(
     ranking_edges: list[Edge],
 ) -> Generator[Index]:
     """An in-memory Index pre-loaded with the ranking dataset."""
+    # Written by hand, not built: `ranking_edges` holds a `calls` edge,
+    # and no build infers `calls` edges yet.
     index = Index(writable=True)
     repo = index.register("/repo")
     with index.session(repo) as ws:

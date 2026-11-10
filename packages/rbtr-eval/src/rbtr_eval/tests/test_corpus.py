@@ -1,6 +1,6 @@
 """`corpus_refs` names the snapshots the eval measures.
 
-Seeds a real git repo and a real `Index`: `head_sha` reads git,
+Builds a real git repo into a real `Index`: `head_sha` reads git,
 so neither can be faked.
 """
 
@@ -11,13 +11,17 @@ from pathlib import Path
 
 import pygit2
 import pytest
-from pytest_cases import parametrize_with_cases
+from pytest_cases import fixture, parametrize_with_cases
 
+from rbtr.config import config
+from rbtr.domain.models import Repo
 from rbtr.errors import RbtrError
+from rbtr.git import normalise_repo_path, worktree_tree_sha
+from rbtr.index.build import build_index
 from rbtr.index.index import Index
+from rbtr.tests.conftest import make_commit
 from rbtr_eval.corpus import Corpus, corpus_refs
-from rbtr_eval.tests.cases_corpus import CorpusScenario
-from rbtr_eval.tests.conftest import seed_corpus
+from rbtr_eval.tests.cases_corpus import HEAD, OTHER, CorpusScenario
 
 
 @dataclass(frozen=True)
@@ -30,14 +34,29 @@ class RepoAtHead:
 
 @pytest.fixture
 def repo_at_head(tmp_path: Path) -> RepoAtHead:
-    """A git repo whose single commit adds `a.py`."""
+    """A git repo whose single commit adds `a.py`, checked out."""
+    a = b"""\
+def f():
+    pass
+"""
     path = tmp_path / "repo"
     repo = pygit2.init_repository(str(path), bare=False, initial_head="main")
-    sig = pygit2.Signature("t", "t@t.t")
-    tb = repo.TreeBuilder()
-    tb.insert("a.py", repo.create_blob(b"def f():\n    pass\n"), pygit2.GIT_FILEMODE_BLOB)
-    head = str(repo.create_commit("refs/heads/main", sig, sig, "c1", tb.write(), []))
+    head = str(make_commit(repo, {"a.py": a}))
+    repo.checkout_head(strategy=pygit2.GIT_CHECKOUT_FORCE)  # type: ignore[no-untyped-call]  # pygit2 untyped
     return RepoAtHead(path=path, head=head)
+
+
+@pytest.fixture
+def worktree_sha(repo_at_head: RepoAtHead) -> str:
+    """The tree of `repo_at_head`'s checkout with `a.py` edited: a dirty worktree."""
+    a = b"""\
+def f():
+    return 1
+"""
+    (repo_at_head.path / "a.py").write_bytes(a)
+    sha = worktree_tree_sha(str(repo_at_head.path), max_untracked_files=config.max_untracked_files)
+    assert sha is not None
+    return sha
 
 
 @pytest.fixture
@@ -46,25 +65,59 @@ def index(tmp_path: Path) -> Index:
     return Index(str(tmp_path / "index" / "index.duckdb"), writable=True)
 
 
+@fixture
 @parametrize_with_cases("scenario", cases=".cases_corpus", has_tag="valid")
+def valid(scenario: CorpusScenario) -> CorpusScenario:
+    return scenario
+
+
+@fixture
+@parametrize_with_cases("scenario", cases=".cases_corpus", has_tag="invalid")
+def invalid(scenario: CorpusScenario) -> CorpusScenario:
+    return scenario
+
+
+@pytest.fixture
+def valid_repo(
+    valid: CorpusScenario, index: Index, repo_at_head: RepoAtHead, worktree_sha: str
+) -> Repo:
+    """`repo_at_head` registered, with each snapshot the scenario names built."""
+    path = normalise_repo_path(str(repo_at_head.path))
+    for name in valid.indexed:
+        build_index(path, {HEAD: repo_at_head.head, OTHER: worktree_sha}[name], index)
+    return index.register(path)
+
+
+@pytest.fixture
+def invalid_repo(
+    invalid: CorpusScenario, index: Index, repo_at_head: RepoAtHead, worktree_sha: str
+) -> Repo:
+    """`repo_at_head` registered, with each snapshot the scenario names built."""
+    path = normalise_repo_path(str(repo_at_head.path))
+    for name in invalid.indexed:
+        build_index(path, {HEAD: repo_at_head.head, OTHER: worktree_sha}[name], index)
+    return index.register(path)
+
+
 def test_corpus_refs_names_each_repos_head(
-    scenario: CorpusScenario, index: Index, repo_at_head: RepoAtHead
+    valid_repo: Repo, index: Index, repo_at_head: RepoAtHead
 ) -> None:
     """The corpus is HEAD, given as a `SnapshotRef` per registered repo."""
-    seeded = seed_corpus(index, repo_at_head.path, repo_at_head.head, scenario.indexed)
-
-    assert corpus_refs(index) == Corpus(refs=(seeded.at(repo_at_head.head),))
+    assert corpus_refs(index) == Corpus(refs=(valid_repo.at(repo_at_head.head),))
 
 
-@parametrize_with_cases("scenario", cases=".cases_corpus", has_tag="invalid")
 def test_corpus_refs_refuses_an_index_that_is_not_the_corpus(
-    scenario: CorpusScenario, index: Index, repo_at_head: RepoAtHead
+    invalid: CorpusScenario,
+    invalid_repo: Repo,
+    index: Index,
+    repo_at_head: RepoAtHead,
+    worktree_sha: str,
 ) -> None:
     """Anything but HEAD alone is refused, naming the repo and the SHA."""
-    seed_corpus(index, repo_at_head.path, repo_at_head.head, scenario.indexed)
-    assert scenario.error_match is not None
+    assert invalid.error_match is not None
+    error_match = worktree_sha if invalid.error_match == OTHER else invalid.error_match
 
-    with pytest.raises(RbtrError, match=scenario.error_match) as excinfo:
+    with pytest.raises(RbtrError, match=error_match) as excinfo:
         corpus_refs(index)
 
     assert str(repo_at_head.path) in str(excinfo.value)

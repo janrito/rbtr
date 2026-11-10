@@ -16,15 +16,12 @@ import pygit2
 import pytest
 
 from rbtr.domain.models import (
-    ChunkKind,
-    Definition,
-    FileSnapshot,
     Repo,
-    Span,
 )
+from rbtr.git import normalise_repo_path
+from rbtr.index.build import build_index
 from rbtr.index.index import Index
-from rbtr.index.staging import TokenisedChunk
-from rbtr.tests.conftest import run_cli
+from rbtr.tests.conftest import make_commit, run_cli
 
 
 @dataclass(frozen=True)
@@ -37,68 +34,40 @@ class TinyRepo:
 @pytest.fixture
 def tiny_repo(tmp_path: Path) -> TinyRepo:
     """A real git repo with two commits."""
+    first = b"""\
+def a():
+    return 1
+"""
+    second = b"""\
+def a():
+    return 2
+"""
     path = tmp_path / "repo"
     repo = pygit2.init_repository(str(path), bare=False, initial_head="main")
-    sig = pygit2.Signature("t", "t@t.t")
-
-    shas: list[str] = []
-    for i, files in enumerate(
-        [
-            {"a.py": b"def a():\n    return 1\n"},
-            {"a.py": b"def a():\n    return 2\n"},
-        ]
-    ):
-        tb = repo.TreeBuilder()
-        for name, content in files.items():
-            tb.insert(name, repo.create_blob(content), pygit2.GIT_FILEMODE_BLOB)
-        parents = [repo.head.target] if not repo.head_is_unborn else []
-        shas.append(
-            str(repo.create_commit("refs/heads/main", sig, sig, f"c{i}", tb.write(), parents))
-        )
-    return TinyRepo(path=path, c1=shas[0], c2=shas[1])
+    c1 = make_commit(repo, {"a.py": first})
+    c2 = make_commit(repo, {"a.py": second}, parents=[c1])
+    return TinyRepo(path=path, c1=str(c1), c2=str(c2))
 
 
 @pytest.fixture
 def seeded_repo_both_commits(tiny_repo: TinyRepo, isolated_db: Path) -> Repo:
-    """Seed both commits and close the store so subprocesses can open it."""
+    """Build both commits and close the store so subprocesses can open it."""
     index = Index.from_config(writable=True)
-    registered = index.register(str(tiny_repo.path))
-    for i, sha in enumerate((tiny_repo.c1, tiny_repo.c2)):
-        chunk = TokenisedChunk(
-            blob_sha=f"b{i}",
-            file_path="a.py",
-            role=Definition(kind=ChunkKind.FUNCTION, name="f"),
-            content="",
-            span=Span(start=1, end=1),
-        )
-        with index.session(registered) as ws:
-            ws.add_chunk(chunk)
-            ws.insert_snapshots(
-                [FileSnapshot(snapshot_sha=sha, file_path="a.py", blob_sha=f"b{i}")],
-            )
-            ws.mark_indexed(snapshot_sha=sha)
+    path = normalise_repo_path(str(tiny_repo.path))
+    build_index(path, tiny_repo.c1, index)
+    build_index(path, tiny_repo.c2, index)
+    registered = index.register(path)
     index.close()
     return registered
 
 
 @pytest.fixture
 def seeded_repo_first_commit(tiny_repo: TinyRepo, isolated_db: Path) -> Repo:
-    """Seed only the first commit and close the store."""
+    """Build only the first commit and close the store."""
     index = Index.from_config(writable=True)
-    registered = index.register(str(tiny_repo.path))
-    chunk = TokenisedChunk(
-        blob_sha="b0",
-        file_path="a.py",
-        role=Definition(kind=ChunkKind.FUNCTION, name="f"),
-        content="",
-        span=Span(start=1, end=1),
-    )
-    with index.session(registered) as ws:
-        ws.add_chunk(chunk)
-        ws.insert_snapshots(
-            [FileSnapshot(snapshot_sha=tiny_repo.c1, file_path="a.py", blob_sha="b0")],
-        )
-        ws.mark_indexed(snapshot_sha=tiny_repo.c1)
+    path = normalise_repo_path(str(tiny_repo.path))
+    build_index(path, tiny_repo.c1, index)
+    registered = index.register(path)
     index.close()
     return registered
 
