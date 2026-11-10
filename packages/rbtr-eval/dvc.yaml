@@ -207,10 +207,6 @@ stages:
     deps:
       - src/rbtr_eval/index_stage.py
       - src/rbtr_eval/rbtr_cli.py
-      - src/rbtr_eval/sql/index_repos.sql
-      - src/rbtr_eval/sql/index_kinds.sql
-      - src/rbtr_eval/sql/index_languages.sql
-      - src/rbtr_eval/sql/index_totals.sql
       - src/rbtr_eval/templates/index.md.j2
       - ../rbtr/src/rbtr
       - data/rendered_config.json
@@ -232,8 +228,6 @@ stages:
     deps:
       - src/rbtr_eval/index_stage.py
       - src/rbtr_eval/rbtr_cli.py
-      - src/rbtr_eval/sql/embedding_repos.sql
-      - src/rbtr_eval/sql/embedding_totals.sql
       - src/rbtr_eval/templates/embedding.md.j2
       - ../rbtr/src/rbtr
       - data/rendered_config.json
@@ -269,7 +263,6 @@ stages:
       - src/rbtr_eval/templates/mrr_by_repo.vl.json
       - src/rbtr_eval/templates/mrr_by_provenance.vl.json
       - src/rbtr_eval/templates/mrr_by_kind.vl.json
-      - src/rbtr_eval/sql/truncated_chunks.sql
       - ../rbtr/src/rbtr
       - data/rendered_config.json
       - ${per_repo_dir}

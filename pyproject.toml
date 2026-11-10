@@ -337,6 +337,24 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
+name = "The eval reads rbtr through its public read API"
+type = "forbidden"
+# The eval measures rbtr, so it reads the index through `Index` and its
+# read models, never rbtr's storage or extraction engine: those change
+# without changing behaviour, and must not break the eval when they do.
+# Its tests may forge index states no build produces.
+source_modules = ["rbtr_eval"]
+forbidden_modules = [
+    "rbtr.index.staging",
+    "rbtr.index.writer",
+    "rbtr.index.store",
+    "rbtr.index.db",
+    "rbtr.languages.treesitter",
+]
+allow_indirect_imports = true
+ignore_imports = ["rbtr_eval.tests.** -> rbtr.**"]
+
+[[tool.importlinter.contracts]]
 name = "Staging and results are independent"
 type = "independence"
 modules = ["rbtr.index.staging", "rbtr.index.results"]

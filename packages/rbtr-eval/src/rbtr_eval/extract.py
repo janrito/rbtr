@@ -21,9 +21,7 @@ from rbtr.config import config
 from rbtr.domain.identity import SCOPE_SEPARATOR
 from rbtr.domain.models import SnapshotRef
 from rbtr.index.index import Index
-from rbtr.languages.manager import get_manager
-from rbtr.languages.registration import QueryExtraction
-from rbtr.languages.treesitter import extract_doc_spans
+from rbtr.languages.extract import docstring
 from rbtr_eval.corpus import corpus_ref
 from rbtr_eval.kinds import EXCLUDED_KINDS
 from rbtr_eval.queries import subsample
@@ -49,11 +47,12 @@ _REJECT_PREFIXES = (
 )
 
 
-def first_sentence(doc_text: str) -> str | None:
-    """Return the first sentence of *doc_text*, or None if unusable.
+def first_sentence(text: str) -> str | None:
+    """Return the first sentence of *text*, or None if unusable.
 
-    Turns a raw docstring (comment markers and all) into a
-    search-friendly query string.  Comment markers -- line
+    Turns a chunk's raw text — its whole content for a `body` query,
+    its documentation for a `docstring` one, comment markers and all —
+    into a search-friendly query string.  Comment markers -- line
     comments, triple-quotes, block-comment delimiters, `*`
     gutters -- are kept in the returned text: stripping them
     means re-implementing per-language comment syntax, which
@@ -70,7 +69,7 @@ def first_sentence(doc_text: str) -> str | None:
     boilerplate / scaffolding prefix (`todo`, `@param`, etc.)
     after skipping leading comment-marker noise.
     """
-    cleaned = doc_text.strip()
+    cleaned = text.strip()
     if not cleaned:
         return None
     parts = _SENTENCE_SPLIT_RE.split(cleaned, maxsplit=1)
@@ -85,57 +84,15 @@ def first_sentence(doc_text: str) -> str | None:
     return candidate
 
 
-_BODY_MIN_LEN = 15
-_BODY_MAX_LEN = 200
-_BODY_LINE_RE = re.compile(r"[.!?]\s+|\n\s*\n")
+def docstring_query(content: str, language: str) -> str | None:
+    """The `docstring` query of a chunk: the first usable sentence of its documentation.
 
-
-def _body_sentence(body_text: str) -> str | None:
-    """Return the first substantial sentence from *body_text*, or None.
-
-    Strips leading / trailing whitespace and comment markers, then
-    picks the first sentence that is at least `_BODY_MIN_LEN`
-    characters long and doesn't start with a boilerplate prefix.
+    The documentation is `rbtr.languages.extract.docstring`'s: that of
+    the first symbol in *content* that has any.  None when there is
+    none, or when `first_sentence` finds no usable sentence in it.
     """
-    cleaned = body_text.strip()
-    if not cleaned:
-        return None
-    parts = _BODY_LINE_RE.split(cleaned, maxsplit=1)
-    candidate = parts[0].strip() if parts else cleaned
-    if len(candidate) > _BODY_MAX_LEN:
-        candidate = candidate[:_BODY_MAX_LEN].rstrip()
-    if len(candidate) < _BODY_MIN_LEN:
-        return None
-    post_noise = _REJECT_LOOKAHEAD_RE.sub("", candidate).lower()
-    if any(post_noise.startswith(p) for p in _REJECT_PREFIXES):
-        return None
-    return candidate
-
-
-def _doc_sentence(chunk: dict[str, str]) -> str | None:
-    """The first sentence of the doc comment *chunk*'s `content` holds, or None.
-
-    Reads the content with the query of *chunk*'s `language`; a language
-    with no query has no docstrings to find.
-    """
-    mgr = get_manager()
-    reg = mgr.get_registration(chunk["language"])
-    extraction = reg.extraction if reg is not None else None
-    grammar = mgr.grammar(chunk["language"])
-    if not isinstance(extraction, QueryExtraction) or grammar is None:
-        return None
-    content = chunk["content"].encode("utf-8")
-    for span in extract_doc_spans(
-        content,
-        grammar,
-        extraction.query,
-        scope_types=extraction.scope_types,
-        class_scope_types=extraction.class_scope_types,
-    ):
-        # One docstring per symbol: the first.
-        doc = b"\n".join(content[s:e] for s, e in span.ranges)
-        return first_sentence(doc.decode("utf-8", errors="replace"))
-    return None
+    doc = docstring(content, language)
+    return None if doc is None else first_sentence(doc)
 
 
 def symbol_queries(symbols: pl.DataFrame, slug: str) -> dy.DataFrame[QueryRow]:
@@ -157,11 +114,13 @@ def symbol_queries(symbols: pl.DataFrame, slug: str) -> dy.DataFrame[QueryRow]:
     )
     by_body = targets.with_columns(
         provenance=pl.lit("body"),
-        text=pl.col("content").map_elements(_body_sentence, return_dtype=pl.String),
+        text=pl.col("content").map_elements(first_sentence, return_dtype=pl.String),
     )
     by_docstring = targets.with_columns(
         provenance=pl.lit("docstring"),
-        text=pl.struct("content", "language").map_elements(_doc_sentence, return_dtype=pl.String),
+        text=pl.struct("content", "language").map_elements(
+            lambda chunk: docstring_query(**chunk), return_dtype=pl.String
+        ),
     )
     return (
         pl.concat([by_name, by_body, by_docstring])

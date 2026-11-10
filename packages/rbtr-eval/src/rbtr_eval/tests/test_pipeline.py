@@ -1,6 +1,6 @@
 """Behaviour tests for the measure polars pipeline.
 
-Exercises `_score_outcomes` and the statistics computed from it against
+Exercises `score_outcomes` and the statistics computed from it against
 synthetic `SearchBatch` frames built in `cases_pipeline.py`. No daemon,
 no embedding model; the purpose is to catch scoring and aggregation
 bugs before the expensive indexing run hits them.
@@ -8,6 +8,7 @@ bugs before the expensive indexing run hits them.
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from pathlib import Path
 
 import dataframely as dy
@@ -23,15 +24,16 @@ from rbtr.index.embed import embed_index
 from rbtr.index.embeddings import Embedder
 from rbtr.index.index import Index
 from rbtr.tests.conftest import StubModel, make_commit
+from rbtr_eval.corpus import corpus_refs
 from rbtr_eval.measure import (
     SearchBatch,
     TruncatedTarget,
-    _arm_metrics,
-    _breakdowns,
-    _metrics_file,
-    _score_outcomes,
-    _target_shapes,
-    _truncated_targets,
+    arm_metrics,
+    breakdowns,
+    metrics_file,
+    score_outcomes,
+    target_shapes,
+    truncated_targets,
 )
 from rbtr_eval.shared_schemas import RepoHeader
 from rbtr_eval.tests.conftest import hit, outcome_row
@@ -39,13 +41,13 @@ from rbtr_eval.tests.conftest import hit, outcome_row
 
 @parametrize_with_cases("batch", cases=".cases_pipeline", has_tag="scoring")
 def test_scoring_assigns_ranks(batch: dy.DataFrame[SearchBatch]) -> None:
-    """`_score_outcomes` ranks each target and preserves every input row.
+    """`score_outcomes` ranks each target and preserves every input row.
 
     Covers hit position, line-based disambiguation, the null rank for a
     missing target (with top-1 still populated), and the left-join shape
     (every input row appears exactly once).
     """
-    scored = _score_outcomes(batch, TruncatedTarget.create_empty()).sort("name")
+    scored = score_outcomes(batch, TruncatedTarget.create_empty()).sort("name")
 
     # Row preservation: every input row survives exactly once.
     assert scored.height == batch.height
@@ -76,7 +78,7 @@ def test_breakdowns_compute_metrics(batch: dy.DataFrame[SearchBatch]) -> None:
     two null ranks count as misses (not_found = 0.5). Two slugs produce
     a row each.
     """
-    by_repo = _breakdowns(_score_outcomes(batch, TruncatedTarget.create_empty())).filter(
+    by_repo = breakdowns(score_outcomes(batch, TruncatedTarget.create_empty())).filter(
         pl.col("dimension") == "slug"
     )
 
@@ -99,19 +101,19 @@ def test_breakdowns_compute_metrics(batch: dy.DataFrame[SearchBatch]) -> None:
 def test_statistics_break_out_symbol_kind(batch: dy.DataFrame[SearchBatch]) -> None:
     """Each target kind is measured on its own axis and in the cross
     with request shape."""
-    outcomes = _score_outcomes(batch, TruncatedTarget.create_empty())
+    outcomes = score_outcomes(batch, TruncatedTarget.create_empty())
 
-    per_kind = _breakdowns(outcomes).filter(pl.col("dimension") == "symbol_kind")
+    per_kind = breakdowns(outcomes).filter(pl.col("dimension") == "symbol_kind")
     assert set(per_kind["value"].to_list()) == {"function", "config_key"}
 
-    cross = _target_shapes(outcomes)
+    cross = target_shapes(outcomes)
     pairs = set(zip(cross["symbol_kind"].to_list(), cross["query_kind"].to_list(), strict=True))
     assert pairs == {("function", "concept"), ("config_key", "identifier")}
 
 
 @pytest.fixture
-def indexed_copy(tmp_path: Path, mocker: MockerFixture) -> Path:
-    """An index database holding one truncated chunk at two paths.
+def indexed_copy(tmp_path: Path, mocker: MockerFixture) -> Generator[Index]:
+    """An index holding one truncated chunk at two paths, built at its repo's HEAD.
 
     `q.py` is vendored verbatim to `vendor/q.py`, so both snapshot rows
     carry the blob the chunk was extracted from.  Its function, on
@@ -133,11 +135,11 @@ def load():
         embed_index(index, at=index.register(path).at(sha), embedder=embedder)
     finally:
         embedder.close()
+    yield index
     index.close()
-    return tmp_path / "index.duckdb"
 
 
-def test_truncation_marks_every_location_of_the_chunk(indexed_copy: Path) -> None:
+def test_truncation_marks_every_location_of_the_chunk(indexed_copy: Index) -> None:
     """A truncated chunk is truncated wherever it is found.
 
     The measure joins on the path the query names, so a query against
@@ -167,7 +169,8 @@ def test_truncation_marks_every_location_of_the_chunk(indexed_copy: Path) -> Non
         ]
     ).pipe(SearchBatch.validate, cast=True)
 
-    annotated = _score_outcomes(batch, _truncated_targets(indexed_copy)).sort("file_path")
+    truncated = truncated_targets(indexed_copy, corpus_refs(indexed_copy))
+    annotated = score_outcomes(batch, truncated).sort("file_path")
 
     marked = annotated.filter(pl.col("name") == "load")
     assert marked["file_path"].to_list() == ["q.py", "vendor/q.py"]
@@ -183,9 +186,9 @@ def test_metrics_file_holds_each_arms_figures_overall_and_per_query_kind(
 ) -> None:
     """`dvc metrics` reads nested objects, so each figure sits under its arm,
     then `all` or the query kind."""
-    outcomes = _score_outcomes(batch, TruncatedTarget.create_empty())
+    outcomes = score_outcomes(batch, TruncatedTarget.create_empty())
 
-    metrics = _metrics_file(_arm_metrics(outcomes), _breakdowns(outcomes), headers, 1.0)
+    metrics = metrics_file(arm_metrics(outcomes), breakdowns(outcomes), headers, 1.0)
 
     assert set(metrics.arms) == {"none"}
     assert set(metrics.arms["none"]) == {"all", "concept", "identifier"}
