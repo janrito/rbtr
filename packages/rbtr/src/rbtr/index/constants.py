@@ -7,10 +7,10 @@ from `results`.
 
 from __future__ import annotations
 
-# Bump this constant any time the schema changes in a way that
-# can't be migrated (column add/remove/retype).  On open, if the
-# stored version in `meta.schema_version` doesn't match the code's
-# version, the DB file is deleted and rebuilt from scratch.  Uses
+# The schema version this code reads and writes.  Every index file
+# records in `meta.schema_version` the version that last migrated it.
+# Bump this with every schema change, and add a migration for each
+# kind of file the change touches (`index/migrations.py`).  Uses
 # calver (YYYY.M.NUM) matching the project version format.
 SCHEMA_VERSION = "2026.10.0"
 

@@ -66,15 +66,22 @@ def indexing_finished() -> threading.Event:
 
 
 @pytest.fixture
-def running_indexer(
-    indexer: Indexer,
-    pending_wake: Future[None],
-    wake_released: threading.Event,
-    indexing_finished: threading.Event,
-    mocker: MockerFixture,
-) -> Generator[Future[None]]:
-    observe_sleep = threading.Event()
-    sleeping = threading.Event()
+def observe_sleep() -> threading.Event:
+    """Set to have `indexer_loop` report its next wait with nothing scheduled."""
+    return threading.Event()
+
+
+@pytest.fixture
+def sleeping() -> threading.Event:
+    """Set when `indexer_loop` waits with nothing scheduled, once `observe_sleep` is set."""
+    return threading.Event()
+
+
+@pytest.fixture
+def indexer_loop(
+    observe_sleep: threading.Event, sleeping: threading.Event, mocker: MockerFixture
+) -> Generator[asyncio.AbstractEventLoop]:
+    """The indexer's loop, on a thread of its own, reporting when it sleeps."""
     selector = selectors.DefaultSelector()
     select = selector.select
 
@@ -87,28 +94,40 @@ def running_indexer(
     loop = asyncio.SelectorEventLoop(selector)
     thread = threading.Thread(target=loop.run_forever)
     thread.start()
-    future = asyncio.run_coroutine_threadsafe(indexer.run(), loop)
+    yield loop
+    loop.call_soon_threadsafe(loop.stop)
+    thread.join(timeout=10)
+    assert not thread.is_alive(), "indexer loop did not stop"
+    loop.close()
+
+
+@pytest.fixture
+def running_indexer(
+    indexer: Indexer,
+    indexer_loop: asyncio.AbstractEventLoop,
+    pending_wake: Future[None],
+    wake_released: threading.Event,
+    indexing_finished: threading.Event,
+    observe_sleep: threading.Event,
+    sleeping: threading.Event,
+) -> Generator[Future[None]]:
+    future = asyncio.run_coroutine_threadsafe(indexer.run(), indexer_loop)
     future.add_done_callback(lambda _future: indexing_finished.set())
-    loop.call_soon_threadsafe(observe_sleep.set)
+    indexer_loop.call_soon_threadsafe(observe_sleep.set)
     try:
         assert sleeping.wait(10), "indexer loop did not reach its selector wait"
         yield future
     finally:
         wake_released.set()
-        loop.call_soon_threadsafe(lambda: None)
+        indexer_loop.call_soon_threadsafe(lambda: None)
         indexer.request_shutdown()
-        try:
-            future.result(timeout=20)
-        finally:
-            loop.call_soon_threadsafe(loop.stop)
-            thread.join(timeout=10)
-            assert not thread.is_alive(), "indexer loop did not stop"
-            loop.close()
+        future.result(timeout=20)
 
 
 @pytest.mark.parametrize("stopped", [False, True])
 def test_initial_work_keeps_its_borrowed_index_open(
     indexer: Indexer,
+    indexer_loop: asyncio.AbstractEventLoop,
     index_for_indexer: Index,
     git_repo: pygit2.Repository,
     stopped: bool,
@@ -120,14 +139,14 @@ def test_initial_work_keeps_its_borrowed_index_open(
         async with asyncio.timeout(20):
             await indexer.run()
 
-    asyncio.run(run())
+    asyncio.run_coroutine_threadsafe(run(), indexer_loop).result()
     at = index_for_indexer.repo(normalise_repo_path(git_repo.workdir)).at(str(git_repo.head.target))
     assert index_for_indexer.has_indexed(at=at) is not stopped
     if not stopped:
         counts = index_for_indexer.chunk_counts_for_snapshot(at=at)
         assert counts.total > 0
         assert counts.is_fully_embedded
-    assert indexer.snapshot() is None
+    assert indexer.snapshot() == []
 
 
 def test_a_wake_racing_startup_runs_stored_work(

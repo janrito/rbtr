@@ -8,10 +8,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import (
     BaseModel,
+    ConfigDict,
     Field,
     TypeAdapter,
     computed_field,
@@ -350,6 +351,57 @@ class Repo:
     def at(self, snapshot_sha: str) -> SnapshotRef:
         """This repo at *snapshot_sha*."""
         return SnapshotRef(repo=self, snapshot_sha=snapshot_sha)
+
+
+class ReplacedIndex(BaseModel, frozen=True):
+    """An index replaced on open, because its schema is too old to migrate.
+
+    `stored` is the schema version it recorded, `None` when it recorded
+    none; `replaced_at` is when this rbtr replaced it with an empty one.
+    """
+
+    stored: str | None
+    replaced_at: datetime
+
+
+class BuildWork(BaseModel):
+    """Building the snapshot `ref` of the repository at `repo_path`."""
+
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["build"] = "build"
+    repo_path: str
+    ref: str
+
+
+class EmbedWork(BaseModel):
+    """Embedding the chunks of the snapshot `ref` of the repository at `repo_path`."""
+
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["embed"] = "embed"
+    repo_path: str
+    ref: str
+
+
+class CollectWork(BaseModel):
+    """Collecting garbage, from one repository or from every one."""
+
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["collect"] = "collect"
+
+
+class MigrateWork(BaseModel):
+    """Migrating the index's files to the schema this rbtr reads."""
+
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["migrate"] = "migrate"
+
+
+Work = Annotated[BuildWork | EmbedWork | CollectWork | MigrateWork, Field(discriminator="kind")]
+"""What a piece of background work does, and what it does it to.
+
+Work on a snapshot names its repository; other work names none and
+concerns every client.
+"""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

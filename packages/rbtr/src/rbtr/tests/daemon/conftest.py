@@ -27,6 +27,7 @@ from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import (
     GcEndedNotification,
     GcRequest,
+    GcResponse,
     Request,
     Response,
     notification_adapter,
@@ -36,7 +37,7 @@ from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot, GcMode, 
 from rbtr.index.build import build_index
 from rbtr.index.embeddings import Embedder
 from rbtr.index.index import Index
-from rbtr.index.progress import ProgressCallback
+from rbtr.index.progress import ProgressCallback, RepoProgressCallback
 from rbtr.index.staging import TokenisedChunk
 
 from ..index.conftest import make_chunk
@@ -116,6 +117,45 @@ def write_released() -> Generator[threading.Event]:
     released = threading.Event()
     yield released
     released.set()
+
+
+@pytest.fixture
+def gc_started() -> threading.Event:
+    return threading.Event()
+
+
+@pytest.fixture
+def gc_released() -> Generator[threading.Event]:
+    released = threading.Event()
+    yield released
+    released.set()
+
+
+@pytest.fixture
+def held_gc(
+    fake_repo: str,
+    gc_started: threading.Event,
+    gc_released: threading.Event,
+    mocker: MockerFixture,
+) -> None:
+    """A gc request reports one repo of two collected, then waits for `gc_released`."""
+
+    def collect(*_args: object, on_progress: RepoProgressCallback, **_kwargs: object) -> GcResponse:
+        on_progress(fake_repo, 1, 2)
+        gc_started.set()
+        if not gc_released.wait(20):
+            msg = "gc was not released"
+            raise TimeoutError(msg)
+        return GcResponse(
+            snapshots_dropped=0,
+            file_snapshots_dropped=0,
+            edges_dropped=0,
+            chunks_freed=0,
+            elapsed_seconds=0.0,
+            dry_run=True,
+        )
+
+    mocker.patch("rbtr.daemon.server.handle_gc_all", collect)
 
 
 @pytest.fixture
@@ -366,7 +406,7 @@ def subscribed(server: Daemon, repo_path: str) -> Iterator[zmq.Socket[bytes]]:
 
     A PUB socket drops what it publishes before a subscription reaches it,
     and the daemon has no handshake to say when one has.  So this sends a
-    dry-run gc of *repo_path*, which publishes `gc_started` and `gc_ended`
+    dry-run gc of *repo_path*, which publishes its progress and `gc_ended`
     and writes nothing, until that `gc_ended` arrives.  The probe's own
     notifications are read here, so the block sees only what it triggers.
     """

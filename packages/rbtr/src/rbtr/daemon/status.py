@@ -12,7 +12,8 @@ Format::
       "rpc": "ipc:///Users/user/.rbtr/daemon.rpc",
       "pub": "ipc:///Users/user/.rbtr/daemon.pub",
       "started_at": "2026-04-16T10:00:00Z",
-      "version": "1.2.3"
+      "version": "1.2.3",
+      "replaced": null
     }
 
 The server atomically writes the file after binding sockets so
@@ -33,6 +34,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from rbtr.domain.models import ReplacedIndex
+
 
 class DaemonStatus(BaseModel):
     """Contents of the daemon status file.
@@ -40,7 +43,8 @@ class DaemonStatus(BaseModel):
     Unknown fields are ignored rather than rejected: a newer daemon may
     write a field this reader has never heard of, and an older client
     must still find the endpoints rather than conclude nothing is
-    running.
+    running.  `replaced` is the index this daemon's open replaced, if
+    any, for the command that started it to report.
     """
 
     pid: int
@@ -48,6 +52,7 @@ class DaemonStatus(BaseModel):
     pub: str
     started_at: str
     version: str
+    replaced: ReplacedIndex | None = None
 
 
 class DaemonStatusReport(BaseModel):
@@ -67,6 +72,8 @@ class DaemonStatusReport(BaseModel):
     pub: str | None = None
     version: str | None = None
     uptime_seconds: float | None = None
+    # The index this daemon's open replaced, read from discovery.
+    replaced: ReplacedIndex | None = None
 
 
 def status_path(home: Path) -> Path:
@@ -94,6 +101,7 @@ def write_status(
     rpc: str,
     pub: str,
     version: str,
+    replaced: ReplacedIndex | None = None,
 ) -> None:
     """Write the daemon status file atomically.
 
@@ -110,6 +118,7 @@ def write_status(
         pub=pub,
         started_at=_iso_now(),
         version=version,
+        replaced=replaced,
     )
     tmp.write_text(status.model_dump_json(indent=2) + "\n")
     tmp.rename(path)

@@ -62,6 +62,7 @@ def test_startup_recovery_runs_the_selected_embed_work(
     next_job_index: tuple[Index, NextJobScenario],
     indexer: Indexer,
     indexer_outputs: list[IndexerOutput],
+    indexer_loop: asyncio.AbstractEventLoop,
 ) -> None:
     """Recovery selects the newest eligible snapshot and embeds it without a wake."""
     index, scenario = next_job_index
@@ -74,7 +75,7 @@ def test_startup_recovery_runs_the_selected_embed_work(
         async with asyncio.timeout(20):
             await indexer.run()
 
-    asyncio.run(run())
+    asyncio.run_coroutine_threadsafe(run(), indexer_loop).result()
     ended = [event for event in indexer_outputs if isinstance(event, EmbeddingEnded)]
     assert [event.at.snapshot_sha for event in ended] == (
         [] if scenario.expected_ref is None else [scenario.expected_ref]
@@ -87,12 +88,15 @@ def test_startup_backfills_a_head_watch_for_every_repo(
     index: Index,
     runtime_dir: Path,
 ) -> None:
-    """`_backfill_head_watches` gives each registered repo a HEAD watch."""
-    index.register("/test/repo")
+    """Once serving, the daemon gives each registered repo a HEAD watch."""
+    repo = index.register("/test/repo")
+    server = Daemon(runtime_dir, index=index, idle_poll_interval=60.0, busy_poll_interval=60.0)
 
-    Daemon(runtime_dir, index=index, idle_poll_interval=60.0, busy_poll_interval=60.0)
-
-    assert index.watched_refs(index.repo("/test/repo")) == ["HEAD"]
+    with serving(server):
+        deadline = time.monotonic() + 10
+        while index.watched_refs(repo) != ["HEAD"]:
+            assert time.monotonic() < deadline, "no HEAD watch was seeded"
+            time.sleep(0.05)
 
 
 @pytest.fixture
@@ -111,18 +115,21 @@ def dirty_unindexed_repo(tmp_path: Path) -> str:
 
 @pytest.fixture
 def dirty_index(dirty_unindexed_repo: str, index: Index) -> Index:
-    """Store with the dirty repo registered, nothing indexed."""
-    index.register(dirty_unindexed_repo)
+    """Store with the dirty repo registered and watching HEAD, as `run` seeds it; nothing indexed."""
+    repo = index.register(dirty_unindexed_repo)
+    with index.session(repo) as ws:
+        ws.add_watched_refs(["HEAD"])
     return index
 
 
 def test_find_next_job_prefers_stale_watched_ref(
     dirty_index: Index,
     dirty_unindexed_repo: str,
+    indexer_loop: asyncio.AbstractEventLoop,
 ) -> None:
     """`_find_next_job` derives a build from the stale watched ref.
 
-    The repo's HEAD (backfilled watch) is un-indexed *and* its worktree
+    The repo's HEAD (watched) is un-indexed *and* its worktree
     is dirty, so both are stale; returning HEAD's SHA proves the build
     is derived from `watched_refs` and that watched refs win over the
     dirty worktree (the core regression — impossible before).
@@ -131,14 +138,17 @@ def test_find_next_job_prefers_stale_watched_ref(
     async def output(_event: IndexerOutput) -> None:
         pass
 
-    service = Indexer(
-        dirty_index,
-        embedder=None,
-        gpu_lock=asyncio.Lock(),
-        write_sem=asyncio.Semaphore(1),
-        stop=threading.Event(),
-        on_output=output,
-    )
+    async def build() -> Indexer:
+        return Indexer(
+            dirty_index,
+            embedder=None,
+            gpu_lock=asyncio.Lock(),
+            write_sem=asyncio.Semaphore(1),
+            stop=threading.Event(),
+            on_output=output,
+        )
+
+    service = asyncio.run_coroutine_threadsafe(build(), indexer_loop).result(timeout=10)
     head = str(pygit2.Repository(dirty_unindexed_repo).head.target)
     job = service.next_job()
     assert isinstance(job, BuildJob)

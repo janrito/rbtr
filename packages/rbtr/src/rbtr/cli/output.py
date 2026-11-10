@@ -30,6 +30,7 @@ from rich.text import Text
 from rbtr.config import config
 from rbtr.daemon.dto import RefOut, SearchHitOut, SymbolOut, SymbolRefOut
 from rbtr.daemon.messages import (
+    ActiveJob,
     ChangedSymbol,
     ChangedSymbolsResponse,
     DaemonConfigResponse,
@@ -51,7 +52,7 @@ from rbtr.daemon.messages import (
     WatchSetResponse,
 )
 from rbtr.daemon.status import DaemonStatusReport
-from rbtr.domain.models import ChangeKind
+from rbtr.domain.models import BuildWork, ChangeKind, CollectWork, EmbedWork, MigrateWork
 from rbtr.errors import ExitCode, RbtrError
 
 # Shared change vocabulary with the pi/TUI renderer: sigil + rich
@@ -468,6 +469,12 @@ def _render_daemon_status_report(response: DaemonStatusReport) -> None:
         _out.print(f"   [dim]rpc:[/] {response.rpc}")
     if response.pub is not None:
         _out.print(f"   [dim]pub:[/] {response.pub}")
+    if (replaced := response.replaced) is not None:
+        _out.print(
+            f"[yellow]![/]  replaced an index from schema {replaced.stored or 'unknown'}, \
+too old to migrate, at {replaced.replaced_at.astimezone():%Y-%m-%d %H:%M}: \
+every repository must be indexed again"
+        )
 
 
 def _render_daemon_config_response(response: DaemonConfigResponse) -> None:
@@ -503,6 +510,10 @@ def _render_status_response(response: StatusResponse) -> None:
     match response.state:
         case IndexState.NO_INDEX:
             _out.print("[red]✗[/]  the index does not exist")
+        case IndexState.MIGRATING:
+            _out.print(
+                f"[yellow]![/]  migrating the index's files; reads wait until it ends  {loc}"
+            )
         case IndexState.REPO_NOT_INDEXED if response.repo_path is None:
             _out.print(f"[red]✗[/]  no repo is indexed  {loc}")
         case IndexState.REPO_NOT_INDEXED:
@@ -538,21 +549,24 @@ def _render_status_response(response: StatusResponse) -> None:
             f"[yellow]![/]  {count} untracked files in {repo_path} not indexed \
 (over max_untracked_files): add their directories to .gitignore or .git/info/exclude"
         )
-    if response.active_build is not None:
-        job = response.active_build
-        pct = f" ({100 * job.current / job.total:.0f}%)" if job.total > 0 else ""
-        elapsed = _format_elapsed(job.elapsed_seconds)
-        _out.print(
-            f"[cyan]⟳[/]  Building: {job.ref[:12]} — "
-            f"{job.phase} {job.current}/{job.total}{pct} — {elapsed}"
-        )
-    if response.active_embed is not None:
-        ej = response.active_embed
-        pct = f" ({100 * ej.current / ej.total:.0f}%)" if ej.total > 0 else ""
-        elapsed = _format_elapsed(ej.elapsed_seconds)
-        _out.print(
-            f"[magenta]↻[/]  Embedding: {ej.ref[:12]} — {ej.current}/{ej.total}{pct} — {elapsed}"
-        )
+    for job in response.active:
+        _out.print(_fmt_active(job))
+
+
+def _fmt_active(job: ActiveJob) -> str:
+    """Render one piece of running work as a single line: what, how far, how long."""
+    pct = f" ({100 * job.current / job.total:.0f}%)" if job.total > 0 else ""
+    counts = f"{job.current}/{job.total}{pct}"
+    elapsed = _format_elapsed(job.elapsed_seconds)
+    match job.work:
+        case BuildWork():
+            return f"[cyan]⟳[/]  Building: {job.work.ref[:12]} — {job.phase} {counts} — {elapsed}"
+        case EmbedWork():
+            return f"[magenta]↻[/]  Embedding: {job.work.ref[:12]} — {counts} — {elapsed}"
+        case CollectWork():
+            return f"[cyan]⟳[/]  Collecting: {counts} — {elapsed}"
+        case MigrateWork():
+            return f"[cyan]⟳[/]  Migrating index files: {counts} — {elapsed}"
 
 
 def _render_watch_set_response(response: WatchSetResponse) -> None:

@@ -23,18 +23,29 @@ import pyarrow  # noqa: F401
 import structlog
 
 from rbtr.config import config, index_dir_of, own_dir
-from rbtr.domain.models import Repo, SnapshotRef
+from rbtr.domain.models import ReplacedIndex, Repo, SnapshotRef
 from rbtr.errors import (
     IndexLockedError,
+    IndexMigratingError,
     IndexNotBuiltError,
-    IndexSchemaTooNewError,
-    RbtrError,
     RepoNotFoundError,
 )
 from rbtr.git import common_dir
 from rbtr.index import load_sql
 from rbtr.index.constants import EMBEDDING_FORMAT_VERSION, SCHEMA_VERSION
 from rbtr.index.db import build_fts
+from rbtr.index.migrations import (
+    BringForward,
+    Chains,
+    Current,
+    FileKind,
+    Migrate,
+    Replace,
+    chain,
+    plan,
+    run,
+)
+from rbtr.index.progress import ProgressCallback, _noop_progress
 
 log = structlog.get_logger(__name__)
 
@@ -66,19 +77,6 @@ _LIST_MISSING_REPOS_SQL = load_sql("list_missing_repos.sql")
 _SET_MISSING_SINCE_SQL = load_sql("set_missing_since.sql")
 
 
-def _parse_calver(version: str) -> tuple[int, ...]:
-    """Parse a calver version to an int tuple for ordering.
-
-    Compared as ints, not lexically (`2026.5.6 < 2026.5.10`).  An
-    unparseable version sorts oldest (`()`) so a foreign or corrupt
-    stored version rebuilds rather than being mistaken for newer.
-    """
-    try:
-        return tuple(int(part) for part in version.split("."))
-    except ValueError:
-        return ()
-
-
 class Store:
     """One in-memory DuckDB instance with the index's files attached.
 
@@ -92,7 +90,13 @@ class Store:
     gets its own cursor per file.
     """
 
-    def __init__(self, db_path: Path | str | None = None, *, writable: bool = False) -> None:
+    def __init__(
+        self,
+        db_path: Path | str | None = None,
+        *,
+        writable: bool = False,
+        migrate: Migrate = Migrate.ON_OPEN,
+    ) -> None:
         self.db_path: str | None = str(db_path) if db_path else None
         self._writable = writable
         self._local = threading.local()
@@ -102,6 +106,10 @@ class Store:
         self._file_of: dict[int, str] = {}
         self._repos: dict[str, Repo] = {}
         self._retired: list[tuple[str, float]] = []
+        self._replaced: ReplacedIndex | None = None
+        # Project files waiting for `migrate`, which routing refuses.
+        # Replaced whole, so a reader on another thread sees one set or the other.
+        self._waiting: dict[str, BringForward] = {}
         self._con = self._connect(":memory:")
         self._load_fts(self._con)
         if db_path is None:
@@ -115,21 +123,24 @@ class Store:
         # unless told otherwise; this is where a file database would.
         self._con.execute("SET temp_directory = ?", [f"{path}.tmp"])
         self._attach_registry()
-        # Enforce the schema version *while holding the registry* (and
-        # thus DuckDB's exclusive lock), so no second process can open
-        # the index while it is checked or replaced.
-        self._enforce_schema_version()
-        self._sync()
-        self._attach_projects()
-        if writable:
-            self._delete_unnamed_files()
-            # Both schemas are `CREATE ... IF NOT EXISTS`: re-applying them
-            # adds a table a newer rbtr introduced without a version bump.
-            self._registry().execute(_REGISTRY_SQL)
-            for file in self._file_of.values():
-                cur = self._cursor_for(_alias(file))
-                cur.execute(_SCHEMA_SQL)
-                self._check_embedding_version(cur)
+        # Holding the registry, and so DuckDB's lock on it, no other process
+        # opens the index while its files are brought forward.
+        chains = {kind: chain(kind) for kind in FileKind}
+        try:
+            opened = self._bring_registry_forward(chains)
+            self._sync()
+            self._attach_projects()
+            self._waiting = self._bring_project_files_forward(chains, opened)
+            if writable:
+                self._delete_unnamed_files()
+                for file in self._file_of.values():
+                    if file not in self._waiting:
+                        self._check_embedding_version(self._cursor_for(_alias(file)))
+            if migrate is Migrate.ON_OPEN:
+                self.migrate()
+        except BaseException:
+            self._con.close()
+            raise
 
     def _attach_registry(self) -> None:
         """Attach `index.duckdb` as `registry`."""
@@ -163,43 +174,80 @@ class Store:
         cur.execute(_REGISTRY_SQL)
         cur.execute(_SET_SCHEMA_VERSION_SQL, {"schema_version": SCHEMA_VERSION})
 
-    def _enforce_schema_version(self) -> None:
-        """Keep, replace, or refuse the registry by its stored schema version.
+    def _bring_registry_forward(self, chains: Chains) -> str | None:
+        """Create, migrate in place or replace the registry; return the version it had.
 
-        An equal version keeps the index; a newer running binary replaces
-        it with an empty one (rbtr rebuilds rather than migrates); an
-        *older* running binary refuses (raises `IndexSchemaTooNewError`)
-        rather than destroy an index a newer rbtr wrote.  A fresh file
-        gets the registry's tables when writable.
+        A read-only store refuses a missing registry with `IndexNotBuiltError`.
         """
+        registry = self._registry()
         try:
-            rows = self._registry().sql(_GET_SCHEMA_VERSION_SQL).fetchall()
+            rows = registry.sql(_GET_SCHEMA_VERSION_SQL).fetchall()
         except duckdb.CatalogException:
-            if self._writable:
-                self._create_registry()
-                return
-            self._con.close()
-            msg = f"No index at {self.db_path}; run `rbtr watch` first."
-            raise IndexNotBuiltError(msg) from None
-        stored = str(rows[0][0]) if rows else ""
-        if stored == SCHEMA_VERSION:
-            return
-        if _parse_calver(stored) > _parse_calver(SCHEMA_VERSION):
-            self._con.close()
-            raise IndexSchemaTooNewError(stored=stored, code=SCHEMA_VERSION)
-        if not self._writable:
-            self._con.close()
-            msg = (
-                f"Index schema {stored or 'unknown'} predates this rbtr "
-                f"({SCHEMA_VERSION}); run `rbtr watch` to rebuild it."
-            )
-            raise RbtrError(msg)
-        log.warning("index_schema_changed", stored=stored or "none", current=SCHEMA_VERSION)
-        # Deleting rows does not shrink a DuckDB file, so the old index is
-        # replaced, not emptied.  Its path is unlinked while it is still
-        # open, so its lock is held until a new file exists at the path:
-        # a process that creates one first wins DuckDB's lock on it, and
-        # the attach below then raises `IndexLockedError`.
+            if not self._writable:
+                msg = f"No index at {self.db_path}; run `rbtr watch` first."
+                raise IndexNotBuiltError(msg) from None
+            self._create_registry()
+            return SCHEMA_VERSION
+        opened = str(rows[0][0]) if rows else None
+        match plan(
+            chains, FileKind.REGISTRY, opened, current=SCHEMA_VERSION, writable=self._writable
+        ):
+            case Replace(stored=stored):
+                self._replace(stored)
+            case BringForward() as step:
+                run(registry, step, current=SCHEMA_VERSION)
+                log.info("index_file_migrated", file="registry", stored=step.stored)
+            case Current():
+                pass
+        return opened
+
+    def _bring_project_files_forward(
+        self, chains: Chains, opened: str | None
+    ) -> dict[str, BringForward]:
+        """Record each project file's version, or return the files to migrate on a copy.
+
+        A file recording no version is taken to be at *opened*, the
+        registry's.  A file too old to migrate replaces the index, and then
+        none is returned.
+        """
+        waiting: dict[str, BringForward] = {}
+        for file in self._file_of.values():
+            cur = self._cursor_for(_alias(file))
+            rows = cur.sql(_GET_SCHEMA_VERSION_SQL).fetchall()
+            stored = str(rows[0][0]) if rows else opened
+            match plan(
+                chains, FileKind.PROJECT, stored, current=SCHEMA_VERSION, writable=self._writable
+            ):
+                case Replace(stored=stored):
+                    self._replace(stored)
+                    return {}
+                case BringForward(migrations=()) as step:
+                    run(cur, step, current=SCHEMA_VERSION)
+                case BringForward() as step:
+                    waiting[file] = step
+                case Current() if not rows and self._writable:
+                    cur.execute(_SET_SCHEMA_VERSION_SQL, {"schema_version": SCHEMA_VERSION})
+                case Current():
+                    pass
+        return waiting
+
+    def _replace(self, stored: str | None) -> None:
+        """Replace the index with an empty one, since a file records *stored*, too old to migrate.
+
+        The old project files are left unnamed, for `_delete_unnamed_files`.
+        """
+        log.warning(
+            "index_replaced",
+            stored=stored or "none",
+            current=SCHEMA_VERSION,
+            consequence="every repository must be indexed again",
+        )
+        for file in self._file_of.values():
+            self._con.execute(f"DETACH {_alias(file)}")
+        # The registry's path is unlinked while it is still open, so its
+        # lock is held until a new file exists at the path: a process
+        # that creates one first wins DuckDB's lock on it, and the attach
+        # below then raises `IndexLockedError`.
         path = Path(str(self.db_path))
         path.unlink()
         Path(f"{path}.wal").unlink(missing_ok=True)
@@ -207,6 +255,69 @@ class Store:
         self._local.cursors = {}
         self._attach_registry()
         self._create_registry()
+        self._sync()
+        self._replaced = ReplacedIndex(stored=stored, replaced_at=datetime.now(UTC))
+
+    @property
+    def replaced(self) -> ReplacedIndex | None:
+        """The index this store replaced on open, or `None` if it replaced none."""
+        return self._replaced
+
+    @property
+    def migrating(self) -> bool:
+        """Whether any project file waits for `migrate`, refusing reads and writes until then."""
+        return bool(self._waiting)
+
+    def migrate(self, on_progress: ProgressCallback = _noop_progress) -> None:
+        """Migrate each waiting project file on a copy that the registry then names.
+
+        A copy grown past `compact_growth_ratio` is compacted first.  The
+        registry records as the file's baseline (`compacted_bytes`, the size
+        it was last written whole) the copy before its migrations ran, or the
+        compacted copy.  Reports `("migrating", done, total)`.  A failure deletes its copy and raises,
+        leaving that file and the rest waiting at their old versions.
+        """
+        waiting = list(self._waiting.items())
+        project_of = {file: project_id for project_id, file in self._file_of.items()}
+        for done, (file, step) in enumerate(waiting):
+            on_progress("migrating", done, len(waiting))
+            new = self._copy(file)
+            cur = self._cursor_for(_alias(new))
+            try:
+                copied_bytes = self._file_bytes(new)
+                run(cur, step, current=SCHEMA_VERSION)
+                self._check_embedding_version(cur)
+                # A migration that replaced a table leaves the FTS index naming the old one.
+                build_fts(cur)
+                cur.execute("CHECKPOINT")
+            except BaseException:
+                self._detach(new)
+                raise
+            baseline = copied_bytes
+            if self._file_bytes(new) > config.compact_growth_ratio * copied_bytes:
+                migrated = new
+                try:
+                    new = self._copy(migrated)
+                finally:
+                    self._detach(migrated)
+                baseline = self._file_bytes(new)
+            params = {
+                "project_id": project_of[file],
+                "file": new,
+                "compacted_bytes": baseline,
+            }
+            self._registry().execute(_SET_PROJECT_FILE_SQL, params)
+            self._sync()
+            self._waiting = {f: s for f, s in self._waiting.items() if f != file}
+            log.info(
+                "index_file_migrated",
+                file=new,
+                stored=step.stored,
+                migrated=done + 1,
+                of=len(waiting),
+            )
+        if waiting:
+            on_progress("migrating", len(waiting), len(waiting))
 
     def _sync(self) -> None:
         """Reload the copy of the registry, and retire every file it stopped naming.
@@ -294,6 +405,7 @@ class Store:
         self._attach(file)
         cur = self._cursor_for(_alias(file))
         cur.execute(_SCHEMA_SQL)
+        cur.execute(_SET_SCHEMA_VERSION_SQL, {"schema_version": SCHEMA_VERSION})
         self._check_embedding_version(cur)
         # Built on the empty table, so a search never meets a file without one.
         build_fts(cur)
@@ -399,8 +511,10 @@ class Store:
             self._compact_project(project_id)
 
     def _compact_project(self, project_id: int) -> None:
-        new = self._copy(project_id)
-        if new is None:
+        try:
+            new = self._copy(self._file_of[project_id])
+        except (OSError, duckdb.Error) as exc:
+            log.warning("gc_compaction_failed", error=str(exc))
             return
         params = {
             "project_id": project_id,
@@ -530,8 +644,11 @@ class Store:
         return self._cursor_for("registry")
 
     def _alias_of(self, repo: Repo) -> str:
-        """The alias of the file holding *repo*'s data."""
-        return _alias(self._file_of[self._project(repo)])
+        """The alias of the file holding *repo*'s data; `IndexMigratingError` while it waits."""
+        file = self._file_of[self._project(repo)]
+        if file in self._waiting:
+            raise IndexMigratingError
+        return _alias(file)
 
     def data(self, repo: Repo) -> duckdb.DuckDBPyConnection:
         """This thread's cursor on the file holding *repo*'s data."""
@@ -559,7 +676,12 @@ class Store:
         )
 
     def each_file[T](self, read: Callable[[duckdb.DuckDBPyConnection], T]) -> list[T]:
-        """Run *read* on every live project file at once; one result each."""
+        """Run *read* on every live project file at once; one result each.
+
+        Raises `IndexMigratingError` while any file waits for `migrate`.
+        """
+        if self._waiting:
+            raise IndexMigratingError
         aliases = [_alias(file) for file in self._file_of.values()]
         return list(self._pool.map(lambda alias: read(self._cursor_for(alias)), aliases))
 
@@ -614,15 +736,12 @@ class Store:
         """Every registered repo, in the order they were registered."""
         return sorted(self._repos.values(), key=lambda repo: repo.repo_id)
 
-    def _copy(self, project_id: int) -> str | None:
-        """Copy *project_id*'s file into a fresh one; the copy's name, or `None`.
+    def _copy(self, old: str) -> str:
+        """Copy the project file *old*, search index included, into a fresh one; return its name.
 
-        The copy (search index included) is checkpointed.  The registry
-        does not name it yet: until a registry transaction does, a crash leaves it for
-        `_delete_unnamed_files`.  A failure deletes the copy and leaves the
-        old file live.
+        Until a registry transaction names the copy, a crash leaves it for
+        `_delete_unnamed_files`.  A failure deletes the copy and re-raises.
         """
-        old = self._file_of[project_id]
         new = f"{uuid4().hex}.duckdb"
         try:
             self._attach(new)
@@ -630,13 +749,12 @@ class Store:
             # Both aliases are ones the store made (`_alias`).
             cur.execute(f"COPY FROM DATABASE {_alias(old)} TO {_alias(new)}")
             cur.execute("CHECKPOINT")
-        except (OSError, duckdb.Error) as exc:
-            log.warning("gc_compaction_failed", error=str(exc))
+        except (OSError, duckdb.Error):
             # The attach itself may be what failed.
             with contextlib.suppress(duckdb.Error):
                 self._con.execute(f"DETACH {_alias(new)}")
             self._unlink(new)
-            return None
+            raise
         return new
 
 

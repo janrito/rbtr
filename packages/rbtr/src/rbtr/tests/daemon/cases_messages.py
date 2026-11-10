@@ -534,7 +534,7 @@ def case_forget_response() -> MessageScenario:
 @case(tags=["notification"])
 def case_progress() -> MessageScenario:
     return MessageScenario(
-        raw=b'{"kind":"progress","repo_path":"/r","phase":"parsing","current":5,"total":10}',
+        raw=b'{"kind":"progress","work":{"kind":"build","repo_path":"/r","ref":"abc"},"phase":"parsing","current":5,"total":10}',
         adapter=notification_adapter,
         expected_type=ProgressNotification,
         checks={"phase": "parsing", "current": 5, "total": 10},

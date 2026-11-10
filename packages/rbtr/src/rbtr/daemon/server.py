@@ -8,7 +8,6 @@ import contextlib
 import os
 import signal
 import threading
-import time
 from functools import partial
 from pathlib import Path
 from typing import assert_never
@@ -16,7 +15,6 @@ from typing import assert_never
 import structlog
 import zmq
 import zmq.asyncio
-from pydantic import BaseModel
 
 from rbtr import get_version
 from rbtr.config import config
@@ -47,10 +45,9 @@ from rbtr.daemon.messages import (
     ErrorResponse,
     GcAllRequest,
     GcEndedNotification,
-    GcProgressNotification,
     GcRequest,
-    GcStartedNotification,
     IndexErrorNotification,
+    MigrationEndedNotification,
     Notification,
     ProgressNotification,
     ReadyNotification,
@@ -58,6 +55,7 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.rpc import RPC, Handler, RpcResource
 from rbtr.daemon.status import remove_status, write_status
+from rbtr.domain.models import BuildWork, CollectWork, EmbedWork, MigrateWork, Work
 from rbtr.errors import IndexNotBuiltError, MissingSnapshot
 from rbtr.index import watcher
 from rbtr.index.embeddings import Embedder
@@ -65,13 +63,13 @@ from rbtr.index.index import Index
 from rbtr.index.indexer import (
     BuildJob,
     BuildReady,
-    CollectionPhase,
-    CollectionProgress,
+    CollectJob,
     EmbeddingEnded,
     Indexer,
     IndexerOutput,
     IndexingError,
     RunningJob,
+    WorkEnded,
 )
 from rbtr.index.reranker import Reranker
 from rbtr.languages.manager import get_manager
@@ -79,17 +77,24 @@ from rbtr.languages.manager import get_manager
 log = structlog.get_logger(__name__)
 
 
-def _notify(sock: zmq.Socket, notification: BaseModel) -> None:
-    """Serialise a notification model and send it over a zmq socket."""
-    sock.send(notification.model_dump_json().encode())
+def _concerns(work: Work, path: str | None) -> bool:
+    """Whether *work* concerns the repository at *path*, or any one at `None`.
+
+    Work on a snapshot names its repository; other work concerns every one.
+    """
+    match work:
+        case BuildWork(repo_path=repo_path) | EmbedWork(repo_path=repo_path):
+            return path is None or repo_path == path
+        case CollectWork() | MigrateWork():
+            return True
 
 
 class Daemon:
     """Serve code requests and background indexing for a caller-owned Index.
 
-    Construction synchronously seeds HEAD watches. Give it exclusive writable
-    access, before concurrent use or while holding the writer semaphore, off a
-    UI loop. With `index=None`, only configuration and shutdown are available.
+    `serve` makes the indexer and the RPC on its loop, migrates the files the
+    Index left waiting once ready, then indexes. With `index=None`, only
+    configuration and shutdown are available.
 
     Use `serve` once on one event loop. Stop through `request_shutdown` rather
     than cancellation, then await serving before closing the supplied Index.
@@ -115,8 +120,6 @@ class Daemon:
         self.rpc_addr = f"ipc://{runtime_dir / 'daemon.rpc'}"
         self.pub_addr = f"ipc://{runtime_dir / 'daemon.pub'}"
         self._zmq_ctx = zmq.asyncio.Context()
-        self._zmq_shadow: zmq.Context = zmq.Context.shadow(self._zmq_ctx)
-        handlers = {"daemon_config": Handler(RpcResource.READ, handle_daemon_config)}
         self._allow_missing_plugins = allow_missing_plugins
         self._index = index
         self._ready = threading.Event()
@@ -124,7 +127,11 @@ class Daemon:
         self._reranker: Reranker | None = None
 
         self._write_sem = asyncio.Semaphore(1)
+        # Made by `serve`, on the loop the indexer reports through.
         self._indexer: Indexer | None = None
+        self._rpc: RPC | None = None
+        self._idle_poll_interval = idle_poll_interval
+        self._busy_poll_interval = busy_poll_interval
         self._warmup = config.warmup
         # Serialises all GPU inference (search + embed batches
         # + idle-unload) so Metal is never driven concurrently.
@@ -150,27 +157,6 @@ class Daemon:
                     gpu_lock=self._gpu_lock,
                     load_lock=self._gpu_load_lock,
                 )
-            self._indexer = Indexer(
-                index,
-                embedder=self._embedder,
-                gpu_lock=self._gpu_lock,
-                write_sem=self._write_sem,
-                stop=self._stopping,
-                on_output=self._publish_index_output,
-                idle_poll_interval=idle_poll_interval,
-                busy_poll_interval=busy_poll_interval,
-            )
-            handlers.update(self._index_handlers(index))
-        self._rpc = RPC(
-            self._zmq_ctx,
-            self.rpc_addr,
-            handlers=handlers,
-            gpu_lock=self._gpu_lock,
-            write_sem=self._write_sem,
-            index_error=self._index_error,
-            on_shutdown=self.request_shutdown,
-            on_failure=self._stop_when_it_fails,
-        )
 
     def _cleanup(self) -> None:
         remove_status(self.runtime_dir)
@@ -187,7 +173,7 @@ class Daemon:
             except Exception:
                 log.exception("reranker_cleanup_failed")
 
-    def _index_handlers(self, index: Index) -> dict[str, Handler]:
+    def _index_handlers(self, index: Index, indexer: Indexer) -> dict[str, Handler]:
         """Bind operations over `index` to their request kinds and resource classes."""
         return {
             "search": Handler(
@@ -213,14 +199,16 @@ class Daemon:
             ),
             "status": Handler(
                 RpcResource.READ,
-                partial(handle_status, index=index, snapshot_status=self._snapshot_status),
+                partial(handle_status, index=index, active_jobs=self._active_jobs),
             ),
             "status_all": Handler(
                 RpcResource.READ,
-                partial(handle_status_all, index=index, snapshot_status=self._snapshot_status),
+                partial(handle_status_all, index=index, active_jobs=self._active_jobs),
             ),
-            "gc": Handler(RpcResource.WRITE, partial(self._collect, index=index)),
-            "gc_all": Handler(RpcResource.WRITE, partial(self._collect, index=index)),
+            "gc": Handler(RpcResource.WRITE, partial(self._collect, index=index, indexer=indexer)),
+            "gc_all": Handler(
+                RpcResource.WRITE, partial(self._collect, index=index, indexer=indexer)
+            ),
             "unwatch": Handler(RpcResource.WRITE, partial(handle_unwatch, index=index)),
             "unwatch_stale": Handler(RpcResource.WRITE, partial(handle_unwatch_stale, index=index)),
             "unwatch_stale_all": Handler(
@@ -233,12 +221,11 @@ class Daemon:
             ),
         }
 
-    def _collect(self, request: GcRequest | GcAllRequest, index: Index) -> Response:
-        """Run foreground collection with a thread-owned notification socket."""
-        push = self._zmq_shadow.socket(zmq.PUSH)
-        push.connect("inproc://progress")
-        _notify(push, GcStartedNotification())
-        try:
+    def _collect(
+        self, request: GcRequest | GcAllRequest, index: Index, indexer: Indexer
+    ) -> Response:
+        """Collect garbage for a request, which the indexer tracks as a `CollectJob`."""
+        with indexer.track(CollectJob(), "collecting") as report:
             match request:
                 case GcRequest():
                     return handle_gc(request, index, allow_compact=True)
@@ -247,13 +234,35 @@ class Daemon:
                         request,
                         index,
                         allow_compact=True,
-                        on_progress=lambda _repo_path, done, total: _notify(
-                            push, GcProgressNotification(current=done, total=total)
+                        on_progress=lambda _repo_path, done, total: report(
+                            "collecting", done, total
                         ),
                     )
-        finally:
-            _notify(push, GcEndedNotification())
-            push.close()
+
+    def _require_languages(self, index: Index) -> None:
+        """Refuse an index holding languages this rbtr cannot load, unless allowed."""
+        get_manager().require_languages_loaded(
+            index.distinct_chunk_languages(), allow_missing=self._allow_missing_plugins
+        )
+
+    async def _prepare(
+        self, index: Index, indexer: Indexer, index_tasks: list[asyncio.Task[None]]
+    ) -> None:
+        """Have *indexer* migrate *index*'s waiting files, check their languages, then index."""
+        migrating = index.migrating
+        await indexer.migrate()
+        if migrating:
+            await asyncio.to_thread(self._require_languages, index)
+        if self._stopping.is_set():
+            return
+        for name, work in (
+            ("job_worker", indexer.run()),
+            ("watcher", indexer.watch()),
+            ("maintenance", indexer.maintain()),
+        ):
+            task = asyncio.create_task(work, name=name)
+            task.add_done_callback(self._stop_when_it_fails)
+            index_tasks.append(task)
 
     def wait_ready(self, timeout: float = 5.0) -> bool:
         """Wait up to `timeout` seconds for bound sockets and published discovery.
@@ -271,46 +280,46 @@ class Daemon:
         index's tables were missing, and any build creates them.  Called
         from `to_thread`: it reads the store.
         """
-        run = self._indexer.snapshot() if self._indexer is not None else None
-        active = run.work if run is not None and isinstance(run.work, BuildJob) else None
+        runs = self._indexer.snapshot() if self._indexer is not None else []
+        builds = [run.job for run in runs if isinstance(run.job, BuildJob)]
         if missing is None:
-            return active is not None
+            return bool(builds)
         # A snapshot was named, so a handler read the store: it is open.
         index = self._index
         if index is None:
             return False
-        building_it = (
-            active is not None
-            and missing.snapshot_sha in active.refs
-            and active.repo_path == missing.repo_path
+        building_it = any(
+            missing.snapshot_sha in build.refs and build.repo_path == missing.repo_path
+            for build in builds
         )
         if building_it:
             return True
         repo = index.find_repo(missing.repo_path)
         return repo is not None and missing.ref in index.watched_refs(repo)
 
-    def _snapshot_status(
-        self,
-        path: str | None,
-    ) -> tuple[ActiveJob | None, ActiveJob | None]:
-        """Return detached build/embed status from one run, filtered by repository."""
-        run = self._indexer.snapshot() if self._indexer is not None else None
-        if run is None or path not in (None, run.work.repo_path):
-            return None, None
-        active = ActiveJob(
-            repo_path=run.work.repo_path,
-            ref="" if isinstance(run.work, BuildJob) else run.work.at.snapshot_sha,
-            phase=run.phase,
-            current=run.current,
-            total=run.total,
-            elapsed_seconds=time.monotonic() - run.started_at,
-        )
-        return (active, None) if isinstance(run.work, BuildJob) else (None, active)
+    def _active_jobs(self, path: str | None) -> list[ActiveJob]:
+        """The work running for the repository at *path*, or every one at `None`, and work naming none."""
+        runs = self._indexer.snapshot() if self._indexer is not None else []
+        described = [(run, run.job.work) for run in runs]
+        return [
+            ActiveJob(
+                work=work,
+                phase=run.phase,
+                current=run.current,
+                total=run.total,
+                elapsed_seconds=run.elapsed_seconds,
+            )
+            for run, work in described
+            if _concerns(work, path)
+        ]
 
     def request_shutdown(self) -> None:
         """Request stop without waiting; safe to call repeatedly from any thread."""
-        self._rpc.request_shutdown()
+        # Set before reading `_rpc`: `serve` sets `_rpc` before reading the
+        # event, so one of the two stops an RPC made meanwhile.
         self._stopping.set()
+        if self._rpc is not None:
+            self._rpc.request_shutdown()
         if self._indexer is not None:
             self._indexer.wake()
 
@@ -356,12 +365,10 @@ class Daemon:
         Scheduled warmup errors are suppressed. Individual request/job errors
         use their response/output paths.
         """
-        # Refuse before readiness if rebuilding would lose unavailable language data.
-        if self._index is not None:
-            get_manager().require_languages_loaded(
-                self._index.distinct_chunk_languages(),
-                allow_missing=self._allow_missing_plugins,
-            )
+        # Refuse before readiness if rebuilding would lose unavailable language
+        # data; files waiting for migration are checked in `_prepare`.
+        if self._index is not None and not self._index.migrating:
+            self._require_languages(self._index)
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         atexit.register(self._cleanup)
         if self._embedder is not None:
@@ -379,6 +386,35 @@ class Daemon:
         warmup_tasks: list[asyncio.Task[None]] = []
         index_tasks: list[asyncio.Task[None]] = []
         relay_task: asyncio.Task[None] | None = None
+        index = self._index
+        handlers = {"daemon_config": Handler(RpcResource.READ, handle_daemon_config)}
+        indexer: Indexer | None = None
+        if index is not None:
+            indexer = Indexer(
+                index,
+                embedder=self._embedder,
+                gpu_lock=self._gpu_lock,
+                write_sem=self._write_sem,
+                stop=self._stopping,
+                on_output=self._publish_index_output,
+                idle_poll_interval=self._idle_poll_interval,
+                busy_poll_interval=self._busy_poll_interval,
+            )
+            handlers.update(self._index_handlers(index, indexer))
+        self._indexer = indexer
+        rpc = RPC(
+            ctx,
+            self.rpc_addr,
+            handlers=handlers,
+            gpu_lock=self._gpu_lock,
+            write_sem=self._write_sem,
+            index_error=self._index_error,
+            on_shutdown=self.request_shutdown,
+            on_failure=self._stop_when_it_fails,
+        )
+        self._rpc = rpc
+        if self._stopping.is_set():
+            rpc.request_shutdown()
 
         def ready() -> None:
             nonlocal relay_task
@@ -389,6 +425,7 @@ class Daemon:
                 rpc=self.rpc_addr,
                 pub=self.pub_addr,
                 version=get_version(),
+                replaced=index.replaced if index is not None else None,
             )
             log.info("daemon_listening", rpc=self.rpc_addr, pub=self.pub_addr)
             self._ready.set()
@@ -402,20 +439,16 @@ class Daemon:
                         asyncio.create_task(asyncio.to_thread(self._reranker.warmup))
                     )
             relay_task = asyncio.create_task(self._notification_relay(progress_pull, pub))
-            if self._indexer is not None:
-                index_tasks.extend(
-                    [
-                        asyncio.create_task(self._indexer.run(), name="job_worker"),
-                        asyncio.create_task(self._indexer.watch(), name="watcher"),
-                        asyncio.create_task(self._indexer.maintain(), name="maintenance"),
-                    ]
+            if index is not None and indexer is not None:
+                prepare = asyncio.create_task(
+                    self._prepare(index, indexer, index_tasks), name="prepare"
                 )
-            for task in index_tasks:
-                task.add_done_callback(self._stop_when_it_fails)
+                prepare.add_done_callback(self._stop_when_it_fails)
+                index_tasks.append(prepare)
 
         try:
             pub.bind(self.pub_addr)
-            await self._rpc.serve(ready)
+            await rpc.serve(ready)
         finally:
             self.request_shutdown()
             try:
@@ -435,7 +468,7 @@ class Daemon:
                 self._cleanup()
                 self._notify_push.close()
                 progress_pull.close()
-                self._rpc.close()
+                rpc.close()
                 pub.close()
                 ctx.term()
                 log.info("daemon_stopped")
@@ -446,7 +479,7 @@ class Daemon:
         match output:
             case RunningJob():
                 notification = ProgressNotification(
-                    repo_path=output.work.repo_path,
+                    work=output.job.work,
                     phase=output.phase,
                     current=output.current,
                     total=output.total,
@@ -476,12 +509,10 @@ class Daemon:
                 notification = AutoRebuildNotification(
                     repo_path=output.repo_path, new_ref=output.snapshot_sha
                 )
-            case CollectionPhase.STARTED:
-                notification = GcStartedNotification()
-            case CollectionPhase.ENDED:
+            case WorkEnded(work=CollectJob()):
                 notification = GcEndedNotification()
-            case CollectionProgress():
-                notification = GcProgressNotification(current=output.current, total=output.total)
+            case WorkEnded():  # the end of a `MigrateJob`
+                notification = MigrationEndedNotification()
             case _:
                 assert_never(output)
         await self._notify_push.send(notification.model_dump_json().encode())

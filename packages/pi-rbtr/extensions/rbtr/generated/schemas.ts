@@ -11,16 +11,31 @@ export const PROTOCOL_DEFS = {
   ActiveJob: {
     additionalProperties: false,
     description:
-      'A build or embed job currently running in the daemon.\n\nUsed for both `active_build` and `active_embed` on\n`StatusResponse` — the field name distinguishes them.\n\n`ref` is the resolved SHA under build/embed.  `phase`\nis the current stage (`"starting"`, `"parsing"`, or\n`"embedding"`).  `current` / `total` come from the\norchestrator\'s progress callbacks; both are 0 until the\nfirst callback fires.  `elapsed_seconds` is computed by\nthe daemon at snapshot time so the CLI doesn\'t need to\nreason about clock boundaries.',
+      'A piece of background work running in the daemon.\n\n`phase` is its current stage (`"starting"`, `"parsing"`,\n`"embedding"`, `"collecting"`).  `current` / `total` come from the\nwork\'s progress callbacks; both are 0 until the first callback\nfires.  `elapsed_seconds` is computed when the status is read, so the\nCLI doesn\'t need to reason about clock boundaries.',
     properties: {
-      repo_path: { type: "string" },
-      ref: { type: "string" },
+      work: {
+        discriminator: {
+          mapping: {
+            build: "#/$defs/BuildWork",
+            collect: "#/$defs/CollectWork",
+            embed: "#/$defs/EmbedWork",
+            migrate: "#/$defs/MigrateWork",
+          },
+          propertyName: "kind",
+        },
+        oneOf: [
+          { $ref: "#/$defs/BuildWork" },
+          { $ref: "#/$defs/EmbedWork" },
+          { $ref: "#/$defs/CollectWork" },
+          { $ref: "#/$defs/MigrateWork" },
+        ],
+      },
       phase: { type: "string" },
       current: { type: "integer" },
       total: { type: "integer" },
       elapsed_seconds: { type: "number" },
     },
-    required: ["repo_path", "ref", "phase", "current", "total", "elapsed_seconds"],
+    required: ["work", "phase", "current", "total", "elapsed_seconds"],
     title: "ActiveJob",
     type: "object",
   },
@@ -33,6 +48,18 @@ export const PROTOCOL_DEFS = {
     },
     required: ["repo_path", "new_ref", "kind"],
     title: "AutoRebuildNotification",
+    type: "object",
+  },
+  BuildWork: {
+    additionalProperties: false,
+    description: "Building the snapshot `ref` of the repository at `repo_path`.",
+    properties: {
+      kind: { const: "build", default: "build", type: "string" },
+      repo_path: { type: "string" },
+      ref: { type: "string" },
+    },
+    required: ["repo_path", "ref", "kind"],
+    title: "BuildWork",
     type: "object",
   },
   ChangeKind: {
@@ -96,6 +123,14 @@ export const PROTOCOL_DEFS = {
     title: "ChunkKind",
     type: "string",
   },
+  CollectWork: {
+    additionalProperties: false,
+    description: "Collecting garbage, from one repository or from every one.",
+    properties: { kind: { const: "collect", default: "collect", type: "string" } },
+    title: "CollectWork",
+    type: "object",
+    required: ["kind"],
+  },
   DaemonConfigRequest: {
     additionalProperties: false,
     description:
@@ -130,6 +165,7 @@ export const PROTOCOL_DEFS = {
       pub: { anyOf: [{ type: "string" }, { type: "null" }], default: null },
       version: { anyOf: [{ type: "string" }, { type: "null" }], default: null },
       uptime_seconds: { anyOf: [{ type: "number" }, { type: "null" }], default: null },
+      replaced: { anyOf: [{ $ref: "#/$defs/ReplacedIndex" }, { type: "null" }], default: null },
     },
     required: ["running"],
     title: "DaemonStatusReport",
@@ -163,6 +199,18 @@ export const PROTOCOL_DEFS = {
     enum: ["finished", "stood_aside", "stopped"],
     title: "EmbedOutcome",
     type: "string",
+  },
+  EmbedWork: {
+    additionalProperties: false,
+    description: "Embedding the chunks of the snapshot `ref` of the repository at `repo_path`.",
+    properties: {
+      kind: { const: "embed", default: "embed", type: "string" },
+      repo_path: { type: "string" },
+      ref: { type: "string" },
+    },
+    required: ["repo_path", "ref", "kind"],
+    title: "EmbedWork",
+    type: "object",
   },
   ErrorCode: {
     description: "Error codes for the daemon protocol.",
@@ -300,18 +348,6 @@ export const PROTOCOL_DEFS = {
     title: "GcMode",
     type: "string",
   },
-  GcProgressNotification: {
-    additionalProperties: false,
-    description: "gc has collected *current* of the *total* repos it covers.",
-    properties: {
-      kind: { const: "gc_progress", default: "gc_progress", type: "string" },
-      current: { type: "integer" },
-      total: { type: "integer" },
-    },
-    required: ["current", "total", "kind"],
-    title: "GcProgressNotification",
-    type: "object",
-  },
   GcRequest: {
     additionalProperties: false,
     description:
@@ -353,14 +389,6 @@ export const PROTOCOL_DEFS = {
     title: "GcResponse",
     type: "object",
   },
-  GcStartedNotification: {
-    additionalProperties: false,
-    description: "gc started.",
-    properties: { kind: { const: "gc_started", default: "gc_started", type: "string" } },
-    title: "GcStartedNotification",
-    type: "object",
-    required: ["kind"],
-  },
   ImportMeta: {
     description:
       "Structured import data extracted by tree-sitter.\n\nAll fields default to empty — different import styles\npopulate different subsets.  `edges.py` reads these fields\nwithout knowing the source language.",
@@ -394,8 +422,8 @@ export const PROTOCOL_DEFS = {
   },
   IndexState: {
     description:
-      "What the index holds for a status request.\n\n`NO_INDEX`         — no index file, or it holds no repository.\n`REPO_NOT_INDEXED` — the index holds other repositories, but not an\n                     indexed snapshot of this one; for every\n                     repository, none has one.\n`REF_NOT_INDEXED`  — this repository has indexed snapshots, but not\n                     the one a read without a ref uses, so reads\n                     fall back to the latest indexed commit\n                     (`RefSource.LATEST_INDEXED`).\n`INDEXED`          — reads find the snapshot they ask for.",
-    enum: ["no_index", "repo_not_indexed", "ref_not_indexed", "indexed"],
+      "What the index holds for a status request.\n\n`NO_INDEX`         — no index file, or it holds no repository.\n`REPO_NOT_INDEXED` — the index holds other repositories, but not an\n                     indexed snapshot of this one; for every\n                     repository, none has one.\n`REF_NOT_INDEXED`  — this repository has indexed snapshots, but not\n                     the one a read without a ref uses, so reads\n                     fall back to the latest indexed commit\n                     (`RefSource.LATEST_INDEXED`).\n`INDEXED`          — reads find the snapshot they ask for.\n`MIGRATING`        — the daemon is migrating the index's files, and\n                     reads that need them reply `index_in_progress`\n                     until it ends.",
+    enum: ["no_index", "repo_not_indexed", "ref_not_indexed", "indexed", "migrating"],
     title: "IndexState",
     type: "string",
   },
@@ -458,6 +486,22 @@ export const PROTOCOL_DEFS = {
     title: "ListSymbolsResponse",
     type: "object",
   },
+  MigrateWork: {
+    additionalProperties: false,
+    description: "Migrating the index's files to the schema this rbtr reads.",
+    properties: { kind: { const: "migrate", default: "migrate", type: "string" } },
+    title: "MigrateWork",
+    type: "object",
+    required: ["kind"],
+  },
+  MigrationEndedNotification: {
+    additionalProperties: false,
+    description: "Migrating the index's files ended, however it ended.",
+    properties: { kind: { const: "migration_ended", default: "migration_ended", type: "string" } },
+    title: "MigrationEndedNotification",
+    type: "object",
+    required: ["kind"],
+  },
   OkResponse: {
     additionalProperties: false,
     properties: { kind: { const: "ok", default: "ok", type: "string" } },
@@ -490,14 +534,31 @@ export const PROTOCOL_DEFS = {
   },
   ProgressNotification: {
     additionalProperties: false,
+    description: "Background work has reached *current* of *total* in its *phase*.",
     properties: {
       kind: { const: "progress", default: "progress", type: "string" },
-      repo_path: { type: "string" },
+      work: {
+        discriminator: {
+          mapping: {
+            build: "#/$defs/BuildWork",
+            collect: "#/$defs/CollectWork",
+            embed: "#/$defs/EmbedWork",
+            migrate: "#/$defs/MigrateWork",
+          },
+          propertyName: "kind",
+        },
+        oneOf: [
+          { $ref: "#/$defs/BuildWork" },
+          { $ref: "#/$defs/EmbedWork" },
+          { $ref: "#/$defs/CollectWork" },
+          { $ref: "#/$defs/MigrateWork" },
+        ],
+      },
       phase: { type: "string" },
       current: { type: "integer" },
       total: { type: "integer" },
     },
-    required: ["repo_path", "phase", "current", "total", "kind"],
+    required: ["work", "phase", "current", "total", "kind"],
     title: "ProgressNotification",
     type: "object",
   },
@@ -573,6 +634,17 @@ export const PROTOCOL_DEFS = {
     type: "string",
   },
   RefsByRepo: { additionalProperties: { items: { type: "string" }, type: "array" }, type: "object" },
+  ReplacedIndex: {
+    description:
+      "An index replaced on open, because its schema is too old to migrate.\n\n`stored` is the schema version it recorded, `None` when it recorded\nnone; `replaced_at` is when this rbtr replaced it with an empty one.",
+    properties: {
+      stored: { anyOf: [{ type: "string" }, { type: "null" }] },
+      replaced_at: { format: "date-time", type: "string" },
+    },
+    required: ["stored", "replaced_at"],
+    title: "ReplacedIndex",
+    type: "object",
+  },
   ResolvedRef: {
     additionalProperties: false,
     description: "The snapshot a read used: its SHA, and how it was chosen.",
@@ -744,8 +816,7 @@ export const PROTOCOL_DEFS = {
       indexed_refs: { default: [], items: { $ref: "#/$defs/IndexedRef" }, type: "array" },
       watched: { default: [], items: { $ref: "#/$defs/WatchedRef" }, type: "array" },
       untracked_not_indexed: { additionalProperties: { type: "integer" }, default: {}, type: "object" },
-      active_build: { anyOf: [{ $ref: "#/$defs/ActiveJob" }, { type: "null" }], default: null },
-      active_embed: { anyOf: [{ $ref: "#/$defs/ActiveJob" }, { type: "null" }], default: null },
+      active: { default: [], items: { $ref: "#/$defs/ActiveJob" }, type: "array" },
     },
     required: ["state", "kind"],
     title: "StatusResponse",
@@ -994,9 +1065,8 @@ export const PROTOCOL_DEFS = {
         auto_rebuild: "#/$defs/AutoRebuildNotification",
         embed_ended: "#/$defs/EmbedEndedNotification",
         gc_ended: "#/$defs/GcEndedNotification",
-        gc_progress: "#/$defs/GcProgressNotification",
-        gc_started: "#/$defs/GcStartedNotification",
         index_error: "#/$defs/IndexErrorNotification",
+        migration_ended: "#/$defs/MigrationEndedNotification",
         progress: "#/$defs/ProgressNotification",
         ready: "#/$defs/ReadyNotification",
       },
@@ -1008,9 +1078,8 @@ export const PROTOCOL_DEFS = {
       { $ref: "#/$defs/EmbedEndedNotification" },
       { $ref: "#/$defs/AutoRebuildNotification" },
       { $ref: "#/$defs/IndexErrorNotification" },
-      { $ref: "#/$defs/GcStartedNotification" },
-      { $ref: "#/$defs/GcProgressNotification" },
       { $ref: "#/$defs/GcEndedNotification" },
+      { $ref: "#/$defs/MigrationEndedNotification" },
     ],
     title: "Notification",
   },

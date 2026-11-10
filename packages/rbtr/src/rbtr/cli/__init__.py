@@ -120,6 +120,7 @@ from rbtr.index.build import build_index
 from rbtr.index.embed import embed_index
 from rbtr.index.embeddings import Embedder
 from rbtr.index.index import Index
+from rbtr.index.migrations import Migrate
 from rbtr.index.reranker import Reranker
 from rbtr.languages.manager import get_manager
 from rbtr.logging import configure_logging
@@ -172,7 +173,8 @@ class DaemonServe(BaseModel):
         config.runtime_dir.mkdir(parents=True, exist_ok=True)
         print_banner()
         try:
-            index = Index.from_config(writable=True)
+            # The daemon migrates once it is ready, so clients meet a running daemon.
+            index = Index.from_config(writable=True, migrate=Migrate.LATER)
         except IndexLockedError:
             # Another process holds the index; the store logged it.  The
             # code tells `start_daemon` to wait for that process's daemon.
@@ -213,6 +215,7 @@ class DaemonStart(BaseModel):
                 pub=running.pub,
                 version=running.version,
                 uptime_seconds=_uptime_seconds(running.started_at),
+                replaced=running.replaced,
             )
         )
 
@@ -254,6 +257,7 @@ class DaemonStatusCmd(BaseModel):
                 pub=status.pub,
                 version=status.version,
                 uptime_seconds=_uptime_seconds(status.started_at),
+                replaced=status.replaced,
             )
         )
 

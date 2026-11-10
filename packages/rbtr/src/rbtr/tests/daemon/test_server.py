@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
+from collections.abc import Generator
 from pathlib import Path
 
 import duckdb
@@ -25,19 +27,26 @@ from rbtr.daemon.messages import (
     ErrorResponse,
     GcAllRequest,
     GcEndedNotification,
-    GcProgressNotification,
-    GcStartedNotification,
+    IndexState,
+    Notification,
     OkResponse,
+    ProgressNotification,
+    ReadSymbolRequest,
     ShutdownRequest,
+    StatusAllRequest,
     StatusRequest,
     StatusResponse,
     notification_adapter,
     response_adapter,
 )
 from rbtr.daemon.server import Daemon
-from rbtr.domain.models import GcMode
+from rbtr.domain.models import CollectWork, EmbedWork, GcMode, MigrateWork
 from rbtr.errors import DaemonBusyError, RbtrError
+from rbtr.index.constants import SCHEMA_VERSION
+from rbtr.index.embeddings import Embedder, EmbedResult
 from rbtr.index.index import Index
+from rbtr.index.migrations import Migrate
+from rbtr.index.progress import ProgressCallback, RepoProgressCallback
 from rbtr.tests.daemon.cases_server import MalformedMessage, StopScenario
 
 from .conftest import serving, subscribed
@@ -82,20 +91,230 @@ def test_multiple_requests(running_daemon: Daemon, fake_repo: str) -> None:
 
 
 def test_gc_publishes_its_start_progress_and_end(running_daemon: Daemon, fake_repo: str) -> None:
-    """A gc over every repo publishes one `gc_progress` per repo, between its start and end."""
+    """A gc over every repo publishes its start and one progress per repo as progress, then its end."""
     with subscribed(running_daemon, fake_repo) as sub:
         with DaemonClient(running_daemon.runtime_dir) as client:
             client.send(GcAllRequest(mode=GcMode.WATCHED))
-        published = []
+        published: list[Notification] = []
         while sub.poll(2000):
-            published.append(notification_adapter.validate_json(sub.recv()))
+            # The gc's notifications; others, such as an embed's progress, are skipped.
+            match notification_adapter.validate_json(sub.recv()):
+                case GcEndedNotification() | ProgressNotification(work=CollectWork()) as gc:
+                    published.append(gc)
 
-    gc_kinds = (GcStartedNotification, GcProgressNotification, GcEndedNotification)
-    assert [n for n in published if isinstance(n, gc_kinds)] == [
-        GcStartedNotification(),
-        GcProgressNotification(current=1, total=1),
+    assert published == [
+        ProgressNotification(work=CollectWork(), phase="collecting", current=0, total=0),
+        ProgressNotification(work=CollectWork(), phase="collecting", current=1, total=1),
         GcEndedNotification(),
     ]
+
+
+@pytest.mark.usefixtures("held_gc")
+def test_status_lists_a_running_gc_for_every_repository(
+    running_daemon: Daemon,
+    fake_repo: str,
+    second_repo: str,
+    gc_started: threading.Event,
+    gc_released: threading.Event,
+) -> None:
+    """A gc concerns every repository, so a status for any of them lists it while it runs."""
+    gc = threading.Thread(
+        target=lambda: DaemonClient(running_daemon.runtime_dir).send(
+            GcAllRequest(mode=GcMode.WATCHED)
+        )
+    )
+    gc.start()
+    try:
+        assert gc_started.wait(10), "gc did not start"
+        with DaemonClient(running_daemon.runtime_dir) as client:
+            statuses = [
+                client.send(StatusRequest(repo_path=fake_repo)),
+                client.send(StatusRequest(repo_path=second_repo)),
+                client.send(StatusAllRequest()),
+            ]
+    finally:
+        gc_released.set()
+        gc.join(10)
+    for status in statuses:
+        assert isinstance(status, StatusResponse)
+        [job] = [job for job in status.active if isinstance(job.work, CollectWork)]
+        assert (job.phase, job.current, job.total) == ("collecting", 1, 2)
+
+
+def test_status_lists_the_gc_maintenance_runs(
+    runtime_dir: Path,
+    seeded_index: Index,
+    fake_repo: str,
+    gc_started: threading.Event,
+    gc_released: threading.Event,
+    stub_embedding_model: None,
+    mocker: MockerFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Maintenance's gc is tracked as a request's is, so status lists it while it runs."""
+
+    def maintain(*_args: object, on_progress: RepoProgressCallback, **_kwargs: object) -> None:
+        on_progress(fake_repo, 1, 2)
+        gc_started.set()
+        assert gc_released.wait(20), "maintenance was not released"
+
+    mocker.patch("rbtr.index.indexer.run_maintenance", maintain)
+    monkeypatch.setattr(config, "maintenance_idle_s", 0.0)
+    server = Daemon(runtime_dir, index=seeded_index, idle_poll_interval=0.2)
+    with serving(server), DaemonClient(server.runtime_dir) as client:
+        assert gc_started.wait(30), "maintenance did not start"
+        status = client.send(StatusRequest(repo_path=fake_repo))
+        gc_released.set()
+    assert isinstance(status, StatusResponse)
+    [job] = [job for job in status.active if isinstance(job.work, CollectWork)]
+    assert (job.phase, job.current, job.total) == ("collecting", 1, 2)
+
+
+@pytest.mark.usefixtures("held_gc")
+def test_status_lists_an_embed_and_a_gc_running_together(
+    runtime_dir: Path,
+    seeded_index: Index,
+    fake_repo: str,
+    gc_started: threading.Event,
+    gc_released: threading.Event,
+    stub_embedding_model: None,
+    mocker: MockerFixture,
+) -> None:
+    """A gc runs while an embed waits on its model, so status lists both."""
+    embedding = threading.Event()
+    embed = Embedder.embed
+
+    def held_embed(embedder: Embedder, texts: list[str]) -> list[EmbedResult]:
+        embedding.set()
+        assert gc_released.wait(20), "the embed was not released"
+        return embed(embedder, texts)
+
+    mocker.patch.object(Embedder, "embed", held_embed)
+    server = Daemon(runtime_dir, index=seeded_index)
+    with serving(server):
+        assert embedding.wait(20), "the embed did not start"
+        gc = threading.Thread(
+            target=lambda: DaemonClient(server.runtime_dir).send(GcAllRequest(mode=GcMode.WATCHED))
+        )
+        gc.start()
+        try:
+            assert gc_started.wait(10), "gc did not start"
+            with DaemonClient(server.runtime_dir) as client:
+                status = client.send(StatusRequest(repo_path=fake_repo))
+        finally:
+            gc_released.set()
+            gc.join(10)
+    assert isinstance(status, StatusResponse)
+    assert {type(job.work) for job in status.active} == {EmbedWork, CollectWork}
+
+
+def test_a_gc_that_fails_still_ends(
+    running_daemon: Daemon, fake_repo: str, mocker: MockerFixture
+) -> None:
+    """A failing gc publishes its end and leaves status, as one that succeeds does."""
+    mocker.patch("rbtr.daemon.server.handle_gc_all", side_effect=RbtrError("the gc failed"))
+    with subscribed(running_daemon, fake_repo) as sub:
+        with DaemonClient(running_daemon.runtime_dir) as client:
+            reply = client.send(GcAllRequest(mode=GcMode.WATCHED))
+            status = client.send(StatusAllRequest())
+        published: list[Notification] = []
+        while sub.poll(2000):
+            # The gc's notifications; others, such as an embed's progress, are skipped.
+            match notification_adapter.validate_json(sub.recv()):
+                case GcEndedNotification() | ProgressNotification(work=CollectWork()) as gc:
+                    published.append(gc)
+
+    assert isinstance(reply, ErrorResponse)
+    assert published == [
+        ProgressNotification(work=CollectWork(), phase="collecting", current=0, total=0),
+        GcEndedNotification(),
+    ]
+    assert isinstance(status, StatusResponse)
+    assert not [job for job in status.active if isinstance(job.work, CollectWork)]
+
+
+@pytest.fixture
+def migration_sql() -> str:
+    """The project migration `migrating_index` waits for; a test parametrises it to override."""
+    return "ALTER TABLE chunks ADD COLUMN note TEXT;"
+
+
+@pytest.fixture
+def migrating_index(
+    tmp_path: Path, fake_repo: str, chains: Path, migration_sql: str, mocker: MockerFixture
+) -> Generator[Index]:
+    """An on-disk index opened with `Migrate.LATER`, its one project file waiting for 2099.1.0."""
+    path = tmp_path / "data" / "index.duckdb"
+    seed = Index(path, writable=True)
+    seed.register(fake_repo)
+    seed.close()
+    (chains / "project").mkdir()
+    (chains / "project" / f"{SCHEMA_VERSION}__2099.1.0.sql").write_text(migration_sql)
+    mocker.patch("rbtr.index.store.SCHEMA_VERSION", "2099.1.0")
+    index = Index(path, writable=True, migrate=Migrate.LATER)
+    yield index
+    index.close()
+
+
+def test_a_daemon_answers_while_it_migrates_and_indexes_after(
+    runtime_dir: Path,
+    migrating_index: Index,
+    fake_repo: str,
+    stub_embedding_model: None,
+    mocker: MockerFixture,
+) -> None:
+    """The daemon is ready before it migrates; meanwhile status says so and reads reply `index_in_progress`."""
+    held, released = threading.Event(), threading.Event()
+    migrate = Index.migrate
+
+    def held_migrate(index: Index, on_progress: ProgressCallback) -> None:
+        held.set()
+        assert released.wait(20), "the migration was not released"
+        migrate(index, on_progress)
+
+    mocker.patch.object(Index, "migrate", held_migrate)
+    server = Daemon(runtime_dir, index=migrating_index, idle_poll_interval=0.2)
+    with serving(server), DaemonClient(server.runtime_dir) as client:
+        assert held.wait(10), "the migration did not start"
+        read = client.send(ReadSymbolRequest(repo_path=fake_repo, symbol="load_config"))
+        status = client.send(StatusAllRequest())
+        released.set()
+        assert isinstance(read, ErrorResponse)
+        assert read.code is ErrorCode.INDEX_IN_PROGRESS
+        assert isinstance(status, StatusResponse)
+        assert status.state is IndexState.MIGRATING
+        assert [type(job.work) for job in status.active] == [MigrateWork]
+        deadline = time.monotonic() + 30
+        while True:
+            after = client.send(StatusRequest(repo_path=fake_repo))
+            if isinstance(after, StatusResponse) and after.state is IndexState.INDEXED:
+                break
+            assert time.monotonic() < deadline, f"the daemon did not index after migrating: {after}"
+            time.sleep(0.1)
+
+
+@pytest.mark.parametrize("migration_sql", ["SELECT * FROM no_such_table;"])
+def test_a_failing_migration_stops_the_daemon_and_keeps_the_old_file(
+    runtime_dir: Path, migrating_index: Index, tmp_path: Path
+) -> None:
+    """The daemon stops with the migration's error; the registry still names the file it had."""
+    (old_file,) = (tmp_path / "data" / "index").glob("*.duckdb")
+    server = Daemon(runtime_dir, index=migrating_index)
+    failure: list[BaseException] = []
+
+    def serve() -> None:
+        try:
+            asyncio.run(server.serve())
+        except duckdb.Error as exc:
+            failure.append(exc)
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    assert server.wait_ready(), "daemon did not start"
+    thread.join(30)
+    assert not thread.is_alive(), "daemon did not stop"
+    assert [type(exc) for exc in failure] == [duckdb.CatalogException]
+    assert list((tmp_path / "data" / "index").glob("*.duckdb")) == [old_file]
 
 
 def test_an_idle_daemon_runs_maintenance(
@@ -124,16 +343,19 @@ def test_an_idle_daemon_runs_maintenance(
     )
     with serving(server), subscribed(server, fake_repo) as sub:
         monkeypatch.setattr(config, "maintenance_idle_s", 0.0)
-        published = []
+        published: list[Notification] = []
         while sub.poll(30_000):
-            published.append(notification_adapter.validate_json(sub.recv()))
-            if isinstance(published[-1], GcEndedNotification):
-                break
+            # The pass's notifications; others, such as an embed's progress, are skipped.
+            match notification_adapter.validate_json(sub.recv()):
+                case GcEndedNotification() as gc:
+                    published.append(gc)
+                    break
+                case ProgressNotification(work=CollectWork()) as gc:
+                    published.append(gc)
 
-    gc_kinds = (GcStartedNotification, GcProgressNotification, GcEndedNotification)
-    assert [n for n in published if isinstance(n, gc_kinds)] == [
-        GcStartedNotification(),
-        GcProgressNotification(current=1, total=1),
+    assert published == [
+        ProgressNotification(work=CollectWork(), phase="collecting", current=0, total=0),
+        ProgressNotification(work=CollectWork(), phase="collecting", current=1, total=1),
         GcEndedNotification(),
     ]
     assert gone in seeded_index.missing_since()

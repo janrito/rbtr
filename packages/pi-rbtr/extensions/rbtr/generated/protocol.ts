@@ -114,8 +114,11 @@ export type ChangeKind = "added" | "modified" | "removed";
  *                      fall back to the latest indexed commit
  *                      (`RefSource.LATEST_INDEXED`).
  * `INDEXED`          — reads find the snapshot they ask for.
+ * `MIGRATING`        — the daemon is migrating the index's files, and
+ *                      reads that need them reply `index_in_progress`
+ *                      until it ends.
  */
-export type IndexState = "no_index" | "repo_not_indexed" | "ref_not_indexed" | "indexed";
+export type IndexState = "no_index" | "repo_not_indexed" | "ref_not_indexed" | "indexed" | "migrating";
 export type JsonValue = unknown;
 export type Notification =
   | ProgressNotification
@@ -123,9 +126,8 @@ export type Notification =
   | EmbedEndedNotification
   | AutoRebuildNotification
   | IndexErrorNotification
-  | GcStartedNotification
-  | GcProgressNotification
-  | GcEndedNotification;
+  | GcEndedNotification
+  | MigrationEndedNotification;
 /**
  * How an embed run ended.
  *
@@ -641,8 +643,7 @@ export interface StatusResponse {
   untracked_not_indexed?: {
     [k: string]: number;
   };
-  active_build?: ActiveJob | null;
-  active_embed?: ActiveJob | null;
+  active?: ActiveJob[];
 }
 /**
  * Per-ref status: symbolic names, chunk count, embed completeness.
@@ -655,26 +656,48 @@ export interface IndexedRef {
   repo_path?: string | null;
 }
 /**
- * A build or embed job currently running in the daemon.
+ * A piece of background work running in the daemon.
  *
- * Used for both `active_build` and `active_embed` on
- * `StatusResponse` — the field name distinguishes them.
- *
- * `ref` is the resolved SHA under build/embed.  `phase`
- * is the current stage (`"starting"`, `"parsing"`, or
- * `"embedding"`).  `current` / `total` come from the
- * orchestrator's progress callbacks; both are 0 until the
- * first callback fires.  `elapsed_seconds` is computed by
- * the daemon at snapshot time so the CLI doesn't need to
- * reason about clock boundaries.
+ * `phase` is its current stage (`"starting"`, `"parsing"`,
+ * `"embedding"`, `"collecting"`).  `current` / `total` come from the
+ * work's progress callbacks; both are 0 until the first callback
+ * fires.  `elapsed_seconds` is computed when the status is read, so the
+ * CLI doesn't need to reason about clock boundaries.
  */
 export interface ActiveJob {
-  repo_path: string;
-  ref: string;
+  work: BuildWork | EmbedWork | CollectWork | MigrateWork;
   phase: string;
   current: number;
   total: number;
   elapsed_seconds: number;
+}
+/**
+ * Building the snapshot `ref` of the repository at `repo_path`.
+ */
+export interface BuildWork {
+  kind: "build";
+  repo_path: string;
+  ref: string;
+}
+/**
+ * Embedding the chunks of the snapshot `ref` of the repository at `repo_path`.
+ */
+export interface EmbedWork {
+  kind: "embed";
+  repo_path: string;
+  ref: string;
+}
+/**
+ * Collecting garbage, from one repository or from every one.
+ */
+export interface CollectWork {
+  kind: "collect";
+}
+/**
+ * Migrating the index's files to the schema this rbtr reads.
+ */
+export interface MigrateWork {
+  kind: "migrate";
 }
 /**
  * The daemon's live config plus the language plugins it loaded.
@@ -743,9 +766,12 @@ export interface ForgetResponse {
   forgotten?: string[];
   dry_run?: boolean;
 }
+/**
+ * Background work has reached *current* of *total* in its *phase*.
+ */
 export interface ProgressNotification {
   kind: "progress";
-  repo_path: string;
+  work: BuildWork | EmbedWork | CollectWork | MigrateWork;
   phase: string;
   current: number;
   total: number;
@@ -785,24 +811,16 @@ export interface IndexErrorNotification {
   message: string;
 }
 /**
- * gc started.
- */
-export interface GcStartedNotification {
-  kind: "gc_started";
-}
-/**
- * gc has collected *current* of the *total* repos it covers.
- */
-export interface GcProgressNotification {
-  kind: "gc_progress";
-  current: number;
-  total: number;
-}
-/**
  * gc ended, however it ended.
  */
 export interface GcEndedNotification {
   kind: "gc_ended";
+}
+/**
+ * Migrating the index's files ended, however it ended.
+ */
+export interface MigrationEndedNotification {
+  kind: "migration_ended";
 }
 /**
  * CLI output for `rbtr daemon status`.
@@ -819,4 +837,15 @@ export interface DaemonStatusReport {
   pub?: string | null;
   version?: string | null;
   uptime_seconds?: number | null;
+  replaced?: ReplacedIndex | null;
+}
+/**
+ * An index replaced on open, because its schema is too old to migrate.
+ *
+ * `stored` is the schema version it recorded, `None` when it recorded
+ * none; `replaced_at` is when this rbtr replaced it with an empty one.
+ */
+export interface ReplacedIndex {
+  stored: string | null;
+  replaced_at: string;
 }

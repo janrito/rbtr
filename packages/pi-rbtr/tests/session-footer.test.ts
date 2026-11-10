@@ -149,6 +149,26 @@ test("an index error is notified, and the footer says so", async ({ repo, fakeDa
   expect(pi.footer(120).at(-1)).toContain("rbtr: ✗ error");
 });
 
+test("a build's progress shows in the footer of its own repository only", async ({ repo, fakeDaemon, pi }) => {
+  await pi.start();
+  await until(() => / symbols$/.test(pi.ui.statuses.at(-1) ?? ""));
+  const progress = (repoPath: string, phase: string) =>
+    fakeDaemon.publish({
+      kind: "progress",
+      work: { kind: "build", repo_path: repoPath, ref: "a".repeat(40) },
+      phase,
+      current: 1,
+      total: 2,
+    });
+  // Published until it arrives: a subscriber misses what is sent before it joins.
+  await until(() => {
+    void progress("/another/repository", "elsewhere");
+    void progress(repo, "parsing");
+    return / parsing 1\/2/.test(pi.ui.statuses.at(-1) ?? "");
+  });
+  expect(pi.ui.statuses.some((status) => status.includes("elsewhere"))).toBe(false);
+});
+
 // The daemon publishes gc's notifications to every subscriber, whichever repos it collects.
 test("a gc's progress reaches the footer, and its end restores the index label", async ({ fakeDaemon, pi }) => {
   await pi.start();
@@ -156,11 +176,48 @@ test("a gc's progress reaches the footer, and its end restores the index label",
   const label = pi.ui.statuses.at(-1);
   // Published until it arrives: a subscriber misses what is sent before it joins.
   await until(() => {
-    void fakeDaemon.publish({ kind: "gc_progress", current: 1, total: 2 });
+    void fakeDaemon.publish({ kind: "progress", work: { kind: "collect" }, phase: "collecting", current: 1, total: 2 });
     return / collecting 1\/2…$/.test(pi.ui.statuses.at(-1) ?? "");
   });
   await fakeDaemon.publish({ kind: "gc_ended" });
   await until(() => pi.ui.statuses.at(-1) === label);
+});
+
+test("a migration's progress reaches the footer, and its end restores the index label", async ({ fakeDaemon, pi }) => {
+  await pi.start();
+  await until(() => / symbols$/.test(pi.ui.statuses.at(-1) ?? ""));
+  const label = pi.ui.statuses.at(-1);
+  // Published until it arrives: a subscriber misses what is sent before it joins.
+  await until(() => {
+    void fakeDaemon.publish({ kind: "progress", work: { kind: "migrate" }, phase: "migrating", current: 1, total: 2 });
+    return / migrating index files 1\/2…$/.test(pi.ui.statuses.at(-1) ?? "");
+  });
+  await fakeDaemon.publish({ kind: "migration_ended" });
+  await until(() => pi.ui.statuses.at(-1) === label);
+});
+
+// A subscriber misses what the daemon publishes before it joins, `migration_ended` included.
+test("a migration whose end the session missed ends at the next health check", async ({ fakeDaemon, pi }) => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  try {
+    await pi.start();
+    await until(() => / symbols$/.test(pi.ui.statuses.at(-1) ?? ""));
+    const label = pi.ui.statuses.at(-1);
+    await until(() => {
+      void fakeDaemon.publish({
+        kind: "progress",
+        work: { kind: "migrate" },
+        phase: "migrating",
+        current: 1,
+        total: 2,
+      });
+      return / migrating index files 1\/2…$/.test(pi.ui.statuses.at(-1) ?? "");
+    });
+    vi.advanceTimersByTime(HEALTH_CHECK_MS);
+    await until(() => pi.ui.statuses.at(-1) === label);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 describe("in rpc mode", () => {

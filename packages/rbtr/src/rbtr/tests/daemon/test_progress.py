@@ -24,7 +24,7 @@ from rbtr.daemon.messages import (
     notification_adapter,
 )
 from rbtr.daemon.server import Daemon
-from rbtr.domain.models import GcMode
+from rbtr.domain.models import BuildWork, GcMode
 from rbtr.index.index import Index
 
 from .conftest import serving
@@ -54,7 +54,9 @@ def held_progress(
         raw: bytes = await receive(socket)
         if socket.type == zmq.PULL and not relay_held.is_set():
             notification = notification_adapter.validate_json(raw)
-            if isinstance(notification, ProgressNotification):
+            if isinstance(notification, ProgressNotification) and isinstance(
+                notification.work, BuildWork
+            ):
                 relay_held.set()
                 assert await asyncio.to_thread(relay_released.wait, 20), "relay was not released"
         return raw
@@ -84,12 +86,15 @@ def late_progress(
         raw = await receive(socket)
         if socket.type == zmq.PULL:
             notification = notification_adapter.validate_json(raw)
-            if isinstance(notification, ProgressNotification):
-                if notification.repo_path == fake_repo and notification.phase == "finalising":
+            if isinstance(notification, ProgressNotification) and isinstance(
+                notification.work, BuildWork
+            ):
+                repo_path = notification.work.repo_path
+                if repo_path == fake_repo and notification.phase == "finalising":
                     delayed = raw
                     relay_held.set()
                     return await recv(socket)
-                if notification.repo_path == second_repo and notification.phase == "edges":
+                if repo_path == second_repo and notification.phase == "edges":
                     current_seen = True
         return raw
 
@@ -161,10 +166,10 @@ def test_status_sees_progress_before_the_relay_receives_it(
         assert relay_held.wait(10), "progress did not reach PULL"
         status = rpc_send(StatusRequest(repo_path=second_repo))
         assert isinstance(status, StatusResponse)
-        assert status.active_build is not None
-        assert status.active_build.phase == "edges"
-        assert status.active_build.current == status.active_build.total == 0
-        assert status.active_embed is None
+        [job] = status.active
+        assert isinstance(job.work, BuildWork)
+        assert job.phase == "edges"
+        assert job.current == job.total == 0
     finally:
         relay_released.set()
         write_released.set()
@@ -191,7 +196,8 @@ def test_an_earlier_runs_delivery_keeps_the_current_runs_progress(
             notification = notification_adapter.validate_json(subscriber.recv())
             if (
                 isinstance(notification, ProgressNotification)
-                and notification.repo_path == second_repo
+                and isinstance(notification.work, BuildWork)
+                and notification.work.repo_path == second_repo
                 and notification.phase == "edges"
             ):
                 break
@@ -200,17 +206,18 @@ def test_an_earlier_runs_delivery_keeps_the_current_runs_progress(
             notification = notification_adapter.validate_json(subscriber.recv())
             if (
                 isinstance(notification, ProgressNotification)
-                and notification.repo_path == fake_repo
+                and isinstance(notification.work, BuildWork)
+                and notification.work.repo_path == fake_repo
                 and notification.phase == "finalising"
             ):
                 break
         status = rpc_send(StatusRequest(repo_path=second_repo))
         assert isinstance(status, StatusResponse)
-        assert status.active_build is not None
-        assert status.active_build.repo_path == second_repo
-        assert status.active_build.phase == "edges"
-        assert status.active_build.current == status.active_build.total == 0
-        assert status.active_embed is None
+        [job] = status.active
+        assert isinstance(job.work, BuildWork)
+        assert job.work.repo_path == second_repo
+        assert job.phase == "edges"
+        assert job.current == job.total == 0
     finally:
         relay_released.set()
         write_released.set()

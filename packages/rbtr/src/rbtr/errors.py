@@ -72,21 +72,28 @@ class RepoNotFoundError(RbtrError):
 
 
 class IndexSchemaTooNewError(RbtrError):
-    """Raised when the index was written by a newer rbtr than this one.
+    """Raised when an index file was written by a newer rbtr than this one.
 
-    The index is never migrated, and an older rbtr must not wipe a
-    newer index -- that triggers a destructive rebuild loop between
-    installs sharing one data dir.  So the older binary refuses to
-    open the DB instead of destroying it.
+    Migrations run forward only, so it refuses the file and leaves it unchanged.
     """
 
     def __init__(self, *, stored: str, code: str) -> None:
         super().__init__(
             f"Index schema {stored} was written by a newer rbtr; this "
-            f"install only supports {code}. Refusing to open rather than "
-            "rebuild a newer index. Upgrade rbtr, or delete the index to "
-            "rebuild it from scratch."
+            f"install only supports {code}. Upgrade rbtr to open it."
         )
+
+
+class IndexMigratingError(RbtrError):
+    """Raised when a read or write reaches an index file still waiting to be migrated.
+
+    `Index.migrate` brings the file forward; the same call then succeeds.
+    """
+
+    error_code: str = "index_in_progress"
+
+    def __init__(self) -> None:
+        super().__init__("This project's index file is waiting to be migrated; try again shortly.")
 
 
 class IndexLockedError(RbtrError):

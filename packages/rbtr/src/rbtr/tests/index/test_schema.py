@@ -2,7 +2,8 @@
 
 Covers:
 - The registry and the project files it names
-- Schema version mismatch recovery
+- Migrating each file from an older schema version, or refusing to
+- Replacing an index too old to migrate
 - Embedding version/model change
 - DB reopen, dual-open
 - FTS persistence across reopen
@@ -10,29 +11,34 @@ Covers:
 
 from __future__ import annotations
 
+import importlib.resources
+import itertools
 from collections.abc import Iterator
 from pathlib import Path
 
 import duckdb
 import pygit2
 import pytest
-from pytest_cases import fixture, parametrize_with_cases
+import structlog
+from pytest_cases import filters as ft, fixture, parametrize_with_cases
 from pytest_mock import MockerFixture
 
 from rbtr.config import config, index_dir_of
 from rbtr.domain.models import FileSnapshot
 from rbtr.errors import (
     IndexLockedError,
+    IndexMigratingError,
     IndexNotBuiltError,
-    IndexSchemaTooNewError,
     RepoNotFoundError,
 )
 from rbtr.git import normalise_repo_path
-from rbtr.index.constants import EMBEDDING_FORMAT_VERSION
+from rbtr.index import load_sql
+from rbtr.index.constants import EMBEDDING_FORMAT_VERSION, SCHEMA_VERSION
 from rbtr.index.index import Index
+from rbtr.index.migrations import BringForward, FileKind, Migrate, chain, parse_calver, run
 from rbtr.index.staging import TokenisedChunk
 
-from .cases_index_versioning import VersioningScenario
+from .cases_index_versioning import FileAfter, MigrationScenario, VersioningScenario
 from .conftest import make_chunk, make_snap
 
 
@@ -53,19 +59,21 @@ def test_registry_and_project_file_hold_their_tables(tmp_path: Path) -> None:
 
 
 @fixture
-@parametrize_with_cases("scenario", cases=".cases_index_versioning")
+@parametrize_with_cases(
+    "scenario", cases=".cases_index_versioning", filter=~ft.has_tag("migration")
+)
 def reopened(
     scenario: VersioningScenario,
     tmp_path: Path,
+    chains: Path,
     mocker: MockerFixture,
 ) -> Iterator[tuple[Index, VersioningScenario]]:
     path = tmp_path / "index.duckdb"
     before = scenario.before
 
     if before.create_bare_file:
-        con = duckdb.connect(str(path))
-        con.execute("CREATE TABLE dummy (x INT)")
-        con.close()
+        with duckdb.connect(str(path)) as con:
+            con.execute("CREATE TABLE dummy (x INT)")
     else:
         seed = Index(path, writable=True)
         registered = seed.register("/repo")
@@ -104,10 +112,14 @@ def reopened(
         if before.embedding_version is not None:
             updates.append((project_file, "embedding_version", before.embedding_version))
         for file, key, value in updates:
-            con = duckdb.connect(str(file))
-            con.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", [key, value])
-            con.close()
+            with duckdb.connect(str(file)) as con:
+                con.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", [key, value])
 
+    for name, sql in scenario.migrations.items():
+        (chains / name).parent.mkdir(exist_ok=True)
+        (chains / name).write_text(sql)
+    if scenario.current is not None:
+        mocker.patch("rbtr.index.store.SCHEMA_VERSION", scenario.current)
     if scenario.config_embedding_model is not None:
         mocker.patch(
             "rbtr.index.writer.config.embedding_model",
@@ -203,46 +215,37 @@ def test_reading_a_db_rbtr_never_built_says_it_is_not_built(tmp_path: Path) -> N
         Index(tmp_path / "index.duckdb")
 
 
-def test_older_binary_refuses_and_preserves_index(tmp_path: Path, mocker: MockerFixture) -> None:
-    """An rbtr older than the on-disk schema refuses to open and never wipes.
-
-    Guards the cross-install flip-flop: an older install must not
-    destroy an index a newer install wrote.
-    """
-    path = tmp_path / "index.duckdb"
-    _seed_one_chunk(path)
-    inode_before = path.stat().st_ino
-
-    mocker.patch("rbtr.index.store.SCHEMA_VERSION", "2000.1.1")
-    with pytest.raises(IndexSchemaTooNewError):
-        Index(path, writable=True)
-
-    assert path.exists()
-    assert path.stat().st_ino == inode_before  # never unlinked/recreated
-
-
-def test_a_stale_index_is_replaced_by_an_empty_one(tmp_path: Path) -> None:
-    """A newer rbtr replaces a stale index whole, and its files with it.
+def test_an_index_older_than_migrations_is_replaced_by_an_empty_one(
+    tmp_path: Path, log_output: structlog.testing.LogCapture
+) -> None:
+    """An index older than this rbtr can migrate is replaced whole, its files with it, and the open warns.
 
     Deleting rows does not shrink a DuckDB file, so the registry is a new
     file and the old project files are deleted.  A leftover too large to
-    stand for an empty index would mean the old file was kept.
+    stand for an empty index would mean the old file was kept.  The index
+    says what it replaced, for the daemon to record in discovery.
     """
     path = tmp_path / "index.duckdb"
     _seed_one_chunk(path)
-    con = duckdb.connect(str(path))
-    con.execute("CREATE TABLE padding AS SELECT md5(range::VARCHAR) AS x FROM range(200000)")
-    con.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '2000.1.1')")
-    con.close()
+    with duckdb.connect(str(path)) as con:
+        con.execute("CREATE TABLE padding AS SELECT md5(range::VARCHAR) AS x FROM range(1000000)")
+        con.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '2000.1.1')"
+        )
     size_before = path.stat().st_size
 
-    index = Index(path, writable=True)  # newer code -> replace
+    index = Index(path, writable=True)  # too old to migrate -> replaced
     try:
         assert index.repos() == []
         assert list((path.parent / "index").iterdir()) == []
+        assert index.replaced is not None
+        assert index.replaced.stored == "2000.1.1"
     finally:
         index.close()
     assert path.stat().st_size < size_before / 4
+    [warning] = [e for e in log_output.entries if e["event"] == "index_replaced"]
+    assert warning["log_level"] == "warning"
+    assert warning["stored"] == "2000.1.1"
 
 
 def test_second_open_in_process_is_locked_out(tmp_path: Path) -> None:
@@ -371,21 +374,180 @@ def test_forgetting_a_projects_last_checkout_deletes_its_file(tmp_path: Path) ->
     assert forgotten_file not in files
 
 
-def test_a_writable_open_adds_tables_an_index_lacks(tmp_path: Path) -> None:
-    """A table the schema gained reaches an existing project file on open.
+@fixture
+@parametrize_with_cases("scenario", cases=".cases_index_versioning", has_tag="migration")
+def migration(
+    scenario: MigrationScenario, tmp_path: Path, chains: Path, mocker: MockerFixture
+) -> MigrationScenario:
+    """The index at `tmp_path / "index.duckdb"`, its files at *scenario*'s stored versions.
 
-    An additive change needs no version bump, so a file written before it
-    must get the table when it is next opened for writing.
+    Its migrations are written under `chains`, and this rbtr's schema
+    version is *scenario*'s `current`.
     """
     path = tmp_path / "index.duckdb"
     _seed_one_chunk(path)
     (project_file,) = (tmp_path / "index").glob("*.duckdb")
-    con = duckdb.connect(str(project_file))
-    con.execute("DROP TABLE watched_refs")
-    con.close()
+    with duckdb.connect(str(path)) as con:
+        con.execute(
+            "UPDATE meta SET value = ? WHERE key = 'schema_version'", [scenario.registry_stored]
+        )
+    with duckdb.connect(str(project_file)) as con:
+        con.execute("DELETE FROM meta WHERE key = 'schema_version'")
+        if scenario.project_stored is not None:
+            con.execute("INSERT INTO meta VALUES ('schema_version', ?)", [scenario.project_stored])
+    for name, sql in scenario.migrations.items():
+        (chains / name).parent.mkdir(exist_ok=True)
+        (chains / name).write_text(sql)
+    mocker.patch("rbtr.index.store.SCHEMA_VERSION", scenario.current)
+    return scenario
 
-    index = Index(path, writable=True)
+
+def test_opening_brings_each_file_forward_or_leaves_it(
+    migration: MigrationScenario, tmp_path: Path
+) -> None:
+    """Opening runs each file's migrations, or refuses and leaves the files where they were.
+
+    Either way each file records the version its schema has, and an
+    index that opens still holds its rows.
+    """
+    path = tmp_path / "index.duckdb"
+    (old_file,) = (tmp_path / "index").glob("*.duckdb")
+    if migration.raises is not None:
+        with pytest.raises(migration.raises):
+            Index(path, writable=migration.writable)
+    else:
+        index = Index(path, writable=migration.writable)
+        try:
+            [repo] = index.repos()
+            assert index.chunks(at=repo.at("head"))
+            assert not index.fulltext_matches("c1", within=[repo.at("head")], top_k=5).is_empty()
+            assert index.replaced is None
+        finally:
+            index.close()
+    (project_file,) = (tmp_path / "index").glob("*.duckdb")
+    assert (project_file != old_file) == migration.copied
+    for file, expected in [
+        (path, migration.registry_after),
+        (project_file, migration.project_after),
+    ]:
+        with duckdb.connect(str(file), read_only=True) as con:
+            version = con.sql("SELECT value FROM meta WHERE key = 'schema_version'").fetchall()
+            added = con.sql(
+                "SELECT table_name FROM information_schema.tables WHERE table_name LIKE 'added_%'"
+            ).fetchall()
+        assert (
+            FileAfter(version[0][0] if version else None, frozenset(r[0] for r in added))
+            == expected
+        )
+
+
+def test_a_deferred_migration_refuses_its_file_until_it_runs(
+    tmp_path: Path, chains: Path, mocker: MockerFixture
+) -> None:
+    """`Migrate.LATER` leaves a project file that migrates on a copy unreadable until `migrate`."""
+    path = tmp_path / "index.duckdb"
+    _seed_one_chunk(path)
+    (chains / "project").mkdir()
+    (chains / "project" / f"{SCHEMA_VERSION}__2099.1.0.sql").write_text("SELECT 1;")
+    mocker.patch("rbtr.index.store.SCHEMA_VERSION", "2099.1.0")
+
+    index = Index(path, writable=True, migrate=Migrate.LATER)
     try:
-        assert index.watched_refs(index.repo("/repo")) == []
+        [repo] = index.repos()
+        assert index.migrating
+        with pytest.raises(IndexMigratingError):
+            index.chunks(at=repo.at("head"))
+        index.migrate()
+        assert not index.migrating
+        assert index.chunks(at=repo.at("head"))
     finally:
         index.close()
+
+
+@pytest.mark.parametrize(("ratio", "compacted"), [(1000.0, False), (1.0, True)])
+def test_a_copy_a_migration_grew_is_copied_again(
+    ratio: float, compacted: bool, tmp_path: Path, chains: Path, mocker: MockerFixture
+) -> None:
+    """A migration that rebuilds a table leaves the old one's space; past the growth ratio the copy is compacted.
+
+    Either way maintenance measures the file's growth from the data, the
+    copy before the migration ran or the compacted one, not from the space
+    the rebuild left: the uncompacted file is compacted by maintenance.
+    """
+    path = tmp_path / "index.duckdb"
+    _seed_one_chunk(path)
+    (old_file,) = (tmp_path / "index").glob("*.duckdb")
+    with duckdb.connect(str(old_file)) as con:
+        con.execute("CREATE TABLE padding AS SELECT md5(range::VARCHAR) AS x FROM range(200000)")
+    old_bytes = old_file.stat().st_size
+    (chains / "project").mkdir()
+    (chains / "project" / f"{SCHEMA_VERSION}__2099.1.0.sql").write_text("""\
+CREATE TABLE rebuilt AS SELECT * FROM padding;
+DROP TABLE padding;
+ALTER TABLE rebuilt RENAME TO padding;
+""")
+    mocker.patch("rbtr.index.store.SCHEMA_VERSION", "2099.1.0")
+    mocker.patch("rbtr.index.store.config.compact_growth_ratio", ratio)
+
+    Index(path, writable=True).close()
+
+    (new_file,) = (tmp_path / "index").glob("*.duckdb")
+    assert (new_file.stat().st_size < 1.5 * old_bytes) == compacted
+    index = Index(path, writable=True)
+    try:
+        assert index.compact_grown(1.5) == (0 if compacted else 1)
+    finally:
+        index.close()
+
+
+@pytest.mark.parametrize(
+    ("kind", "schema"),
+    [(FileKind.REGISTRY, "registry.sql"), (FileKind.PROJECT, "schema.sql")],
+)
+def test_migrating_a_kind_from_its_base_gives_the_schema_of_a_new_file(
+    kind: FileKind, schema: str
+) -> None:
+    """A file migrated through every shipped migration has the schema a new file gets.
+
+    The base is the schema as it stood at the oldest migration's start,
+    kept beside the chain as `<start>.base.sql`.  With no migrations, the
+    base is the kind's schema file itself.
+    """
+    migrations = chain(kind)
+    directory = importlib.resources.files("rbtr.index") / "sql" / "migrations" / kind
+    if migrations:
+        base_file = directory / f"{migrations[0].start}.base.sql"
+        assert base_file.is_file(), (
+            f"the {kind} chain starts at {migrations[0].start} \
+but ships no {base_file.name}: add it beside the chain, holding {schema} as it stood \
+at {migrations[0].start}"
+        )
+        base = base_file.read_text(encoding="utf-8")
+    else:
+        base = load_sql(schema)
+    with duckdb.connect() as migrated, duckdb.connect() as fresh:
+        migrated.execute(base)
+        start = migrations[0].start if migrations else SCHEMA_VERSION
+        run(migrated, BringForward(start, tuple(migrations)), current=SCHEMA_VERSION)
+        fresh.execute(load_sql(schema))
+        # DuckDB writes each object's `CREATE` statement from its catalog entry.
+        migrated_ddl, fresh_ddl = (
+            sorted(
+                row
+                for catalog in ("duckdb_tables", "duckdb_indexes", "duckdb_sequences")
+                for row in con.table_function(catalog).select("sql").fetchall()
+            )
+            for con in (migrated, fresh)
+        )
+        assert migrated_ddl == fresh_ddl
+
+
+@pytest.mark.parametrize("kind", list(FileKind))
+def test_a_shipped_chain_runs_unbroken_to_this_version(kind: FileKind) -> None:
+    """Each migration starts where the one before it ends, and none ends past this version."""
+    migrations = chain(kind)
+    for earlier, later in itertools.pairwise(migrations):
+        assert later.start == earlier.end
+    for migration in migrations:
+        assert parse_calver(migration.start) < parse_calver(migration.end)
+        assert parse_calver(migration.end) <= parse_calver(SCHEMA_VERSION)

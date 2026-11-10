@@ -154,22 +154,24 @@ describe("renderStatusResult", () => {
       { sha: "c".repeat(40), names: [], total: 1200, embedded: 0 },
       { sha: "d".repeat(40), names: [], total: 0, embedded: 0 },
     ],
-    active_build: {
-      repo_path: "/repo",
-      ref: "e".repeat(40),
-      phase: "chunking",
-      current: 3,
-      total: 10,
-      elapsed_seconds: 65,
-    },
-    active_embed: {
-      repo_path: "/repo",
-      ref: "e".repeat(40),
-      phase: "embedding",
-      current: 5,
-      total: 20,
-      elapsed_seconds: 12,
-    },
+    active: [
+      {
+        work: { kind: "build", repo_path: "/repo", ref: "e".repeat(40) },
+        phase: "chunking",
+        current: 3,
+        total: 10,
+        elapsed_seconds: 65,
+      },
+      {
+        work: { kind: "embed", repo_path: "/repo", ref: "e".repeat(40) },
+        phase: "embedding",
+        current: 5,
+        total: 20,
+        elapsed_seconds: 12,
+      },
+      { work: { kind: "collect" }, phase: "collecting", current: 1, total: 4, elapsed_seconds: 3 },
+      { work: { kind: "migrate" }, phase: "migrating", current: 2, total: 4, elapsed_seconds: 5 },
+    ],
   };
 
   test("renders one line per ref, in the shape the TUI uses", ({ theme }) => {
@@ -180,30 +182,37 @@ describe("renderStatusResult", () => {
     expect(lines).toContain("dddddddddddd  0 indexed  0 embedded ✓");
   });
 
-  test("reports the running build and embed pass", ({ theme }) => {
+  test("reports the running build, embed pass and gc", ({ theme }) => {
     const lines = statusLines(status, theme);
     expect(lines).toContain("⟳ Building: eeeeeeeeeeee — chunking 3/10 (30%) — 1m05s");
     expect(lines).toContain("\u21BB Embedding: eeeeeeeeeeee — 5/20 (25%) — 12s");
+    expect(lines).toContain("⟳ Collecting: 1/4 (25%) — 3s");
+    expect(lines).toContain("⟳ Migrating index files: 2/4 (50%) — 5s");
   });
 
   test("suppresses the percentage when the job has no total yet", ({ theme }) => {
     const starting: StatusResponse = {
       kind: "status",
       state: "repo_not_indexed",
-      active_build: {
-        repo_path: "/repo",
-        ref: "f".repeat(40),
-        phase: "walking",
-        current: 0,
-        total: 0,
-        elapsed_seconds: 2,
-      },
+      active: [
+        {
+          work: { kind: "build", repo_path: "/repo", ref: "f".repeat(40) },
+          phase: "walking",
+          current: 0,
+          total: 0,
+          elapsed_seconds: 2,
+        },
+      ],
     };
     expect(statusLines(starting, theme)).toContain("⟳ Building: ffffffffffff — walking 0/0 — 2s");
   });
 
   test.for<{ response: StatusResponse; line: string }>([
     { response: { kind: "status", state: "no_index" }, line: "✗ the index does not exist" },
+    {
+      response: { kind: "status", state: "migrating" },
+      line: "! migrating the index's files; reads wait until it ends",
+    },
     {
       response: { kind: "status", state: "repo_not_indexed", repo_path: "/repo", db_size_bytes: 2 ** 20 },
       line: "✗ this repo is not indexed · 1.0 MiB",
@@ -237,14 +246,15 @@ describe("renderStatusResult", () => {
     const justOverAMinute: StatusResponse = {
       kind: "status",
       state: "repo_not_indexed",
-      active_embed: {
-        repo_path: "/repo",
-        ref: "f".repeat(40),
-        phase: "embedding",
-        current: 1,
-        total: 2,
-        elapsed_seconds: 60,
-      },
+      active: [
+        {
+          work: { kind: "embed", repo_path: "/repo", ref: "f".repeat(40) },
+          phase: "embedding",
+          current: 1,
+          total: 2,
+          elapsed_seconds: 60,
+        },
+      ],
     };
     expect(statusLines(justOverAMinute, theme)).toContain("\u21BB Embedding: ffffffffffff — 1/2 (50%) — 1m00s");
   });

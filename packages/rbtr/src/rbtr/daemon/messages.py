@@ -49,6 +49,7 @@ from rbtr.domain.models import (
     IndexStats,
     QueryKind,
     RefsByRepo,
+    Work,
 )
 from rbtr.index.progress import EmbedOutcome
 
@@ -553,23 +554,17 @@ class ChangedSymbolsResponse(BaseModel):
 
 
 class ActiveJob(BaseModel):
-    """A build or embed job currently running in the daemon.
+    """A piece of background work running in the daemon.
 
-    Used for both `active_build` and `active_embed` on
-    `StatusResponse` — the field name distinguishes them.
-
-    `ref` is the resolved SHA under build/embed.  `phase`
-    is the current stage (`"starting"`, `"parsing"`, or
-    `"embedding"`).  `current` / `total` come from the
-    orchestrator's progress callbacks; both are 0 until the
-    first callback fires.  `elapsed_seconds` is computed by
-    the daemon at snapshot time so the CLI doesn't need to
-    reason about clock boundaries.
+    `phase` is its current stage (`"starting"`, `"parsing"`,
+    `"embedding"`, `"collecting"`).  `current` / `total` come from the
+    work's progress callbacks; both are 0 until the first callback
+    fires.  `elapsed_seconds` is computed when the status is read, so the
+    CLI doesn't need to reason about clock boundaries.
     """
 
     model_config = _STRICT
-    repo_path: str
-    ref: str
+    work: Work
     phase: str
     current: int
     total: int
@@ -615,12 +610,16 @@ class IndexState(StrEnum):
                          fall back to the latest indexed commit
                          (`RefSource.LATEST_INDEXED`).
     `INDEXED`          — reads find the snapshot they ask for.
+    `MIGRATING`        — the daemon is migrating the index's files, and
+                         reads that need them reply `index_in_progress`
+                         until it ends.
     """
 
     NO_INDEX = "no_index"
     REPO_NOT_INDEXED = "repo_not_indexed"
     REF_NOT_INDEXED = "ref_not_indexed"
     INDEXED = "indexed"
+    MIGRATING = "migrating"
 
 
 class StatusResponse(BaseModel):
@@ -644,8 +643,9 @@ class StatusResponse(BaseModel):
     # Repo path -> untracked files, for repos over `max_untracked_files`,
     # whose untracked files the working-tree index leaves out.
     untracked_not_indexed: dict[str, int] = {}
-    active_build: ActiveJob | None = None
-    active_embed: ActiveJob | None = None
+    # Work running now: the repository's own, and work that concerns
+    # every repository.
+    active: list[ActiveJob] = []
 
 
 class DaemonConfigResponse(BaseModel):
@@ -739,9 +739,11 @@ response_adapter: TypeAdapter[Response] = TypeAdapter(Response)
 
 
 class ProgressNotification(BaseModel):
+    """Background work has reached *current* of *total* in its *phase*."""
+
     model_config = _STRICT
     kind: Literal["progress"] = "progress"
-    repo_path: str
+    work: Work
     phase: str
     current: int
     total: int
@@ -789,27 +791,18 @@ class IndexErrorNotification(BaseModel):
     message: str
 
 
-class GcStartedNotification(BaseModel):
-    """gc started."""
-
-    model_config = _STRICT
-    kind: Literal["gc_started"] = "gc_started"
-
-
-class GcProgressNotification(BaseModel):
-    """gc has collected *current* of the *total* repos it covers."""
-
-    model_config = _STRICT
-    kind: Literal["gc_progress"] = "gc_progress"
-    current: int
-    total: int
-
-
 class GcEndedNotification(BaseModel):
     """gc ended, however it ended."""
 
     model_config = _STRICT
     kind: Literal["gc_ended"] = "gc_ended"
+
+
+class MigrationEndedNotification(BaseModel):
+    """Migrating the index's files ended, however it ended."""
+
+    model_config = _STRICT
+    kind: Literal["migration_ended"] = "migration_ended"
 
 
 Notification = Annotated[
@@ -818,9 +811,8 @@ Notification = Annotated[
     | EmbedEndedNotification
     | AutoRebuildNotification
     | IndexErrorNotification
-    | GcStartedNotification
-    | GcProgressNotification
-    | GcEndedNotification,
+    | GcEndedNotification
+    | MigrationEndedNotification,
     Field(discriminator="kind"),
 ]
 
