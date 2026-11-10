@@ -95,7 +95,7 @@ def test_every_response_kind_has_a_renderer(
     `fail`, which exits, so it never reaches `emit`.
     """
     covered = {type(model) for model in one_of_each_response}
-    assert covered == set(get_args(get_args(Response)[0])) - {ErrorResponse}
+    assert covered == set(get_args(get_args(Response.__value__)[0])) - {ErrorResponse}
 
     for model in one_of_each_response:
         emit(model)

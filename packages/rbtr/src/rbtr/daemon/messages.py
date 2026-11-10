@@ -21,6 +21,7 @@ from pydantic import (
     BaseModel,
     BeforeValidator,
     ConfigDict,
+    Discriminator,
     Field,
     JsonValue,
     StringConstraints,
@@ -115,14 +116,15 @@ def _unwrap_json_list(value: Any) -> Any:
 
 # A list-of-strings request field that tolerates a JSON-encoded-string
 # delivery (see `_unwrap_json_list`).
-OptStrList = Annotated[list[str] | None, BeforeValidator(_unwrap_json_list)]
+type OptStrList = Annotated[list[str] | None, BeforeValidator(_unwrap_json_list)]
 
 # A git ref is a single non-empty token with no whitespace (git's
 # ref-format rules forbid it); full syntax is checked by git when the
 # ref is resolved. Applied per element so a list of refs is validated
 # item-by-item, while still tolerating the JSON-encoded-string delivery.
-Ref = Annotated[str, StringConstraints(pattern=r"^\S+$")]
-RefList = Annotated[list[Ref], BeforeValidator(_unwrap_json_list)]
+type Ref = Annotated[str, StringConstraints(pattern=r"^\S+$")]
+type RefList = Annotated[list[Ref], BeforeValidator(_unwrap_json_list)]
+type NonEmptyRefList = Annotated[list[Ref], BeforeValidator(_unwrap_json_list), Field(min_length=1)]
 
 
 def _repo_relative(path: str, info: ValidationInfo) -> str:
@@ -151,8 +153,8 @@ def _to_repo_relative(value: list[str] | None, info: ValidationInfo) -> list[str
 # A path, and scoping paths, normalised to repo-root-relative POSIX form
 # at validation time so handlers can match them against stored chunk
 # paths directly.
-RepoRelativePath = Annotated[str, AfterValidator(_repo_relative)]
-RepoRelativePaths = Annotated[
+type RepoRelativePath = Annotated[str, AfterValidator(_repo_relative)]
+type RepoRelativePaths = Annotated[
     list[str] | None, BeforeValidator(_unwrap_json_list), AfterValidator(_to_repo_relative)
 ]
 
@@ -375,7 +377,7 @@ class UnwatchRequest(BaseModel):
     model_config = _STRICT
     kind: Literal["unwatch"] = "unwatch"
     repo_path: str
-    refs: Annotated[RefList, Field(min_length=1)]
+    refs: NonEmptyRefList
     dry_run: bool = False
 
 
@@ -430,7 +432,7 @@ class ForgetStaleRequest(BaseModel):
     dry_run: bool = False
 
 
-Request = Annotated[
+type Request = Annotated[
     ShutdownRequest
     | WatchRequest
     | SearchRequest
@@ -449,7 +451,7 @@ Request = Annotated[
     | UnwatchStaleAllRequest
     | ForgetRequest
     | ForgetStaleRequest,
-    Field(discriminator="kind"),
+    Discriminator("kind"),
 ]
 
 request_adapter: TypeAdapter[Request] = TypeAdapter(Request)
@@ -717,7 +719,7 @@ class ForgetResponse(BaseModel):
     dry_run: bool = False
 
 
-Response = Annotated[
+type Response = Annotated[
     ErrorResponse
     | OkResponse
     | WatchResponse
@@ -732,7 +734,7 @@ Response = Annotated[
     | GcResponse
     | UnwatchResponse
     | ForgetResponse,
-    Field(discriminator="kind"),
+    Discriminator("kind"),
 ]
 
 response_adapter: TypeAdapter[Response] = TypeAdapter(Response)
@@ -805,7 +807,7 @@ class MigrationEndedNotification(BaseModel):
     kind: Literal["migration_ended"] = "migration_ended"
 
 
-Notification = Annotated[
+type Notification = Annotated[
     ProgressNotification
     | ReadyNotification
     | EmbedEndedNotification
@@ -813,7 +815,7 @@ Notification = Annotated[
     | IndexErrorNotification
     | GcEndedNotification
     | MigrationEndedNotification,
-    Field(discriminator="kind"),
+    Discriminator("kind"),
 ]
 
 notification_adapter: TypeAdapter[Notification] = TypeAdapter(Notification)

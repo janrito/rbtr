@@ -135,7 +135,9 @@ def _normalise_choice(value: str | Scope | GcMode) -> str | Scope | GcMode:
 
 # Case-insensitive choices: a human may type `all`, `ALL`, or `All`,
 # and `watched-only` for `watched_only`.  Normalisation happens here
-# at the CLI boundary; the wire protocol stays strict.
+# at the CLI boundary; the wire protocol stays strict.  Plain
+# assignments, not `type` aliases: pydantic-settings' help names a
+# `type` alias (`--scope ScopeField`) instead of listing its choices.
 ScopeField = Annotated[Scope, BeforeValidator(_normalise_choice)]
 
 

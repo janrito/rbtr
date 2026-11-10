@@ -13,6 +13,7 @@ from typing import Annotated, Literal
 from pydantic import (
     BaseModel,
     ConfigDict,
+    Discriminator,
     Field,
     TypeAdapter,
     computed_field,
@@ -396,7 +397,7 @@ class MigrateWork(BaseModel):
     kind: Literal["migrate"] = "migrate"
 
 
-Work = Annotated[BuildWork | EmbedWork | CollectWork | MigrateWork, Field(discriminator="kind")]
+type Work = Annotated[BuildWork | EmbedWork | CollectWork | MigrateWork, Discriminator("kind")]
 """What a piece of background work does, and what it does it to.
 
 Work on a snapshot names its repository; other work names none and
