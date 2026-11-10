@@ -28,7 +28,7 @@ from rbtr.errors import BuildStopped, RbtrError
 from rbtr.git import HEAD_REF, resolve_ref
 from rbtr.index import watcher
 from rbtr.index.build import build_index, drop_stale_worktree_shas
-from rbtr.index.embed import embedding_batches, write_embedding_batch
+from rbtr.index.embed import embedded, embedding_batches, write_embedding_batch
 from rbtr.index.embeddings import Embedder
 from rbtr.index.index import Index
 from rbtr.index.maintenance import run_maintenance
@@ -345,7 +345,7 @@ class Indexer:
                             write_embedding_batch,
                             index,
                             job.at.repo,
-                            list(zip(batch["id"], results, strict=True)),
+                            embedded(batch, results),
                         )
                     done += len(batch)
                     await self._emit(

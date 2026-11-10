@@ -94,6 +94,17 @@ encoding the use-case tests already prove.
 - This is the *no-overlapping-tests* rule applied across layers:
   if the build test already proves `make_chunk_id` behaves, a
   separate `make_chunk_id` unit test is overlap.
+- **Build the index the way production does.** A test that reads
+  the index — search, find-refs, edges, status, gc, the embed work
+  list, a handler — gets its data from `build_index` over a small
+  git repo (`make_commit`), and its vectors from `embed_index` over
+  `StubModel` (`stub_vectors`, `stubbed_embedder`). Only two kinds
+  of test write rows through a `WriteSession` directly: tests of the
+  session and storage themselves (transactions, concurrency,
+  schema, migrations, compaction), and tests of a state no use case
+  can produce (crash residue, an orphan, a pre-migration file). A
+  snapshot every test in a module only reads is built once, into
+  `module_index` from `module_repo`.
 
 ## Test structure
 
@@ -178,10 +189,10 @@ types, makes it worse while appearing to address the note.
   a function nested inside a fixture, which hides its captured
   state. If a fixture body is too long, decompose into *smaller
   fixtures*.
-- **Prefer independent fixtures to factory fixtures.** Factories
-  hide the dependency graph. Reach for one only when the test
-  truly needs many instances parametrised by caller-supplied
-  arguments.
+- **No factory fixtures.** A fixture returns a value, never a
+  callable that makes one: factories hide the dependency graph.
+  Where several fixtures need the same kind of setup, each does it
+  itself — three lines repeated beat a builder passed around.
 - **Helpers belong in cases or conftest.** If a helper
   function is needed to build test data, call it from case
   functions or define it in `conftest.py`. Don't scatter

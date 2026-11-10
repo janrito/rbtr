@@ -35,7 +35,11 @@ WITH head AS (
     c.line_start,
     c.line_end,
     c.metadata,
-    c.embedding IS NOT NULL AS has_embedding
+    CASE
+      WHEN c.embedding IS NULL THEN 'none'
+      WHEN c.embedding_truncated THEN 'truncated'
+      ELSE 'full'
+    END AS embedding_state
   FROM chunks AS c
   INNER JOIN file_snapshots AS fs
     ON
@@ -69,7 +73,11 @@ base AS (
     c.line_start,
     c.line_end,
     c.metadata,
-    c.embedding IS NOT NULL AS has_embedding
+    CASE
+      WHEN c.embedding IS NULL THEN 'none'
+      WHEN c.embedding_truncated THEN 'truncated'
+      ELSE 'full'
+    END AS embedding_state
   FROM chunks AS c
   INNER JOIN file_snapshots AS fs
     ON
@@ -104,7 +112,7 @@ SELECT
   h.line_start,
   h.line_end,
   h.metadata,
-  h.has_embedding
+  h.embedding_state
 FROM head AS h
 WHERE
   NOT EXISTS (
@@ -133,7 +141,7 @@ SELECT
   b.line_start,
   b.line_end,
   b.metadata,
-  b.has_embedding
+  b.embedding_state
 FROM base AS b
 WHERE
   NOT EXISTS (
@@ -165,7 +173,7 @@ SELECT
   h.line_start,
   h.line_end,
   h.metadata,
-  h.has_embedding
+  h.embedding_state
 FROM head AS h
 WHERE
   EXISTS (

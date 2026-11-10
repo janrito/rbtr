@@ -12,7 +12,11 @@ SELECT
   c.line_start,
   c.line_end,
   c.metadata,
-  c.embedding IS NOT NULL AS has_embedding,
+  CASE
+    WHEN c.embedding IS NULL THEN 'none'
+    WHEN c.embedding_truncated THEN 'truncated'
+    ELSE 'full'
+  END AS embedding_state,
   MAX(LIST_COSINE_SIMILARITY(c.embedding, q.vec)) AS score
 FROM chunks AS c
 INNER JOIN file_snapshots AS fs

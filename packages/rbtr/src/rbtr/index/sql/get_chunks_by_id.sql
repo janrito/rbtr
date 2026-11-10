@@ -20,7 +20,11 @@ SELECT DISTINCT ON (c.id)
   c.line_start,
   c.line_end,
   c.metadata,
-  FALSE AS has_embedding
+  CASE
+    WHEN c.embedding IS NULL THEN 'none'
+    WHEN c.embedding_truncated THEN 'truncated'
+    ELSE 'full'
+  END AS embedding_state
 FROM chunks AS c
 INNER JOIN _chunk_ids AS w
   ON c.id = w.id

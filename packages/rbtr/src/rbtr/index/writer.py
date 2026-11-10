@@ -4,22 +4,24 @@ from __future__ import annotations
 
 from types import TracebackType
 
+import dataframely as dy
 import duckdb
 import polars as pl
 import structlog
 
 from rbtr.config import config
-from rbtr.domain.models import Edge, FileSnapshot, GcCounts, Repo
+from rbtr.domain.models import FileSnapshot, GcCounts, Repo
 from rbtr.index import load_sql
 from rbtr.index.db import build_fts, registered_views
 from rbtr.index.staging import (
+    EmbeddingStagingRow,
     TokenisedChunk,
     serial_map_view,
     staged_chunks,
     staged_edges,
-    staged_embeddings,
     staged_file_snapshots,
 )
+from rbtr.languages.edges import InferredEdgeRow
 
 _BLOB_IS_CURRENT_SQL = load_sql("blob_is_current.sql")
 _COUNT_UNCLAIMED_BLOBS_SQL = load_sql("count_unclaimed_blobs.sql")
@@ -52,7 +54,7 @@ class WriteSession:
     ```python
     with index.session(repo) as ws:
         ws.add_chunk(chunk)                        # buffered, content-addressed
-        ws.insert_edges(edges, snapshot_sha=sha)   # immediate, under the repo
+        ws.replace_edges(edges, snapshot_sha=sha)  # immediate, under the repo
     # exit: flush buffer + commit + FTS rebuild; rollback on exception
     ```
 
@@ -271,14 +273,6 @@ class WriteSession:
             _REMOVE_WATCHED_REFS_SQL, {"repo_id": self._repo.repo_id, "refs": refs}
         )
 
-    def insert_snapshots(self, snapshots: list[FileSnapshot]) -> None:
-        """Batch insert snapshots."""
-        if not snapshots:
-            return
-        self._bulk_insert(
-            _UPSERT_SNAPSHOTS_SQL, staged_file_snapshots(snapshots, self._repo.repo_id)
-        )
-
     def replace_snapshots(self, snapshots: list[FileSnapshot], *, snapshot_sha: str) -> None:
         """Atomically replace all of the repo's snapshots at *snapshot_sha*."""
         self._flush_chunks()
@@ -286,41 +280,33 @@ class WriteSession:
         self._cursor.execute(
             _DELETE_SNAPSHOTS_SQL, {"repo_id": self._repo.repo_id, "snapshot_sha": snapshot_sha}
         )
-        self.insert_snapshots(snapshots)
+        if snapshots:
+            self._bulk_insert(
+                _UPSERT_SNAPSHOTS_SQL, staged_file_snapshots(snapshots, self._repo.repo_id)
+            )
 
-    def insert_edges(self, edges: list[Edge], *, snapshot_sha: str) -> None:
-        """Batch insert edges of the repo's snapshot *snapshot_sha*."""
-        if not edges:
-            return
-        self._bulk_insert(_INSERT_EDGES_SQL, staged_edges(edges, at=self._repo.at(snapshot_sha)))
-
-    def replace_edges(self, edges: list[Edge], *, snapshot_sha: str) -> None:
+    def replace_edges(self, edges: dy.DataFrame[InferredEdgeRow], *, snapshot_sha: str) -> None:
         """Atomically replace all edges of the repo's snapshot *snapshot_sha*."""
         self._require_active()
         self._cursor.execute(
             _DELETE_EDGES_SQL, {"repo_id": self._repo.repo_id, "snapshot_sha": snapshot_sha}
         )
-        self.insert_edges(edges, snapshot_sha=snapshot_sha)
+        if not edges.is_empty():
+            self._bulk_insert(
+                _INSERT_EDGES_SQL, staged_edges(edges, at=self._repo.at(snapshot_sha))
+            )
 
-    def update_embeddings(
-        self,
-        ids: list[str],
-        embeddings: list[list[float]],
-        truncated: list[bool] | None = None,
-    ) -> None:
-        """Batch-update embedding vectors via a polars staging frame.
+    def update_embeddings(self, embeddings: dy.DataFrame[EmbeddingStagingRow]) -> None:
+        """Set each chunk's embedding and truncation flag from *embeddings*.
 
         Updates by chunk `id` globally — the embedding lives on the
         shared content-addressed chunk row.
         """
-        if not ids:
+        if embeddings.is_empty():
             return
         self._require_active()
         self._flush_chunks()
-        if truncated is None:
-            truncated = [False] * len(ids)
-        frame = staged_embeddings(ids, embeddings, truncated)
-        with registered_views(self._cursor, _emb_stg=frame) as cur:
+        with registered_views(self._cursor, _emb_stg=embeddings) as cur:
             cur.execute(_UPDATE_EMBEDDINGS_SQL)
 
     def mark_indexed(self, *, snapshot_sha: str) -> None:

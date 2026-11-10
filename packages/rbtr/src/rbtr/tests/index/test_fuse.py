@@ -46,7 +46,7 @@ def fused(scenario: FuseScenario) -> tuple[FuseScenario, list[ScoredChunk]]:
                 s.metadata.model_dump() if s.kind == ChunkKind.IMPORT else None
                 for s in scenario.chunks
             ],
-            "has_embedding": [False] * n,
+            "embedding_state": ["none"] * n,
             "lexical": [scenario.lexical.get(cid, 0.0) for cid in ids],
             "semantic": [scenario.semantic.get(cid, 0.0) for cid in ids],
             "importance": [1.0] * n,

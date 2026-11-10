@@ -68,7 +68,9 @@ def churned_index(fake_repo: str, isolated_db: Path) -> Generator[ChurnedIndex]:
                     path=f"m{i}.py",
                 )
             )
-        ws.insert_snapshots([make_snap(head, f"m{i}.py", f"blob-{i}") for i in range(800)])
+        ws.replace_snapshots(
+            [make_snap(head, f"m{i}.py", f"blob-{i}") for i in range(800)], snapshot_sha=head
+        )
         ws.mark_indexed(snapshot_sha=head)
     index.close()
     # Reopen so the delete is checkpointed in a separate pass, as across
