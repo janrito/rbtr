@@ -1,6 +1,64 @@
 [
   {
     "blob_sha": "sha1",
+    "file_path": "bootstrap.js",
+    "role": {
+      "kind": "comment"
+    },
+    "scope": "",
+    "language": "javascript",
+    "file_language": "javascript",
+    "content": "// Start the greeter when the page loads.",
+    "span": {
+      "start": 1,
+      "end": 1
+    },
+    "id": "1086b120f17a34b9"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "bootstrap.js",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "expression_statement"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "javascript",
+    "file_language": "javascript",
+    "content": "console.log(\"greeter loaded\");",
+    "span": {
+      "start": 2,
+      "end": 2
+    },
+    "id": "54a66de1faa12e24"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "bootstrap.js",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "expression_statement"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "javascript",
+    "file_language": "javascript",
+    "content": "module.exports = {\n  name: \"greeter\",\n};",
+    "span": {
+      "start": 4,
+      "end": 6
+    },
+    "id": "977d05bafbcc65c8"
+  },
+  {
+    "blob_sha": "sha1",
     "file_path": "config.js",
     "role": {
       "kind": "comment"

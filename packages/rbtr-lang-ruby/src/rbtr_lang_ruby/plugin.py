@@ -83,7 +83,7 @@ ruby = LanguageRegistration(
         scope_types=frozenset({"class", "module"}),
     ),
     source_roots=("", "lib"),
-    extraction_serial=5,
+    extraction_serial=6,
 )
 
 ruby.import_extractor(extract_import_meta)

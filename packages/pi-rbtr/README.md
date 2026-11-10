@@ -111,7 +111,7 @@ def fuse_scores(
 ```
 
 **`rbtr_list_symbols`** — file path in, outline out, without
-imports and comments:
+imports, comments and unnamed code fragments:
 
 ```text
 read at 4a6a6ffc1b2e (head)

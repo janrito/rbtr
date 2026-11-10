@@ -200,6 +200,69 @@
     "blob_sha": "sha1",
     "file_path": "html.html",
     "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "doctype"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "html",
+    "file_language": "html",
+    "content": "<!DOCTYPE html>",
+    "span": {
+      "start": 1,
+      "end": 1
+    },
+    "id": "6b4ab9a2b6679ba0"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "html.html",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "start_tag"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "html",
+    "file_language": "html",
+    "content": "<html lang=\"en\">",
+    "span": {
+      "start": 5,
+      "end": 5
+    },
+    "id": "7906c641b14bca38"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "html.html",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "end_tag"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "html",
+    "file_language": "html",
+    "content": "</html>",
+    "span": {
+      "start": 34,
+      "end": 34
+    },
+    "id": "379ee8f92e849759"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "html.html",
+    "role": {
       "kind": "class",
       "name": ".greeter"
     },
@@ -305,6 +368,48 @@
   },
   {
     "blob_sha": "sha1",
+    "file_path": "pages/about.html",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "start_tag"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "html",
+    "file_language": "html",
+    "content": "<html>",
+    "span": {
+      "start": 3,
+      "end": 3
+    },
+    "id": "da1df14560337ca4"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "pages/about.html",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "end_tag"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "html",
+    "file_language": "html",
+    "content": "</html>",
+    "span": {
+      "start": 10,
+      "end": 10
+    },
+    "id": "f7e742dc545be862"
+  },
+  {
+    "blob_sha": "sha1",
     "file_path": "pages/about.js",
     "role": {
       "kind": "comment"
@@ -335,6 +440,28 @@
       "end": 4
     },
     "id": "e8f56e596019719c"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "partial.html",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "text",
+          "element"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "html",
+    "file_language": "html",
+    "content": "{% extends \"base.html\" %}\n<p>A loose paragraph outside any section.</p>",
+    "span": {
+      "start": 1,
+      "end": 2
+    },
+    "id": "f4645ced1bf9620f"
   },
   {
     "blob_sha": "sha1",

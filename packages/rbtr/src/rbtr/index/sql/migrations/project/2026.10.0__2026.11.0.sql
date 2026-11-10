@@ -1,8 +1,8 @@
--- `chunks.metadata` holds an import's metadata as a struct, not JSON
--- text, and NULL on every other chunk.  Rows written before held every
--- chunk's import metadata as JSON, empty for all but imports.  DuckDB
--- alters no column of a table an index depends on, so `idx_chunks_blob`
--- is dropped and made again.
+-- `chunks.metadata` holds a chunk's role payload as a struct, not JSON
+-- text: an import's metadata, and NULL on every other chunk.  Rows
+-- written before held every chunk's import metadata as JSON, empty for
+-- all but imports.  DuckDB alters no column of a table an index depends
+-- on, so `idx_chunks_blob` is dropped and made again.
 DROP INDEX idx_chunks_blob;
 
 ALTER TABLE chunks ALTER metadata DROP DEFAULT;
@@ -10,7 +10,7 @@ ALTER TABLE chunks ALTER metadata DROP DEFAULT;
 ALTER TABLE chunks ALTER metadata DROP NOT NULL;
 
 ALTER TABLE chunks ALTER metadata TYPE STRUCT(
-  module TEXT, names TEXT, dots TEXT, language_hint TEXT
+  module TEXT, names TEXT, dots TEXT, language_hint TEXT, node_types TEXT[]
 ) USING CASE
   WHEN kind = 'import'
     THEN STRUCT_PACK(
@@ -18,7 +18,8 @@ ALTER TABLE chunks ALTER metadata TYPE STRUCT(
       names := COALESCE(JSON_EXTRACT_STRING(metadata, '$.names'), ''),
       dots := COALESCE(JSON_EXTRACT_STRING(metadata, '$.dots'), ''),
       language_hint
-      := COALESCE(JSON_EXTRACT_STRING(metadata, '$.language_hint'), '')
+      := COALESCE(JSON_EXTRACT_STRING(metadata, '$.language_hint'), ''),
+      node_types := NULL::TEXT[]
     )
 END;
 

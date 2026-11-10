@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-from rbtr.domain.models import ChunkKind
+from rbtr.config import config
+from rbtr.domain.models import ChunkKind, Fragment
 from rbtr.git import FileEntry
 from rbtr.languages.extract import extract_file
 from rbtr.languages.manager import get_manager
@@ -150,3 +151,116 @@ def test_trailing_comment_not_grouped_with_following_leading_doc() -> None:
     f = next(c for c in extract_symbols(reg, "t.py", "sha1", src, grammar) if c.name == "f")
     assert "# real doc" in f.content
     assert "# trailing" not in f.content
+
+
+@pytest.mark.parametrize(
+    ("query", "src", "expected"),
+    [
+        pytest.param(
+            "(import_statement) @import\n(function_definition name: (identifier) @_fn_name) @function\n",
+            b"""\
+import os
+
+setup()
+configure()
+
+def f():
+    pass
+
+if __name__ == "__main__":
+    f()
+""",
+            [
+                (3, 4, "setup()\nconfigure()", ("expression_statement",)),
+                (9, 10, 'if __name__ == "__main__":\n    f()', ("if_statement",)),
+            ],
+            id="statements_join_until_a_blank_line_or_a_definition",
+        ),
+        pytest.param(
+            "(import_statement) @import\n",
+            b"""\
+if TYPE_CHECKING:
+    import os
+""",
+            [(1, 1, "if TYPE_CHECKING:", ("identifier",))],
+            id="a_partly_covered_statement_leaves_only_its_own_lines",
+        ),
+        pytest.param(
+            "(function_definition name: (identifier) @_fn_name) @function\n",
+            b"x = (\n",
+            [(1, 1, "x = (", ("ERROR",))],
+            id="a_parse_error_is_a_fragment",
+        ),
+    ],
+)
+def test_code_no_pattern_names_becomes_fragments(
+    query: str, src: bytes, expected: list[tuple[int, int, str, tuple[str, ...]]]
+) -> None:
+    """Every line a query leaves reaches a fragment, recorded with the syntax it holds."""
+    grammar = get_manager().grammar("python")
+    assert grammar is not None
+    reg = LanguageRegistration(id="faketest", extraction=QueryExtraction(query=query))
+    chunks = list(extract_symbols(reg, "t.py", "sha1", src, grammar))
+    fragments = [
+        (c.line_start, c.line_end, c.content, c.role.meta.node_types)
+        for c in chunks
+        if isinstance(c.role, Fragment)
+    ]
+    assert fragments == expected
+    assert {c.language for c in chunks if c.kind == ChunkKind.FRAGMENT} <= {"faketest"}
+
+
+def test_a_fragment_is_scoped_to_the_scopes_around_it() -> None:
+    grammar = get_manager().grammar("python")
+    assert grammar is not None
+    query = "(function_definition name: (identifier) @_fn_name) @function\n"
+    src = b"""\
+class Config:
+    retries = 3
+
+    def load(self):
+        pass
+"""
+    reg = LanguageRegistration(
+        id="faketest",
+        extraction=QueryExtraction(query=query, scope_types=frozenset({"class_definition"})),
+    )
+    chunks = list(extract_symbols(reg, "t.py", "sha1", src, grammar))
+    fragments = [(c.content, c.scope) for c in chunks if c.kind == ChunkKind.FRAGMENT]
+    assert fragments == [("class Config:", "Config"), ("retries = 3", "Config")]
+
+
+def test_a_run_of_code_splits_at_the_chunk_size(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(config, "chunk_lines", 2)
+    grammar = get_manager().grammar("python")
+    assert grammar is not None
+    reg = LanguageRegistration(
+        id="faketest", extraction=QueryExtraction(query="(comment) @comment\n")
+    )
+    src = b"""\
+a()
+b()
+c()
+"""
+    chunks = list(extract_symbols(reg, "t.py", "sha1", src, grammar))
+    assert [(c.line_start, c.line_end) for c in chunks] == [(1, 2), (3, 3)]
+
+
+def test_a_block_left_to_its_injection_is_not_a_fragment() -> None:
+    """An HTML `<script>` belongs to the javascript its injection extracts."""
+    manager = get_manager()
+    html = manager.get_registration("html")
+    grammar = manager.grammar("html")
+    assert html is not None
+    assert grammar is not None
+    src = b"""\
+<p>intro</p>
+<script>
+run();
+</script>
+"""
+    chunks = list(extract_symbols(html, "page.html", "sha1", src, grammar))
+    fragments = [
+        (c.line_start, c.line_end, c.content) for c in chunks if c.kind == ChunkKind.FRAGMENT
+    ]
+    assert fragments == [(1, 1, "<p>intro</p>")]

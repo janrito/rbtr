@@ -36,7 +36,7 @@ hcl = LanguageRegistration(
         query=load_query(__package__, "hcl"),
     ),
     package_directory=True,
-    extraction_serial=4,
+    extraction_serial=5,
 )
 
 

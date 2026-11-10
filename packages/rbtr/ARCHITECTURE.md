@@ -340,6 +340,10 @@ order:
    `extract_symbols` for a `grammar` + `query` (python,
    rust, go, ...; json, css, html, toml, yaml, hcl; and
    `tree_sitter_query` itself, indexing `.scm` files).
+   After the query's chunks, `extract_symbols` walks the
+   same tree for the code they leave and emits it as
+   `FRAGMENT` chunks (see
+   [Fragments for code no query names](#git-and-extraction)).
 2. **Injection (additive)** - if the registration has an
    `injection_query`, the engine *also* runs
    `extract_injections`: it matches embedded blocks
@@ -423,7 +427,8 @@ distribution:
   import the built-ins; those built-ins live in the private
   `rbtr.languages._resolvers`.)
 - `rbtr.domain.models` — `Chunk`, its roles (`Definition`, `Section`,
-  `Import`, `Comment`, `RawSlice`), `Span`, `ChunkKind` and `ImportMeta`.
+  `Import`, `Comment`, `RawSlice`, `Fragment`), `Span`, `ChunkKind` and
+  `ImportMeta`.
   A chunk's `id` is a property over its own fields, so a plugin yields
   chunks and never computes an identity.
 - `rbtr.languages.chunks` — `chunk_plaintext`, and `last_line`,
@@ -1048,7 +1053,8 @@ makes. Extraction works one file at a time and builds objects:
 `Chunk`, whose span and role are checked as it is built, and the
 file's `FileSnapshot`. Edge inference works on sets and returns an
 `InferredEdgeRow` frame, which `staged_edges` scopes to a snapshot
-without converting it. Reads return frames: the
+without converting it. Reads return frames and build no `Chunk`:
+the
 handlers validate rows straight into the reply DTOs, search into
 `ScoredChunk`, and edge inference and the embedder work on the frame.
 
@@ -2241,6 +2247,30 @@ tree-walk, so one extraction model covers every language. The cost
 is that tree-sitter cannot see blank lines, so grouping comment
 runs into blocks is one small post-pass in the engine.
 
+**Fragments for code no query names.** A query selects the
+constructs it names; everything else in a file — a module-level
+`if __name__ == "__main__":`, `module.exports = {…}`, a Go `package`
+clause, a parse error — would otherwise reach no chunk, and no search
+could find it. After the query's chunks, the engine walks the tree by
+lines: a node no chunk touches is left over, a node one touches in part
+is looked into, and left-over siblings join one `FRAGMENT` chunk until a
+blank line, a covered node or `chunk_lines` lines separate them. A run
+of punctuation alone makes none, and a node holding a block the host's
+injection query delegates (an HTML `<script>` element) belongs to that
+block. Each fragment records the types of the named nodes it holds, so
+what a language leaves to fragments is counted, and a frequent type is
+a pattern its query should name. Lines, not bytes, decide coverage,
+because a chunk keeps only its line span.
+
+A fragment is unnamed, weighted 0.5 in search like a comment, left out
+of bare-import fan-out (an importer depends on definitions, not on a
+module's loose code) and out of pi-rbtr's outlines. The fallback runs
+in the engine, which holds the tree and the scope types; a pass in
+`extract_file` does not work here, because it holds no tree and would
+parse every file a third time. Revisit a language whose fragments stay
+large once its query names the common shapes: it needs a better grammar
+or query, not a bigger fallback.
+
 ### Storage
 
 **DuckDB over SQLite.** Three channels have to run over one
@@ -2266,8 +2296,8 @@ change does not work here: it re-extracts every checkout and
 re-embeds every chunk to change a column.
 
 **A chunk's role is one value; its row spreads it.** A chunk holds
-one role (`Definition`, `Section`, `Import`, `Comment`, `RawSlice`)
-carrying exactly the data that kind of chunk has, so a comment cannot
+one role (`Definition`, `Section`, `Import`, `Comment`, `RawSlice`,
+`Fragment`) carrying exactly the data that kind of chunk has, so a comment cannot
 have a name and only an import has import metadata; `kind` and `name`
 are read from the role. The `chunks` table keeps a column for each of
 `kind`, `name`, `line_start` and `line_end`, which SQL filters and the

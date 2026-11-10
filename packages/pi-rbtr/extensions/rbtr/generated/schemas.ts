@@ -103,6 +103,7 @@ export const PROTOCOL_DEFS = {
       "test_function",
       "api_endpoint",
       "raw_chunk",
+      "fragment",
     ],
     title: "ChunkKind",
     type: "string",
