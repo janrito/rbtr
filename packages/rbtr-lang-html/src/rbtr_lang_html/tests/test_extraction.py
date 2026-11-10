@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pytest_cases import parametrize_with_cases
 
-from rbtr.domain.models import ChunkKind
+from rbtr.domain.models import Import
 from rbtr.git import FileEntry
 from rbtr.languages.extract import extract_file
 
@@ -43,10 +43,10 @@ def test_html_script_src_produces_import() -> None:
 </html>
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "html")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
     assert len(imports) == 1
-    assert imports[0].metadata.module == "app.js"
-    assert imports[0].metadata.language_hint == "javascript"
+    assert imports[0].meta.module == "app.js"
+    assert imports[0].meta.language_hint == "javascript"
 
 
 def test_html_link_href_produces_import() -> None:
@@ -58,10 +58,10 @@ def test_html_link_href_produces_import() -> None:
 </html>
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "html")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
     assert len(imports) == 1
-    assert imports[0].metadata.module == "styles.css"
-    assert imports[0].metadata.language_hint == "css"
+    assert imports[0].meta.module == "styles.css"
+    assert imports[0].meta.language_hint == "css"
 
 
 def test_html_self_closing_link_produces_import() -> None:
@@ -73,6 +73,6 @@ def test_html_self_closing_link_produces_import() -> None:
 </html>
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "html")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
     assert len(imports) == 1
-    assert imports[0].metadata.module == "styles.css"
+    assert imports[0].meta.module == "styles.css"

@@ -375,7 +375,7 @@ type PathsRead = Callable[[Index, SnapshotRef], set[str]]
 
 @case(tags=["isolation"])
 def case_isolated_chunks() -> PathsRead:
-    return lambda index, at: {c.file_path for c in index.chunks(at=at)}
+    return lambda index, at: set(index.chunks(at=at)["file_path"])
 
 
 @case(tags=["isolation"])

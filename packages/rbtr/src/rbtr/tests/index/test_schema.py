@@ -17,6 +17,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import duckdb
+import polars as pl
 import pygit2
 import pytest
 import structlog
@@ -24,7 +25,12 @@ from pytest_cases import filters as ft, fixture, parametrize_with_cases
 from pytest_mock import MockerFixture
 
 from rbtr.config import config, index_dir_of
-from rbtr.domain.models import FileSnapshot
+from rbtr.domain.models import (
+    FileSnapshot,
+    Import,
+    ImportMeta,
+    Span,
+)
 from rbtr.errors import (
     IndexLockedError,
     IndexMigratingError,
@@ -141,7 +147,7 @@ def test_chunks_survive_matches_scenario(
         return
     if scenario.expected_chunks_survive:
         [repo] = index.repos()
-        assert index.chunks(at=repo.at("head")), "expected chunks to survive"
+        assert not index.chunks(at=repo.at("head")).is_empty(), "expected chunks to survive"
     else:
         assert index.repos() == [], "expected the index to be replaced"
         projects = Path(str(index.db_path)).parent / "index"
@@ -158,7 +164,7 @@ def test_embeddings_survive_matches_scenario(
         return
     [repo] = index.repos()
     chunks = index.chunks(at=repo.at("head"))
-    any_embedded = any(c.has_embedding for c in chunks)
+    any_embedded = chunks["has_embedding"].any()
     if scenario.expected_embeddings_survive:
         assert any_embedded, "expected some embedding to survive"
     else:
@@ -261,7 +267,7 @@ def test_second_open_in_process_is_locked_out(tmp_path: Path) -> None:
     try:
         with pytest.raises(IndexLockedError):
             Index(db_path)
-        assert index.chunks(at=repo.at("head"))
+        assert not index.chunks(at=repo.at("head")).is_empty()
     finally:
         index.close()
 
@@ -338,7 +344,7 @@ def test_opening_deletes_files_the_registry_does_not_name(tmp_path: Path) -> Non
         assert list(projects.iterdir()) == [named]
         assert not old_copy.exists()
         assert not old_spill.exists()
-        assert index.chunks(at=repo.at("head"))
+        assert not index.chunks(at=repo.at("head")).is_empty()
     finally:
         index.close()
 
@@ -419,7 +425,7 @@ def test_opening_brings_each_file_forward_or_leaves_it(
         index = Index(path, writable=migration.writable)
         try:
             [repo] = index.repos()
-            assert index.chunks(at=repo.at("head"))
+            assert not index.chunks(at=repo.at("head")).is_empty()
             assert not index.fulltext_matches("c1", within=[repo.at("head")], top_k=5).is_empty()
             assert index.replaced is None
         finally:
@@ -459,7 +465,7 @@ def test_a_deferred_migration_refuses_its_file_until_it_runs(
             index.chunks(at=repo.at("head"))
         index.migrate()
         assert not index.migrating
-        assert index.chunks(at=repo.at("head"))
+        assert not index.chunks(at=repo.at("head")).is_empty()
     finally:
         index.close()
 
@@ -540,6 +546,57 @@ at {migrations[0].start}"
             for con in (migrated, fresh)
         )
         assert migrated_ddl == fresh_ddl
+
+
+def test_a_project_file_from_2026_10_0_keeps_its_import_metadata(tmp_path: Path) -> None:
+    """A file holding metadata as JSON text opens with each import's metadata as it was.
+
+    The file is written now and forged back to 2026.10.0's shape: every
+    chunk's `metadata` as JSON text, an import's without `language_hint`,
+    as files written then hold it.
+    """
+    path = tmp_path / "index.duckdb"
+    imp = TokenisedChunk(
+        blob_sha="blob_app",
+        file_path="app.py",
+        role=Import(name="import os", meta=ImportMeta(module="os")),
+        content="import os",
+        span=Span(start=1, end=1),
+    )
+    fn = make_chunk("load", path="app.py", blob="blob_app")
+    seed = Index(path, writable=True)
+    repo = seed.register("/repo")
+    with seed.session(repo) as ws:
+        ws.add_chunk(imp)
+        ws.add_chunk(fn)
+        ws.insert_snapshots([make_snap("head", "app.py", "blob_app")])
+    seed.close()
+    (project_file,) = (tmp_path / "index").glob("*.duckdb")
+    with duckdb.connect(str(project_file)) as con:
+        con.execute("""\
+DROP INDEX idx_chunks_blob;
+ALTER TABLE chunks ALTER metadata TYPE TEXT USING CASE
+  WHEN kind = 'import' THEN '{"module": "os", "names": "", "dots": ""}'
+  ELSE '{"module": "", "names": "", "dots": ""}'
+END;
+ALTER TABLE chunks ALTER metadata SET DEFAULT '{}';
+ALTER TABLE chunks ALTER metadata SET NOT NULL;
+CREATE INDEX idx_chunks_blob ON chunks (blob_sha, file_language);
+UPDATE meta SET value = '2026.10.0' WHERE key = 'schema_version';
+""")
+    with duckdb.connect(str(path)) as con:
+        con.execute("UPDATE meta SET value = '2026.10.0' WHERE key = 'schema_version'")
+
+    index = Index(path, writable=True)
+    try:
+        [repo] = index.repos()
+        read = index.chunks(at=repo.at("head"))
+    finally:
+        index.close()
+    assert read.select(pl.col("kind").cast(pl.String), "metadata").sort("kind").rows() == [
+        ("function", None),
+        ("import", {"module": "os", "names": "", "dots": "", "language_hint": ""}),
+    ]
 
 
 @pytest.mark.parametrize("kind", list(FileKind))

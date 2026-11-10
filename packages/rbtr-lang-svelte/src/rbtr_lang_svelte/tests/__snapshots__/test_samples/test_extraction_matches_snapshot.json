@@ -2,171 +2,157 @@
   {
     "blob_sha": "sha1",
     "file_path": "Greeting.svelte",
-    "kind": "doc_section",
-    "name": "Greeting",
+    "role": {
+      "kind": "doc_section",
+      "name": "Greeting"
+    },
     "scope": "",
     "language": "svelte",
     "file_language": "svelte",
     "content": "<h1 class=\"greeting\">{shout()}</h1>",
-    "line_start": 28,
-    "line_end": 28,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 28,
+      "end": 28
     },
     "id": "d9707b44a8167bb9"
   },
   {
     "blob_sha": "sha1",
     "file_path": "Greeting.svelte",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "svelte",
     "file_language": "svelte",
     "content": "<!--\n  Svelte single-file component.\n\n  The SFC plugin delegates the <script> block to TypeScript and the\n  <style> block to SCSS; their symbols carry those languages and their\n  imports resolve through the matching resolver. The markup template is\n  not extracted.\n-->",
-    "line_start": 1,
-    "line_end": 8,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 8
     },
     "id": "5f2bbd1d04760dc6"
   },
   {
     "blob_sha": "sha1",
     "file_path": "Greeting.svelte",
-    "kind": "import",
-    "name": "import { greet } from \"./greeter\";",
+    "role": {
+      "kind": "import",
+      "name": "import { greet } from \"./greeter\";",
+      "meta": {
+        "module": "greeter",
+        "names": "greet",
+        "dots": "1",
+        "language_hint": ""
+      }
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "svelte",
     "content": "import { greet } from \"./greeter\";",
-    "line_start": 10,
-    "line_end": 10,
-    "metadata": {
-      "module": "greeter",
-      "names": "greet",
-      "dots": "1",
-      "language_hint": ""
+    "span": {
+      "start": 10,
+      "end": 10
     },
     "id": "9e08409ab07d56f2"
   },
   {
     "blob_sha": "sha1",
     "file_path": "Greeting.svelte",
-    "kind": "variable",
-    "name": "name",
+    "role": {
+      "kind": "variable",
+      "name": "name"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "svelte",
     "content": "name: string = \"world\"",
-    "line_start": 12,
-    "line_end": 12,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 12,
+      "end": 12
     },
     "id": "030615b8d1bfaaf0"
   },
   {
     "blob_sha": "sha1",
     "file_path": "Greeting.svelte",
-    "kind": "function",
-    "name": "shout",
+    "role": {
+      "kind": "function",
+      "name": "shout"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "svelte",
     "content": "function shout(): string {\n    return greet(name).toUpperCase();\n  }",
-    "line_start": 14,
-    "line_end": 16,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 14,
+      "end": 16
     },
     "id": "ca91fc7dc3b14adc"
   },
   {
     "blob_sha": "sha1",
     "file_path": "Greeting.svelte",
-    "kind": "variable",
-    "name": "$accent",
+    "role": {
+      "kind": "variable",
+      "name": "$accent"
+    },
     "scope": "",
     "language": "scss",
     "file_language": "svelte",
     "content": "$accent: #00aa77;",
-    "line_start": 20,
-    "line_end": 20,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 20,
+      "end": 20
     },
     "id": "83127d65b9be4d63"
   },
   {
     "blob_sha": "sha1",
     "file_path": "Greeting.svelte",
-    "kind": "class",
-    "name": ".greeting",
+    "role": {
+      "kind": "class",
+      "name": ".greeting"
+    },
     "scope": "",
     "language": "scss",
     "file_language": "svelte",
     "content": ".greeting {\n    color: $accent;\n    font-weight: bold;\n  }",
-    "line_start": 22,
-    "line_end": 25,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 22,
+      "end": 25
     },
     "id": "d263e499d49e38f4"
   },
   {
     "blob_sha": "sha1",
     "file_path": "greeter.ts",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "// Imported by Greeting.svelte's <script> block.",
-    "line_start": 1,
-    "line_end": 1,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 1
     },
     "id": "b0eec444d8e60c22"
   },
   {
     "blob_sha": "sha1",
     "file_path": "greeter.ts",
-    "kind": "function",
-    "name": "greet",
+    "role": {
+      "kind": "function",
+      "name": "greet"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "function greet(name: string): string {\n  return `Hello, ${name}`;\n}",
-    "line_start": 3,
-    "line_end": 5,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 3,
+      "end": 5
     },
     "id": "babbec3806fb9d96"
   }

@@ -15,7 +15,14 @@ import pygit2
 import pytest
 
 from rbtr.config import config
-from rbtr.domain.models import ChunkKind, FileSnapshot, GcMode, Repo
+from rbtr.domain.models import (
+    ChunkKind,
+    Definition,
+    FileSnapshot,
+    GcMode,
+    Repo,
+    Span,
+)
 from rbtr.errors import RbtrError
 from rbtr.git import normalise_repo_path, worktree_tree_sha
 from rbtr.index.build import drop_stale_worktree_shas
@@ -91,11 +98,9 @@ def gc(
         chunk = TokenisedChunk(
             blob_sha=f"b{i}",
             file_path="a.py",
-            kind=ChunkKind.FUNCTION,
-            name="f",
+            role=Definition(kind=ChunkKind.FUNCTION, name="f"),
             content="",
-            line_start=1,
-            line_end=1,
+            span=Span(start=1, end=1),
         )
         with index.session(registered) as ws:
             ws.add_chunk(chunk)
@@ -261,7 +266,7 @@ def test_search_works_after_gc(gc: GcFixture) -> None:
     assert len(chunks) > 0
 
     # Dropped commits return nothing.
-    assert gc.index.chunks(at=gc.registered.at(gc.c1)) == []
+    assert gc.index.chunks(at=gc.registered.at(gc.c1)).is_empty()
 
 
 def test_gc_preserves_current_worktree_tree_sha(gc: GcFixture) -> None:

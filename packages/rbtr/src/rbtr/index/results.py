@@ -19,11 +19,8 @@ import polars as pl
 
 from rbtr.domain.models import (
     ChangeKind,
-    Chunk,
     ChunkKind,
-    Chunks,
     EdgeKind,
-    ImportMeta,
     Repo,
     SnapshotCounts,
     SnapshotRef,
@@ -129,13 +126,15 @@ class _ChunkIdentity(dy.Schema):
     content = dy.String(nullable=False)
     line_start = dy.Int32(nullable=False)
     line_end = dy.Int32(nullable=False)
+    # The role's payload, as `ChunkStagingRow` writes it.
     metadata = dy.Struct(
         {
             "module": dy.String(nullable=False),
             "names": dy.String(nullable=False),
             "dots": dy.String(nullable=False),
+            "language_hint": dy.String(nullable=False),
         },
-        nullable=False,
+        nullable=True,
     )
 
 
@@ -146,6 +145,45 @@ class _SignalColumns(dy.Schema):
     semantic = dy.Float64(nullable=False)
     importance = dy.Float64(nullable=False)
     proximity = dy.Float64(nullable=False)
+
+
+class EmbedTextRow(dy.Schema):
+    """A chunk to embed: its id and the text the model reads."""
+
+    id = dy.String(nullable=False)
+    text = dy.String(nullable=False)
+
+
+class SymbolRefRow(dy.Schema):
+    """A chunk as a reply names and places it, without its body.
+
+    The read model behind `list-symbols` and `changed-symbols`; a
+    chunk-result frame takes this shape with `import_metadata()`.
+    """
+
+    name = dy.String(nullable=False)
+    kind = dy.Enum(k.value for k in ChunkKind)
+    file_path = dy.String(nullable=False)
+    scope = dy.String(nullable=False)
+    language = dy.String(nullable=False)
+    line_start = dy.Int32(nullable=False)
+    line_end = dy.Int32(nullable=False)
+    # An import's metadata when it records any; null otherwise.
+    metadata = dy.Struct(
+        {
+            "module": dy.String(nullable=False),
+            "names": dy.String(nullable=False),
+            "dots": dy.String(nullable=False),
+            "language_hint": dy.String(nullable=False),
+        },
+        nullable=True,
+    )
+
+
+class SymbolRow(SymbolRefRow):
+    """A chunk as `read-symbol` returns it: a `SymbolRefRow` with its body."""
+
+    content = dy.String(nullable=False)
 
 
 class ChunkResultRow(_ChunkIdentity):
@@ -166,8 +204,8 @@ class ChunkContentRow(dy.Schema):
     """A subset of chunk columns for content-only lookups.
 
     `chunk_contents` returns this shape so callers that
-    only need identity + source text skip the full
-    `ChunkResultRow` round-trip through `list[Chunk]`.
+    only need identity + source text read fewer columns than
+    `ChunkResultRow`.
 
     Addressing a chunk needs the whole span and the kind, not just
     where it starts: a fenced shell line is a `doc_section` for the
@@ -296,38 +334,19 @@ def chunk_ids_view(chunk_ids: list[str]) -> dy.DataFrame[ChunkIdRow]:
     return ChunkIdRow.validate(frame, cast=True)
 
 
-# Polars Struct dtype matching ImportMeta's fields.  Derived from
-# the model so it stays in sync when fields are added.
-_IMPORT_META_DTYPE = pl.Struct(dict.fromkeys(ImportMeta.model_fields, pl.String))
+def import_metadata() -> pl.Expr:
+    """A row's import metadata, with the fields `SymbolRefRow` declares, when it records any.
 
-
-def _decode_metadata(frame: pl.DataFrame) -> pl.DataFrame:
-    """Decode the `metadata` TEXT column from DuckDB to a Struct.
-
-    Returns plain `pl.DataFrame`: in-place dtype coercion on an
-    intermediate frame, not a data boundary.
+    Null for every other row: the `metadata` struct also holds other
+    roles' payloads, which no reply shows.
     """
-    if "metadata" not in frame.columns:
-        return frame
-    if frame["metadata"].dtype == pl.String:
-        return frame.with_columns(
-            pl.col("metadata").fill_null("{}").str.json_decode(_IMPORT_META_DTYPE)
-        )
-    return frame
-
-
-def frame_to_chunks(frame: dy.DataFrame[ChunkResultRow]) -> list[Chunk]:
-    """Convert a validated chunk-result frame to `Chunk` models."""
-    return Chunks.validate_python(frame.to_dicts())
-
-
-def scored_to_chunks(
-    frame: dy.DataFrame[ScoredChunkResultRow],
-) -> list[tuple[Chunk, float]]:
-    """Pair every chunk in *frame* with its `score` column."""
-    scores = frame["score"].to_list()
-    chunks = frame_to_chunks(frame.drop("score").pipe(ChunkResultRow.validate, cast=True))
-    return list(zip(chunks, scores, strict=True))
+    fields = [pl.col("metadata").struct.field(name) for name in SymbolRefRow.metadata.inner]
+    recorded = pl.any_horizontal(field != "" for field in fields)
+    return (
+        pl.when((pl.col("kind") == ChunkKind.IMPORT) & recorded)
+        .then(pl.struct(fields))
+        .alias("metadata")
+    )
 
 
 def frame_to_snapshot_counts(
@@ -345,12 +364,3 @@ def frame_to_snapshot_counts(
         for row in frame.iter_rows(named=True)
         if (repo := repos.get(row["repo_id"])) is not None
     }
-
-
-def changed_to_symbols(
-    frame: dy.DataFrame[ChangedSymbolRow],
-) -> list[tuple[Chunk, ChangeKind]]:
-    """Pair every chunk in *frame* with its `change_kind` label."""
-    changes = [ChangeKind(value) for value in frame["change_kind"].to_list()]
-    chunks = frame_to_chunks(frame.drop("change_kind").pipe(ChunkResultRow.validate, cast=True))
-    return list(zip(chunks, changes, strict=True))

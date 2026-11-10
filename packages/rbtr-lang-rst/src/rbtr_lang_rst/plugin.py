@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 
 from tree_sitter import Parser, Query, QueryCursor
 
-from rbtr.domain.models import Chunk, ChunkKind, ImportMeta
+from rbtr.domain.models import Chunk, ChunkKind, Import, ImportMeta, Section, Span
 from rbtr.languages.chunks import last_line
 from rbtr.languages.registration import LanguageRegistration, load_query
 
@@ -115,12 +115,9 @@ def _block_chunks(
         yield Chunk(
             blob_sha=blob_sha,
             file_path=file_path,
-            kind=ChunkKind.DOC_SECTION,
-            name="",
-            scope="",
+            role=Section(kind=ChunkKind.DOC_SECTION, name=""),
             content=text,
-            line_start=child.start_point[0] + 1,
-            line_end=last_line(child),
+            span=Span(start=child.start_point[0] + 1, end=last_line(child)),
         )
 
 
@@ -166,12 +163,10 @@ def _sectioned_chunks(
                             {
                                 "blob_sha": blob_sha,
                                 "file_path": file_path,
-                                "kind": ChunkKind.DOC_SECTION,
-                                "name": current_title,
+                                "role": Section(kind=ChunkKind.DOC_SECTION, name=current_title),
                                 "scope": [t for t, _ in scope_stack[:-1]],
                                 "content": text,
-                                "line_start": current_line_start,
-                                "line_end": child.start_point[0],
+                                "span": Span(start=current_line_start, end=child.start_point[0]),
                             }
                         )
                     )
@@ -202,12 +197,10 @@ def _sectioned_chunks(
                     {
                         "blob_sha": blob_sha,
                         "file_path": file_path,
-                        "kind": ChunkKind.DOC_SECTION,
-                        "name": current_title,
+                        "role": Section(kind=ChunkKind.DOC_SECTION, name=current_title),
                         "scope": [t for t, _ in scope_stack_for_scope],
                         "content": text,
-                        "line_start": current_line_start,
-                        "line_end": last_line(root),
+                        "span": Span(start=current_line_start, end=last_line(root)),
                     }
                 )
             )
@@ -280,13 +273,9 @@ def _extract_references(
             yield Chunk(
                 blob_sha=blob_sha,
                 file_path=file_path,
-                kind=ChunkKind.IMPORT,
-                name=f"{role_text}`{target_text}`",
-                scope="",
+                role=Import(name=f"{role_text}`{target_text}`", meta=meta),
                 content=ref_node.text.decode() if ref_node.text else "",
-                metadata=meta,
-                line_start=ref_node.start_point[0] + 1,
-                line_end=last_line(ref_node),
+                span=Span(start=ref_node.start_point[0] + 1, end=last_line(ref_node)),
             )
 
         # Toctree directives.
@@ -306,13 +295,11 @@ def _extract_references(
                 yield Chunk(
                     blob_sha=blob_sha,
                     file_path=file_path,
-                    kind=ChunkKind.IMPORT,
-                    name=f"toctree:{entry}",
-                    scope="",
+                    role=Import(name=f"toctree:{entry}", meta=ImportMeta(module=entry)),
                     content=entry,
-                    metadata=ImportMeta(module=entry),
-                    line_start=content_nodes[0].start_point[0] + 1,
-                    line_end=last_line(content_nodes[0]),
+                    span=Span(
+                        start=content_nodes[0].start_point[0] + 1, end=last_line(content_nodes[0])
+                    ),
                 )
 
         # Hyperlink references: `text <url>`_
@@ -332,13 +319,9 @@ def _extract_references(
                 yield Chunk(
                     blob_sha=blob_sha,
                     file_path=file_path,
-                    kind=ChunkKind.IMPORT,
-                    name=text,
-                    scope="",
+                    role=Import(name=text, meta=ImportMeta(module=url)),
                     content=text,
-                    metadata=ImportMeta(module=url),
-                    line_start=ref_node.start_point[0] + 1,
-                    line_end=last_line(ref_node),
+                    span=Span(start=ref_node.start_point[0] + 1, end=last_line(ref_node)),
                 )
 
 
@@ -346,6 +329,7 @@ rst = LanguageRegistration(
     id="rst",
     extensions=frozenset({".rst"}),
     grammar_module="tree_sitter_rst",
+    prose=True,
     extraction_serial=4,
 )
 

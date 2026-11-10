@@ -23,12 +23,13 @@ from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+import dataframely as dy
+import polars as pl
 import structlog
 
 from rbtr.config import config
 from rbtr.domain.models import (
     Chunk,
-    Edge,
     FileOutcome,
     FileSnapshot,
     IndexResult,
@@ -39,12 +40,14 @@ from rbtr.errors import BuildStopped
 from rbtr.git import changed_files, list_files, non_commit_shas, normalise_repo_path
 from rbtr.index.index import Index
 from rbtr.index.progress import ProgressCallback, _noop_progress
+from rbtr.index.results import ChunkResultRow
 from rbtr.index.staging import TokenisedChunk
 from rbtr.languages.chunks import detect_prose_format, host_presence_chunk
-from rbtr.languages.edges import build_resolution_map, infer_import_edges
+from rbtr.languages.edges import EdgeChunkRow, infer_import_edges
 from rbtr.languages.extract import extract_file
 from rbtr.languages.manager import get_manager
 from rbtr.languages.plaintext import PLAINTEXT
+from rbtr.languages.resolution import build_resolution_map
 from rbtr.rbtrignore import load_ignore
 
 log = structlog.get_logger(__name__)
@@ -259,7 +262,7 @@ def _extract_and_store_chunks(
 def _infer_and_store_edges(
     *,
     index: Index,
-    chunks: list[Chunk],
+    chunks: dy.DataFrame[ChunkResultRow],
     repo_files: set[str],
     manifests: dict[str, str],
     snapshot_sha: str,
@@ -270,8 +273,10 @@ def _infer_and_store_edges(
     on_progress("edges", 0, 0)
     mgr = get_manager()
     resolution_map = build_resolution_map(mgr, manifests=manifests)
-    edges: list[Edge] = []
-    edges.extend(infer_import_edges(chunks, repo_files, resolution_map))
+    rows = chunks.with_columns(pl.col("metadata").struct.unnest()).pipe(
+        EdgeChunkRow.validate, cast=True
+    )
+    edges = infer_import_edges(rows, repo_files, resolution_map)
 
     with index.session(repo) as session:
         session.replace_edges(edges, snapshot_sha=snapshot_sha)

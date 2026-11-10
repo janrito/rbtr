@@ -2,190 +2,173 @@
   {
     "blob_sha": "sha1",
     "file_path": "Counter.vue",
-    "kind": "doc_section",
-    "name": "Counter",
+    "role": {
+      "kind": "doc_section",
+      "name": "Counter"
+    },
     "scope": "",
     "language": "vue",
     "file_language": "vue",
     "content": "<template>\n  <button class=\"counter\" @click=\"increment\">{{ store.count }}</button>\n</template>",
-    "line_start": 33,
-    "line_end": 35,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 33,
+      "end": 35
     },
     "id": "383d4211ee508e85"
   },
   {
     "blob_sha": "sha1",
     "file_path": "Counter.vue",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "vue",
     "file_language": "vue",
     "content": "<!--\n  Vue single-file component.\n\n  The SFC plugin delegates <script> to TypeScript and <style> to SCSS.\n  This comment is itself a chunk, so a component's own explanation of\n  what it is for stays searchable.\n-->",
-    "line_start": 1,
-    "line_end": 7,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 7
     },
     "id": "b8108f5642e5ab1d"
   },
   {
     "blob_sha": "sha1",
     "file_path": "Counter.vue",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "vue",
     "content": "// Vue single-file component.\n//\n// The SFC plugin delegates the <script setup> block to TypeScript and\n// the <style> block to SCSS, reusing the same chunker as Svelte. The\n// template is not extracted.",
-    "line_start": 10,
-    "line_end": 14,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 10,
+      "end": 14
     },
     "id": "10a55ab379567fb3"
   },
   {
     "blob_sha": "sha1",
     "file_path": "Counter.vue",
-    "kind": "import",
-    "name": "import { makeStore } from \"./store\";",
+    "role": {
+      "kind": "import",
+      "name": "import { makeStore } from \"./store\";",
+      "meta": {
+        "module": "store",
+        "names": "makeStore",
+        "dots": "1",
+        "language_hint": ""
+      }
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "vue",
     "content": "import { makeStore } from \"./store\";",
-    "line_start": 15,
-    "line_end": 15,
-    "metadata": {
-      "module": "store",
-      "names": "makeStore",
-      "dots": "1",
-      "language_hint": ""
+    "span": {
+      "start": 15,
+      "end": 15
     },
     "id": "2829a0c60e534b3e"
   },
   {
     "blob_sha": "sha1",
     "file_path": "Counter.vue",
-    "kind": "variable",
-    "name": "store",
+    "role": {
+      "kind": "variable",
+      "name": "store"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "vue",
     "content": "store = makeStore()",
-    "line_start": 17,
-    "line_end": 17,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 17,
+      "end": 17
     },
     "id": "4c8308057f92d8a6"
   },
   {
     "blob_sha": "sha1",
     "file_path": "Counter.vue",
-    "kind": "function",
-    "name": "increment",
+    "role": {
+      "kind": "function",
+      "name": "increment"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "vue",
     "content": "function increment(): void {\n  store.count += 1;\n}",
-    "line_start": 19,
-    "line_end": 21,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 19,
+      "end": 21
     },
     "id": "648d9d1f6c623121"
   },
   {
     "blob_sha": "sha1",
     "file_path": "Counter.vue",
-    "kind": "variable",
-    "name": "$accent",
+    "role": {
+      "kind": "variable",
+      "name": "$accent"
+    },
     "scope": "",
     "language": "scss",
     "file_language": "vue",
     "content": "$accent: #00aa77;",
-    "line_start": 25,
-    "line_end": 25,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 25,
+      "end": 25
     },
     "id": "cebdec667e5d1547"
   },
   {
     "blob_sha": "sha1",
     "file_path": "Counter.vue",
-    "kind": "class",
-    "name": ".counter",
+    "role": {
+      "kind": "class",
+      "name": ".counter"
+    },
     "scope": "",
     "language": "scss",
     "file_language": "vue",
     "content": ".counter {\n    color: $accent;\n    font-weight: bold;\n  }",
-    "line_start": 27,
-    "line_end": 30,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 27,
+      "end": 30
     },
     "id": "c41a0c5fc46325f9"
   },
   {
     "blob_sha": "sha1",
     "file_path": "store.ts",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "// Imported by Counter.vue's <script setup> block.",
-    "line_start": 1,
-    "line_end": 1,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 1
     },
     "id": "b0eec444d8e60c22"
   },
   {
     "blob_sha": "sha1",
     "file_path": "store.ts",
-    "kind": "function",
-    "name": "makeStore",
+    "role": {
+      "kind": "function",
+      "name": "makeStore"
+    },
     "scope": "",
     "language": "typescript",
     "file_language": "typescript",
     "content": "function makeStore(): { count: number } {\n  return { count: 0 };\n}",
-    "line_start": 3,
-    "line_end": 5,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 3,
+      "end": 5
     },
     "id": "a264a8c3d2ecd498"
   }

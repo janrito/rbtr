@@ -79,15 +79,23 @@ class ChunkStagingRow(dy.Schema):
     name_tokens = dy.String(nullable=False)
     line_start = dy.Int32(nullable=False)
     line_end = dy.Int32(nullable=False)
+    # What the role carries beyond kind and name: the union of the role
+    # payloads' fields, null where a role has none.
     metadata = dy.Struct(
         {
             "module": dy.String(nullable=False),
             "names": dy.String(nullable=False),
             "dots": dy.String(nullable=False),
+            "language_hint": dy.String(nullable=False),
         },
-        nullable=False,
+        nullable=True,
     )
     extraction_serial = dy.Int32(nullable=False)
+
+
+# A dumped chunk's `role`, every role's fields present: a batch without
+# imports would otherwise infer a struct with no `meta`.
+_ROLE = pl.Struct({"kind": pl.String, "name": pl.String, "meta": ChunkStagingRow.metadata.dtype})
 
 
 class EdgeStagingRow(dy.Schema):
@@ -141,12 +149,24 @@ def staged_chunks(chunks: list[TokenisedChunk]) -> dy.DataFrame[ChunkStagingRow]
     """Build a staging frame of tokenised chunks for `_bulk_insert`.
 
     Chunks are content-addressed (keyed by `id`) and shared across
-    repos; the batch carries no `repo_id`.
+    repos; the batch carries no `repo_id`.  Each chunk's role and span
+    are spread over the table's columns: `kind`, `name` and `metadata`
+    (the role's payload), `line_start` and `line_end`.
     """
     if not chunks:
         return ChunkStagingRow.create_empty()
-    return pl.DataFrame(TokenisedChunks.dump_python(chunks, mode="json")).pipe(
-        ChunkStagingRow.validate, cast=True
+    return (
+        pl.DataFrame(
+            TokenisedChunks.dump_python(chunks, mode="json"), schema_overrides={"role": _ROLE}
+        )
+        .with_columns(
+            pl.col("role").struct.field("kind"),
+            pl.col("role").struct.field("name").fill_null(""),
+            pl.col("role").struct.field("meta").alias("metadata"),
+            pl.col("span").struct.field("start").alias("line_start"),
+            pl.col("span").struct.field("end").alias("line_end"),
+        )
+        .pipe(ChunkStagingRow.validate, cast=True)
     )
 
 

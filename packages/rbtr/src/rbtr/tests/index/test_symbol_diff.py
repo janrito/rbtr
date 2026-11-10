@@ -12,10 +12,10 @@ import dataframely as dy
 import pygit2
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.domain.models import ChangeKind, Chunk, SnapshotRange
+from rbtr.domain.models import SnapshotRange
 from rbtr.index.build import build_index
 from rbtr.index.index import Index
-from rbtr.index.results import ChangedSymbolRow, changed_to_symbols
+from rbtr.index.results import ChangedSymbolRow
 
 from ..conftest import make_commit
 from .asserts import assert_changes, assert_no_duplicate_changes
@@ -28,7 +28,7 @@ def diff_result(
     scenario: DiffScenario,
     diff_repo: pygit2.Repository,
     index: Index,
-) -> tuple[DiffScenario, dy.DataFrame[ChangedSymbolRow], list[tuple[Chunk, ChangeKind]]]:
+) -> tuple[DiffScenario, dy.DataFrame[ChangedSymbolRow]]:
     base_oid = make_commit(diff_repo, scenario.base_files)
     base_sha = str(base_oid)
     build_index(diff_repo.workdir, base_sha, index)
@@ -50,17 +50,15 @@ def diff_result(
         between=SnapshotRange(repo=repo, base_sha=base_sha, head_sha=head_sha),
         file_paths=scenario.file_paths,
     )
-    return scenario, frame, changed_to_symbols(frame)
+    return scenario, frame
 
 
 def test_changed_symbols(
-    diff_result: tuple[
-        DiffScenario, dy.DataFrame[ChangedSymbolRow], list[tuple[Chunk, ChangeKind]]
-    ],
+    diff_result: tuple[DiffScenario, dy.DataFrame[ChangedSymbolRow]],
 ) -> None:
-    scenario, frame, result = diff_result
+    scenario, frame = diff_result
     assert_changes(
-        result,
+        frame,
         added=scenario.expected_added,
         modified=scenario.expected_modified,
         removed=scenario.expected_removed,

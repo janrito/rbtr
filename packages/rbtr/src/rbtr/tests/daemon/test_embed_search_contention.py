@@ -41,7 +41,15 @@ from rbtr.daemon.messages import (
     response_adapter,
 )
 from rbtr.daemon.server import Daemon
-from rbtr.domain.models import ChunkKind, FileSnapshot, GcCounts, GcMode, SnapshotRef
+from rbtr.domain.models import (
+    ChunkKind,
+    Definition,
+    FileSnapshot,
+    GcCounts,
+    GcMode,
+    SnapshotRef,
+    Span,
+)
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.index import watcher
 from rbtr.index.embeddings import Embedder
@@ -243,13 +251,11 @@ def embeddable_index(index: Index, embedded_snapshot: SnapshotRef) -> Index:
             TokenisedChunk(
                 blob_sha=f"blob_{i}",
                 file_path=f"src/mod_{i}.py",
-                kind=ChunkKind.FUNCTION,
-                name=name,
+                role=Definition(kind=ChunkKind.FUNCTION, name=name),
                 content=content,
                 content_tokens=tokenise_code(content),
                 name_tokens=tokenise_code(name),
-                line_start=1,
-                line_end=2,
+                span=Span(start=1, end=2),
             )
         )
     with index.session(embedded_snapshot.repo) as session:

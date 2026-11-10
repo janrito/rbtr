@@ -16,8 +16,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from rbtr.domain.models import ChunkKind, EdgeKind, ImportMeta
-from rbtr.languages.edges import ImportResolution
 from rbtr.languages.registration import ModuleStyle
+from rbtr.languages.resolution import ImportResolution
 
 from ..index.cases_common import ChunkSpec
 
@@ -527,12 +527,14 @@ _DOC_RESOLUTION: dict[str, ImportResolution] = {
         index_files=(),
         source_roots=("",),
         path_substitutions=(),
+        prose=True,
     ),
     "rst": ImportResolution(
         extensions=(".rst", ".md", ".py"),
         index_files=(),
         source_roots=("",),
         path_substitutions=(),
+        prose=True,
     ),
 }
 

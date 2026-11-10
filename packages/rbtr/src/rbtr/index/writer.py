@@ -147,19 +147,8 @@ class WriteSession:
             raise RuntimeError(msg)
 
     def _bulk_insert(self, sql: str, frame: pl.DataFrame) -> None:
-        """Execute *sql* against *frame*, bound as the view `_stg`.
-
-        Struct columns are encoded to JSON strings before
-        registration so DuckDB sees TEXT matching the schema.
-        """
+        """Execute *sql* against *frame*, bound as the view `_stg`."""
         self._require_active()
-        struct_cols = [
-            c
-            for c, d in zip(frame.columns, frame.dtypes, strict=True)
-            if d.base_type() == pl.Struct
-        ]
-        if struct_cols:
-            frame = frame.with_columns(pl.col(c).struct.json_encode() for c in struct_cols)
         with registered_views(self._cursor, _stg=frame) as cur:
             cur.execute(sql)
 

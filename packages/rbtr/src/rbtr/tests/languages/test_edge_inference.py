@@ -1,113 +1,24 @@
-"""Tests for cross-file edge inference.
-
-Private helpers that are difficult to reach through the public
-`infer_*` functions (e.g. `_resolve_module_to_file`) are tested
-directly because the project AGENTS permit it when doing so avoids
-mocking the full pipeline.
-"""
+"""Tests for cross-file edge inference."""
 
 from __future__ import annotations
 
-import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.domain.models import Chunk, Edge, EdgeKind
+from rbtr.domain.models import (
+    Chunk,
+    Edge,
+    EdgeKind,
+)
+from rbtr.git import FileEntry
 from rbtr.languages.edges import (
-    ImportResolution,
-    _resolve_module_to_file,
     infer_import_edges,
 )
-from rbtr.languages.registration import ModuleStyle
+from rbtr.languages.extract import extract_file
+from rbtr.languages.manager import get_manager
+from rbtr.languages.resolution import build_resolution_map
+from rbtr.testing import edge_rows
 
 from .cases_edges import EdgeScenario
-
-
-@pytest.mark.parametrize(
-    ("module", "files", "resolution", "expected"),
-    [
-        (
-            "src/models",
-            {"src/models.ts", "src/models.js"},
-            ImportResolution(
-                extensions=(".ts", ".tsx", ".js"),
-                index_files=("index.ts",),
-                source_roots=("",),
-                path_substitutions=(),
-            ),
-            "src/models.ts",
-        ),
-        (
-            "src/models",
-            {"src/models/index.ts"},
-            ImportResolution(
-                extensions=(".ts",),
-                index_files=("index.ts",),
-                source_roots=("",),
-                path_substitutions=(),
-            ),
-            "src/models/index.ts",
-        ),
-        (
-            "crate/models",
-            {"src/models.rs"},
-            ImportResolution(
-                extensions=(".rs",),
-                index_files=("mod.rs",),
-                source_roots=("",),
-                path_substitutions=(("crate/", "src/"),),
-            ),
-            "src/models.rs",
-        ),
-        (
-            "com/example/Foo",
-            {"src/main/java/com/example/Foo.java"},
-            ImportResolution(
-                extensions=(".java",),
-                index_files=(),
-                source_roots=("", "src/main/java"),
-                path_substitutions=(),
-            ),
-            "src/main/java/com/example/Foo.java",
-        ),
-        (
-            "utils",
-            {"include/utils.h"},
-            ImportResolution(
-                extensions=(".h", ".c"),
-                index_files=(),
-                source_roots=("", "include", "src"),
-                path_substitutions=(),
-            ),
-            "include/utils.h",
-        ),
-        (
-            "src/models",
-            {"other/file.ts"},
-            ImportResolution(
-                extensions=(".ts",),
-                index_files=(),
-                source_roots=("",),
-                path_substitutions=(),
-            ),
-            None,
-        ),
-    ],
-    ids=[
-        "ts-direct",
-        "ts-index",
-        "rust-crate-sub",
-        "java-source-root",
-        "c-include-root",
-        "not-found",
-    ],
-)
-def test_resolve_module_to_file_with_resolution(
-    module: str,
-    files: set[str],
-    resolution: ImportResolution,
-    expected: str | None,
-) -> None:
-    assert _resolve_module_to_file(module, files, resolution) == expected
 
 
 @fixture
@@ -120,22 +31,20 @@ def inferred(scenario: EdgeScenario) -> tuple[EdgeScenario, list[Edge], dict[str
     translated through this map.
     """
     chunks = [
-        Chunk(
-            blob_sha=f"sha_{spec.id}",
-            file_path=spec.file_path,
-            kind=spec.kind,
-            name=spec.name,
-            language=spec.language,
-            content=spec.content,
-            line_start=1,
-            line_end=1,
-            scope="",
-            metadata=spec.metadata,
+        Chunk.model_validate(
+            {
+                "blob_sha": f"sha_{spec.id}",
+                "file_path": spec.file_path,
+                "role": {"kind": spec.kind, "name": spec.name, "meta": spec.metadata},
+                "language": spec.language,
+                "content": spec.content,
+                "span": {"start": 1, "end": 1},
+            }
         )
         for spec in scenario.chunks
     ]
     ids = {spec.id: chunk.id for spec, chunk in zip(scenario.chunks, chunks, strict=True)}
-    edges = infer_import_edges(chunks, set(scenario.repo_files), scenario.resolution_map)
+    edges = infer_import_edges(edge_rows(chunks), set(scenario.repo_files), scenario.resolution_map)
     return scenario, edges, ids
 
 
@@ -159,330 +68,23 @@ def test_inference_edge_kind_is_correct(
         assert e.kind == expected_kind
 
 
-@pytest.mark.parametrize(
-    ("module", "files", "hint", "expected"),
-    [
-        ("app", {"src/app.js", "src/app.ts"}, "javascript", "src/app.js"),
-        ("styles", {"assets/styles.css"}, "css", "assets/styles.css"),
-    ],
-    ids=["hint-js", "hint-css"],
-)
-def test_language_hint_directs_resolution(
-    module: str,
-    files: set[str],
-    hint: str,
-    expected: str | None,
-) -> None:
-    """language_hint picks the correct ImportResolution."""
-    resolution_map = {
-        "javascript": ImportResolution(
-            extensions=(".js",),
-            index_files=(),
-            source_roots=("src",),
-            path_substitutions=(),
-        ),
-        "css": ImportResolution(
-            extensions=(".css",),
-            index_files=(),
-            source_roots=("assets",),
-            path_substitutions=(),
-        ),
-    }
-    resolution = resolution_map.get(hint)
-    assert resolution is not None
-    result = _resolve_module_to_file(module, files, resolution)
-    assert result == expected
+def test_a_name_twice_in_a_file_is_reached_at_its_first_line() -> None:
+    """Of two definitions an import names in one file, it reaches the one earlier in the file.
+
+    The rows arrive later line first, so row order cannot decide it.
+    """
+    importer = extract_file(FileEntry("a.py", "sha_a", b"from b import f\n"), "python")
+    target_source = b"""\
+def f():
+    return 1
 
 
-@pytest.mark.parametrize(
-    ("module", "files", "resolution", "expected"),
-    [
-        (
-            "app.js",
-            {"src/app.js"},
-            ImportResolution(
-                extensions=(".js",),
-                index_files=(),
-                source_roots=("src",),
-                path_substitutions=(),
-            ),
-            "src/app.js",
-        ),
-        (
-            "models",
-            {"models.js"},
-            ImportResolution(
-                extensions=(".js",),
-                index_files=(),
-                source_roots=("",),
-                path_substitutions=(),
-            ),
-            "models.js",
-        ),
-        (
-            "components",
-            {"components/index.js"},
-            ImportResolution(
-                extensions=(".js",),
-                index_files=("index.js",),
-                source_roots=("",),
-                path_substitutions=(),
-            ),
-            "components/index.js",
-        ),
-        (
-            "nonexistent.js",
-            {"other.js"},
-            ImportResolution(
-                extensions=(".js",),
-                index_files=(),
-                source_roots=("",),
-                path_substitutions=(),
-            ),
-            None,
-        ),
-        (
-            "components/Button",
-            {"src/ui/components/Button.js"},
-            ImportResolution(
-                extensions=(".js",),
-                index_files=(),
-                source_roots=("",),
-                path_substitutions=(),
-            ),
-            "src/ui/components/Button.js",
-        ),
-    ],
-    ids=["bare-filename", "extensionless", "index-file", "not-found", "nested-suffix"],
-)
-def test_resolve_path_style(
-    module: str,
-    files: set[str],
-    resolution: ImportResolution,
-    expected: str | None,
-) -> None:
-    """PATH-style resolution: bare filenames, extensions, index files."""
-    assert _resolve_module_to_file(module, files, resolution) == expected
+def f():
+    return 2
+"""
+    target = extract_file(FileEntry("b.py", "sha_b", target_source), "python")
+    rows = edge_rows([*importer, *target][::-1])
 
+    edges = infer_import_edges(rows, {"a.py", "b.py"}, build_resolution_map(get_manager()))
 
-@pytest.mark.parametrize(
-    ("module", "files", "resolution", "expected"),
-    [
-        (
-            "os.path",
-            {"os/path.py"},
-            ImportResolution(
-                extensions=(".py",),
-                index_files=("__init__.py",),
-                source_roots=("",),
-                path_substitutions=(),
-                module_style=ModuleStyle.DOTTED,
-            ),
-            "os/path.py",
-        ),
-        (
-            "pathlib",
-            {"pathlib.py"},
-            ImportResolution(
-                extensions=(".py",),
-                index_files=("__init__.py",),
-                source_roots=("",),
-                path_substitutions=(),
-                module_style=ModuleStyle.DOTTED,
-            ),
-            "pathlib.py",
-        ),
-        (
-            "rbtr.index",
-            {"rbtr/index/__init__.py"},
-            ImportResolution(
-                extensions=(".py",),
-                index_files=("__init__.py",),
-                source_roots=("",),
-                path_substitutions=(),
-                module_style=ModuleStyle.DOTTED,
-            ),
-            "rbtr/index/__init__.py",
-        ),
-        (
-            "nonexistent.module",
-            {"other.py"},
-            ImportResolution(
-                extensions=(".py",),
-                index_files=("__init__.py",),
-                source_roots=("",),
-                path_substitutions=(),
-                module_style=ModuleStyle.DOTTED,
-            ),
-            None,
-        ),
-        (
-            "rbtr.index.store",
-            {"packages/rbtr/src/rbtr/index/store.py"},
-            ImportResolution(
-                extensions=(".py",),
-                index_files=("__init__.py",),
-                source_roots=("", "src"),
-                path_substitutions=(),
-                module_style=ModuleStyle.DOTTED,
-            ),
-            "packages/rbtr/src/rbtr/index/store.py",
-        ),
-        (
-            "rbtr.utils.helpers",
-            {"packages/rbtr/src/rbtr/utils/helpers.py", "other/helpers.py"},
-            ImportResolution(
-                extensions=(".py",),
-                index_files=("__init__.py",),
-                source_roots=("", "src"),
-                path_substitutions=(),
-                module_style=ModuleStyle.DOTTED,
-            ),
-            "packages/rbtr/src/rbtr/utils/helpers.py",
-        ),
-        (
-            "common.io",
-            {"packages/a/src/common/io.py", "packages/b/src/common/io.py"},
-            ImportResolution(
-                extensions=(".py",),
-                index_files=("__init__.py",),
-                source_roots=("", "src"),
-                path_substitutions=(),
-                module_style=ModuleStyle.DOTTED,
-            ),
-            None,
-        ),
-        (
-            "os",
-            {"a/b/os.py"},
-            ImportResolution(
-                extensions=(".py",),
-                index_files=("__init__.py",),
-                source_roots=("",),
-                path_substitutions=(),
-                module_style=ModuleStyle.DOTTED,
-            ),
-            None,
-        ),
-        (
-            "pydantic.main",
-            {"src/app.py"},
-            ImportResolution(
-                extensions=(".py",),
-                index_files=("__init__.py",),
-                source_roots=("", "src"),
-                path_substitutions=(),
-                module_style=ModuleStyle.DOTTED,
-            ),
-            None,
-        ),
-        (
-            "app.models",
-            {"app/models.py", "deep/nested/app/models.py"},
-            ImportResolution(
-                extensions=(".py",),
-                index_files=("__init__.py",),
-                source_roots=("",),
-                path_substitutions=(),
-                module_style=ModuleStyle.DOTTED,
-            ),
-            "app/models.py",
-        ),
-    ],
-    ids=[
-        "multi-segment",
-        "single-segment",
-        "init-file",
-        "not-found",
-        "monorepo-suffix",
-        "helpers-non-collision",
-        "true-collision-dropped",
-        "single-segment-guard-nested",
-        "multi-seg-external-none",
-        "tier2-prefix-wins",
-    ],
-)
-def test_resolve_dotted_style(
-    module: str,
-    files: set[str],
-    resolution: ImportResolution,
-    expected: str | None,
-) -> None:
-    """DOTTED-style resolution: dot-to-slash conversion."""
-    assert _resolve_module_to_file(module, files, resolution) == expected
-
-
-@pytest.mark.parametrize(
-    ("module", "files", "resolution", "importer_ext", "expected"),
-    [
-        (
-            "pkg.models",
-            {"a/pkg/models.py", "a/pkg/models.pyi"},
-            ImportResolution(
-                extensions=(".py", ".pyi"),
-                index_files=(),
-                source_roots=("",),
-                path_substitutions=(),
-                module_style=ModuleStyle.DOTTED,
-                own_extensions=frozenset({".py", ".pyi"}),
-            ),
-            ".py",
-            "a/pkg/models.py",
-        ),
-        (
-            "ui/Button",
-            {"src/ui/Button.tsx", "src/ui/Button.js"},
-            ImportResolution(
-                extensions=(".ts", ".tsx", ".js"),
-                index_files=(),
-                source_roots=("",),
-                path_substitutions=(),
-                own_extensions=frozenset({".ts", ".tsx"}),
-            ),
-            ".ts",
-            "src/ui/Button.tsx",
-        ),
-        (
-            "ui/Button",
-            {"src/ui/Button.js", "src/ui/Button.css"},
-            ImportResolution(
-                extensions=(".js", ".css"),
-                index_files=(),
-                source_roots=("",),
-                path_substitutions=(),
-                own_extensions=frozenset({".js", ".jsx"}),
-            ),
-            ".js",
-            "src/ui/Button.js",
-        ),
-        (
-            "pkg.models",
-            {"a/pkg/models.py", "b/pkg/models.py"},
-            ImportResolution(
-                extensions=(".py",),
-                index_files=(),
-                source_roots=("",),
-                path_substitutions=(),
-                module_style=ModuleStyle.DOTTED,
-                own_extensions=frozenset({".py"}),
-            ),
-            ".py",
-            None,
-        ),
-    ],
-    ids=[
-        "py-over-pyi",
-        "tsx-over-js-same-language",
-        "js-over-css",
-        "same-ext-two-paths-dropped",
-    ],
-)
-def test_resolve_suffix_tie_break(
-    module: str,
-    files: set[str],
-    resolution: ImportResolution,
-    importer_ext: str,
-    expected: str | None,
-) -> None:
-    """Suffix-tier same-path collisions resolve toward the importing file."""
-    assert _resolve_module_to_file(module, files, resolution, importer_ext) == expected
+    assert [e.target_id for e in edges] == [c.id for c in target if c.span.start == 1]

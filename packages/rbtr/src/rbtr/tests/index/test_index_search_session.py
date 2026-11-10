@@ -195,8 +195,7 @@ def test_similar_matches_empty(index: Index, head_ref: SnapshotRef) -> None:
 def test_unseeded_chunks_have_no_embedding(index: Index, head_ref: SnapshotRef) -> None:
     s = SearchScenario(chunks=[make_chunk("a")], query="")
     seed_index(index, s.chunks, head_ref)
-    chunks = index.chunks(at=head_ref)
-    assert not chunks[0].has_embedding
+    assert index.chunks(at=head_ref)["has_embedding"].to_list() == [False]
 
 
 def test_seeded_chunks_have_embedding_flag(index: Index, head_ref: SnapshotRef) -> None:
@@ -205,8 +204,7 @@ def test_seeded_chunks_have_embedding_flag(index: Index, head_ref: SnapshotRef) 
     vec = [0.5, 0.5, 0.5, 0.5]
     with index.session(head_ref.repo) as ws:
         ws.update_embeddings([chunk.id], [vec])
-    chunks = index.chunks(at=head_ref)
-    assert chunks[0].has_embedding
+    assert index.chunks(at=head_ref)["has_embedding"].to_list() == [True]
 
 
 @pytest.fixture

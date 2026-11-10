@@ -422,9 +422,10 @@ distribution:
   as their wrap `resolver` argument and delegate to it, so plugins never
   import the built-ins; those built-ins live in the private
   `rbtr.languages._resolvers`.)
-- `rbtr.domain.models` — `Chunk`, `ChunkKind`, `ImportMeta`. A chunk's
-  `id` is a property over its own fields, so a plugin yields chunks and
-  never computes an identity.
+- `rbtr.domain.models` — `Chunk`, its roles (`Definition`, `Section`,
+  `Import`, `Comment`, `RawSlice`), `Span`, `ChunkKind` and `ImportMeta`.
+  A chunk's `id` is a property over its own fields, so a plugin yields
+  chunks and never computes an identity.
 - `rbtr.languages.chunks` — `chunk_plaintext`, and `last_line`,
   which turns a tree-sitter end point into the 1-based last line a
   node occupies. The query engine and every chunker share it, so a
@@ -460,31 +461,37 @@ tests rather than held to product-code standards.
 
 ## Dependency graph
 
-`edges.py` infers cross-file relationships:
+Edge inference (`languages/edges.py`) records what each import
+reaches:
 
-- **Import edges** - structural (tree-sitter import
-  extractor) or text-search fallback.
-- **Doc edges** - markdown sections mentioning symbol names.
+- **Import edges** - from an import to the symbols it names in
+  the files its module resolves to, or to every chunk of those
+  files for a bare import; an import whose extractor recorded
+  nothing usable reaches files whose stem is a word of its text.
+- **Doc edges** - prose (a Markdown link, an rST role) documents
+  the file, section or symbol it references.
 - **Data references** - a JSON Schema or OpenAPI `$ref`, a
   tsconfig `extends`, a local Actions `uses`, a Cargo or Poetry
   `path` dependency. A `$ref`'s pointer names a key inside the
   document it reaches, as a Markdown link's fragment names a
   heading, so a data language's keys are in the symbol index.
 
-Import resolution maps a module string to a repo file. A
-reference carrying its own depth — `../b`, or a `dots` the
-extractor set — is anchored to the importing file and has one
-place to look. Anything else is tried from the repository root
-first, then, for a `ModuleStyle.PATH` language, beside the
+Import resolution (`languages/resolution.py`) maps a module
+string to repo files, by the rules each language plugin declares
+on its registration. A reference carrying its own depth — `../b`,
+or a `dots` the extractor set — is anchored to the importing file
+and has one place to look. Anything else is looked for from the
+repository root: under each source root, then as a *suffix* of a
+candidate file path (so `rbtr.index.index` →
+`…/rbtr/index/index.py`, which lets a single index span a
+monorepo), then as a package directory. A `ModuleStyle.PATH`
+reference found nowhere from the root is tried beside the
 importing file: `@import "b.css"` in `css/a.css` means
-`css/b.css`, and the root is tried first so a reference that
-already resolves keeps the file it resolved to. Failing both, a
-dotted path matches as a *suffix* of a candidate file path (so
-`rbtr.index.index` → `…/rbtr/index/index.py`) — which lets a
-single index span a monorepo. `module_style` and
-`source_roots` tune the mapping per language; ambiguous
-matches are dropped rather than guessed, and a file never
-resolves to itself.
+`css/b.css`, and the root comes first so a reference that already
+resolves keeps the file it resolved to. `module_style` and
+`source_roots` tune the mapping per language; ambiguous matches
+are dropped rather than guessed, and a file never resolves to
+itself.
 
 Some references name a directory rather than a file. Where the
 language names a directory's stand-in — `__init__.py`,
@@ -1035,8 +1042,11 @@ win (7–32× for 3 vectors).
 
 The schemas behind these frames are split by direction:
 write/staging schemas live in `index/staging.py`, read-result
-schemas and the row→model transforms in `index/results.py`,
-kept independent by import-linter (a physical CQRS seam).
+schemas in `index/results.py`, kept independent by import-linter
+(a physical CQRS seam). `Chunk` is the write model: extraction
+builds it and `staged_chunks` writes it. Reads return frames: the
+handlers validate rows straight into the reply DTOs, search into
+`ScoredChunk`, and edge inference and the embedder work on the frame.
 
 Registration is cursor-scoped, and the store uses one
 thread-local cursor per thread (see
@@ -1648,11 +1658,10 @@ Revisit if the extension supports upserts and stops maintaining
 ## Storage models vs API DTOs
 
 The read commands (`search`, `read-symbol`, `list-symbols`,
-`find-refs`, `changed-symbols`) do not return the storage
-models (`Chunk`, `ScoredChunk`, `Edge`). Those carry
-persistence detail — identity hashes (`id`, `blob_sha`), the
-embedding, the full ranking-signal breakdown, an
-always-present `metadata` bag — that no caller needs and that
+`find-refs`, `changed-symbols`) do not return the index's rows or
+`ScoredChunk`. Those carry persistence detail — identity hashes
+(`id`, `blob_sha`), the embedding flag, the full ranking-signal
+breakdown, every role's payload — that no caller needs and that
 adds noise and tokens to an agent's context. Handlers instead
 project to output DTOs in `rbtr.daemon.dto` (`SymbolRefOut`,
 `SymbolOut`, `SearchHitOut`, `RefOut`): a curated, low-noise
@@ -1672,7 +1681,8 @@ opposite of what it is asked for. Each shape is its own type
 rather than one type with an optional body, so the wrong
 payload cannot be assembled by accident.
 
-Empty `metadata` and null `repo_path` are omitted,
+`metadata` appears only on an import that records something, and
+null `repo_path` is omitted,
 as is the preview anchor (`match_line_offset`, `matched_terms`)
 when the hit has no literal match; the nine search signals
 collapse to a single `score` unless
@@ -2250,6 +2260,26 @@ concurrent writers.
 from the version it records. Replacing the index on every breaking
 change does not work here: it re-extracts every checkout and
 re-embeds every chunk to change a column.
+
+**A chunk's role is one value; its row spreads it.** A chunk holds
+one role (`Definition`, `Section`, `Import`, `Comment`, `RawSlice`)
+carrying exactly the data that kind of chunk has, so a comment cannot
+have a name and only an import has import metadata; `kind` and `name`
+are read from the role. The `chunks` table keeps a column for each of
+`kind`, `name`, `line_start` and `line_end`, which SQL filters and the
+id use, and stores whatever else the role carries in `metadata`, a
+`STRUCT` holding the union of the role payloads' fields (`NULL` for a
+role with none). `staged_chunks` spreads a chunk into that row with
+polars expressions over the whole frame. Reads keep the row: the role's
+invariants hold because the write checked them, and gathering role and
+span back into a `Chunk` on every read checked them again and made
+reading a snapshot's chunks measurably slower than reading flat rows.
+JSON text
+in `metadata` does not work here: it moves encoding and parsing into
+per-row Python, where a struct passes between DuckDB and polars as
+Arrow. A `Chunk` subtype per kind does not work here either: every
+consumer of `Chunk` would change, where a role changes only the code
+that builds chunks.
 
 **Opening the index migrates it.** Migration belongs to the `index`
 layer and reports through the log; the CLI just opens the index, and

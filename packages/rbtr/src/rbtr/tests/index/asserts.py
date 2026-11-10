@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import dataframely as dy
 import polars as pl
+from polars.testing import assert_frame_equal
 
-from rbtr.domain.models import ChangeKind, Chunk, ScoredChunk
+from rbtr.domain.models import ChangeKind, ScoredChunk
 from rbtr.index.results import ChangedSymbolRow
 
 # A symbol's identity for diff assertions: (name, scope).
@@ -52,7 +53,7 @@ def assert_in_results(results: list[ScoredChunk], name: str) -> ScoredChunk:
 
 
 def assert_changes(
-    result: list[tuple[Chunk, ChangeKind]],
+    frame: dy.DataFrame[ChangedSymbolRow],
     *,
     added: set[SymbolId],
     modified: set[SymbolId],
@@ -62,14 +63,23 @@ def assert_changes(
 
     Compares the full added/modified/removed sets, so an unexpected
     extra symbol (e.g. an unchanged neighbour leaking in) fails just
-    as loudly as a missing one.
+    as loudly as a missing one.  A symbol listed twice is
+    `assert_no_duplicate_changes`'s to catch.
     """
-    buckets: dict[ChangeKind, set[SymbolId]] = {kind: set() for kind in ChangeKind}
-    for chunk, change in result:
-        buckets[change].add((chunk.name, chunk.scope))
-    assert buckets[ChangeKind.ADDED] == added
-    assert buckets[ChangeKind.MODIFIED] == modified
-    assert buckets[ChangeKind.REMOVED] == removed
+    expected = pl.DataFrame(
+        [
+            {"name": name, "scope": scope, "change_kind": change.value}
+            for change, symbols in (
+                (ChangeKind.ADDED, added),
+                (ChangeKind.MODIFIED, modified),
+                (ChangeKind.REMOVED, removed),
+            )
+            for name, scope in symbols
+        ],
+        schema={"name": pl.String, "scope": pl.String, "change_kind": pl.String},
+    )
+    actual = frame.select("name", "scope", pl.col("change_kind").cast(pl.String)).unique()
+    assert_frame_equal(actual, expected, check_row_order=False)
 
 
 def assert_no_duplicate_changes(frame: dy.DataFrame[ChangedSymbolRow]) -> None:
