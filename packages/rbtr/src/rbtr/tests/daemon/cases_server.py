@@ -251,7 +251,7 @@ def case_shutdown_during_maintenance(
 
 
 def case_job_worker_fails(
-    runtime_dir: Path, empty_index: Index, fake_repo: str, mocker: MockerFixture
+    runtime_dir: Path, empty_index: Index, mocker: MockerFixture
 ) -> StopScenario:
     """An error the job worker does not expect stops the daemon, logged,
     rather than leaving it answering reads with nothing being built."""
@@ -259,13 +259,10 @@ def case_job_worker_fails(
         runtime_dir, index=empty_index, idle_poll_interval=60.0, busy_poll_interval=60.0
     )
     mocker.patch.object(Indexer, "next_job", side_effect=RuntimeError("unexpected"))
-
-    def stop() -> None:
-        # A watch wakes the worker, which looks for its next job.
-        with DaemonClient(runtime_dir) as client:
-            client.send(WatchRequest(repo_path=fake_repo, refs=["HEAD"]))
-
-    return StopScenario(server=server, stop=stop, raised=["unexpected"], logged=["task_failed"])
+    # The worker looks for its first job as it starts, so nothing else is needed.
+    return StopScenario(
+        server=server, stop=lambda: None, raised=["unexpected"], logged=["task_failed"]
+    )
 
 
 def case_rejected_watch_does_not_wake_worker(

@@ -1,514 +1,326 @@
 [
   {
-    "blob_sha": "sha1",
+    "name": "Config",
+    "kind": "doc_section",
     "file_path": "config.rst",
-    "role": {
-      "kind": "doc_section",
-      "name": "Config"
-    },
     "scope": "",
     "language": "rst",
-    "file_language": "rst",
     "content": "Config\n======\n\nGreeter configuration.",
-    "span": {
-      "start": 1,
-      "end": 4
-    },
-    "id": "76470f6526a0cb10"
+    "line_start": 1,
+    "line_end": 4
   },
   {
-    "blob_sha": "sha1",
+    "name": "Guide",
+    "kind": "doc_section",
     "file_path": "guide.rst",
-    "role": {
-      "kind": "doc_section",
-      "name": "Guide"
-    },
     "scope": "",
     "language": "rst",
-    "file_language": "rst",
     "content": "Guide\n=====\n\nUsage guide.",
-    "span": {
-      "start": 1,
-      "end": 4
-    },
-    "id": "ac1e90fbe7395d2e"
+    "line_start": 1,
+    "line_end": 4
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "comment",
     "file_path": "helpers.py",
-    "role": {
-      "kind": "comment"
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
     "content": "\"\"\"Helpers referenced by the documentation.\"\"\"",
-    "span": {
-      "start": 1,
-      "end": 1
-    },
-    "id": "5580e5551412db6c"
+    "line_start": 1,
+    "line_end": 1
   },
   {
-    "blob_sha": "sha1",
+    "name": "format_greeting",
+    "kind": "function",
     "file_path": "helpers.py",
-    "role": {
-      "kind": "function",
-      "name": "format_greeting"
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
     "content": "def format_greeting(name):\n    \"\"\"Format a greeting.\"\"\"\n    return f\"Hello, {name}\"",
-    "span": {
-      "start": 4,
-      "end": 6
-    },
-    "id": "b3fb926ccf768301"
+    "line_start": 4,
+    "line_end": 6
   },
   {
-    "blob_sha": "sha1",
+    "name": "Greeter",
+    "kind": "class",
     "file_path": "helpers.py",
-    "role": {
-      "kind": "class",
-      "name": "Greeter"
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
     "content": "class Greeter:\n    \"\"\"A greeter.\"\"\"",
-    "span": {
-      "start": 9,
-      "end": 10
-    },
-    "id": "3eb95d6299a2287a"
+    "line_start": 9,
+    "line_end": 10
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "doc_section",
     "file_path": "readme.rst",
-    "role": {
-      "kind": "doc_section",
-      "name": ""
-    },
     "scope": "",
     "language": "rst",
-    "file_language": "rst",
     "content": "The documentation in this tree is in plain text files and can be viewed\nusing any text file viewer.",
-    "span": {
-      "start": 1,
-      "end": 2
-    },
-    "id": "6cca008daaaf1997"
+    "line_start": 1,
+    "line_end": 2
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "doc_section",
     "file_path": "readme.rst",
-    "role": {
-      "kind": "doc_section",
-      "name": ""
-    },
     "scope": "",
     "language": "rst",
-    "file_language": "rst",
     "content": "It uses `ReST`_ (reStructuredText), and the `Sphinx`_ documentation system.",
-    "span": {
-      "start": 4,
-      "end": 4
-    },
-    "id": "32be18d77c64640b"
+    "line_start": 4,
+    "line_end": 4
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "doc_section",
     "file_path": "readme.rst",
-    "role": {
-      "kind": "doc_section",
-      "name": ""
-    },
     "scope": "",
     "language": "rst",
-    "file_language": "rst",
     "content": "To build an HTML version of the docs:",
-    "span": {
-      "start": 6,
-      "end": 6
-    },
-    "id": "9de91e991d7b0c09"
+    "line_start": 6,
+    "line_end": 6
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "doc_section",
     "file_path": "readme.rst",
-    "role": {
-      "kind": "doc_section",
-      "name": ""
-    },
     "scope": "",
     "language": "rst",
-    "file_language": "rst",
     "content": "* Install Sphinx (using ``python -m pip install Sphinx`` or another method).",
-    "span": {
-      "start": 8,
-      "end": 8
-    },
-    "id": "765223fec0dd2e53"
+    "line_start": 8,
+    "line_end": 8
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "doc_section",
     "file_path": "readme.rst",
-    "role": {
-      "kind": "doc_section",
-      "name": ""
-    },
     "scope": "",
     "language": "rst",
-    "file_language": "rst",
     "content": "* In this directory, type ``make html`` at a shell prompt.",
-    "span": {
-      "start": 10,
-      "end": 10
-    },
-    "id": "7b0f92c1e3c5c32c"
+    "line_start": 10,
+    "line_end": 10
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "doc_section",
     "file_path": "readme.rst",
-    "role": {
-      "kind": "doc_section",
-      "name": ""
-    },
     "scope": "",
     "language": "rst",
-    "file_language": "rst",
     "content": "The built documentation in ``_build/html/index.html`` can then be read in a\nweb browser.",
-    "span": {
-      "start": 12,
-      "end": 13
-    },
-    "id": "23e254a5d1d0661d"
+    "line_start": 12,
+    "line_end": 13
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "doc_section",
     "file_path": "readme.rst",
-    "role": {
-      "kind": "doc_section",
-      "name": ""
-    },
     "scope": "",
     "language": "rst",
-    "file_language": "rst",
     "content": ".. _ReST: https://docutils.sourceforge.io/rst.html",
-    "span": {
-      "start": 15,
-      "end": 15
-    },
-    "id": "8ef64e26c2ec4619"
+    "line_start": 15,
+    "line_end": 15
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "doc_section",
     "file_path": "readme.rst",
-    "role": {
-      "kind": "doc_section",
-      "name": ""
-    },
     "scope": "",
     "language": "rst",
-    "file_language": "rst",
     "content": ".. _Sphinx: https://www.sphinx-doc.org/",
-    "span": {
-      "start": 16,
-      "end": 16
-    },
-    "id": "f68f819bd610f166"
+    "line_start": 16,
+    "line_end": 16
   },
   {
-    "blob_sha": "sha1",
+    "name": "Greeter",
+    "kind": "doc_section",
     "file_path": "rst.rst",
-    "role": {
-      "kind": "doc_section",
-      "name": "Greeter"
-    },
     "scope": "",
     "language": "rst",
-    "file_language": "rst",
     "content": "Greeter\n=======\n\nA small library for formatting greetings for named recipients.",
-    "span": {
-      "start": 1,
-      "end": 5
-    },
-    "id": "546d85c23c496a55"
+    "line_start": 1,
+    "line_end": 5
   },
   {
-    "blob_sha": "sha1",
+    "name": "Usage",
+    "kind": "doc_section",
     "file_path": "rst.rst",
-    "role": {
-      "kind": "doc_section",
-      "name": "Usage"
-    },
     "scope": "Greeter",
     "language": "rst",
-    "file_language": "rst",
     "content": "Usage\n-----\n\nConfigure via :doc:`config` and call :func:`format_greeting`.\nSee the :class:`Greeter` class and `the guide <guide.rst>`_ for more,\nor `an external page <https://example.com>`_ (not a cross-reference).\n\n.. toctree::\n   :maxdepth: 2\n\n   intro\n   api/index",
-    "span": {
-      "start": 6,
-      "end": 18
-    },
-    "id": "a74aa1c3f1c65c34"
+    "line_start": 6,
+    "line_end": 18
   },
   {
-    "blob_sha": "sha1",
+    "name": ":doc:`config`",
+    "kind": "import",
     "file_path": "rst.rst",
-    "role": {
-      "kind": "doc_section",
-      "name": "Locales"
-    },
+    "scope": "",
+    "language": "rst",
+    "content": ":doc:`config`",
+    "line_start": 9,
+    "line_end": 9,
+    "metadata": {
+      "module": "config",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "name": ":func:`format_greeting`",
+    "kind": "import",
+    "file_path": "rst.rst",
+    "scope": "",
+    "language": "rst",
+    "content": ":func:`format_greeting`",
+    "line_start": 9,
+    "line_end": 9,
+    "metadata": {
+      "module": "",
+      "names": "format_greeting",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "name": ":class:`Greeter`",
+    "kind": "import",
+    "file_path": "rst.rst",
+    "scope": "",
+    "language": "rst",
+    "content": ":class:`Greeter`",
+    "line_start": 10,
+    "line_end": 10,
+    "metadata": {
+      "module": "",
+      "names": "Greeter",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "name": "`the guide <guide.rst>`_",
+    "kind": "import",
+    "file_path": "rst.rst",
+    "scope": "",
+    "language": "rst",
+    "content": "`the guide <guide.rst>`_",
+    "line_start": 10,
+    "line_end": 10,
+    "metadata": {
+      "module": "guide.rst",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "name": "toctree:api/index",
+    "kind": "import",
+    "file_path": "rst.rst",
+    "scope": "",
+    "language": "rst",
+    "content": "api/index",
+    "line_start": 16,
+    "line_end": 17,
+    "metadata": {
+      "module": "api/index",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "name": "toctree:intro",
+    "kind": "import",
+    "file_path": "rst.rst",
+    "scope": "",
+    "language": "rst",
+    "content": "intro",
+    "line_start": 16,
+    "line_end": 17,
+    "metadata": {
+      "module": "intro",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "name": "Locales",
+    "kind": "doc_section",
+    "file_path": "rst.rst",
     "scope": "Greeter::Usage",
     "language": "rst",
-    "file_language": "rst",
     "content": "Locales\n~~~~~~~\n\nSupported locales live in :mod:`greeter.locales`.\n\nSee :doc:`topics/intro` to begin.",
-    "span": {
-      "start": 19,
-      "end": 24
-    },
-    "id": "aa5c404b1bbf9294"
+    "line_start": 19,
+    "line_end": 24
   },
   {
-    "blob_sha": "sha1",
+    "name": ":mod:`greeter.locales`",
+    "kind": "import",
     "file_path": "rst.rst",
-    "role": {
-      "kind": "import",
-      "name": ":doc:`config`",
-      "meta": {
-        "module": "config",
-        "names": "",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
     "scope": "",
     "language": "rst",
-    "file_language": "rst",
-    "content": ":doc:`config`",
-    "span": {
-      "start": 9,
-      "end": 9
-    },
-    "id": "dd8ee799b06090f8"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "rst.rst",
-    "role": {
-      "kind": "import",
-      "name": ":func:`format_greeting`",
-      "meta": {
-        "module": "",
-        "names": "format_greeting",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
-    "scope": "",
-    "language": "rst",
-    "file_language": "rst",
-    "content": ":func:`format_greeting`",
-    "span": {
-      "start": 9,
-      "end": 9
-    },
-    "id": "f25b5d70a318c752"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "rst.rst",
-    "role": {
-      "kind": "import",
-      "name": ":class:`Greeter`",
-      "meta": {
-        "module": "",
-        "names": "Greeter",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
-    "scope": "",
-    "language": "rst",
-    "file_language": "rst",
-    "content": ":class:`Greeter`",
-    "span": {
-      "start": 10,
-      "end": 10
-    },
-    "id": "4e3f89c2e0fdfe1e"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "rst.rst",
-    "role": {
-      "kind": "import",
-      "name": "`the guide <guide.rst>`_",
-      "meta": {
-        "module": "guide.rst",
-        "names": "",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
-    "scope": "",
-    "language": "rst",
-    "file_language": "rst",
-    "content": "`the guide <guide.rst>`_",
-    "span": {
-      "start": 10,
-      "end": 10
-    },
-    "id": "7f02088d9bce30fd"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "rst.rst",
-    "role": {
-      "kind": "import",
-      "name": "toctree:intro",
-      "meta": {
-        "module": "intro",
-        "names": "",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
-    "scope": "",
-    "language": "rst",
-    "file_language": "rst",
-    "content": "intro",
-    "span": {
-      "start": 16,
-      "end": 17
-    },
-    "id": "bddc97467464401e"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "rst.rst",
-    "role": {
-      "kind": "import",
-      "name": "toctree:api/index",
-      "meta": {
-        "module": "api/index",
-        "names": "",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
-    "scope": "",
-    "language": "rst",
-    "file_language": "rst",
-    "content": "api/index",
-    "span": {
-      "start": 16,
-      "end": 17
-    },
-    "id": "7d18145e52906b34"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "rst.rst",
-    "role": {
-      "kind": "import",
-      "name": ":mod:`greeter.locales`",
-      "meta": {
-        "module": "greeter.locales",
-        "names": "",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
-    "scope": "",
-    "language": "rst",
-    "file_language": "rst",
     "content": ":mod:`greeter.locales`",
-    "span": {
-      "start": 22,
-      "end": 22
-    },
-    "id": "361a041706674ba3"
+    "line_start": 22,
+    "line_end": 22,
+    "metadata": {
+      "module": "greeter.locales",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
   },
   {
-    "blob_sha": "sha1",
+    "name": ":doc:`topics/intro`",
+    "kind": "import",
     "file_path": "rst.rst",
-    "role": {
-      "kind": "import",
-      "name": ":doc:`topics/intro`",
-      "meta": {
-        "module": "topics/intro",
-        "names": "",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
     "scope": "",
     "language": "rst",
-    "file_language": "rst",
     "content": ":doc:`topics/intro`",
-    "span": {
-      "start": 24,
-      "end": 24
-    },
-    "id": "dd3f2ef7bfca0f2b"
+    "line_start": 24,
+    "line_end": 24,
+    "metadata": {
+      "module": "topics/intro",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
   },
   {
-    "blob_sha": "sha1",
+    "name": "Detail",
+    "kind": "doc_section",
     "file_path": "topics/detail.rst",
-    "role": {
-      "kind": "doc_section",
-      "name": "Detail"
-    },
     "scope": "",
     "language": "rst",
-    "file_language": "rst",
     "content": "Detail\n======\n\nReferenced from ``topics/intro.rst`` as a bare sibling.",
-    "span": {
-      "start": 1,
-      "end": 4
-    },
-    "id": "fdbf799456e37bcc"
+    "line_start": 1,
+    "line_end": 4
   },
   {
-    "blob_sha": "sha1",
+    "name": "Intro",
+    "kind": "doc_section",
     "file_path": "topics/intro.rst",
-    "role": {
-      "kind": "doc_section",
-      "name": "Intro"
-    },
     "scope": "",
     "language": "rst",
-    "file_language": "rst",
     "content": "Intro\n=====\n\nReferenced from ``rst.rst``. The role below names a bare sibling, which\nonly resolves relative to this directory.\n\nSee :doc:`detail` for the long version.",
-    "span": {
-      "start": 1,
-      "end": 7
-    },
-    "id": "5d5166d37657cf76"
+    "line_start": 1,
+    "line_end": 7
   },
   {
-    "blob_sha": "sha1",
+    "name": ":doc:`detail`",
+    "kind": "import",
     "file_path": "topics/intro.rst",
-    "role": {
-      "kind": "import",
-      "name": ":doc:`detail`",
-      "meta": {
-        "module": "detail",
-        "names": "",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
     "scope": "",
     "language": "rst",
-    "file_language": "rst",
     "content": ":doc:`detail`",
-    "span": {
-      "start": 7,
-      "end": 7
-    },
-    "id": "f5679afbbf9d4f3e"
+    "line_start": 7,
+    "line_end": 7,
+    "metadata": {
+      "module": "detail",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
   }
 ]

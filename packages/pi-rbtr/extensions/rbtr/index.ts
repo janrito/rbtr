@@ -25,7 +25,14 @@ import { Type } from "typebox";
 import { classifyDaemonFailure, decideStartupDecision, notificationRepo } from "./classify.js";
 import type { ResponseFor } from "./daemon-client.js";
 import { DaemonSession, DaemonUnavailableError, type ReconcileResult } from "./daemon-session.js";
-import { errorReply, type ResolvedCommand, resolveCommand, runRbtrJson, statusReport } from "./exec.js";
+import {
+  errorReply,
+  PROBE_TIMEOUT_MS,
+  type ResolvedCommand,
+  resolveCommand,
+  runRbtrJson,
+  statusReport,
+} from "./exec.js";
 import { Footer } from "./footer.js";
 import type {
   ChangedSymbolsResponse,
@@ -58,6 +65,9 @@ const { version: EXTENSION_VERSION } = require("../../package.json") as { versio
  * happens.
  */
 const READ_CLI_TIMEOUT_MS = 150_000;
+
+/** How long a status asked of the CLI may take, as long as starting or stopping the daemon. */
+const STATUS_CLI_TIMEOUT_MS = 15_000;
 
 /** How long a read waits for a build of what it asks for before giving rbtr's "in progress" reply. */
 const BUILD_WAIT_MS = 30_000;
@@ -326,7 +336,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     }
     if (!resolved) return null;
     try {
-      return await runRbtrJson<StatusResponse>(pi, resolved, ["status"], { timeout: 5000 });
+      return await runRbtrJson<StatusResponse>(pi, resolved, ["status"], { timeout: STATUS_CLI_TIMEOUT_MS });
     } catch (err) {
       if (err instanceof RbtrReplyError) return { kind: "error", code: err.code, message: err.message };
       return null;
@@ -430,15 +440,17 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     // tools run the CLI.
     const found = await resolveCommand(pi, settings.command);
     if (!isCurrent()) return;
-    if (found.kind === "failed") {
-      // Why rbtr did not run is unknown here; not being installed is the
-      // likeliest cause, so the hint says so.
+    if (found.kind !== "found") {
       cli = "missing";
       footer?.setStatic("error", "rbtr: cannot run");
+      // Why rbtr did not run is unknown here; not being installed is the
+      // likeliest cause, so the hint says so.
       ctx.ui.notify(
-        `rbtr could not be run (${found.command.description}: ${found.reason}). ` +
-          "It may not be installed: uv tool install rbtr\n" +
-          'Or set command in .pi/rbtr-index.json to "uvx" or "uvx --from <path>"',
+        found.kind === "silent"
+          ? `rbtr did not answer within ${PROBE_TIMEOUT_MS / 1000} s (${found.command.description}).`
+          : `rbtr could not be run (${found.command.description}: ${found.reason}). ` +
+              "It may not be installed: uv tool install rbtr\n" +
+              'Or set command in .pi/rbtr-index.json to "uvx" or "uvx --from <path>"',
         "warning",
       );
       return;
@@ -1325,7 +1337,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
           () => {
             if (!resolved) throw new Error("rbtr CLI not available");
             const args = scope === "all" ? ["status", "--scope", "all"] : ["status"];
-            return runRbtrJson<StatusResponse>(pi, resolved, args, { timeout: 5000 });
+            return runRbtrJson<StatusResponse>(pi, resolved, args, { timeout: STATUS_CLI_TIMEOUT_MS });
           },
           signal,
         );

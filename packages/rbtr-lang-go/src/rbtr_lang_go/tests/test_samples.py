@@ -1,4 +1,4 @@
-"""go sample extraction: the `samples/go/` project through the real pipeline."""
+"""go sample extraction: the `samples/go/` project, built as rbtr builds a repository."""
 
 from __future__ import annotations
 
@@ -6,61 +6,22 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from tree_sitter import Parser
 
-from rbtr.domain.models import Chunk, ChunkKind
-from rbtr.git import FileEntry
-from rbtr.languages.edges import InferredEdgeRow, infer_import_edges
-from rbtr.languages.extract import extract_file
-from rbtr.languages.manager import get_manager
-from rbtr.languages.resolution import build_resolution_map
-from rbtr.testing import assert_fully_chunked, edge_rows, render_edges
+from rbtr.domain.models import ChunkKind
 
 if TYPE_CHECKING:
-    import dataframely as dy
     from syrupy.assertion import SnapshotAssertion
 
-
-@pytest.fixture
-def project() -> list[tuple[str, str]]:
-    root = Path(__file__).parent / "samples" / "go"
-    return [
-        (str(p.relative_to(root)), p.read_text()) for p in sorted(root.rglob("*")) if p.is_file()
-    ]
+    from rbtr.daemon.dto import SymbolOut
 
 
-@pytest.fixture
-def sources(project: list[tuple[str, str]]) -> list[tuple[str, str]]:
-    """The project's source files, which is every file but `go.mod`.
-
-    A manifest is data the resolver reads, not source a grammar parses;
-    a build chunks it as plaintext.
-    """
-    manager = get_manager()
-    return [(path, text) for path, text in project if manager.detect_language(path)]
+@pytest.fixture(scope="module")
+def sample_dir() -> Path:
+    """The `samples/go/` project."""
+    return Path(__file__).parent / "samples" / "go"
 
 
-@pytest.fixture
-def chunks(sources: list[tuple[str, str]]) -> list[Chunk]:
-    manager = get_manager()
-    out: list[Chunk] = []
-    for path, text in sources:
-        lang = manager.detect_language(path) or "go"
-        out.extend(extract_file(FileEntry(path, "sha1", text.encode()), lang))
-    return out
-
-
-@pytest.fixture
-def edges(project: list[tuple[str, str]], chunks: list[Chunk]) -> dy.DataFrame[InferredEdgeRow]:
-    manager = get_manager()
-    repo_files = {path for path, _ in project}
-    manifests = {path: text for path, text in project if path == "go.mod"}
-    resolution = build_resolution_map(manager, manifests=manifests)
-    return infer_import_edges(edge_rows(chunks), repo_files, resolution)
-
-
-def test_emits_expected_kinds(chunks: list[Chunk]) -> None:
-    kinds = {c.kind for c in chunks}
+def test_emits_expected_kinds(sample_symbols: list[SymbolOut]) -> None:
     assert {
         ChunkKind.FUNCTION,
         ChunkKind.METHOD,
@@ -68,29 +29,25 @@ def test_emits_expected_kinds(chunks: list[Chunk]) -> None:
         ChunkKind.VARIABLE,
         ChunkKind.IMPORT,
         ChunkKind.COMMENT,
-    } <= kinds
+    } <= {s.kind for s in sample_symbols}
 
 
-def test_parses_cleanly(sources: list[tuple[str, str]]) -> None:
-    manager = get_manager()
-    for path, text in sources:
-        grammar = manager.grammar(manager.detect_language(path) or "go")
-        assert grammar is not None
-        assert not Parser(grammar).parse(text.encode()).root_node.has_error, path
+def test_parses_cleanly(sample_parse_errors: list[str]) -> None:
+    """Every source file is valid in the language the build read it as."""
+    assert sample_parse_errors == []
 
 
-def test_every_line_reaches_a_chunk(sources: list[tuple[str, str]], chunks: list[Chunk]) -> None:
-    """No code in a sample file is left outside a chunk."""
-    manager = get_manager()
-    for path, text in sources:
-        assert_fully_chunked(path, text, chunks, manager.detect_language(path) or "go")
-
-
-def test_extraction_matches_snapshot(chunks: list[Chunk], snapshot_json: SnapshotAssertion) -> None:
-    assert chunks == snapshot_json
-
-
-def test_edges_match_snapshot(
-    chunks: list[Chunk], edges: dy.DataFrame[InferredEdgeRow], snapshot_json: SnapshotAssertion
+def test_extraction_matches_snapshot(
+    sample_symbols: list[SymbolOut], snapshot_json: SnapshotAssertion
 ) -> None:
-    assert render_edges(edges, chunks) == snapshot_json
+    assert sample_symbols == snapshot_json
+
+
+def test_edges_match_snapshot(sample_edges: list[str], snapshot_json: SnapshotAssertion) -> None:
+    assert sample_edges == snapshot_json
+
+
+def test_uncovered_lines_match_snapshot(
+    sample_uncovered_lines: list[str], snapshot_json: SnapshotAssertion
+) -> None:
+    assert sample_uncovered_lines == snapshot_json

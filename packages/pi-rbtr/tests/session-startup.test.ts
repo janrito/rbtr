@@ -10,6 +10,7 @@ import type { SystemMessage } from "@earendil-works/pi-ai";
 import { describe, expect, inject } from "vitest";
 
 import { HEADER } from "../extensions/rbtr/annotate.js";
+import { PROBE_TIMEOUT_MS } from "../extensions/rbtr/exec.js";
 import { ON_REQUEST } from "../extensions/rbtr/tool-set.js";
 import { type Call, DAEMON_AT, test, textOf, until } from "./session.fixtures.js";
 
@@ -27,25 +28,32 @@ const { subject } = inject("corpus");
 
 const readSubject: Call = { name: "rbtr_read_symbol", args: { symbol: subject.name } };
 
-// A stopped daemon is the test's own: the shared one keeps running.
+const PROBE = "python3 -m rbtr --json daemon status";
+
+// A stopped daemon is the test's own: the shared one keeps running. A slow
+// start takes as long as a Python process can on a busy machine.
 describe.for<{
   daemon: "running" | "stopped";
   missing: ("python3" | "rbtr" | "uvx")[];
+  slow: Record<string, number>;
   started: string[];
 }>([
-  { daemon: "running", missing: [], started: ["python3 -m rbtr --json daemon status"] },
+  { daemon: "running", missing: [], slow: {}, started: [PROBE] },
   {
     daemon: "stopped",
     missing: [],
-    started: ["python3 -m rbtr --json daemon status", "python3 -m rbtr --json daemon start"],
+    slow: {},
+    started: [PROBE, "python3 -m rbtr --json daemon start"],
   },
   {
     daemon: "running",
     missing: ["python3"],
-    started: ["python3 -m rbtr --json daemon status", "rbtr --json daemon status"],
+    slow: {},
+    started: [PROBE, "rbtr --json daemon status"],
   },
-])("with the daemon $daemon and $missing missing", ({ daemon, missing, started }) => {
-  test.override({ ownDaemon: daemon === "stopped", missing });
+  { daemon: "running", missing: [], slow: { [PROBE]: 6000 }, started: [PROBE] },
+])("with the daemon $daemon, $missing missing and $slow slow", ({ daemon, missing, slow, started }) => {
+  test.override({ ownDaemon: daemon === "stopped", missing, slow });
 
   test("startup runs the fewest rbtr processes, and the daemon serves the tools", async ({ processes, pi }) => {
     await pi.start();
@@ -126,6 +134,19 @@ describe("with no rbtr installed", () => {
     expect(pi.ui.notifications.join("\n")).toMatch(
       /rbtr could not be run \(uvx rbtr: .+\)\. It may not be installed: uv tool install rbtr/,
     );
+  });
+});
+
+describe("with the active Python's rbtr never answering", () => {
+  test.override({ slow: { [PROBE]: PROBE_TIMEOUT_MS + 10_000 } });
+
+  test("startup stops at it rather than run another rbtr", async ({ processes, pi }) => {
+    await pi.start();
+    const [end] = await pi.run(readSubject);
+    expect(end.isError).toBe(true);
+    expect(processes()).toEqual([PROBE]);
+    expect(pi.ui.statuses.at(-1)).toBe("rbtr: cannot run");
+    expect(pi.ui.notifications).toEqual(["rbtr did not answer within 30 s (python -m rbtr)."]);
   });
 });
 

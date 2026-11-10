@@ -794,10 +794,10 @@ def go_module_prefix(text: str) -> tuple[tuple[str, str], ...]:
     return ((f"{match.group(1)}/", ""),) if match else ()
 ```
 
-Add a case to `test_import_resolution.py` for the language: two real files
-in a subdirectory, one referencing the other, asserting the edge is recorded.
-Nested because two files at the repository root cannot tell a reference to
-a sibling from a reference from the root.
+Add a case to `cases_edges.py` for the language: two real files in a
+subdirectory, one referencing the other, and the edge a build of them
+records. Nested because two files at the repository root cannot tell a
+reference to a sibling from a reference from the root.
 
 ### Chunker-based plugin
 
@@ -856,11 +856,12 @@ by a line.
 
 ### Testing the plugin
 
-Tests exercise the **real** extraction pipeline: they call
-`rbtr.languages.extract.extract_file` — the same per-file entry point
-the indexer uses — so there is no test-only code path. The `rbtr[test]`
-extra (in your `dev` group) provides `syrupy` and `pytest-cases`. Lay
-the tests out beside the code:
+Tests exercise the **real** pipeline, so there is no test-only code
+path: construct tests call `rbtr.languages.extract.extract_file`, the
+per-file entry point the indexer uses, and sample tests build a sample
+project as rbtr builds a repository. The `rbtr[test]` extra (in your
+`dev` group) provides `syrupy` and `pytest-cases`. Lay the tests out
+beside the code:
 
 ```text
 src/rbtr_lang_swift/tests/
@@ -905,34 +906,47 @@ def test_extracts_expected_symbols(lang, source, expected):
         assert exp in got
 ```
 
-A sample test snapshots a committed example project, guarding extraction
-against drift:
+A sample test builds a committed example project and snapshots what the
+index then holds, guarding extraction against drift. The test module
+names the sample with a module-scoped `sample_dir` fixture; the
+`rbtr[test]` plugin commits it to a fresh repository, builds it, and
+hands the tests what the build holds as plain values:
 
 ```python
 # test_samples.py
 from pathlib import Path
-from rbtr.git import FileEntry
-from rbtr.languages.extract import extract_file
-from rbtr.languages.manager import get_manager
+
+import pytest
 
 
-def test_extraction_matches_snapshot(snapshot_json):
-    root = Path(__file__).parent / "samples" / "swift"
-    files = [
-        (str(p.relative_to(root)), p.read_text()) for p in sorted(root.rglob("*")) if p.is_file()
-    ]
-    manager = get_manager()
-    chunks = []
-    for path, text in files:
-        lang = manager.detect_language(path) or "swift"
-        chunks.extend(extract_file(FileEntry(path, "sha1", text.encode()), lang))
-    assert chunks == snapshot_json
+@pytest.fixture(scope="module")
+def sample_dir():
+    return Path(__file__).parent / "samples" / "swift"
+
+
+def test_parses_cleanly(sample_parse_errors):
+    assert sample_parse_errors == []
+
+
+def test_extraction_matches_snapshot(sample_symbols, snapshot_json):
+    assert sample_symbols == snapshot_json
+
+
+def test_edges_match_snapshot(sample_edges, snapshot_json):
+    assert sample_edges == snapshot_json
+
+
+def test_uncovered_lines_match_snapshot(sample_uncovered_lines, snapshot_json):
+    assert sample_uncovered_lines == snapshot_json
 ```
 
-Regenerate the golden files after an intended change with
-`pytest --snapshot-update`. For edge snapshots,
-`rbtr.testing.render_edges(edges, chunks)` turns opaque edge
-ids into readable `file::name -> file::name [kind]` lines.
+`sample_symbols` are the symbols `read-symbol` returns. `sample_edges`
+are the edges, as readable `file::name -> file::name [kind]` lines.
+`sample_uncovered_lines` lists each non-blank line no chunk spans, which
+should be syntax with nothing to search, such as a closing brace.
+`sample_parse_errors` names each file that does not parse in the
+language the build read it as. Regenerate the golden files after an
+intended change with `pytest --snapshot-update`.
 
 ### Installing the plugin
 
