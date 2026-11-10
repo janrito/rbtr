@@ -4,17 +4,17 @@
 
 The search score fuses three channels:
 
-- __alpha__ — semantic (embedding cosine similarity)
-- __beta__ — lexical (BM25 keyword search)
-- __gamma__ — name-match (identifier matching)
+- **alpha** — semantic (embedding cosine similarity)
+- **beta** — lexical (BM25 keyword search)
+- **gamma** — name-match (identifier matching)
 
 `score = alpha × semantic + beta × lexical + gamma × name`
 
 | kind       | alpha    | beta     | gamma    |
 | ---------- | -------- | -------- | -------- |
-| concept    | 0.174711 | 0.337455 | 0.487834 |
-| identifier | 0.046651 | 0.358908 | 0.594441 |
-| code       | 0.003365 | 0.768612 | 0.228023 |
+| concept    | 0.071036 | 0.08094  | 0.848024 |
+| identifier | 0.011332 | 0.204236 | 0.784432 |
+| code       | 0.012328 | 0.813697 | 0.173975 |
 
 ## Result
 
@@ -42,11 +42,11 @@ these weightings orders this pool best", not "how well does
 search work", and are not comparable with the MRR in
 `BENCHMARKS.md`.
 
-| kind       | metric | current            | recommended         | delta                        | std error | verdict  | n   | pool ceiling |
-| ---------- | ------ | ------------------ | ------------------- | ---------------------------- | --------- | -------- | --- | ------------ |
-| concept    | MRR    | 0.1633083801206072 | 0.17238424481874265 | 0.009075864698135455 (+5.6%) | ± 0.0067  | withhold | 458 | 0.4694       |
-| identifier | MRR    | 0.516808658692545  | 0.5201196118257729  | 0.003310953133227934 (+0.6%) | ± 0.0036  | withhold | 844 | 0.8507       |
-| code       | MRR    | 0.6529042238364272 | 0.6571643798762443  | 0.004260156039817109 (+0.7%) | ± 0.0069  | withhold | 295 | 0.9051       |
+| kind       | metric | current             | recommended         | delta                         | std error | verdict   | n   | pool ceiling |
+| ---------- | ------ | ------------------- | ------------------- | ----------------------------- | --------- | --------- | --- | ------------ |
+| concept    | MRR    | 0.15917290496984818 | 0.16084858251888817 | 0.0016756775490399944 (+1.1%) | ± 0.0045  | withhold  | 458 | 0.4607       |
+| identifier | MRR    | 0.5193698922295831  | 0.530094558632014   | 0.010724666402430971 (+2.1%)  | ± 0.0049  | recommend | 841 | 0.8621       |
+| code       | MRR    | 0.6449044928705945  | 0.6616182405165457  | 0.016713747645951238 (+2.6%)  | ± 0.0068  | recommend | 295 | 0.9017       |
 
 ## Top-trial spread
 
@@ -59,42 +59,42 @@ from a plateau.
 
 | kind       | n_top | alpha_min | alpha_max | beta_min | beta_max | gamma_min | gamma_max | mrr_range |
 | ---------- | ----- | --------- | --------- | -------- | -------- | --------- | --------- | --------- |
-| concept    | 10    | 0.020334  | 0.288018  | 0.033426 | 0.545142 | 0.189889  | 0.946239  | 0.002644  |
-| identifier | 10    | 0.000598  | 0.083052  | 0.291555 | 0.417622 | 0.499326  | 0.67984   | 0.003137  |
-| code       | 10    | 0.00008   | 0.073596  | 0.558439 | 0.816695 | 0.176449  | 0.439903  | 0.002194  |
+| concept    | 10    | 0.064499  | 0.594595  | 0.08094  | 0.44287  | 0.009242  | 0.848024  | 0.002123  |
+| identifier | 10    | 0.003532  | 0.024736  | 0.045981 | 0.47724  | 0.512216  | 0.947992  | 0.00526   |
+| code       | 10    | 0.000149  | 0.035677  | 0.427222 | 0.976295 | 0.006065  | 0.566517  | 0.001751  |
 
 ## Impact by dimension
 
-MRR comparison between current (baseline) and recommended
-(best) weights, broken down by repo, language, and query
-kind.
+MRR and NDCG@10 under the current (baseline) and recommended
+(best) weights: over every query, then per repo, language and
+provenance.
 
-| slug               | language   | provenance | baseline_mrr | best_mrr | delta   | baseline_ndcg_at_10 | best_ndcg_at_10 | delta_ndcg_at_10 |
-| ------------------ | ---------- | ---------- | ------------ | -------- | ------- | ------------------- | --------------- | ---------------- |
-| __all__            | __all__    | __all__    | 0.440569     | 0.445708 | 0.0051  | 0.47827             | 0.481559        | 0.0033           |
-| __all__            | __all__    | body       | 0.514204     | 0.528009 | 0.0138  | 0.557769            | 0.569791        | 0.012            |
-| __all__            | __all__    | concept    | 0.138956     | 0.134001 | -0.005  | 0.168821            | 0.161729        | -0.0071          |
-| __all__            | __all__    | docstring  | 0.681239     | 0.687026 | 0.0058  | 0.716229            | 0.718752        | 0.0025           |
-| __all__            | __all__    | name       | 0.506922     | 0.508937 | 0.002   | 0.545713            | 0.547015        | 0.0013           |
-| __all__            | bash       | __all__    | 0.58529      | 0.586351 | 0.0011  | 0.624956            | 0.628316        | 0.0034           |
-| __all__            | css        | __all__    | 0.662346     | 0.660794 | -0.0016 | 0.701892            | 0.697979        | -0.0039          |
-| __all__            | html       | __all__    | 0.205593     | 0.260714 | 0.0551  | 0.237454            | 0.287729        | 0.0503           |
-| __all__            | javascript | __all__    | 0.540579     | 0.522764 | -0.0178 | 0.581582            | 0.554473        | -0.0271          |
-| __all__            | json       | __all__    | 0.183572     | 0.173912 | -0.0097 | 0.214087            | 0.2067          | -0.0074          |
-| __all__            | markdown   | __all__    | 0.19144      | 0.234524 | 0.0431  | 0.221742            | 0.26742         | 0.0457           |
-| __all__            | plaintext  | __all__    | 0.185278     | 0.19213  | 0.0069  | 0.205292            | 0.225115        | 0.0198           |
-| __all__            | python     | __all__    | 0.614008     | 0.621537 | 0.0075  | 0.653926            | 0.655647        | 0.0017           |
-| __all__            | rst        | __all__    | 0.094618     | 0.098557 | 0.0039  | 0.110597            | 0.113914        | 0.0033           |
-| __all__            | rust       | __all__    | 0.532331     | 0.538158 | 0.0058  | 0.582221            | 0.582633        | 0.0004           |
-| __all__            | sql        | __all__    | 0.567633     | 0.566304 | -0.0013 | 0.6366              | 0.635387        | -0.0012          |
-| __all__            | toml       | __all__    | 0.117478     | 0.109179 | -0.0083 | 0.140645            | 0.139156        | -0.0015          |
-| __all__            | typescript | __all__    | 0.580708     | 0.586433 | 0.0057  | 0.63318             | 0.630696        | -0.0025          |
-| __all__            | yaml       | __all__    | 0.123313     | 0.13534  | 0.012   | 0.149886            | 0.155916        | 0.006            |
-| anthropics__skills | __all__    | __all__    | 0.587818     | 0.591467 | 0.0036  | 0.634233            | 0.63522         | 0.001            |
-| astral-sh__uv      | __all__    | __all__    | 0.417675     | 0.423766 | 0.0061  | 0.44844             | 0.452633        | 0.0042           |
-| badlogic__pi-mono  | __all__    | __all__    | 0.451605     | 0.452233 | 0.0006  | 0.492064            | 0.491911        | -0.0002          |
-| django__django     | __all__    | __all__    | 0.336528     | 0.333213 | -0.0033 | 0.364651            | 0.362274        | -0.0024          |
-| rbtr__rbtr         | __all__    | __all__    | 0.433259     | 0.457335 | 0.0241  | 0.483013            | 0.500769        | 0.0178           |
+| dimension  | value                | baseline MRR | best MRR | delta   | baseline NDCG@10 | best NDCG@10 | delta NDCG@10 |
+| ---------- | -------------------- | ------------ | -------- | ------- | ---------------- | ------------ | ------------- |
+| **all**    |                      | 0.4391       | 0.4483   | 0.0092  | 0.4806           | 0.4864       | 0.0058        |
+| slug       | `anthropics__skills` | 0.5904       | 0.5977   | 0.0073  | 0.6386           | 0.6428       | 0.0042        |
+| slug       | `astral-sh__uv`      | 0.4134       | 0.413    | -0.0005 | 0.449            | 0.4446       | -0.0044       |
+| slug       | `badlogic__pi-mono`  | 0.4539       | 0.4646   | 0.0107  | 0.5011           | 0.5108       | 0.0098        |
+| slug       | `django__django`     | 0.3335       | 0.3383   | 0.0048  | 0.3642           | 0.3662       | 0.0019        |
+| slug       | `rbtr__rbtr`         | 0.429        | 0.4624   | 0.0334  | 0.4819           | 0.5083       | 0.0265        |
+| language   | `bash`               | 0.5745       | 0.5826   | 0.0081  | 0.6185           | 0.6255       | 0.007         |
+| language   | `css`                | 0.6394       | 0.6302   | -0.0092 | 0.6841           | 0.6732       | -0.0109       |
+| language   | `html`               | 0.1998       | 0.2504   | 0.0506  | 0.2329           | 0.2791       | 0.0462        |
+| language   | `javascript`         | 0.5237       | 0.5179   | -0.0057 | 0.564            | 0.5554       | -0.0086       |
+| language   | `json`               | 0.1876       | 0.1927   | 0.0051  | 0.2205           | 0.2242       | 0.0037        |
+| language   | `markdown`           | 0.2127       | 0.2756   | 0.0629  | 0.2463           | 0.3071       | 0.0609        |
+| language   | `plaintext`          | 0.1891       | 0.2038   | 0.0147  | 0.2199           | 0.2298       | 0.0099        |
+| language   | `python`             | 0.605        | 0.6105   | 0.0055  | 0.6515           | 0.6515       | -0.0          |
+| language   | `rst`                | 0.1094       | 0.1117   | 0.0023  | 0.1219           | 0.1277       | 0.0057        |
+| language   | `rust`               | 0.5773       | 0.576    | -0.0013 | 0.6332           | 0.62         | -0.0131       |
+| language   | `sql`                | 0.5502       | 0.5929   | 0.0427  | 0.6229           | 0.65         | 0.0271        |
+| language   | `toml`               | 0.1193       | 0.101    | -0.0182 | 0.1465           | 0.123        | -0.0235       |
+| language   | `typescript`         | 0.5884       | 0.5925   | 0.0041  | 0.6437           | 0.6414       | -0.0023       |
+| language   | `yaml`               | 0.1193       | 0.1146   | -0.0047 | 0.1494           | 0.1455       | -0.0039       |
+| provenance | `body`               | 0.5104       | 0.5399   | 0.0294  | 0.5579           | 0.581        | 0.0231        |
+| provenance | `concept`            | 0.1371       | 0.1307   | -0.0063 | 0.1748           | 0.1651       | -0.0097       |
+| provenance | `docstring`          | 0.6792       | 0.6674   | -0.0118 | 0.7166           | 0.7038       | -0.0128       |
+| provenance | `name`               | 0.5076       | 0.515    | 0.0074  | 0.5462           | 0.5532       | 0.007         |
 
 ## Convergence
 
@@ -107,27 +107,26 @@ kind.
 ## Recommended config
 
 ```toml
+[search_weights.identifier]
+alpha = 0.011331888722881895
+beta = 0.20423561240938556
+gamma = 0.7844324988677325
+
+[search_weights.code]
+alpha = 0.012328326021083746
+beta = 0.8136969141958394
+gamma = 0.17397475978307678
 # [search_weights.concept]
-# alpha = 0.17471104556180572
-# beta = 0.33745479350707447
-# gamma = 0.48783416093111986
-#
-# [search_weights.identifier]
-# alpha = 0.04665051374126059
-# beta = 0.35890803521278397
-# gamma = 0.5944414510459555
-#
-# [search_weights.code]
-# alpha = 0.0033654757256979563
-# beta = 0.7686116381960251
-# gamma = 0.2280228860782769
+# alpha = 0.07103605819788694
+# beta = 0.08093997769720093
+# gamma = 0.8480239641049121
 ```
 
 ## Run metadata
 
 - Optuna trials: 50
-- queries evaluated: 1597
-- elapsed: 16112 s
+- queries evaluated: 1594
+- elapsed: 16880 s
 
 ## Sample distribution
 
@@ -138,7 +137,7 @@ kind.
 | anthropics__skills | bash       | docstring  | 6         |
 | anthropics__skills | bash       | name       | 10        |
 | anthropics__skills | css        | body       | 11        |
-| anthropics__skills | css        | concept    | 10        |
+| anthropics__skills | css        | concept    | 11        |
 | anthropics__skills | css        | docstring  | 10        |
 | anthropics__skills | css        | name       | 11        |
 | anthropics__skills | javascript | body       | 18        |
@@ -146,15 +145,15 @@ kind.
 | anthropics__skills | javascript | docstring  | 10        |
 | anthropics__skills | javascript | name       | 10        |
 | anthropics__skills | json       | body       | 10        |
-| anthropics__skills | json       | concept    | 10        |
+| anthropics__skills | json       | concept    | 11        |
 | anthropics__skills | json       | name       | 10        |
 | anthropics__skills | markdown   | body       | 10        |
-| anthropics__skills | markdown   | concept    | 11        |
+| anthropics__skills | markdown   | concept    | 10        |
 | anthropics__skills | markdown   | name       | 10        |
 | anthropics__skills | plaintext  | body       | 10        |
 | anthropics__skills | plaintext  | concept    | 10        |
 | anthropics__skills | python     | body       | 22        |
-| anthropics__skills | python     | concept    | 11        |
+| anthropics__skills | python     | concept    | 10        |
 | anthropics__skills | python     | docstring  | 13        |
 | anthropics__skills | python     | name       | 10        |
 | anthropics__skills | typescript | body       | 20        |
@@ -162,7 +161,7 @@ kind.
 | anthropics__skills | typescript | docstring  | 9         |
 | anthropics__skills | typescript | name       | 10        |
 | astral-sh__uv      | bash       | body       | 23        |
-| astral-sh__uv      | bash       | concept    | 11        |
+| astral-sh__uv      | bash       | concept    | 10        |
 | astral-sh__uv      | bash       | docstring  | 10        |
 | astral-sh__uv      | bash       | name       | 10        |
 | astral-sh__uv      | css        | body       | 11        |
@@ -212,17 +211,17 @@ kind.
 | badlogic__pi-mono  | json       | concept    | 10        |
 | badlogic__pi-mono  | json       | name       | 10        |
 | badlogic__pi-mono  | markdown   | body       | 10        |
-| badlogic__pi-mono  | markdown   | concept    | 14        |
+| badlogic__pi-mono  | markdown   | concept    | 10        |
 | badlogic__pi-mono  | markdown   | name       | 10        |
 | badlogic__pi-mono  | typescript | body       | 20        |
-| badlogic__pi-mono  | typescript | concept    | 10        |
+| badlogic__pi-mono  | typescript | concept    | 11        |
 | badlogic__pi-mono  | typescript | docstring  | 13        |
 | badlogic__pi-mono  | typescript | name       | 10        |
 | django__django     | bash       | body       | 18        |
 | django__django     | bash       | concept    | 10        |
 | django__django     | bash       | name       | 10        |
 | django__django     | css        | body       | 20        |
-| django__django     | css        | concept    | 10        |
+| django__django     | css        | concept    | 11        |
 | django__django     | css        | docstring  | 10        |
 | django__django     | css        | name       | 12        |
 | django__django     | html       | body       | 12        |
@@ -233,7 +232,7 @@ kind.
 | django__django     | javascript | docstring  | 11        |
 | django__django     | javascript | name       | 10        |
 | django__django     | json       | body       | 10        |
-| django__django     | json       | concept    | 11        |
+| django__django     | json       | concept    | 10        |
 | django__django     | json       | name       | 10        |
 | django__django     | markdown   | body       | 10        |
 | django__django     | markdown   | concept    | 10        |
@@ -241,7 +240,7 @@ kind.
 | django__django     | plaintext  | body       | 10        |
 | django__django     | plaintext  | concept    | 10        |
 | django__django     | python     | body       | 22        |
-| django__django     | python     | concept    | 11        |
+| django__django     | python     | concept    | 10        |
 | django__django     | python     | docstring  | 15        |
 | django__django     | python     | name       | 10        |
 | django__django     | rst        | body       | 10        |
@@ -257,10 +256,10 @@ kind.
 | rbtr__rbtr         | json       | concept    | 10        |
 | rbtr__rbtr         | json       | name       | 10        |
 | rbtr__rbtr         | markdown   | body       | 10        |
-| rbtr__rbtr         | markdown   | concept    | 11        |
+| rbtr__rbtr         | markdown   | concept    | 12        |
 | rbtr__rbtr         | markdown   | name       | 10        |
 | rbtr__rbtr         | python     | body       | 21        |
-| rbtr__rbtr         | python     | concept    | 10        |
+| rbtr__rbtr         | python     | concept    | 11        |
 | rbtr__rbtr         | python     | docstring  | 11        |
 | rbtr__rbtr         | python     | name       | 10        |
 | rbtr__rbtr         | sql        | body       | 16        |

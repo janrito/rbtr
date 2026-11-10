@@ -92,6 +92,10 @@ exclude = [
 ]
 extend-enable = ["MD060"]
 
+[tool.rumdl.per-file-ignores]
+# Generated: examples of unnamed chunks from one repo share a heading.
+"packages/rbtr-eval/data/PARAPHRASE.md" = ["MD024"]
+
 [tool.rumdl.MD013]
 line_length = 88
 headings = false

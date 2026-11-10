@@ -2,10 +2,10 @@
 
 | metric     | value            |
 | ---------- | ---------------- |
-| chunks     | 161,928          |
-| embedded   | 161,928 (100.0%) |
+| chunks     | 161,939          |
+| embedded   | 161,939 (100.0%) |
 | truncated  | 1,350            |
-| index size | 1.3 GB           |
+| index size | 858.1 MiB        |
 
 ## Repos
 

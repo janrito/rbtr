@@ -2,7 +2,7 @@
 
 | metric          | value   |
 | --------------- | ------- |
-| chunks          | 161,928 |
+| chunks          | 161,939 |
 | chunk locations | 164,361 |
 | edges           | 49,514  |
 
@@ -28,13 +28,13 @@
 | function    | 12140 | 0              | 5665          |
 | comment     | 8541  | 0              | 0             |
 | variable    | 8237  | 0              | 4167          |
-| raw_chunk   | 1415  | 0              | 35            |
+| raw_chunk   | 1426  | 0              | 35            |
 
 ## Languages
 
 | lang       | n     | outbound_edges | inbound_edges |
 | ---------- | ----- | -------------- | ------------- |
-| python     | 64351 | 12578          | 17218         |
+| python     | 64354 | 12578          | 17218         |
 | rust       | 25242 | 1349           | 1262          |
 | rst        | 16403 | 4431           | 2             |
 | markdown   | 16050 | 23036          | 9325          |
@@ -43,7 +43,7 @@
 | javascript | 2944  | 13             | 293           |
 | css        | 2053  | 2              | 3             |
 | bash       | 1341  | 0              | 685           |
-| plaintext  | 1131  | 0              | 33            |
+| plaintext  | 1139  | 0              | 33            |
 | toml       | 1086  | 419            | 1177          |
 | html       | 468   | 173            | 0             |
 | yaml       | 337   | 0              | 53            |

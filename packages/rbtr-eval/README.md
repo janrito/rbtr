@@ -157,10 +157,9 @@ reaches the sibling beside each copy.
 
 **Weight tuning is a recommendation, not a change.** `tune`
 reports the best `(α, β, γ)` per query kind; adopting them is
-a deliberate edit to the shipped defaults. The code kind's
-optimum surface is flat enough that its recommendation moves
-between runs, which is a reason to read the tuner's output
-rather than apply it.
+a deliberate edit to the shipped defaults. Why the shipped
+defaults do not follow it is recorded in rbtr's
+[design decisions](../rbtr/ARCHITECTURE.md#search).
 
 What the current run measured is in
 [`data/BENCHMARKS.md`](data/BENCHMARKS.md), with the tuning
