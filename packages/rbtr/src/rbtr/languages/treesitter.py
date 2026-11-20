@@ -173,7 +173,8 @@ def read(
     hands on the same way (`sources`): the query's spans are the
     `CaptureRow`s, its metadata captures the `MetadataCaptureRow`s, the
     chunkers' chunks the `PlacedChunkRow`s, numbered
-    in one order per file. A chunker's chunk is in its source's language
+    in one order per file, each checked against its schema in a lazy plan
+    (cheaper than an eager check) and collected. A chunker's chunk is in its source's language
     when the chunker leaves it blank. The files whose language reads
     nothing and hands on no block are the list. *languages* finds each
     language.
@@ -210,12 +211,12 @@ def read(
                     captures += fragments(source, extraction, captured, named)
                     metadata_captures += found
     return (
-        pl.DataFrame(captures, schema=CaptureRow.create_empty().schema).pipe(
-            CaptureRow.validate, cast=True
-        ),
-        pl.DataFrame(metadata_captures, schema=MetadataCaptureRow.create_empty().schema).pipe(
-            MetadataCaptureRow.validate, cast=True
-        ),
+        pl.LazyFrame(captures, schema=CaptureRow.create_empty().schema)
+        .pipe(CaptureRow.validate, cast=True)
+        .collect(),
+        pl.LazyFrame(metadata_captures, schema=MetadataCaptureRow.create_empty().schema)
+        .pipe(MetadataCaptureRow.validate, cast=True)
+        .collect(),
         pl.concat(
             [
                 chunk_rows([chunk for chunk, *_ in chunked]).drop("language", "file_language"),
@@ -231,7 +232,10 @@ def read(
                 ),
             ],
             how="horizontal",
-        ).pipe(PlacedChunkRow.validate, cast=True),
+        )
+        .lazy()
+        .pipe(PlacedChunkRow.validate, cast=True)
+        .collect(),
         plain,
     )
 

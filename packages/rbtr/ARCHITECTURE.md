@@ -212,7 +212,9 @@ build plaintext windows. Assembly combines the results, adds any required
 orders each file's chunks. `PlacedChunkRow` adds file and order to the
 shared `ChunkRow` columns; those placement fields last only as long as
 assembly and grouping need them. The input bytes preserve offsets even
-when invalid UTF-8 bytes must be replaced.
+when invalid UTF-8 bytes must be replaced. Each rule is one lazy plan,
+its schema checks part of the plan, collected before the next rule reads
+it ([why](#git-and-extraction)).
 
 For example, this `client.py`:
 
@@ -2460,6 +2462,15 @@ costs about 8% more per file than the Python implementation, while bulk
 tokenisation and persistence benefit from processing rows together.
 The single-file API uses the same process so plugin tests exercise the
 same rules as a build.
+
+**Each extraction rule is one lazy plan.** A rule ends in
+`Schema.validate`, which dataframely adds to a lazy plan rather than
+running at once, so every frame's shape is checked within the plan, at a
+fraction of an eager check's fixed cost per call. `extract_batch` collects
+each rule's plan before the next reads it. One plan for the whole batch
+does not work: a plan copies a frame it reads twice into each use, and
+`with_metadata` reads its inputs many times, so the plan grows past
+what polars builds quickly, even for one small file.
 
 **Tree-dependent work ends before batch rules run.** Names, scopes,
 injection ranges and some capture spans need tree-sitter nodes or

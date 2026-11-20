@@ -431,8 +431,8 @@ def span_text() -> pl.Expr:
 
 
 def fold_comments(
-    files: dy.DataFrame[FileRow], captures: dy.DataFrame[CaptureRow]
-) -> dy.DataFrame[CaptureRow]:
+    files: dy.DataFrame[FileRow], captures: dy.LazyFrame[CaptureRow]
+) -> dy.LazyFrame[CaptureRow]:
     """*captures* with each source's comments folded into blocks, and the blocks into symbols.
 
     Comments that start their line and touch, with only whitespace and no
@@ -446,7 +446,7 @@ def fold_comments(
     """
     return (
         # In one chunk: joined from several, polars copies the content into every row.
-        captures.join(files.select("file", "content").rechunk(), on="file")
+        captures.join(files.select("file", "content").rechunk().lazy(), on="file")
         .sort("source", "order")
         .with_columns(starts_line=starts_line())
         .with_columns(block=starts_block().cum_sum().over("source"))
@@ -482,8 +482,8 @@ def all_names(path: pl.Expr) -> pl.Expr:
 
 
 def with_metadata(
-    captures: dy.DataFrame[CaptureRow], metadata_captures: dy.DataFrame[MetadataCaptureRow]
-) -> dy.DataFrame[CaptureRow]:
+    captures: dy.LazyFrame[CaptureRow], metadata_captures: dy.LazyFrame[MetadataCaptureRow]
+) -> dy.LazyFrame[CaptureRow]:
     """*captures* with the metadata *metadata_captures* give them: an import's names and bindings, a chunk's calls and bases.
 
     A `@_bind_name` and a `@_bind_local` of one match are one binding. An
@@ -560,7 +560,7 @@ def with_metadata(
             )
         )
         .drop("module", "listed", "set_names", "set_hint", "bound")
-        .select(captures.columns)
+        .select(CaptureRow.column_names())
     )
     markers = (
         metadata_captures.filter(
@@ -627,7 +627,8 @@ def with_metadata(
         .join(
             markers.with_columns(
                 capture=pl.lit(
-                    MetadataCaptureName.CALL.value, dtype=metadata_captures.schema["capture"]
+                    MetadataCaptureName.CALL.value,
+                    dtype=metadata_captures.collect_schema()["capture"],
                 )
             ),
             on=["file", "source", "start_byte", "capture"],
@@ -650,13 +651,21 @@ def with_metadata(
     ).select(
         "file",
         "source",
-        capture=pl.lit(MetadataCaptureName.CALL.value, dtype=metadata_captures.schema["capture"]),
+        capture=pl.lit(
+            MetadataCaptureName.CALL.value, dtype=metadata_captures.collect_schema()["capture"]
+        ),
         start_byte="start_byte",
         end_byte="end_byte",
         lookup=pl.lit(Lookup.BASE.value),
         path=pl.lit([], dtype=pl.List(pl.String)),
     )
-    paths = pl.concat([paths, super_calls], how="vertical_relaxed").with_row_index("reference")
+    # Numbered in a fixed order: the plan reads `paths` twice, and each read
+    # must give a reference the same number.
+    paths = (
+        pl.concat([paths, super_calls], how="vertical_relaxed")
+        .sort("file", "source", "start_byte", "end_byte", "capture", "lookup")
+        .with_row_index("reference")
+    )
     # A call whose head is a local of a function around it, unless that
     # function defines the name itself, is on a value: the innermost local wins,
     # one with a written type over one without.
@@ -740,8 +749,8 @@ def with_metadata(
 
 
 def capture_chunks(
-    files: dy.DataFrame[FileRow], captures: dy.DataFrame[CaptureRow]
-) -> dy.DataFrame[PlacedChunkRow]:
+    files: dy.DataFrame[FileRow], captures: dy.LazyFrame[CaptureRow]
+) -> dy.LazyFrame[PlacedChunkRow]:
     """The chunks *captures* make: comments folded (`fold_comments`), then each made a chunk.
 
     A capture's text is its span of the file (a fragment's less the
@@ -754,7 +763,9 @@ def capture_chunks(
         fold_comments(files, captures)
         # In one chunk: joined from several, polars copies the content into every row.
         .join(
-            files.select("file", "path", "blob_sha", "content", file_language="language").rechunk(),
+            files.select("file", "path", "blob_sha", "content", file_language="language")
+            .rechunk()
+            .lazy(),
             on="file",
         )
         .with_row_index("row")
@@ -776,7 +787,7 @@ def capture_chunks(
 
 def line_windows(
     files: dy.DataFrame[FileRow], plain: list[int], size: int, overlap: int, language: str
-) -> dy.DataFrame[PlacedChunkRow]:
+) -> dy.LazyFrame[PlacedChunkRow]:
     """The files numbered in *plain*, as windows of *size* lines, each from *overlap* lines before the last ends.
 
     A file that ends in a newline has no empty last line. A window's text
@@ -784,7 +795,8 @@ def line_windows(
     is no chunk. The windows are in *language*, numbered in their file.
     """
     return (
-        files.filter(pl.col("file").is_in(plain))
+        files.lazy()
+        .filter(pl.col("file").is_in(plain))
         .select(
             "file",
             "blob_sha",
@@ -812,8 +824,8 @@ def line_windows(
 
 
 def assemble(
-    files: dy.DataFrame[FileRow], *placed: dy.DataFrame[PlacedChunkRow]
-) -> dy.DataFrame[PlacedChunkRow]:
+    files: dy.DataFrame[FileRow], *placed: dy.LazyFrame[PlacedChunkRow]
+) -> dy.LazyFrame[PlacedChunkRow]:
     """The batch's chunks, each file's in order, *placed* and presence chunks.
 
     A file with no chunk in its own language gets a content-less presence
@@ -821,19 +833,21 @@ def assemble(
     later builds. Each file's chunks are numbered again from 0.
     """
     chunks = pl.concat(placed)
-    presence = files.join(
-        chunks.filter(pl.col("language") == pl.col("file_language")), on="file", how="anti"
-    ).select(
-        "file",
-        "blob_sha",
-        "language",
-        file_language="language",
-        kind=pl.lit(ChunkKind.RAW_CHUNK.value),
-        name=pl.lit(""),
-        scope=pl.lit(""),
-        content=pl.lit(""),
-        line_start=pl.lit(1),
-        line_end=pl.lit(1),
+    presence = (
+        files.lazy()
+        .join(chunks.filter(pl.col("language") == pl.col("file_language")), on="file", how="anti")
+        .select(
+            "file",
+            "blob_sha",
+            "language",
+            file_language="language",
+            kind=pl.lit(ChunkKind.RAW_CHUNK.value),
+            name=pl.lit(""),
+            scope=pl.lit(""),
+            content=pl.lit(""),
+            line_start=pl.lit(1),
+            line_end=pl.lit(1),
+        )
     )
     return (
         pl.concat([chunks, presence], how="diagonal_relaxed")

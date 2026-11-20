@@ -75,12 +75,16 @@ def extract_batch(
     files at once.
     """
     captures, metadata_captures, chunked, plain = read(files, languages)
+    # Each rule is one lazy plan, its result checked within it, collected
+    # before the next rule reads it: a plan copies a frame it reads twice into
+    # each use, and `with_metadata` reads its inputs many times.
+    described = with_metadata(captures.lazy(), metadata_captures.lazy()).collect()
     return assemble(
         files,
-        capture_chunks(files, with_metadata(captures, metadata_captures)),
-        chunked,
+        capture_chunks(files, described.lazy()),
+        chunked.lazy(),
         line_windows(files, plain, config.chunk_lines, config.chunk_overlap, PLAINTEXT),
-    )
+    ).collect()
 
 
 def extract_files(
@@ -97,7 +101,9 @@ def extract_files(
     except Exception:
         if files.height == 1:
             log.exception("index_file_failed", path=files["path"].item())
-            return assemble(files, PlacedChunkRow.create_empty()), files["path"].to_list()
+            return assemble(files, PlacedChunkRow.create_empty(lazy=True)).collect(), files[
+                "path"
+            ].to_list()
         middle = files.height // 2
         head, head_failed = extract_files(files.head(middle).pipe(FileRow.validate))
         tail, tail_failed = extract_files(files.slice(middle).pipe(FileRow.validate))
