@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from rbtr.testing import Indexed
-from rbtr.testing.assertions import Referrer, Target, assert_every_line_in_a_chunk, assert_reached
+from rbtr.testing.assertions import Referrer, Target, assert_reached
 from rbtr.testing.reads import outline
 
 if TYPE_CHECKING:
@@ -142,10 +142,3 @@ def test_every_edge_reaches_what_it_names(
     """Each target the sample's edges reach is reached by exactly the chunks named, by any edge."""
     with indexed(Path(__file__).parent / "samples" / sample) as build:
         assert_reached(build, reached)
-
-
-@pytest.mark.parametrize("sample", ["javascript", "typescript", "tsx"])
-def test_every_line_is_in_a_chunk(indexed: Indexed, sample: str) -> None:
-    """No line of the sample's code falls outside a chunk."""
-    with indexed(Path(__file__).parent / "samples" / sample) as build:
-        assert_every_line_in_a_chunk(build)

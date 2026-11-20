@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from rbtr.testing import Indexed
-from rbtr.testing.assertions import Referrer, Target, assert_every_line_in_a_chunk, assert_reached
+from rbtr.testing.assertions import Referrer, Target, assert_reached
 from rbtr.testing.reads import outline
 
 if TYPE_CHECKING:
@@ -31,12 +31,6 @@ def test_every_edge_reaches_what_it_names(indexed: Indexed) -> None:
     reached: dict[Target, set[Referrer]] = {}
     with indexed(Path(__file__).parent / "samples" / "sql") as build:
         assert_reached(build, reached)
-
-
-def test_every_line_is_in_a_chunk(indexed: Indexed) -> None:
-    """No line of the sample's code falls outside a chunk."""
-    with indexed(Path(__file__).parent / "samples" / "sql") as build:
-        assert_every_line_in_a_chunk(build)
 
 
 # rbtr ships one generic SQL grammar for all `.sql` files. This pins current

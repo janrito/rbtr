@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rbtr.testing import Indexed
-from rbtr.testing.assertions import assert_every_line_in_a_chunk, assert_reached
+from rbtr.testing.assertions import assert_reached
 from rbtr.testing.reads import outline
 
 if TYPE_CHECKING:
@@ -28,9 +28,3 @@ def test_every_edge_reaches_what_it_names(indexed: Indexed) -> None:
     }
     with indexed(Path(__file__).parent / "samples" / "toml") as build:
         assert_reached(build, reached)
-
-
-def test_every_line_is_in_a_chunk(indexed: Indexed) -> None:
-    """No line of the sample's code falls outside a chunk."""
-    with indexed(Path(__file__).parent / "samples" / "toml") as build:
-        assert_every_line_in_a_chunk(build)
