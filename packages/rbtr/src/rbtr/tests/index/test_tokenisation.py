@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import polars as pl
 import pygit2
 import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.domain.models import SnapshotRef
-from rbtr.domain.tokenise import tokenise_code
+from rbtr.domain.tokenise import search_tokens
 from rbtr.index.build import build_index
 from rbtr.index.index import Index
 
@@ -71,8 +72,8 @@ from .cases_tokenise_keywords import KeywordScenario
     ],
     ids=lambda val: repr(val)[:40],
 )
-def test_tokenise_code(text: str, expected: str) -> None:
-    assert tokenise_code(text) == expected
+def test_search_tokens(text: str, expected: str) -> None:
+    assert pl.select(search_tokens(pl.lit(text))).item() == expected
 
 
 #
@@ -173,10 +174,10 @@ def test_tokenise_code(text: str, expected: str) -> None:
     ids=lambda val: str(sorted(val) if isinstance(val, set) else val)[:50],
 )
 def test_keywords_survive_tokenisation(code: str, expected_keywords: set[str]) -> None:
-    """Keywords appear in tokenise_code output."""
-    tokens = tokenise_code(code)
+    """Keywords appear in `search_tokens` output."""
+    found = pl.select(search_tokens(pl.lit(code))).item()
     for kw in expected_keywords:
-        assert kw in tokens.split(), f"{kw!r} missing from {tokens!r}"
+        assert kw in found.split(), f"{kw!r} missing from {found!r}"
 
 
 @fixture

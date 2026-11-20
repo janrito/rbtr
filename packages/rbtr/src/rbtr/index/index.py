@@ -29,7 +29,7 @@ from rbtr.domain.models import (
     SnapshotRange,
     SnapshotRef,
 )
-from rbtr.domain.tokenise import tokenise_code
+from rbtr.domain.tokenise import search_tokens
 from rbtr.errors import (
     RepoNotFoundError,
 )
@@ -718,7 +718,7 @@ class Index:
         Each file scores against its own statistics and returns its best
         *top_k*; the merge keeps the best *top_k* of those.
         """
-        tokenised_query = tokenise_code(query)
+        tokenised_query = pl.select(search_tokens(pl.lit(query))).item()
         if not tokenised_query:
             return ScoredChunkResultRow.create_empty()
         params = {"tokenised_query": tokenised_query, "top_k": top_k}

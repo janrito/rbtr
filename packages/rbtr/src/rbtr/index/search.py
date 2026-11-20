@@ -23,7 +23,7 @@ import structlog
 
 from rbtr.config import WeightTriple, config
 from rbtr.domain.models import ChunkKind, QueryKind, ScoredChunk, ScoredChunks
-from rbtr.domain.tokenise import tokenise_code
+from rbtr.domain.tokenise import search_tokens
 from rbtr.index.classify import classify_query
 from rbtr.index.results import (
     ChunkPathResultRow,
@@ -393,7 +393,7 @@ def match_preview_exprs(tokens: Sequence[str]) -> tuple[pl.Expr, pl.Expr]:
     caller order, or `[]` when none.
 
     *tokens* must already be lowercased (the caller tokenises the
-    query with `tokenise_code`). Matching is case-insensitive literal
+    query with `search_tokens`). Matching is case-insensitive literal
     substring containment, so a tokenised fragment like `deps` matches
     inside a compound identifier such as `AgentDeps` — the behaviour
     that drives sub-span highlighting.
@@ -449,7 +449,9 @@ def materialise_scored(
         return []
     preview_cols: list[pl.Expr] = []
     if lex_query is not None:
-        offset_expr, terms_expr = match_preview_exprs(tokenise_code(lex_query).split())
+        offset_expr, terms_expr = match_preview_exprs(
+            pl.select(search_tokens(pl.lit(lex_query))).item().split()
+        )
         preview_cols = [
             offset_expr.alias("match_line_offset"),
             terms_expr.alias("matched_terms"),

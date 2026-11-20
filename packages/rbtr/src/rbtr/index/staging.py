@@ -31,7 +31,7 @@ from rbtr.domain.models import (
     SnapshotRef,
 )
 from rbtr.domain.rules import ChunkRow
-from rbtr.domain.tokenise import tokenise_code
+from rbtr.domain.tokenise import search_tokens
 from rbtr.languages.edges import InferredEdgeRow
 
 
@@ -139,10 +139,8 @@ def staged_chunks(
     ).iter_rows()
     return chunks.with_columns(
         id=pl.Series([chunk_id(*identity) for identity in identities], dtype=pl.String),
-        content_tokens=pl.Series(
-            [tokenise_code(text) for text in chunks["content"]], dtype=pl.String
-        ),
-        name_tokens=pl.Series([tokenise_code(name) for name in chunks["name"]], dtype=pl.String),
+        content_tokens=search_tokens(pl.col("content")),
+        name_tokens=search_tokens(pl.col("name")),
         extraction_serial=pl.col("language").replace_strict(
             serials,
             default=pl.col("file_language").replace_strict(
