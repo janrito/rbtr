@@ -42,6 +42,17 @@ class SnapshotRefRow(dy.Schema):
     snapshot_sha = dy.String(nullable=False)
 
 
+class IndexedSnapshotRow(dy.Schema):
+    """An indexed snapshot and when it was marked indexed.
+
+    `repo_id` is `Int32` to match the column on `file_snapshots`.
+    """
+
+    repo_id = dy.Int32(primary_key=True)
+    snapshot_sha = dy.String(primary_key=True)
+    indexed_at = dy.Datetime(nullable=False)
+
+
 class SnapshotCountsRow(dy.Schema):
     """Chunk totals for one indexed snapshot: how many, how many embedded.
 

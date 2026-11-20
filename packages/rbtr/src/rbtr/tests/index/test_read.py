@@ -563,17 +563,22 @@ def test_an_indexed_snapshot_with_no_chunks_counts_zero(index: Index) -> None:
 
 
 @parametrize_with_cases("scenario", cases=".cases_read", has_tag="embed_order")
-def test_counts_come_back_in_embed_order(scenario: EmbedOrderScenario, index: Index) -> None:
-    """Order decides which snapshot is embedded next, so the query fixes it.
+def test_snapshots_come_back_in_embed_order(scenario: EmbedOrderScenario, index: Index) -> None:
+    """Order decides which snapshot is embedded next, so the queries fix it.
 
-    Asserted through `chunk_counts_by_snapshot`, because that is what
-    both the status handler and the job picker actually read.
+    Asserted through `snapshots_to_embed`, which the job picker reads, and
+    `chunk_counts_by_snapshot`, which status reports in the same order.
+    Each snapshot holds one chunk without a vector, so each has work.
     """
     for shas in scenario.transactions:
         repo = index.register("/r")
         with index.session(repo) as ws:
             for sha in shas:
+                chunk = make_chunk(sha, path=f"{sha}.py")
+                ws.add_chunk(chunk)
+                ws.insert_snapshots([make_snap(sha, chunk.file_path, chunk.blob_sha)])
                 ws.mark_indexed(snapshot_sha=sha)
 
+    assert [ref.snapshot_sha for ref in index.snapshots_to_embed()] == scenario.expected
     counted = index.chunk_counts_by_snapshot(repo=repo)
     assert [ref.snapshot_sha for ref in counted] == scenario.expected

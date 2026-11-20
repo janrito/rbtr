@@ -366,13 +366,9 @@ class Indexer:
         if self._embedder is None:
             return None
 
-        # Embeds: indexed snapshots with un-embedded chunks, newest first.
-        for ref, counts in index.chunk_counts_by_snapshot().items():
-            if counts.is_fully_embedded:
-                continue
-            return EmbedJob(at=ref)
-
-        return None
+        # Embeds: the newest indexed snapshot with un-embedded chunks.
+        to_embed = index.snapshots_to_embed()
+        return EmbedJob(at=to_embed[0]) if to_embed else None
 
     def _set_active[Work: BuildJob | EmbedJob](self, job: Work, job_id: str) -> RunningJob[Work]:
         """Start one run on the owning loop and return its immutable identity."""

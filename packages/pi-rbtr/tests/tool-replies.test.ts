@@ -354,6 +354,24 @@ describe("with a daemon of its own", () => {
     expect(gc.result.structuredContent).toMatchObject({ kind: "gc", dry_run: false });
   });
 
+  test("with the daemon gone, calls made in one turn take turns at the index", async ({ cli, pi }) => {
+    await pi.start();
+    // A first call waits out the daemon's start in the background, so the stop finds it.
+    await pi.run({ name: "rbtr_read_symbol", args: { symbol: subject.name } });
+    cli("daemon", "stop");
+    // One turn, three calls: pi runs them at once, and each falls back to a CLI process.
+    const ends = await pi.run([
+      { name: "rbtr_read_symbol", args: { symbol: subject.name } },
+      { name: "rbtr_find_refs", args: { symbol: subject.name } },
+      { name: "rbtr_list_symbols", args: { file: subject.file } },
+    ]);
+    expect(ends.map((end) => [end.name, end.isError, textOf(end.result).includes("index_locked")]).sort()).toEqual([
+      ["rbtr_find_refs", false, false],
+      ["rbtr_list_symbols", false, false],
+      ["rbtr_read_symbol", false, false],
+    ]);
+  });
+
   test("with the daemon gone, a found and a refused reply come from the CLI and are the same", async ({
     cli,
     processes,
