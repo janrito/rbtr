@@ -161,6 +161,10 @@ class Index:
         """Compact every project file grown past *ratio*; see `Store.compact_grown`."""
         return self._store.compact_grown(ratio)
 
+    def rebuild_fts(self) -> int:
+        """Rebuild every project file's FTS index; see `Store.rebuild_fts`."""
+        return self._store.rebuild_fts()
+
     def missing_since(self) -> dict[Repo, datetime]:
         """When each repo whose path was found gone was first found so."""
         return self._store.missing_since()

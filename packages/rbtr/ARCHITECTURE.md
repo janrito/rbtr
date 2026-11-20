@@ -1269,14 +1269,19 @@ daemon runs `run_maintenance` under `_write_sem`. In order, it:
    path gone, and is cleared when the path is back;
 3. collects every repo in `WATCHED` mode (`run_gc_all`);
 4. compacts each project file grown past `compact_growth_ratio` (2)
-   times its `compacted_bytes`.
+   times its `compacted_bytes`;
+5. rebuilds every project file's FTS index (`rebuild_fts`).
 
-Each step removes only what `rbtr unwatch --stale`, `rbtr forget
---stale`, `rbtr gc --scope all` and `rbtr gc --compact` would. A pass
+Each removing step removes only what `rbtr unwatch --stale`, `rbtr
+forget --stale`, `rbtr gc --scope all` and `rbtr gc --compact` would.
+The rebuild writes each index in the loaded FTS extension's format, so
+an index another DuckDB built, which may search far slower, is
+replaced within one pass of an upgrade, without rbtr detecting which
+DuckDB built it. It costs about 1.6 s for an index of eight files. A pass
 is published as a gc (`gc_started`, `gc_progress` per repo,
 `gc_ended`), which clients already show, and logged as
 `maintenance_started` and `maintenance_finished` with what it
-removed. The same task deletes the files compactions replaced, every
+did. The same task deletes the files compactions replaced, every
 idle poll, once `retire_delay_s` has passed.
 
 ## Search fusion
@@ -1559,9 +1564,9 @@ term common across chunks is often the one asked for — `config`,
 modified chunks rebuilds its file's FTS index after it commits
 (`overwrite = 1`). The build and the IDF update run in one
 transaction, so a failure leaves the previous index whole and no
-index is left with its IDF in place. Making a file and this are
-the only paths that write FTS DDL; a compaction copies the index
-with the rest of the file.
+index is left with its IDF in place. Making a file, this and
+[maintenance](#maintenance) are the only paths that write FTS DDL;
+a compaction copies the index with the rest of the file.
 
 **Read path** (search): queries the persisted index and never
 rebuilds. A search running during a rebuild reads the previous
