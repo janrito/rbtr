@@ -25,11 +25,10 @@ own, only how to reach rbtr.
 
 ## How a session works
 
-When a session starts, pi-rbtr finds rbtr, starts or
-restarts its daemon if its version needs it, and reads the
-index status. If the repository has no index, it starts
-one. All of this runs in the background, and tools wait for
-it.
+When a session starts, pi-rbtr finds rbtr, starts or restarts its daemon if its version
+needs it, and reads the index status. If the repository has no index, it starts one.
+Outside a git repository rbtr replies `repo_not_found`, and pi-rbtr starts no index and
+adds no prompt section. All of this runs in the background, and tools wait for it.
 
 A tool call goes to the daemon first, and to the CLI when
 the daemon cannot be reached. Whatever rbtr replies goes

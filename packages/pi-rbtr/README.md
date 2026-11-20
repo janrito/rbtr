@@ -37,23 +37,22 @@ pi install -l ./packages/pi-rbtr
 Nine tools, registered when pi loads the extension. `rbtr_status` and `rbtr_gc` start
 inactive; `rbtr_index_tools` loads them when the agent needs them:
 
-| Tool                   | Description                                                                                                                   |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `rbtr_search`          | Search by name, keyword, or concept (BM25 + semantic + name fusion). Returns a 20-line preview per hit, flagged when clipped. |
-| `rbtr_read_symbol`     | Read a symbol's full source by name                                                                                           |
-| `rbtr_list_symbols`    | Structural table of contents for a file                                                                                       |
-| `rbtr_find_refs`       | Find references via the dependency graph (imports, docs)                                                                      |
-| `rbtr_changed_symbols` | Symbols that changed between two git refs                                                                                     |
-| `rbtr_watch`           | Watch refs and keep them indexed (background, incremental)                                                                    |
-| `rbtr_index_tools`     | Load `rbtr_status` and `rbtr_gc`, which start inactive                                                                        |
-| `rbtr_status`          | Check whether the index exists and how many symbols it contains                                                               |
-| `rbtr_gc`              | Reclaim index storage. **Destructive**; previews as a dry run, and deletes only after you confirm                             |
+| Tool                   | Description                                                                                                                       |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `rbtr_search`          | Search by name, keyword, or concept (BM25 + semantic + name fusion). Returns the first 8 lines of each hit, flagged when clipped. |
+| `rbtr_read_symbol`     | Read a symbol's full source by name                                                                                               |
+| `rbtr_list_symbols`    | Structural table of contents for a file                                                                                           |
+| `rbtr_find_refs`       | Find references via the dependency graph (imports, docs)                                                                          |
+| `rbtr_changed_symbols` | Symbols that changed between two git refs                                                                                         |
+| `rbtr_watch`           | Watch refs and keep them indexed (background, incremental)                                                                        |
+| `rbtr_index_tools`     | Load `rbtr_status` and `rbtr_gc`, which start inactive                                                                            |
+| `rbtr_status`          | Check whether the index exists and how many symbols it contains                                                                   |
+| `rbtr_gc`              | Reclaim index storage. **Destructive**; previews as a dry run, and deletes only after you confirm                                 |
 
-The extension also adds a one-line note to the system prompt, so
-the agent knows the index is there without being told: rbtr tools
-to find code by meaning, structure or name, grep for exact
-strings. Each tool's description leads with what it is used
-instead of, and the tools that find code are listed first.
+Inside a git repository, the extension also adds a one-line note to the system prompt,
+so the agent knows the index is there without being told: rbtr tools to find code by
+meaning, structure or name, grep for exact strings. Each tool's description leads with
+what it is used instead of, and the tools that find code are listed first.
 
 ### When to use which tool
 
@@ -181,6 +180,8 @@ The extension shows index state in the pi footer:
 - **Building:** `rbtr: ⠋ parsing 42/177 · 12s…` (spinner
   with phase, progress and elapsed time; a static `⟳`
   outside pi's terminal UI).
+- **Collecting:** `rbtr: ⠋ collecting 3/10…` while garbage
+  collection runs.
 - **Ready:** `rbtr: ● 1.2k symbols`. `○` with
   `· 42% embedded` or `· not embedded` while embedding is
   incomplete, and `· not running` when the CLI serves the
@@ -194,6 +195,10 @@ The extension shows index state in the pi footer:
 - **Ref not indexed:** `rbtr: ref not indexed`, when the
   repository's other refs are indexed but not the one reads use;
   reads use the latest indexed commit.
+- **Not a repository:** `rbtr: not a git repository`, when pi runs
+  outside a git repository; nothing is indexed.
+- **Unavailable:** `rbtr: index unavailable`, when rbtr could not
+  read the index status.
 - **Error:** `rbtr: cannot run`, `rbtr: indexing failed`,
   or `rbtr: ✗ error`.
 
@@ -273,7 +278,7 @@ The `command` setting determines how `rbtr` is called:
 | `"uvx --from <path>"` | `uvx --from <path> rbtr --json <cmd>` | Local development from a directory          |
 
 The extension validates the command on session start and
-shows an error with install instructions if it fails.
+shows a warning with install instructions if it fails.
 
 ## Development
 
