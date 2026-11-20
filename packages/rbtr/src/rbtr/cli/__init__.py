@@ -79,6 +79,7 @@ from rbtr.daemon.messages import (
     DaemonConfigResponse,
     ErrorCode,
     ErrorResponse,
+    ExcludeKinds,
     FindRefsRequest,
     FindRefsResponse,
     ForgetRequest,
@@ -87,7 +88,9 @@ from rbtr.daemon.messages import (
     GcAllRequest,
     GcRequest,
     GcResponse,
+    IncludeKinds,
     IndexState,
+    KindFilter,
     ListSymbolsRequest,
     ListSymbolsResponse,
     OkResponse,
@@ -110,7 +113,7 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.server import Daemon
 from rbtr.daemon.status import DaemonStatusReport, uptime_seconds as _uptime_seconds
-from rbtr.domain.models import GcMode, Scope
+from rbtr.domain.models import ChunkKind, GcMode, Scope
 from rbtr.errors import ExitCode, IndexLockedError, IndexNotBuiltError, RbtrError
 from rbtr.git import HEAD_REF, normalise_repo_path, resolve_ref
 from rbtr.index.build import build_index
@@ -577,6 +580,9 @@ class Search(BaseModel):
         Scope.WORKSPACE,
         description="Search scope: workspace (this repo) or all (every indexed repo).",
     )
+    preview_lines: int | None = Field(
+        None, ge=1, description="Lines of each hit's body to preview (default: the config's)"
+    )
 
     @model_validator(mode="after")
     def _check_ref(self) -> Self:
@@ -599,6 +605,7 @@ class Search(BaseModel):
                 query_kind=self.query_kind,
                 keywords=self.keywords,
                 variants=self.variants,
+                preview_lines=self.preview_lines,
             )
         else:
             request = SearchRequest(
@@ -610,6 +617,7 @@ class Search(BaseModel):
                 query_kind=self.query_kind,
                 keywords=self.keywords,
                 variants=self.variants,
+                preview_lines=self.preview_lines,
             )
 
         match try_daemon(request):
@@ -690,13 +698,33 @@ class ListSymbols(BaseModel):
         None, description="Git ref (defaults to working tree if dirty, HEAD if clean)"
     )
     repo_path: str = Field(".", description="Repository path")
+    kind: list[ChunkKind] | None = Field(
+        None, description="Keep only symbols of this kind (repeatable)"
+    )
+    exclude_kind: list[ChunkKind] | None = Field(
+        None, description="Drop symbols of this kind (repeatable)"
+    )
+
+    @model_validator(mode="after")
+    def _check_kinds(self) -> Self:
+        """The request takes one list of kinds, kept or dropped."""
+        if self.kind and self.exclude_kind:
+            msg = "--kind keeps kinds and --exclude-kind drops them; use one"
+            raise ValueError(msg)
+        return self
 
     def cli_cmd(self) -> None:
         resolved_repo = normalise_repo_path(self.repo_path)
+        kinds: KindFilter | None = None
+        if self.kind:
+            kinds = IncludeKinds(include=self.kind)
+        elif self.exclude_kind:
+            kinds = ExcludeKinds(exclude=self.exclude_kind)
         request = ListSymbolsRequest(
             repo_path=resolved_repo,
             file_path=self.file,
             ref=self.ref,
+            kinds=kinds,
         )
 
         match try_daemon(request):

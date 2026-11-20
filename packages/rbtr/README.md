@@ -200,7 +200,7 @@ A hit carries the first 20 lines of the symbol, enough to
 judge it against the query. A longer symbol is marked as
 clipped and reports its full length; `rbtr read-symbol`
 fetches the whole body. Set `RBTR_SEARCH_PREVIEW_LINES`
-to change the cap.
+to change the cap, or `--preview-lines` for one search.
 
 [arch-search-fusion]: https://github.com/janrito/rbtr/blob/main/packages/rbtr/ARCHITECTURE.md#search-fusion
 
@@ -258,6 +258,14 @@ Table of contents for a file — one line per symbol.
 
 ```bash
 rbtr list-symbols src/rbtr/index/search.py
+```
+
+Keep only some kinds of symbol with `--kind`, or drop some
+with `--exclude-kind` (each repeatable, not both at once):
+
+```bash
+rbtr list-symbols src/rbtr/index/search.py --exclude-kind import
+rbtr list-symbols src/rbtr/index/search.py --kind class --kind method
 ```
 
 ### `rbtr find-refs <symbol>`

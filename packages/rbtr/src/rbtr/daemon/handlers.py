@@ -175,7 +175,12 @@ def _search(
     )
     query_kind = override or (results[0].query_kind if results else None)
     return SearchResponse(
-        results=[SearchHitOut.from_scored(r, explain=request.explain) for r in results],
+        results=[
+            SearchHitOut.from_scored(
+                r, explain=request.explain, preview_lines=request.preview_lines
+            )
+            for r in results
+        ],
         resolved=resolved,
         query_kind=query_kind if request.explain else None,
     )
@@ -205,8 +210,10 @@ def handle_list_symbols(request: ListSymbolsRequest, index: Index) -> ListSymbol
     repo = index.repo(request.repo_path)
     read = resolve_read_ref(index, repo, request.ref, require_indexed=True)
     chunks = index.chunks(at=read.at, file_path=request.file_path)
+    kinds = request.kinds
+    admitted = [c for c in chunks if kinds is None or kinds.admits(c.kind)]
     return ListSymbolsResponse(
-        chunks=[SymbolRefOut.from_chunk(c) for c in chunks],
+        chunks=[SymbolRefOut.from_chunk(c) for c in admitted],
         resolved=ResolvedRef(sha=read.at.snapshot_sha, source=read.source),
         file_path=request.file_path,
     )

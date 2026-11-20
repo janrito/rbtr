@@ -219,6 +219,37 @@ def test_list_symbols_returns_file_outline(seeded_repo: SeededRepo) -> None:
     assert "load_config" in names
 
 
+@pytest.mark.parametrize(
+    ("flags", "expected_kinds"),
+    [
+        (["--exclude-kind", "import"], {"class"}),
+        (["--kind", "import"], {"import"}),
+    ],
+    ids=["exclude-kind", "kind"],
+)
+def test_list_symbols_filters_by_kind(
+    seeded_repo: SeededRepo, flags: list[str], expected_kinds: set[str]
+) -> None:
+    r = run_cli(
+        ["--json", "list-symbols", "src/app.py", "--repo-path", str(seeded_repo.path), *flags]
+    )
+    assert r.returncode == 0, r.stderr
+    assert {c["kind"] for c in json.loads(r.stdout)["chunks"]} == expected_kinds
+
+
+def test_list_symbols_refuses_to_include_and_exclude_at_once(seeded_repo: SeededRepo) -> None:
+    r = run_cli(
+        [
+            *["--json", "list-symbols", "src/app.py", "--repo-path", str(seeded_repo.path)],
+            *["--kind", "class", "--exclude-kind", "import"],
+        ]
+    )
+    assert r.returncode != 0
+    error = json.loads(r.stdout)
+    assert error["code"] == "invalid_request"
+    assert "use one" in error["message"]
+
+
 def test_find_refs_returns_refs(seeded_repo: SeededRepo) -> None:
     r = run_cli(["--json", "find-refs", "load_config", "--repo-path", str(seeded_repo.path)])
     assert r.returncode == 0, r.stderr

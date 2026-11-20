@@ -21,6 +21,7 @@ from rbtr.daemon.messages import (
     EmbedEndedNotification,
     ErrorCode,
     ErrorResponse,
+    ExcludeKinds,
     FindRefsRequest,
     FindRefsResponse,
     ForgetRequest,
@@ -28,6 +29,7 @@ from rbtr.daemon.messages import (
     GcAllRequest,
     GcRequest,
     GcResponse,
+    IncludeKinds,
     IndexErrorNotification,
     ListSymbolsRequest,
     ListSymbolsResponse,
@@ -56,7 +58,7 @@ from rbtr.daemon.messages import (
     request_adapter,
     response_adapter,
 )
-from rbtr.domain.models import GcMode
+from rbtr.domain.models import ChunkKind, GcMode
 from rbtr.index.progress import EmbedOutcome
 
 
@@ -223,6 +225,26 @@ def case_list_symbols() -> MessageScenario:
         adapter=request_adapter,
         expected_type=ListSymbolsRequest,
         checks={"file_path": "src/app.py"},
+    )
+
+
+@case(tags=["request"])
+def case_list_symbols_including_kinds() -> MessageScenario:
+    return MessageScenario(
+        raw=b'{"kind":"list_symbols","repo_path":"/r","file_path":"a.py","kinds":{"include":["class","method"]}}',
+        adapter=request_adapter,
+        expected_type=ListSymbolsRequest,
+        checks={"kinds": IncludeKinds(include=[ChunkKind.CLASS, ChunkKind.METHOD])},
+    )
+
+
+@case(tags=["request"])
+def case_list_symbols_excluding_kinds() -> MessageScenario:
+    return MessageScenario(
+        raw=b'{"kind":"list_symbols","repo_path":"/r","file_path":"a.py","kinds":{"exclude":["import"]}}',
+        adapter=request_adapter,
+        expected_type=ListSymbolsRequest,
+        checks={"kinds": ExcludeKinds(exclude=[ChunkKind.IMPORT])},
     )
 
 
