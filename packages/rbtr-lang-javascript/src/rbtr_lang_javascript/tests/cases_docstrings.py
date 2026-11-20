@@ -111,7 +111,7 @@ def case_js_jsdoc_above_import_does_not_attach_to_class() -> DocstringCase:
     """JSDoc above an `import` stays on the import line.  A
     class several statements later must *not* inherit it.
     Imports are excluded from attachment by design (see
-    `treesitter.extract_symbols`).
+    `rbtr.domain.rules.takes_block_above`).
     """
     src = """\
 /** Nonsense JSDoc above import. */

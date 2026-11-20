@@ -645,9 +645,9 @@ And the entry point tells rbtr where to find it:
 swift = "rbtr_lang_swift.plugin:swift"
 ```
 
-That is a complete plugin. The generic `extract_symbols` pipeline does
-the rest: parsing, capture matching, scope detection, chunk
-construction, and comment grouping. Everything below is for languages
+That is a complete plugin. The generic extraction does the rest:
+parsing, capture matching, scope detection, chunk construction, and
+comment grouping. Everything below is for languages
 that need more than this.
 
 ### The package

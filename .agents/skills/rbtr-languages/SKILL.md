@@ -7,7 +7,7 @@ description: >-
   package or core's bundled `rbtr/languages/`), editing a `.scm` query, a
   `LanguageRegistration`, an `import_extractor`, or a chunker;
   when adding support for a new construct or language; or when reviewing
-  extraction behaviour. Also trigger on tree-sitter queries, `extract_symbols`,
+  extraction behaviour. Also trigger on tree-sitter queries, `query_captures`,
   `tags.scm`, or `@definition`/`@function`/`@_scope` captures.
 user-invocable: false
 ---
@@ -94,7 +94,7 @@ three paths:
    also serve as an injection target for an embedded block (see below).
 2. **Query** — `reg.grammar_module` + a `QueryExtraction`: code, plus config/data
    whose scope a query can express (python, rust, …, markdown, rst, json,
-   css, html, toml, yaml, hcl, tree_sitter_query). Goes through `extract_symbols`.
+   css, html, toml, yaml, hcl, tree_sitter_query). Goes through the query engine.
    HTML captures its semantic elements (`head`, `body`, sectioning content,
    landmarks) as doc sections, named by `id` else tag via a `name_extractor`.
    The `tree_sitter_query` plugin indexes `.scm` files themselves: each
@@ -102,11 +102,12 @@ three paths:
    anonymous.
 3. **Plaintext fallback** — no grammar/detection: fixed-size raw chunks.
 
-`extract_symbols` is the query engine: *parse → run query → captures →
-`Chunk`s*. It takes the `LanguageRegistration` and delegates naming,
-scoping, and imports to it (`reg.resolve_name` / `resolve_scope` /
-`resolve_import`), each calling the language's resolver — the built-in, or an
-override composed over it.
+The query engine is the adapter in `rbtr.languages.treesitter`: *parse →
+run the query → capture rows* (`read`, `query_captures`), and the rules in
+`rbtr.domain.rules` make chunks of the rows. The adapter takes each file's
+`LanguageRegistration` and delegates naming, scoping, and imports to it
+(`reg.resolve_name` / `resolve_scope` / `resolve_import`), each calling the
+language's resolver — the built-in, or an override composed over it.
 
 **Injection (embedded languages)** is an orthogonal capability that runs *in
 addition* to the primary path. To extract code embedded in a host file (an
@@ -124,8 +125,8 @@ names its target language one of two ways:
   unknown hint is left unparsed. No per-language mapping table.
 
 The engine delegates each block's range to the target's *full* primary
-extraction (`extract_primary` — chunker or query, so a chunker target like
-yaml/toml works, not just query targets) and *recurses* into the target's own
+extraction (its chunker or query, so a chunker target works, not just query
+targets) and *recurses* into the target's own
 injection (an HTML block containing an inline `<script>` yields its js), all
 at absolute line numbers. Every file also gets a host-language chunk (a
 content-less presence chunk if it would produce none), so dedup works. See
@@ -287,7 +288,7 @@ same case: a node the grammar does not give, and an exit.
 ## Scope & promotion (engine layers — already generic)
 
 Set on the language's `QueryExtraction` (the `extraction` field);
-`extract_symbols` applies them to every captured node:
+the adapter (`query_captures`) reads them for every captured node:
 
 - `scope_types` — node types that open a naming scope; composed into the
   `::` address. Include nesting containers (classes, namespaces, modules,

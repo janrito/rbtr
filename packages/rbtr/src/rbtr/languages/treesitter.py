@@ -76,6 +76,8 @@ class Metadata(TypedDict):
     node_types: list[str] | None
 
 
+# A TypedDict, not a dataclass: polars maps a dataclass's fields to a schema by
+# position, and reads a list of nested dataclasses as null.
 class Capture(TypedDict):
     """A `CaptureRow` as `read` builds it."""
 
