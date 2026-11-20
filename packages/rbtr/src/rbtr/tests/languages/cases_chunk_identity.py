@@ -45,13 +45,6 @@ def case_one_name_twice_on_a_line_is_two_chunks() -> IdentityScenario:
     )
 
 
-@case(
-    marks=pytest.mark.xfail(
-        strict=True,
-        reason="leftover text is cut at every tree level, so `run` and `(` are two "
-        "fragments (Phase 4: contiguous leftovers join)",
-    )
-)
 def case_leftover_text_on_a_line_is_one_fragment() -> IdentityScenario:
     """`run` and `(` sit at two tree levels but touch, so they are one fragment; the comment between lines splits the rest.
 

@@ -701,9 +701,12 @@ def fragments(
 
     A line is covered by a captured span, or by a node holding a block
     another language reads (`Source.holders`). The runs of uncovered
-    nodes (`runs`) are fragments, scoped like a capture at their start. A
-    run of anonymous syntax alone (`try:` around captured imports, the
-    `#endif` closing a guard) is a fragment too, with no node types.
+    nodes (`runs`) are fragments, scoped like a capture at their start;
+    consecutive runs with only whitespace and no blank line between them
+    are one, across tree levels (`run` and `(` of `run(`), up to
+    `config.chunk_lines` lines. A run of anonymous syntax alone (`try:`
+    around captured imports, the `#endif` closing a guard) is a fragment
+    too, with no node types.
     """
     if not extraction.fragments:
         return []
@@ -711,8 +714,18 @@ def fragments(
     lines = [*spans, *((holder.start_point[0] + 1, last_line(holder)) for holder in source.holders)]
     for start, end in lines:
         covered[start : end + 1] = b"\x01" * (end - start + 1)
-    rows: list[Capture] = []
+    joined: list[list[Node]] = []
     for run in runs(source.tree.root_node, covered, source.content):
+        if (
+            joined
+            and contiguous(source.content, joined[-1][-1].end_byte, run[0].start_byte)
+            and last_line(run[-1]) - joined[-1][0].start_point[0] <= config.chunk_lines
+        ):
+            joined[-1].extend(run)
+        else:
+            joined.append(run)
+    rows: list[Capture] = []
+    for run in joined:
         node_types = list(dict.fromkeys(node.type for node in run if node.is_named))
         scope = scope_names(enclosing_scopes(run[0], extraction.scope_types), named)
         rows.append(

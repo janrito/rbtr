@@ -232,7 +232,9 @@ rather than implementing comment folding in the plugin.
 
 Searchable code left outside query captures becomes unnamed `FRAGMENT`
 chunks, each recording its named syntax-node types (`role.meta.node_types`).
-Blank lines and punctuation alone need no chunk. `QueryExtraction.fragments`
+Leftover text with no blank line in it is one fragment across tree levels
+(`run(` is one, not `run` and `(`). Blank lines and punctuation alone need
+no chunk. `QueryExtraction.fragments`
 controls this behaviour and is enabled by default. See
 [Git and extraction][fragment-rationale] for the grouping rationale.
 

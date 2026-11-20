@@ -27,15 +27,6 @@
     "line_end": 8
   },
   {
-    "name": "",
-    "kind": "fragment",
-    "file_path": "go.go",
-    "scope": "",
-    "language": "go",
-    "line_start": 8,
-    "line_end": 8
-  },
-  {
     "name": "\"fmt\"",
     "kind": "import",
     "file_path": "go.go",
