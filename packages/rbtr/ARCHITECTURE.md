@@ -420,8 +420,12 @@ do the build and the tests share a pure files-to-chunks-and-edges
 function: the build is incremental, extracting only blobs the store
 lacks and inferring edges from everything the store holds for the
 snapshot, so such a function would be a path production never takes.
-Revisit that if building a sample becomes too slow to run once per
-test module.
+Each sample test builds the sample itself with `indexed`, so a plugin
+builds its sample three times (for the snapshot, the edges and every
+line): the 80 sample tests take 33.6 s in one process, the slowest
+1.57 s. Revisit that if the builds grow too slow; one build per module
+needs a module-scoped fixture that builds files, which `indexed`, a
+factory a test calls, does not give.
 
 The samples are exempt from the repo's linters and
 type-checker — they are fixtures, validated by their own
