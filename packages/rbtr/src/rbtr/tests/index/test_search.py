@@ -72,6 +72,7 @@ def test_name_score_expr(query: str, name: str, expected: float) -> None:
         (ChunkKind.VARIABLE, 1.0),
         (ChunkKind.MIGRATION, 0.4),
         (ChunkKind.API_ENDPOINT, 1.0),
+        (ChunkKind.STATEMENT, 0.5),
     ],
 )
 def test_kind_boost_expr(kind: ChunkKind, expected: float) -> None:

@@ -47,6 +47,82 @@
   {
     "name": "",
     "kind": "comment",
+    "file_path": "greeter.test.js",
+    "scope": "",
+    "language": "javascript",
+    "line_start": 1,
+    "line_end": 2
+  },
+  {
+    "name": "import { formatGreeting } from \"./javascript.js\";",
+    "kind": "import",
+    "file_path": "greeter.test.js",
+    "scope": "",
+    "language": "javascript",
+    "line_start": 4,
+    "line_end": 4,
+    "imports": [
+      {
+        "module": "./javascript",
+        "names": "formatGreeting",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "formatGreeting",
+            "local": "formatGreeting"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "formatGreeting",
+    "kind": "test_function",
+    "file_path": "greeter.test.js",
+    "scope": "",
+    "language": "javascript",
+    "line_start": 6,
+    "line_end": 15
+  },
+  {
+    "name": "expected",
+    "kind": "function",
+    "file_path": "greeter.test.js",
+    "scope": "",
+    "language": "javascript",
+    "line_start": 7,
+    "line_end": 9
+  },
+  {
+    "name": "greets by name",
+    "kind": "test_function",
+    "file_path": "greeter.test.js",
+    "scope": "",
+    "language": "javascript",
+    "line_start": 11,
+    "line_end": 14
+  },
+  {
+    "name": "greets nobody",
+    "kind": "test_function",
+    "file_path": "greeter.test.js",
+    "scope": "",
+    "language": "javascript",
+    "line_start": 17,
+    "line_end": 19
+  },
+  {
+    "name": "",
+    "kind": "statement",
+    "file_path": "greeter.test.js",
+    "scope": "",
+    "language": "javascript",
+    "line_start": 21,
+    "line_end": 23
+  },
+  {
+    "name": "",
+    "kind": "comment",
     "file_path": "javascript.js",
     "scope": "",
     "language": "javascript",
@@ -124,7 +200,7 @@
     "line_end": 13
   },
   {
-    "name": "locale",
+    "name": "locale, fallback",
     "kind": "variable",
     "file_path": "javascript.js",
     "scope": "",

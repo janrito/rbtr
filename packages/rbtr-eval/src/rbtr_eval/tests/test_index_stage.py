@@ -73,7 +73,8 @@ def load():
 def index_with_fragments(tmp_path: Path) -> Index:
     """`app.py` built at HEAD: a class whose method shares its lines, and two fragments.
 
-    Lines 6-8 hold a call and an `if`; line 10 another call.
+    Lines 6-8 hold a call, an `assert` and a `del`, which no language
+    declares; line 10 another call.
     """
     app = b"""\
 class Loader:
@@ -82,8 +83,8 @@ class Loader:
 
 
 Loader().load()
-if __name__ == "__main__":
-    Loader().load()
+assert Loader().load()
+del Loader
 
 print("done")
 """
@@ -110,7 +111,8 @@ def test_fragments_are_counted_by_language_and_by_node_type(index_with_fragments
             "fragments": 2,
             "fragment_lines": 4,
         },
-        {"lang": "python", "node_type": "if_statement", "fragments": 1, "fragment_lines": 3},
+        {"lang": "python", "node_type": "assert_statement", "fragments": 1, "fragment_lines": 3},
+        {"lang": "python", "node_type": "delete_statement", "fragments": 1, "fragment_lines": 3},
     ]
 
 

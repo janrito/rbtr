@@ -17,6 +17,7 @@ import pytest
 
 from rbtr.config import config
 from rbtr.domain.models import ChunkKind
+from rbtr.errors import QueryCaptureError
 from rbtr.index.refs import resolve_read_ref
 from rbtr.languages.manager import get_manager
 from rbtr.languages.registration import LanguageRegistration, QueryExtraction
@@ -367,35 +368,26 @@ def test_set_directive_names_where_an_import_finds_its_name(
     assert (meta["names"], meta["language_hint"]) == ("intro", "rst")
 
 
-def test_unknown_capture_name_ignored(
-    indexed: Indexed,
-    tmp_path: Path,
-) -> None:
-    """Captures not in CAPTURE_KINDS are silently skipped."""
-    query_unknown = """\
+@pytest.mark.parametrize("capture", ["statment", "fragment"])
+def test_a_capture_naming_no_kind_fails_the_build(indexed: Indexed, capture: str) -> None:
+    """A capture no convention reads (a misspelt kind, or `fragment`, which no capture makes) fails the build, naming it and its language."""
+    query = f"""\
 (function_definition
   name: (identifier) @_fn_name) @function
-(class_definition) @unknown_thing
-"""
-    src = """\
-def f():
-    pass
-
-class C:
-    pass
+(class_definition) @{capture}
 """
     reg = LanguageRegistration(
         id="faketest",
         grammar_module="tree_sitter_python",
         extensions=frozenset({".py"}),
-        extraction=QueryExtraction(query=query_unknown),
+        extraction=QueryExtraction(query=query),
     )
-    with get_manager().limited_to(reg), indexed({"test.py": src}) as build:
-        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
-        chunks = build.index.chunks(at=at, file_path="test.py").rows(named=True)
-    kinds = {c["kind"] for c in chunks}
-    assert "function" in kinds
-    assert "class" not in kinds
+    with (
+        get_manager().limited_to(reg),
+        pytest.raises(QueryCaptureError, match=f"faketest query captures @{capture}"),
+        indexed({"test.py": "class C:\n    pass\n"}),
+    ):
+        pass
 
 
 @pytest.mark.parametrize(

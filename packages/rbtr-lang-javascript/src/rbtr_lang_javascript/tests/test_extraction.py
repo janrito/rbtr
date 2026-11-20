@@ -101,3 +101,38 @@ def test_a_call_or_base_reaches_what_it_names(
     """Each target `(path, symbol)` is reached by exactly the callers and subclasses named."""
     with indexed(files) as build:
         assert_reached(build, reached, edges={EdgeKind.CALLS, EdgeKind.INHERITS})
+
+
+def test_tests_and_statements_are_chunks_holding_what_is_captured_in_them(indexed: Indexed) -> None:
+    """A `test` is one test, its callback's comment inside it; a `describe` holds a helper and an `it`; JSDoc above a method folds into it; a top-level `if` is a statement."""
+    src = """\
+test("hello", () => {
+  // check it
+  expect(1).toBe(1);
+});
+
+describe("group", () => {
+  function helper() {}
+  it("works", () => {});
+});
+
+class A {
+  /** Doc for m. */
+  m() {}
+}
+
+if (ready) {
+  go();
+}
+"""
+    with indexed({"a.ts": src}) as build:
+        reply = outline(build)
+    assert sorted((s.line_start, s.line_end, s.kind.value, s.name) for s in reply) == [
+        (1, 4, "test_function", "hello"),
+        (6, 9, "test_function", "group"),
+        (7, 7, "function", "helper"),
+        (8, 8, "test_function", "works"),
+        (11, 14, "class", "A"),
+        (12, 13, "method", "m"),
+        (16, 18, "statement", ""),
+    ]

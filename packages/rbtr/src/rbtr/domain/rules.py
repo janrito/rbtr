@@ -94,6 +94,14 @@ def import_list() -> dy.List:
     )
 
 
+UNNAMED_KINDS = [
+    ChunkKind.STATEMENT.value,
+    ChunkKind.FRAGMENT.value,
+    ChunkKind.COMMENT.value,
+    ChunkKind.RAW_CHUNK.value,
+]
+"""The kinds of chunk that have no name: its rows have no names."""
+
 DEFINITION_KINDS = [
     ChunkKind.FUNCTION.value,
     ChunkKind.CLASS.value,
@@ -106,9 +114,13 @@ DEFINITION_KINDS = [
 """The kinds a definition or class role has: their rows carry `calls`."""
 
 
+HOLDER_KINDS = [ChunkKind.FRAGMENT.value, ChunkKind.STATEMENT.value, *DEFINITION_KINDS]
+"""The kinds whose rows hold the calls and bases they write: a definition, a statement or a fragment."""
+
+
 def holds_references() -> pl.Expr:
-    """Whether a row's chunk holds the calls and bases it writes: a definition or a fragment."""
-    return pl.col("kind").is_in([ChunkKind.FRAGMENT.value, *DEFINITION_KINDS])
+    """Whether a row's chunk holds the calls and bases it writes (`HOLDER_KINDS`)."""
+    return pl.col("kind").is_in(HOLDER_KINDS)
 
 
 class ChunkRow(dy.Schema):
@@ -144,6 +156,10 @@ class ChunkRow(dy.Schema):
         nullable=False,
     )
     docs = dy.String(nullable=True)
+
+    @dy.rule()
+    def no_name_on_unnamed_kinds(cls) -> pl.Expr:
+        return ~cls.kind.col.is_in(UNNAMED_KINDS) | (cls.name.col == "")
 
     @dy.rule()
     def an_import_imports(cls) -> pl.Expr:
@@ -276,7 +292,7 @@ class CaptureRow(dy.Schema):
     @dy.rule()
     def metadata_of_roles_with_a_payload(cls) -> pl.Expr:
         return cls.metadata.col.is_not_null() == cls.kind.col.is_in(
-            [ChunkKind.IMPORT.value, ChunkKind.FRAGMENT.value, *DEFINITION_KINDS]
+            [ChunkKind.IMPORT.value, *HOLDER_KINDS]
         )
 
 

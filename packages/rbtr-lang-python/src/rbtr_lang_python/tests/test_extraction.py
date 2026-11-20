@@ -159,3 +159,38 @@ import numpy as np
         ("import os", "os"),
         ("import numpy as np", "numpy"),
     ]
+
+
+def test_a_modules_statements_are_chunks_holding_what_is_captured_in_them(indexed: Indexed) -> None:
+    """`try`, `if __name__` and a call spanning lines are statements, with their imports and definitions nested; a one-line call is a fragment."""
+    src = """\
+try:
+    import ujson as json
+except ImportError:
+    import json
+
+setup(
+    name="x",
+)
+print("one")
+
+if __name__ == "__main__":
+    def main():
+        pass
+    main()
+
+if DEBUG:
+    print("debug")
+"""
+    with indexed({"a.py": src}) as build:
+        reply = outline(build)
+    assert sorted((s.line_start, s.line_end, s.kind.value, s.name) for s in reply) == [
+        (1, 4, "statement", ""),
+        (2, 2, "import", "import ujson as json"),
+        (4, 4, "import", "import json"),
+        (6, 8, "statement", ""),
+        (9, 9, "fragment", ""),
+        (11, 14, "statement", ""),
+        (12, 13, "function", "main"),
+        (16, 17, "statement", ""),
+    ]

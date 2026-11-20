@@ -27,13 +27,14 @@ from rbtr.config import config
 from rbtr.domain.identity import compose_scope
 from rbtr.domain.models import Chunk, ChunkKind, ImportMeta
 from rbtr.domain.rules import (
-    DEFINITION_KINDS,
+    HOLDER_KINDS,
     CaptureRow,
     FileRow,
     MetadataCaptureName,
     MetadataCaptureRow,
     PlacedChunkRow,
 )
+from rbtr.errors import QueryCaptureError
 from rbtr.languages.chunks import chunk_rows
 from rbtr.languages.manager import get_manager
 from rbtr.languages.registration import ChunkExtraction, QueryExtraction, last_line
@@ -55,6 +56,7 @@ CAPTURE_KINDS: frozenset[ChunkKind] = frozenset(
         ChunkKind.DOC_SECTION,
         ChunkKind.CONFIG_KEY,
         ChunkKind.COMMENT,
+        ChunkKind.STATEMENT,
     }
 )
 """The chunk kinds a query capture makes, each named by its kind's value.
@@ -361,7 +363,8 @@ def query_captures(
     by its first capture.
     """
     directives = Directives(
-        source.registration, compiled_query(source.tree.language, extraction.query)
+        source.registration,
+        checked_query(source.tree.language, extraction.query, source.registration.id),
     )
     nodes, metadata_captures = captured_nodes(source, directives)
     named: dict[int, str] = {}
@@ -449,7 +452,7 @@ def capture(
             language_hint=meta.language_hint,
             node_types=None,
         )
-    elif node_types is not None or kind.value in DEFINITION_KINDS:
+    elif node_types is not None or kind.value in HOLDER_KINDS:
         metadata = Metadata(module=None, names=None, language_hint=None, node_types=node_types)
     return Capture(
         file=source.file,
@@ -522,11 +525,6 @@ def captured_nodes(
                 )
                 continue
             if capture_name.startswith("_"):
-                continue
-            try:
-                if ChunkKind(capture_name) not in CAPTURE_KINDS:
-                    continue
-            except ValueError:
                 continue
             nodes.extend(
                 CapturedNode(pattern, match, node, capture_name, captures) for node in captured
@@ -794,6 +792,28 @@ def contiguous(content: bytes, a_end: int, b_start: int) -> bool:
         return False
     end = a_end - 1 if a_end > 0 and content[a_end - 1 : a_end] == b"\n" else a_end
     return content.count(b"\n", end, b_start) < 2
+
+
+@lru_cache(maxsize=32)
+def checked_query(grammar: Language, text: str, language: str) -> Query:
+    """*language*'s extraction query *text* compiled for *grammar*, cached; every capture names a kind, metadata or a helper.
+
+    A capture is a kind a query makes chunks of (`CAPTURE_KINDS`), a
+    metadata capture (`MetadataCaptureName`), or starts with `_`. Raises
+    `QueryCaptureError` for any other: it would be read as nothing.
+    """
+    query = compiled_query(grammar, text)
+    known = {kind.value for kind in CAPTURE_KINDS} | {name.value for name in MetadataCaptureName}
+    unknown = sorted(
+        {
+            name
+            for index in range(query.capture_count)
+            if not (name := query.capture_name(index)).startswith("_") and name not in known
+        }
+    )
+    if unknown:
+        raise QueryCaptureError(language=language, captures=unknown)
+    return query
 
 
 @lru_cache(maxsize=32)

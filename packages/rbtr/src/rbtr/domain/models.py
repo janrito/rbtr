@@ -39,6 +39,7 @@ class ChunkKind(StrEnum):
     API_ENDPOINT = "api_endpoint"
     RAW_CHUNK = "raw_chunk"
     FRAGMENT = "fragment"
+    STATEMENT = "statement"
 
 
 CODE_KINDS: frozenset[ChunkKind] = frozenset(
@@ -48,6 +49,7 @@ CODE_KINDS: frozenset[ChunkKind] = frozenset(
 KIND_NARROWS: Mapping[ChunkKind, frozenset[ChunkKind]] = {
     kind: frozenset(
         {ChunkKind.IMPORT}
+        | ({ChunkKind.STATEMENT} if kind is not ChunkKind.STATEMENT else set())
         | (
             {ChunkKind.FUNCTION, ChunkKind.METHOD}
             if kind in {ChunkKind.TEST_FUNCTION, ChunkKind.API_ENDPOINT, ChunkKind.MIGRATION}
@@ -60,8 +62,9 @@ KIND_NARROWS: Mapping[ChunkKind, frozenset[ChunkKind]] = {
 """The kinds each kind narrows: of the kinds captured on one span, the one that narrows every other names its chunk.
 
 Every kind narrows `import`, as a key or a section that imports is that
-key or section, carrying the import; a test, an endpoint or a migration
-narrows the function or method it is. Two kinds neither narrows take
+key or section, carrying the import; every kind narrows `statement`, as
+a declared statement that is also a test is that test; a test, an
+endpoint or a migration narrows the function or method it is. Two kinds neither narrows take
 the first in `ChunkKind` order, and the overlap is the plugin's to fix.
 The only statement of kind precedence.
 """

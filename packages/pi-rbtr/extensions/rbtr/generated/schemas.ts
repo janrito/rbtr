@@ -112,6 +112,7 @@ export const PROTOCOL_DEFS = {
       "api_endpoint",
       "raw_chunk",
       "fragment",
+      "statement",
     ],
     title: "ChunkKind",
     type: "string",

@@ -5,6 +5,19 @@
 (comment) @comment
 (module (expression_statement (string) @comment))
 
+; The statements a module runs, each one chunk; what is captured inside one
+; (a `def` under `if __name__ == "__main__":`) is a chunk nested in it. A
+; call statement is one when it spans lines: a one-line call stays text
+; around the captures, joined with what touches it.
+(module (if_statement) @statement)
+(module (try_statement) @statement)
+(module (with_statement) @statement)
+(module (for_statement) @statement)
+(module (while_statement) @statement)
+(module
+  ((expression_statement (call)) @statement
+    (#match? @statement "\n")))
+
 ; A decorated definition's chunk is the definition with its decorators, so
 ; a decorator's call is the definition's; an undecorated one sits directly
 ; in a module or a block.

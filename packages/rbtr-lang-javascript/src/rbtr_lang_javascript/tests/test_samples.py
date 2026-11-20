@@ -62,6 +62,13 @@ def test_extraction_matches_snapshot(
                         "imports",
                     ),
                     ("orders.js", "save", "calls"),
+                    (
+                        "greeter.test.js",
+                        'import { formatGreeting } from "./javascript.js";',
+                        "imports",
+                    ),
+                    ("greeter.test.js", "greets by name", "calls"),
+                    ("greeter.test.js", "greets nobody", "calls"),
                 },
                 ("javascript.js", "greet"): {
                     ("orders.js", 'import * as greeter from "./javascript.js";', "imports")

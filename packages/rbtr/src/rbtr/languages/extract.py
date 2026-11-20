@@ -28,6 +28,7 @@ from rbtr.domain.rules import (
     line_windows,
     with_metadata,
 )
+from rbtr.errors import QueryCaptureError
 from rbtr.git import FileEntry
 from rbtr.languages.plaintext import PLAINTEXT
 from rbtr.languages.treesitter import read
@@ -121,6 +122,9 @@ def extract_files(files: dy.DataFrame[FileRow]) -> Extraction:
     """
     try:
         return extract_batch(files)
+    except QueryCaptureError:
+        # A language's query, not a file, is at fault: no file extracts.
+        raise
     except Exception:
         if files.height == 1:
             log.exception("index_file_failed", path=files["path"].item())

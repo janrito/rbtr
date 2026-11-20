@@ -110,7 +110,7 @@ from rbtr.domain.rules import CaptureRow, ChunkRow
                 "file_language": "python",
                 "language": "python",
                 "kind": "fragment",
-                "name": "x",
+                "name": "",
                 "scope": "",
                 "content": "x",
                 "start_byte": 0,

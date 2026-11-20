@@ -41,12 +41,12 @@
   },
   {
     "name": "",
-    "kind": "fragment",
+    "kind": "statement",
     "file_path": "cli.py",
     "scope": "",
     "language": "python",
     "line_start": 8,
-    "line_end": 8
+    "line_end": 11
   },
   {
     "name": "import readline",
@@ -72,16 +72,7 @@
   },
   {
     "name": "",
-    "kind": "fragment",
-    "file_path": "cli.py",
-    "scope": "",
-    "language": "python",
-    "line_start": 10,
-    "line_end": 11
-  },
-  {
-    "name": "",
-    "kind": "fragment",
+    "kind": "statement",
     "file_path": "cli.py",
     "scope": "",
     "language": "python",
@@ -90,7 +81,7 @@
   },
   {
     "name": "",
-    "kind": "fragment",
+    "kind": "statement",
     "file_path": "cli.py",
     "scope": "",
     "language": "python",
@@ -108,7 +99,7 @@
   },
   {
     "name": "",
-    "kind": "fragment",
+    "kind": "statement",
     "file_path": "cli.py",
     "scope": "",
     "language": "python",

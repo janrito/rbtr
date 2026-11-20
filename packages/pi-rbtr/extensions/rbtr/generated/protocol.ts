@@ -48,7 +48,8 @@ export type ChunkKind =
   | "test_function"
   | "api_endpoint"
   | "raw_chunk"
-  | "fragment";
+  | "fragment"
+  | "statement";
 /**
  * What a `rbtr gc` invocation is allowed to delete.
  */

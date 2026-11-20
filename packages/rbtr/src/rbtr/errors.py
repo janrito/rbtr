@@ -133,6 +133,19 @@ class MissingLanguagePluginsError(RbtrError):
         )
 
 
+class QueryCaptureError(RbtrError):
+    """Raised when a language's query captures a name no convention reads.
+
+    A capture is a kind core makes chunks of, a metadata capture, or a
+    helper starting with `_`; any other would be read as nothing, so a
+    misspelt `@statment` would drop what it means to capture.
+    """
+
+    def __init__(self, *, language: str, captures: list[str]) -> None:
+        names = ", ".join(f"@{capture}" for capture in captures)
+        super().__init__(f"The {language} query captures {names}, which name no chunk kind.")
+
+
 class DaemonBusyError(RbtrError):
     """Raised when the local RPC client cannot obtain a reply.
 
