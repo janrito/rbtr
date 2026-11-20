@@ -38,7 +38,7 @@ import pygit2
 import structlog
 from pygit2.enums import FileStatus
 
-from rbtr.errors import RbtrError
+from rbtr.errors import RbtrError, RepoNotFoundError
 
 # Symbolic ref naming the current working tree; `resolve_ref` maps it
 # to the working-tree tree SHA.
@@ -168,16 +168,17 @@ def normalise_repo_path(path: str) -> str:
 
     Accepts any path inside a repo (including subdirectories).
     Returns the canonical workdir path without trailing slash.
+    Raises `RepoNotFoundError` if *path* is not in a git checkout.
     """
     discovered = pygit2.discover_repository(str(Path(path).resolve()))
     if discovered is None:
         msg = f"Not a git repository: {path}"
-        raise RbtrError(msg)
+        raise RepoNotFoundError(msg)
     repo = pygit2.Repository(discovered)
     workdir = repo.workdir
     if workdir is None:
         msg = f"Bare repository not supported: {path}"
-        raise RbtrError(msg)
+        raise RepoNotFoundError(msg)
     return workdir.rstrip("/")
 
 

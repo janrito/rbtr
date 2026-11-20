@@ -20,8 +20,8 @@ from rbtr.tests.conftest import run_cli
 @pytest.mark.parametrize(
     ("args", "in_repo", "env", "code", "exit_code"),
     [
-        # An `RbtrError`: the path is not a git repository.
-        (["read-symbol", "load_config"], False, {}, ErrorCode.INTERNAL, ExitCode.ERROR),
+        # A `RepoNotFoundError`: the path is not a git repository.
+        (["read-symbol", "load_config"], False, {}, ErrorCode.REPO_NOT_FOUND, ExitCode.ERROR),
         # A read with no daemon, before anything was indexed.
         (["read-symbol", "load_config"], True, {}, ErrorCode.INDEX_NOT_BUILT, ExitCode.ERROR),
         # Arguments the command model refuses.
