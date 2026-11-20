@@ -34,10 +34,13 @@ from rbtr.domain.models import (
     Span,
 )
 from rbtr.domain.tokenise import tokenise_code
+from rbtr.git import normalise_repo_path
 from rbtr.index.build import build_index
 from rbtr.index.index import Index
 from rbtr.index.refs import latest_ref
 from rbtr.index.staging import TokenisedChunk
+
+from ..conftest import make_commit
 
 # ═════════════════════════════════════════════════════════════════════
 # Builders (no side effects, no hidden state)
@@ -173,6 +176,57 @@ def shared_chunk_index(project_index: Index, shared_chunk: TokenisedChunk) -> In
         ws.insert_snapshots([make_snap("head", "x.py", "b_shared")])
         ws.mark_indexed(snapshot_sha="head")
     return index
+
+
+@pytest.fixture
+def shared_target(
+    index: Index,
+    git_repo: pygit2.Repository,
+    linked_worktree: pygit2.Repository,
+    repo_path: str,
+) -> tuple[SnapshotRef, SnapshotRef]:
+    """Two checkouts of one project, built, each importing `fn` from an identical `m.py`.
+
+    The main checkout's `a.py` and the linked worktree's `b.py` each
+    import `fn`; `m.py` is byte-identical in both, so `fn` is one chunk
+    the two snapshots share.
+    """
+    m = b"def fn():\n    return 1\n"
+    main = str(
+        make_commit(git_repo, {"m.py": m, "a.py": b"from m import fn\n"}, ref="refs/heads/a")
+    )
+    other = str(
+        make_commit(git_repo, {"m.py": m, "b.py": b"from m import fn\n"}, ref="refs/heads/b")
+    )
+    worktree_path = normalise_repo_path(linked_worktree.workdir)
+    build_index(repo_path, main, index)
+    build_index(worktree_path, other, index)
+    return index.register(repo_path).at(main), index.register(worktree_path).at(other)
+
+
+# ═════════════════════════════════════════════════════════════════════
+# Edges built from source
+# ═════════════════════════════════════════════════════════════════════
+
+
+@pytest.fixture
+def import_graph(index: Index, git_repo: pygit2.Repository, repo_path: str) -> SnapshotRef:
+    """`git_repo` built at a commit where code imports a function and prose links to its file.
+
+    `src/app.py` imports `fn` from `src/m.py`, an `imports` edge;
+    `README.md` links to `src/m.py`, a `documents` edge to `fn`.
+    """
+    sha = make_commit(
+        git_repo,
+        {
+            "src/m.py": b"def fn():\n    return 1\n",
+            "src/app.py": b"from src.m import fn\n\n\ndef run():\n    return fn()\n",
+            "README.md": b"# Guide\n\nSee [fn](src/m.py).\n",
+        },
+        ref="refs/heads/graph",
+    )
+    build_index(repo_path, str(sha), index)
+    return index.register(repo_path).at(str(sha))
 
 
 # ═════════════════════════════════════════════════════════════════════
