@@ -15,9 +15,19 @@ _NEUTRALISE_FTS_IDF_SQL = load_sql("neutralise_fts_idf.sql")
 
 
 def build_fts(cur: duckdb.DuckDBPyConnection) -> None:
-    """(Re)create the BM25 index of *cur*'s file and neutralise IDF."""
-    cur.execute(_CREATE_FTS_INDEX_SQL)
-    cur.execute(_NEUTRALISE_FTS_IDF_SQL)
+    """(Re)create the BM25 index of *cur*'s file and neutralise IDF.
+
+    Runs its own transaction, so *cur* must have none open.  A failure
+    leaves the previous index in place.
+    """
+    cur.begin()
+    try:
+        cur.execute(_CREATE_FTS_INDEX_SQL)
+        cur.execute(_NEUTRALISE_FTS_IDF_SQL)
+    except BaseException:
+        cur.rollback()
+        raise
+    cur.commit()
 
 
 @contextmanager

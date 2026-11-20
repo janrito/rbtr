@@ -1550,9 +1550,11 @@ its still empty `chunks` table, so every file has one.
 
 **Write path** (build, GC): a [write session](#write-path) that
 modified chunks rebuilds its file's FTS index after it commits
-(`overwrite = 1`, an atomic drop and create). Making a file and
-this are the only paths that write FTS DDL; a compaction copies
-the index with the rest of the file.
+(`overwrite = 1`). The build and the IDF update run in one
+transaction, so a failure leaves the previous index whole and no
+index is left with its IDF in place. Making a file and this are
+the only paths that write FTS DDL; a compaction copies the index
+with the rest of the file.
 
 **Read path** (search): queries the existing persisted
 index. Never rebuilds.

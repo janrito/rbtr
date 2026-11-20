@@ -14,6 +14,7 @@ import duckdb
 import pytest
 from dataframely.exc import ValidationError
 from pytest_cases import parametrize_with_cases
+from pytest_mock import MockerFixture
 
 from rbtr.config import config
 from rbtr.domain.models import Edge, EdgeKind, FileSnapshot, Repo, SnapshotRef
@@ -158,6 +159,19 @@ def test_fts_rebuilt_after_chunk_insert(index: Index) -> None:
 
     results = index.fulltext_matches("searchable", within=[repo.at("c1")])
     assert len(results) > 0
+
+
+def test_a_failed_fts_rebuild_keeps_the_previous_index(index: Index, mocker: MockerFixture) -> None:
+    """A rebuild that fails part-way leaves the previous FTS index whole."""
+    ref = index.register("/repo").at("c1")
+    seed_index(index, [make_chunk("before", name="before_check")], ref)
+    mocker.patch("rbtr.index.db._NEUTRALISE_FTS_IDF_SQL", "SELECT * FROM no_such_table")
+    after = make_chunk("after", name="after_check", path="g.py")
+    with pytest.raises(duckdb.CatalogException):
+        seed_index(index, [after], ref)
+
+    assert len(index.fulltext_matches("before", within=[ref])) == 1
+    assert len(index.fulltext_matches("after", within=[ref])) == 0
 
 
 def test_buffer_flushes_at_batch_size(index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
