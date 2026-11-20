@@ -335,7 +335,7 @@ def resolved_files(
     (`__init__`, `index`, `mod`), which name a directory. `NAME` imports
     name no file.
     """
-    location = ["source_id", "source_path"]
+    location = ["source_id", "source_path", "source_import"]
     modules = (
         imports.filter(pl.col("way") == ImportWay.MODULE)
         .with_row_index("lookup")

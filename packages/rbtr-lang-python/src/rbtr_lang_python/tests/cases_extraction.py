@@ -580,28 +580,36 @@ def main():
     )
 
 
-@case(tags=["symbol"])
+@case(
+    tags=["symbol"],
+)
 def case_py_tuple_unpack() -> SymbolCase:
     """Flat tuple unpacking."""
-    return {"input.py": "a, b = compute()\n"}, [("variable", "a", ""), ("variable", "b", "")]
+    return {"input.py": "a, b = compute()\n"}, [("variable", "a, b", "")]
 
 
-@case(tags=["symbol"])
+@case(
+    tags=["symbol"],
+)
 def case_py_paren_tuple_unpack() -> SymbolCase:
     """Parenthesised tuple target."""
-    return {"input.py": "(a, b) = compute()\n"}, [("variable", "a", ""), ("variable", "b", "")]
+    return {"input.py": "(a, b) = compute()\n"}, [("variable", "a, b", "")]
 
 
-@case(tags=["symbol"])
+@case(
+    tags=["symbol"],
+)
 def case_py_list_unpack() -> SymbolCase:
     """List-pattern target."""
-    return {"input.py": "[a, b] = compute()\n"}, [("variable", "a", ""), ("variable", "b", "")]
+    return {"input.py": "[a, b] = compute()\n"}, [("variable", "a, b", "")]
 
 
-@case(tags=["symbol"])
+@case(
+    tags=["symbol"],
+)
 def case_py_star_unpack() -> SymbolCase:
     """Starred target."""
-    return {"input.py": "a, *rest = compute()\n"}, [("variable", "a", ""), ("variable", "rest", "")]
+    return {"input.py": "a, *rest = compute()\n"}, [("variable", "a, rest", "")]
 
 
 @case(tags=["symbol"], marks=_xfail_nested)

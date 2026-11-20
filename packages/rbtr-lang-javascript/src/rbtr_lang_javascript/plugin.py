@@ -14,11 +14,11 @@ Extracted chunks::
     class Service {}                → class "Service", scope ""
 
     import { foo } from './models'
-        → import, metadata {module: "./models", names: "foo"}
+        → import, imports [{module: "./models", names: "foo"}]
     import React from 'react'
-        → import, metadata {module: "react", names: "React"}
+        → import, imports [{module: "react", names: "React"}]
     import './styles.css'
-        → import, metadata {module: "./styles"}
+        → import, imports [{module: "./styles"}]
 """
 
 from __future__ import annotations

@@ -15,7 +15,13 @@ folded into its chunk content.
   const; class/object methods (class members scoped to their class).
 - **Classes** — classes, and TypeScript interfaces, enums, type aliases, and
   namespaces (a namespace also scopes its members).
-- **Variables** — module-level `const` / `let` (including destructuring).
+- **Variables** — module-level `const` / `let`; a destructuring is one variable,
+  named by its names joined.
+- **Tests** — `describe`, `context`, `it` and `test` called with a name, at any
+  depth, each a test named by its string; a test inside a group is nested in
+  it, and a comment in its callback is its text.
+- **Statements** — a program's `if`, `try`, `for` and `while` blocks and calls
+  spanning lines, each one chunk holding what is captured inside it.
 - **Re-exports** — `export * from "./c"`, `export * as ns from "./n"` and
   `export { x, y as z } from "./b"` read from another module, so they resolve
   as imports do. A consumer's calls reach a symbol through them without ever
@@ -35,8 +41,10 @@ function greet(name) { … }        // function "greet"
 const add = (a, b) => a + b;      // function "add"
 class Button { render() {} }      // class "Button"; method "render" scope "Button"
 export const MAX = 100;           // variable "MAX"
-import { x } from "./x";          // import, metadata {module: "./x", names: "x"}
-const { y } = require("./y");     // import {module: "./y", names: "y"}; variable "y"
+const { lo, hi } = range;         // variable "lo, hi"
+import { x } from "./x";          // import, imports [{module: "./x", names: "x"}]
+test("adds", () => { … });        // test_function "adds"
+const { y } = require("./y");     // import, imports [{module: "./y", names: "y"}]; variable "y"
 ```
 
 ## Embedded / injected chunks

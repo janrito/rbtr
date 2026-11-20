@@ -92,6 +92,9 @@ flowchart TD
 | `tune`              | Bayesian-optimise fusion weights                                    | `data/TUNING.md`                                              |
 | `tune-reranker`     | grid-search reranker pool size and blend weight per kind            | `data/RERANKER_TUNING.md`                                     |
 
+Every chunk kind but imports is measured (`EXCLUDED_KINDS`): a statement a
+language declares is a search target, as a fragment is.
+
 Indexing is split into `index` (chunking) and `embed`
 (embedding) so that `extract` and `paraphrase` can run in
 parallel with `embed` — they only read from the DuckDB

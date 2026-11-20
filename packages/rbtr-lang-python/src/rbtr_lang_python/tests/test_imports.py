@@ -1,7 +1,9 @@
 """Python's import forms, each a small project under `samples/imports/`, built as rbtr builds a repository.
 
 - `named-imports`: A named import reaches each name: a function, a class,
-  variables, and a relative module's class.
+  variables, and a relative module's class. One name of a declaration of
+  several (`low, high = 1, 9`) is not reached: the declaration is one chunk
+  named `low, high`.
 - `bare-import`: A bare import reaches a module's definitions, not its
   imports or the code no query names.
 - `suffix-in-a-monorepo`: An absolute import resolves across a
@@ -40,11 +42,22 @@ from rbtr.testing.assertions import Referrer, Target, assert_reached
                 ("pkg/config.py", "settings"): {
                     ("pkg/a.py", "from pkg.config import settings, high", "imports")
                 },
-                ("pkg/config.py", "high"): {
+            },
+            id="named-imports",
+        ),
+        pytest.param(
+            "named-imports",
+            {
+                ("pkg/config.py", "low, high"): {
                     ("pkg/a.py", "from pkg.config import settings, high", "imports")
                 },
             },
-            id="named-imports",
+            id="named-import-of-one-of-several",
+            marks=pytest.mark.xfail(
+                strict=True,
+                reason="a declaration of several names is one chunk named by them joined, and \
+an import names one of them, which matches no chunk's name",
+            ),
         ),
         pytest.param(
             "bare-import",

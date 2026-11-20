@@ -25,7 +25,7 @@ public class Formatter {           // class "Formatter"
   Formatter(int w) { … }           //   method "Formatter", scope "Formatter"
   String format(String s) { … }    //   method "format", scope "Formatter"
 }
-import java.util.List;             // import, metadata {module: java.util.List}
+import java.util.List;             // import, imports [{module: java.util.List, names: List}]
 ```
 
 ## Embedded / injected chunks

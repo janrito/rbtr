@@ -34,17 +34,19 @@
     "language": "go",
     "line_start": 9,
     "line_end": 9,
-    "metadata": {
-      "module": "fmt",
-      "names": "",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "fmt",
-          "local": "fmt"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "fmt",
+        "names": "",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "fmt",
+            "local": "fmt"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "\"example.com/greeter/greeter\"",
@@ -54,17 +56,19 @@
     "language": "go",
     "line_start": 11,
     "line_end": 11,
-    "metadata": {
-      "module": "example.com/greeter/greeter",
-      "names": "",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "example.com/greeter/greeter",
-          "local": "greeter"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "example.com/greeter/greeter",
+        "names": "",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "example.com/greeter/greeter",
+            "local": "greeter"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "",
@@ -209,17 +213,19 @@
     "language": "go",
     "line_start": 8,
     "line_end": 8,
-    "metadata": {
-      "module": "strings",
-      "names": "",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "strings",
-          "local": "strings"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "strings",
+        "names": "",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "strings",
+            "local": "strings"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "Trim",

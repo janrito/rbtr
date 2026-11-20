@@ -30,7 +30,7 @@ namespace ui {                     //
   class Widget { void draw(); };   //   class "Widget"; method "draw" scope "ui::Widget"
   int count = 0;                   //   variable "count", scope "ui"
 }
-#include <vector>                  // import, metadata {module: vector}
+#include <vector>                  // import, imports [{module: vector, names: *}]
 ```
 
 ## Embedded / injected chunks

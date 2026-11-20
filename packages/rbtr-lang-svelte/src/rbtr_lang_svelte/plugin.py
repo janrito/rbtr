@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from tree_sitter import Language, Node, Range
 
 
-def _template_chunk(
+def template_chunk(
     file_path: str, blob_sha: str, content_bytes: bytes, nodes: list[Node]
 ) -> Chunk | None:
     """Emit the markup template as one host-language chunk, or `None`.
@@ -45,20 +45,18 @@ def _template_chunk(
     """
     if not nodes:
         return None
-    start = min(n.start_byte for n in nodes)
-    end = max(n.end_byte for n in nodes)
-    text = content_bytes[start:end].decode("utf-8", errors="replace").strip()
-    if not text:
-        return None
-    name = PurePosixPath(file_path).stem
-    line_start = min(n.start_point[0] for n in nodes)
-    line_end = max(last_line(n) for n in nodes)
+    first, last = nodes[0], nodes[-1]
     return Chunk(
         blob_sha=blob_sha,
         file_path=file_path,
-        role=Section(kind=ChunkKind.DOC_SECTION, name=name),
-        content=text,
-        span=Span(start=line_start + 1, end=line_end),
+        role=Section(kind=ChunkKind.DOC_SECTION, name=PurePosixPath(file_path).stem),
+        content=content_bytes[first.start_byte : last.end_byte].decode("utf-8", errors="replace"),
+        span=Span(
+            start=first.start_point[0] + 1,
+            end=last_line(last),
+            start_byte=first.start_byte,
+            end_byte=last.end_byte,
+        ),
     )
 
 
@@ -87,7 +85,7 @@ def chunk_sfc(
         for el in tree.root_node.children
         if el.type not in ("script_element", "style_element", "comment")
     ]
-    template = _template_chunk(file_path, blob_sha, content_bytes, template_nodes)
+    template = template_chunk(file_path, blob_sha, content_bytes, template_nodes)
     if template is not None:
         yield template
 
@@ -104,19 +102,30 @@ def chunk_sfc(
                 content=content_bytes[tag.start_byte : tag.end_byte].decode(
                     "utf-8", errors="replace"
                 ),
-                span=Span(start=tag.start_point[0] + 1, end=last_line(tag)),
+                span=Span(
+                    start=tag.start_point[0] + 1,
+                    end=last_line(tag),
+                    start_byte=tag.start_byte,
+                    end_byte=tag.end_byte,
+                ),
             )
 
     for node in tree.root_node.children:
         if node.type != "comment":
             continue
-        text = content_bytes[node.start_byte : node.end_byte].decode("utf-8", errors="replace")
         yield Chunk(
             blob_sha=blob_sha,
             file_path=file_path,
             role=Comment(),
-            content=text.strip(),
-            span=Span(start=node.start_point[0] + 1, end=last_line(node)),
+            content=content_bytes[node.start_byte : node.end_byte].decode(
+                "utf-8", errors="replace"
+            ),
+            span=Span(
+                start=node.start_point[0] + 1,
+                end=last_line(node),
+                start_byte=node.start_byte,
+                end_byte=node.end_byte,
+            ),
         )
 
 

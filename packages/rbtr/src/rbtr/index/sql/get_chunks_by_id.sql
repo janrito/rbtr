@@ -19,6 +19,8 @@ SELECT DISTINCT ON (c.id)
   c.content,
   c.line_start,
   c.line_end,
+  c.start_byte,
+  c.end_byte,
   c.metadata,
   CASE
     WHEN c.embedding IS NULL THEN 'none'

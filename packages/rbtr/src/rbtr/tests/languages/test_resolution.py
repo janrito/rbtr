@@ -24,12 +24,19 @@ def test_an_import_reaches_the_files_its_language_resolves(scenario: ImportScena
             "kind": ["import"],
             "name": [scenario.module],
             "language": [scenario.language],
-            "module": [scenario.module],
-            "names": [scenario.names],
-            "language_hint": [scenario.language_hint],
             "scope": [""],
-            "bindings": [None],
-            "refs": [None] * 1,
+            "imports": [
+                [
+                    {
+                        "text": scenario.module,
+                        "module": scenario.module,
+                        "names": scenario.names,
+                        "language_hint": scenario.language_hint,
+                        "bindings": [],
+                    }
+                ]
+            ],
+            "refs": [None],
         }
     ).pipe(EdgeChunkRow.validate, cast=True)
     imports = requested_imports(rows, resolutions)

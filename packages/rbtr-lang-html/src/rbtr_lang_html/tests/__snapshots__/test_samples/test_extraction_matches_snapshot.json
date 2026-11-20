@@ -60,13 +60,15 @@
     "scope": "",
     "language": "html",
     "line_start": 8,
-    "line_end": 9,
-    "metadata": {
-      "module": "styles.css",
-      "names": "",
-      "language_hint": "css",
-      "bindings": []
-    }
+    "line_end": 8,
+    "imports": [
+      {
+        "module": "styles.css",
+        "names": "",
+        "language_hint": "css",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "<script src=\"greeter.js\"></script>",
@@ -76,12 +78,14 @@
     "language": "html",
     "line_start": 9,
     "line_end": 9,
-    "metadata": {
-      "module": "greeter.js",
-      "names": "",
-      "language_hint": "javascript",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "greeter.js",
+        "names": "",
+        "language_hint": "javascript",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": ".greeter",
@@ -136,12 +140,14 @@
     "language": "html",
     "line_start": 23,
     "line_end": 23,
-    "metadata": {
-      "module": "pages/about.html",
-      "names": "team",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "pages/about.html",
+        "names": "team",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "<a href=\"pages/about.html#contributors\">contributors</a>",
@@ -151,12 +157,14 @@
     "language": "html",
     "line_start": 24,
     "line_end": 24,
-    "metadata": {
-      "module": "pages/about.html",
-      "names": "contributors",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "pages/about.html",
+        "names": "contributors",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "<a href=\"pages/about.html#schedule\">schedule</a>",
@@ -166,12 +174,14 @@
     "language": "html",
     "line_start": 25,
     "line_end": 25,
-    "metadata": {
-      "module": "pages/about.html",
-      "names": "schedule",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "pages/about.html",
+        "names": "schedule",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "<a href=\"pages/about.html#history\">history</a>",
@@ -181,12 +191,14 @@
     "language": "html",
     "line_start": 26,
     "line_end": 26,
-    "metadata": {
-      "module": "pages/about.html",
-      "names": "history",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "pages/about.html",
+        "names": "history",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "footer",
@@ -250,12 +262,14 @@
     "language": "html",
     "line_start": 5,
     "line_end": 5,
-    "metadata": {
-      "module": "about.js",
-      "names": "",
-      "language_hint": "javascript",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "about.js",
+        "names": "",
+        "language_hint": "javascript",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "body",
@@ -310,12 +324,14 @@
     "language": "html",
     "line_start": 16,
     "line_end": 16,
-    "metadata": {
-      "module": "../html.html",
-      "names": "intro",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "../html.html",
+        "names": "intro",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "",

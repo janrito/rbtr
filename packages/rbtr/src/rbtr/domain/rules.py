@@ -17,7 +17,7 @@ from enum import StrEnum
 import dataframely as dy
 import polars as pl
 
-from rbtr.domain.models import ChunkKind, EdgeKind, Lookup
+from rbtr.domain.models import ChunkKind, EdgeKind, Lookup, narrows
 
 ASCII_WHITESPACE = " \t\n\r\x0b\x0c"
 """What `bytes.strip()` strips: a gap of these, and no blank line, is contiguous."""
@@ -52,6 +52,56 @@ def reference_list() -> dy.List:
     )
 
 
+def binding_list(*, nullable: bool) -> dy.List:
+    """The names an import binds: each a name and the local it is bound to."""
+    return dy.List(
+        dy.Struct({"name": dy.String(nullable=False), "local": dy.String(nullable=False)}),
+        nullable=nullable,
+    )
+
+
+def capture_metadata() -> dy.Struct:
+    """A capture's payload: one import's module, names, hint and bindings; a fragment's node types; the calls and bases it writes.
+
+    Null for a role with no payload (sections, comments, raw slices).
+    """
+    return dy.Struct(
+        {
+            "module": dy.String(nullable=True),
+            "names": dy.String(nullable=True),
+            "language_hint": dy.String(nullable=True),
+            "node_types": dy.List(dy.String(), nullable=True),
+            "refs": reference_list(),
+            "bindings": binding_list(nullable=True),
+        },
+        nullable=True,
+    )
+
+
+def import_list() -> dy.List:
+    """The imports a chunk makes, each the import's text, its module, the names it lists, its hint and its bindings."""
+    return dy.List(
+        dy.Struct(
+            {
+                "text": dy.String(nullable=False),
+                "module": dy.String(nullable=False),
+                "names": dy.String(nullable=False),
+                "language_hint": dy.String(nullable=False),
+                "bindings": binding_list(nullable=False),
+            }
+        ),
+        nullable=False,
+    )
+
+
+UNNAMED_KINDS = [
+    ChunkKind.STATEMENT.value,
+    ChunkKind.FRAGMENT.value,
+    ChunkKind.COMMENT.value,
+    ChunkKind.RAW_CHUNK.value,
+]
+"""The kinds of chunk that have no name: its rows have no names."""
+
 DEFINITION_KINDS = [
     ChunkKind.FUNCTION.value,
     ChunkKind.CLASS.value,
@@ -64,22 +114,26 @@ DEFINITION_KINDS = [
 """The kinds a definition or class role has: their rows carry `calls`."""
 
 
+HOLDER_KINDS = [ChunkKind.FRAGMENT.value, ChunkKind.STATEMENT.value, *DEFINITION_KINDS]
+"""The kinds whose rows hold the calls and bases they write: a definition, a statement or a fragment."""
+
+
 def holds_references() -> pl.Expr:
-    """Whether a row's chunk holds the calls and bases it writes: a definition or a fragment."""
-    return pl.col("kind").is_in([ChunkKind.FRAGMENT.value, *DEFINITION_KINDS])
+    """Whether a row's chunk holds the calls and bases it writes (`HOLDER_KINDS`)."""
+    return pl.col("kind").is_in(HOLDER_KINDS)
 
 
 class ChunkRow(dy.Schema):
-    """A chunk as a row.
+    """A chunk as a row: one span of a file.
 
-    The role is spread over `kind`, `name` and `metadata`, the union of
-    the roles' payload fields, null where a role has none: an import's
-    module, names, hint and bindings; a fragment's node types (a
-    diagnostic, read by rbtr-eval only); the calls
-    and bases a definition, class or fragment writes (a base only on a
-    class). `metadata` is
-    null for a role with no payload (sections, comments, raw slices).
+    The role is spread over `kind`, `name` and `metadata`: the imports
+    the chunk makes (empty when it makes none; a key or a section can
+    import too); a fragment's node types (a diagnostic, read by rbtr-eval
+    only), null on other kinds; the calls and bases a definition, class,
+    statement or fragment writes (a base only on a class), null on other kinds.
     `docs` is the text of its documentation, null when it has none.
+    `content` is the file's text from `start_byte` to `end_byte`, and
+    `line_end` the line its last byte is on.
     """
 
     blob_sha = dy.String(nullable=False)
@@ -89,32 +143,28 @@ class ChunkRow(dy.Schema):
     name = dy.String(nullable=False)
     scope = dy.String(nullable=False)
     content = dy.String(nullable=False)
+    start_byte = dy.Int64(nullable=False)
+    end_byte = dy.Int64(nullable=False)
     line_start = dy.Int32(nullable=False)
     line_end = dy.Int32(nullable=False)
     metadata = dy.Struct(
         {
-            "module": dy.String(nullable=True),
-            "names": dy.String(nullable=True),
-            "language_hint": dy.String(nullable=True),
             "node_types": dy.List(dy.String(), nullable=True),
             "refs": reference_list(),
-            "bindings": dy.List(
-                dy.Struct({"name": dy.String(nullable=False), "local": dy.String(nullable=False)}),
-                nullable=True,
-            ),
+            "imports": import_list(),
         },
-        nullable=True,
+        nullable=False,
     )
     docs = dy.String(nullable=True)
 
     @dy.rule()
-    def import_fields_only_on_imports(cls) -> pl.Expr:
-        meta = cls.metadata.col.struct
-        is_import = cls.kind.col == ChunkKind.IMPORT.value
-        return pl.all_horizontal(
-            meta.field(name).is_not_null() == is_import
-            for name in ("module", "names", "language_hint", "bindings")
-        )
+    def no_name_on_unnamed_kinds(cls) -> pl.Expr:
+        return ~cls.kind.col.is_in(UNNAMED_KINDS) | (cls.name.col == "")
+
+    @dy.rule()
+    def an_import_imports(cls) -> pl.Expr:
+        imports = cls.metadata.col.struct.field("imports")
+        return (cls.kind.col != ChunkKind.IMPORT.value) | (imports.list.len() > 0)
 
     @dy.rule()
     def node_types_only_on_fragments(cls) -> pl.Expr:
@@ -152,7 +202,35 @@ class ChunkRow(dy.Schema):
 
 def no_references() -> pl.Expr:
     """An empty `refs` list: a holder that writes no call or base."""
-    return pl.lit([], dtype=ChunkRow.metadata.inner["refs"].dtype)
+    return pl.lit([], dtype=reference_list().dtype)
+
+
+def no_metadata() -> pl.Expr:
+    """A chunk's `metadata` when it imports nothing and is no holder or fragment."""
+    return pl.lit({"node_types": None, "refs": None, "imports": []}, dtype=ChunkRow.metadata.dtype)
+
+
+def chunk_metadata() -> pl.Expr:
+    """A capture's `metadata` as its chunk's: an import capture's import as a list of one, named by its text."""
+    meta = pl.col("metadata").struct
+    one_import = pl.concat_list(
+        pl.struct(
+            text=pl.col("name"),
+            module=meta.field("module").fill_null(""),
+            names=meta.field("names").fill_null(""),
+            language_hint=meta.field("language_hint").fill_null(""),
+            bindings=meta.field("bindings").fill_null(
+                pl.lit([], dtype=binding_list(nullable=True).dtype)
+            ),
+        )
+    )
+    return pl.struct(
+        node_types=meta.field("node_types"),
+        refs=meta.field("refs"),
+        imports=pl.when(pl.col("kind") == ChunkKind.IMPORT.value)
+        .then(one_import)
+        .otherwise(pl.lit([], dtype=import_list().dtype)),
+    )
 
 
 class PlacedChunkRow(ChunkRow):
@@ -198,7 +276,7 @@ class CaptureRow(dy.Schema):
     end_byte = dy.Int64(nullable=False)
     line_start = dy.Int64(nullable=False)
     line_end = dy.Int64(nullable=False)
-    metadata = ChunkRow.metadata
+    metadata = capture_metadata()
     level = dy.Int32(nullable=True)
     level_style = dy.String(nullable=True)
     source_end = dy.Int64(nullable=False)
@@ -214,7 +292,7 @@ class CaptureRow(dy.Schema):
     @dy.rule()
     def metadata_of_roles_with_a_payload(cls) -> pl.Expr:
         return cls.metadata.col.is_not_null() == cls.kind.col.is_in(
-            [ChunkKind.IMPORT.value, ChunkKind.FRAGMENT.value, *DEFINITION_KINDS]
+            [ChunkKind.IMPORT.value, *HOLDER_KINDS]
         )
 
 
@@ -324,19 +402,6 @@ def inside_earlier_symbol() -> pl.Expr:
     )
 
 
-def without_final_newline() -> pl.Expr:
-    """A comment block's end, before the newline its last comment ends with."""
-    return (
-        pl.when(
-            (pl.col("kind") == ChunkKind.COMMENT.value)
-            & (pl.col("end_byte") > pl.col("start_byte"))
-            & (pl.col("content").bin.slice(pl.col("end_byte") - 1, 1) == pl.lit(b"\n"))
-        )
-        .then(pl.col("end_byte") - 1)
-        .otherwise(pl.col("end_byte"))
-    )
-
-
 def promoted() -> pl.Expr:
     """A function whose nearest enclosing scope is class-like is a method.
 
@@ -421,23 +486,19 @@ def without_final_empty_line() -> pl.Expr:
     )
 
 
-def window_text(size: int) -> pl.Expr:
-    """The *size* lines from a window's start, joined, less whitespace at both ends."""
-    return pl.col("lines").list.slice("start", size).list.join("\n").str.strip_chars()
+def window_lines(size: int) -> pl.Expr:
+    """The *size* lines from a window's start, joined: its text before trimming."""
+    return pl.col("lines").list.slice("start", size).list.join("\n")
 
 
-def window_end(size: int) -> pl.Expr:
-    """The 1-based last line of the window of *size* lines from `start`, within its file."""
-    return pl.min_horizontal(pl.col("start") + size, pl.col("lines").list.len())
-
-
-def span_text() -> pl.Expr:
-    """A span's text; a fragment's ends before the newlines it ends with."""
-    span = text(pl.col("start_byte"), pl.col("end_byte"))
+def window_start_byte() -> pl.Expr:
+    """Where a window's first line starts in its file: the lines before it, each with its newline."""
     return (
-        pl.when(pl.col("kind") == ChunkKind.FRAGMENT.value)
-        .then(span.str.strip_chars_end("\n"))
-        .otherwise(span)
+        pl.col("lines")
+        .list.slice(0, "start")
+        .list.eval(pl.element().str.len_bytes() + 1)
+        .list.sum()
+        .cast(pl.Int64)
     )
 
 
@@ -452,8 +513,7 @@ def fold_comments(
     symbol takes the block of line comments flush above it, unless it is
     an import: its span starts where the block does, and the block's
     spans lead its docs. A block that ends within an earlier symbol is
-    that symbol's; any other is a comment chunk, less the newline it ends
-    with.
+    that symbol's; any other is a comment chunk.
     """
     return (
         # In one chunk: joined from several, polars copies the content into every row.
@@ -475,7 +535,6 @@ def fold_comments(
             docs=docs_with_block_above(),
         )
         .filter(~pl.col("taken"), ~inside_earlier_symbol())
-        .with_columns(end_byte=without_final_newline())
         .pipe(CaptureRow.validate, cast=True)
     )
 
@@ -514,20 +573,25 @@ def next_levelled_start() -> pl.Expr:
     return pl.coalesce(pl.col("start_byte").shift(-1).over("file", "source"), "source_end")
 
 
-def end_before_trailing_whitespace() -> pl.Expr:
-    """The end of the text from `start_byte` to `stop`, less the whitespace it ends with."""
+def end_before_trailing_whitespace(stop: pl.Expr) -> pl.Expr:
+    """The end of the text from `start_byte` to *stop*, less the whitespace it ends with."""
     return (
         pl.col("start_byte")
-        + text(pl.col("start_byte"), pl.col("stop"))
-        .str.strip_chars_end(ASCII_WHITESPACE)
-        .str.len_bytes()
+        + text(pl.col("start_byte"), stop).str.strip_chars_end(ASCII_WHITESPACE).str.len_bytes()
     )
 
 
 def last_line_of_span() -> pl.Expr:
-    """The line `end_byte` falls on, from `line_start` and the newlines in between."""
-    return pl.col("line_start") + text(pl.col("start_byte"), pl.col("end_byte")).str.count_matches(
-        "\n", literal=True
+    """The line a span's last byte is on, from `line_start` and the newlines before that byte.
+
+    A span ending with a newline ends on the line the newline ends, as
+    tree-sitter's `last_line` reads a node ending at a line break.
+    """
+    span = text(pl.col("start_byte"), pl.col("end_byte"))
+    return (
+        pl.col("line_start")
+        + span.str.count_matches("\n", literal=True)
+        - span.str.ends_with("\n").cast(pl.Int64)
     )
 
 
@@ -592,7 +656,7 @@ def levelled(
     )
     spans = (
         rows.join(files.select("file", "content").rechunk().lazy(), on="file")
-        .with_columns(end_byte=end_before_trailing_whitespace())
+        .with_columns(end_byte=end_before_trailing_whitespace(pl.col("stop")))
         .with_columns(line_end=last_line_of_span())
         .join(scopes, on=[*key, "order"], how="left")
         .select(
@@ -890,9 +954,8 @@ def capture_chunks(
 ) -> dy.LazyFrame[PlacedChunkRow]:
     """The chunks *captures* make: comments folded (`fold_comments`), then each made a chunk.
 
-    A capture's text is its span of the file (a fragment's less the
-    newlines it ends with), and its docs the texts of its documentation's
-    spans joined by newlines. A function in a class is a method
+    A capture's text is its span of the file, and its docs the texts of
+    its documentation's spans joined by newlines. A function in a class is a method
     (`promoted`), and an import's `#` is read (`module_before_fragment`,
     `fragment_as_names`). A fragment whose text is blank is no chunk.
     """
@@ -915,7 +978,11 @@ def capture_chunks(
             metadata=pl.col("metadata").struct.with_fields(
                 module=module_before_fragment(), names=fragment_as_names()
             ),
-            content=span_text(),
+        )
+        .with_columns(
+            content=text(pl.col("start_byte"), pl.col("end_byte")),
+            line_end=last_line_of_span(),
+            metadata=chunk_metadata(),
         )
         .filter(~blank_fragment())
         .pipe(PlacedChunkRow.validate, cast=True)
@@ -927,9 +994,9 @@ def line_windows(
 ) -> dy.LazyFrame[PlacedChunkRow]:
     """The files numbered in *plain*, as windows of *size* lines, each from *overlap* lines before the last ends.
 
-    A file that ends in a newline has no empty last line. A window's text
-    is its lines joined, less whitespace at both ends, and a blank window
-    is no chunk. The windows are in *language*, numbered in their file.
+    A file that ends in a newline has no empty last line. A window's span
+    is its lines less whitespace at both ends, and a blank window is no
+    chunk. The windows are in *language*, numbered in their file.
     """
     return (
         files.lazy()
@@ -943,8 +1010,22 @@ def line_windows(
         .with_columns(lines=without_final_empty_line())
         .with_columns(start=pl.int_ranges(0, pl.col("lines").list.len(), size - overlap))
         .explode("start", empty_as_null=False)
+        .with_columns(raw=window_lines(size), first=window_start_byte())
+        .with_columns(trimmed=pl.col("raw").str.strip_chars_start(ASCII_WHITESPACE))
         .with_columns(
-            content=window_text(size), line_start=pl.col("start") + 1, line_end=window_end(size)
+            content=pl.col("trimmed").str.strip_chars_end(ASCII_WHITESPACE),
+            start_byte=pl.col("first")
+            + pl.col("raw").str.len_bytes()
+            - pl.col("trimmed").str.len_bytes(),
+            line_start=pl.col("start")
+            + 1
+            + pl.col("raw")
+            .str.head(pl.col("raw").str.len_chars() - pl.col("trimmed").str.len_chars())
+            .str.count_matches("\n", literal=True),
+        )
+        .with_columns(
+            end_byte=pl.col("start_byte") + pl.col("content").str.len_bytes(),
+            line_end=pl.col("line_start") + pl.col("content").str.count_matches("\n", literal=True),
         )
         .filter(pl.col("content") != "")
         .with_columns(
@@ -953,23 +1034,138 @@ def line_windows(
             kind=pl.lit(ChunkKind.RAW_CHUNK.value),
             name=pl.lit(""),
             scope=pl.lit(""),
-            metadata=pl.lit(None, dtype=ChunkRow.metadata.dtype),
+            metadata=no_metadata(),
             docs=pl.lit(None, dtype=pl.String),
         )
         .pipe(PlacedChunkRow.validate, cast=True)
     )
 
 
+class KindOverlapRow(dy.Schema):
+    """Captures of more than one kind on one span: the file, the span's first line, the kinds in `ChunkKind` order, the kind its chunk took, and whether `narrows` decided it."""
+
+    path = dy.String(nullable=False)
+    line = dy.Int64(nullable=False)
+    kinds = dy.List(dy.String(nullable=False), nullable=False)
+    kept = dy.String(nullable=False)
+    narrowed = dy.Bool(nullable=False)
+
+
+def kind_rank(kind: pl.Expr) -> pl.Expr:
+    """*kind*'s place in `ChunkKind` order."""
+    return kind.cast(pl.String).replace_strict(
+        [k.value for k in ChunkKind], list(range(len(ChunkKind))), return_dtype=pl.Int64
+    )
+
+
+def one_chunk_per_span(
+    files: dy.DataFrame[FileRow], chunks: pl.LazyFrame
+) -> tuple[pl.LazyFrame, dy.LazyFrame[KindOverlapRow]]:
+    """*chunks* with the chunks of each span of a file made one, and the spans captured as more than one kind.
+
+    A span's chunk takes the kind that narrows every other there
+    (`narrows`), else the first in `ChunkKind` order, and its first
+    chunk of that kind gives its scope, docs and content; its order is
+    the span's first. Its name is every chunk's, in order, once each,
+    joined by `, `, but an import's text when it is no import (a key that
+    imports is named as the key). Its language is an embedded one if any
+    chunk there has one. Its imports are every chunk's, in order, once
+    each; its calls and bases, and a fragment's node types, likewise.
+    """
+    span = ["file", "start_byte", "end_byte"]
+    counted = chunks.with_columns(chunks_at_span=pl.len().over(span))
+    single = counted.filter(pl.col("chunks_at_span") == 1).drop("chunks_at_span")
+    shared = counted.filter(pl.col("chunks_at_span") > 1).drop("chunks_at_span")
+    allowed = pl.LazyFrame(
+        {
+            "kept": [kind.value for kind in ChunkKind],
+            "allowed": [
+                sorted({kind.value, *(other.value for other in ChunkKind if narrows(kind, other))})
+                for kind in ChunkKind
+            ],
+        }
+    )
+    kinds = (
+        shared.group_by(span)
+        .agg(kinds=pl.col("kind").cast(pl.String).unique(), line=pl.col("line_start").min())
+        .with_columns(
+            kinds=pl.col("kinds").list.eval(pl.element().sort_by(kind_rank(pl.element())))
+        )
+    )
+    choice = (
+        kinds.with_columns(kept=pl.col("kinds"))
+        .explode("kept")
+        .join(allowed, on="kept")
+        .with_columns(
+            narrowed=pl.col("kinds").list.set_difference("allowed").list.len() == 0,
+            rank=kind_rank(pl.col("kept")),
+        )
+        .sort("narrowed", "rank", descending=[True, False])
+        .group_by(span)
+        .agg(pl.col("kept", "narrowed", "kinds", "line").first())
+    )
+    of_kept = pl.col("kind").cast(pl.String) == pl.col("kept")
+    every = {"keep_nulls": False, "empty_as_null": False}
+    imports = pl.col("metadata").struct.field("imports").list.explode(**every)
+    refs = pl.col("metadata").struct.field("refs").list.explode(**every)
+    node_types = pl.col("metadata").struct.field("node_types").list.explode(**every)
+    merged = (
+        shared.join(choice.select(*span, "kept"), on=span)
+        .sort("file", "order")
+        .group_by(span, maintain_order=True)
+        .agg(
+            pl.exclude(*span, "kept", "order", "language", "metadata", "name")
+            .filter(of_kept)
+            .first(),
+            name=pl.col("name")
+            .filter(
+                (pl.col("name") != "")
+                & (
+                    (pl.col("kind").cast(pl.String) != ChunkKind.IMPORT.value)
+                    | (pl.col("kept") == ChunkKind.IMPORT.value)
+                )
+            )
+            .unique(maintain_order=True)
+            .str.join(", "),
+            order=pl.col("order").min(),
+            language=pl.coalesce(
+                pl.col("language").filter(pl.col("language") != pl.col("file_language")).first(),
+                pl.col("language").first(),
+            ),
+            imports=imports.unique(maintain_order=True),
+            refs=refs.unique(maintain_order=True),
+            node_types=node_types.unique(maintain_order=True),
+        )
+        .with_columns(
+            metadata=pl.struct(
+                node_types=pl.when(pl.col("kind") == ChunkKind.FRAGMENT.value).then("node_types"),
+                refs=pl.when(holds_references()).then("refs"),
+                imports="imports",
+            )
+        )
+        .drop("imports", "refs", "node_types")
+    )
+    overlaps = (
+        choice.filter(pl.col("kinds").list.len() > 1)
+        .join(files.select("file", "path").lazy(), on="file")
+        .sort("path", "line")
+        .select(KindOverlapRow.column_names())
+        .pipe(KindOverlapRow.validate, cast=True)
+    )
+    return pl.concat([single, merged], how="diagonal_relaxed"), overlaps
+
+
 def assemble(
     files: dy.DataFrame[FileRow], *placed: dy.LazyFrame[PlacedChunkRow]
-) -> dy.LazyFrame[PlacedChunkRow]:
-    """The batch's chunks, each file's in order, *placed* and presence chunks.
+) -> tuple[dy.LazyFrame[PlacedChunkRow], dy.LazyFrame[KindOverlapRow]]:
+    """The batch's chunks, each file's in order, *placed* and presence chunks, one per span; and the spans captured as more than one kind.
 
-    A file with no chunk in its own language gets a content-less presence
-    chunk in it, after its others, so the blob check can skip the file on
-    later builds. Each file's chunks are numbered again from 0.
+    The chunks of one span are one (`one_chunk_per_span`). A file with no
+    chunk in its own language gets a content-less presence chunk in it,
+    after its others, so the blob check can skip the file on later
+    builds. Each file's chunks are numbered again from 0.
     """
-    chunks = pl.concat(placed)
+    chunks, overlaps = one_chunk_per_span(files, pl.concat(placed))
     presence = (
         files.lazy()
         .join(chunks.filter(pl.col("language") == pl.col("file_language")), on="file", how="anti")
@@ -982,8 +1178,11 @@ def assemble(
             name=pl.lit(""),
             scope=pl.lit(""),
             content=pl.lit(""),
+            start_byte=pl.lit(0),
+            end_byte=pl.lit(0),
             line_start=pl.lit(1),
             line_end=pl.lit(1),
+            metadata=no_metadata(),
         )
     )
     return (
@@ -991,4 +1190,4 @@ def assemble(
         .sort("file", "order", nulls_last=True)
         .with_columns(order=pl.int_range(pl.len()).over("file"))
         .pipe(PlacedChunkRow.validate, cast=True)
-    )
+    ), overlaps

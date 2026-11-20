@@ -257,7 +257,7 @@ def test_edge_chunks_are_every_location_in_path_order(
         .pipe(EdgeChunkRow.validate, cast=True)
     )
     with dup_index.session(dup_ref.repo) as session:
-        assert session.edge_chunks(dup_ref.snapshot_sha).equals(expected)
+        assert session.edge_chunks(at=dup_ref).equals(expected)
 
 
 def test_embedding_and_truncation_are_stored(
@@ -372,7 +372,7 @@ class Order(models.Model):
         (
             row["name"],
             row["metadata"]["refs"],
-            row["metadata"]["bindings"],
+            [binding for imp in row["metadata"]["imports"] for binding in imp["bindings"]],
         )
         for row in read.select("name", "metadata").iter_rows(named=True)
     ] == [
@@ -386,17 +386,22 @@ class Order(models.Model):
                     "type": None,
                 }
             ],
-            None,
+            [],
         ),
         ("from django.db import models", None, [{"name": "models", "local": "models"}]),
         ("import numpy as np", None, [{"name": "numpy", "local": "np"}]),
-        ("run", [{"kind": "calls", "lookup": "member", "path": ["save"], "type": None}], None),
+        ("run", [{"kind": "calls", "lookup": "member", "path": ["save"], "type": None}], []),
     ]
 
 
-def test_a_span_cannot_end_before_it_starts() -> None:
+@pytest.mark.parametrize(
+    ("lines", "bytes_"), [((7, 6), (0, 0)), ((1, 1), (9, 3))], ids=["lines", "bytes"]
+)
+def test_a_span_cannot_end_before_it_starts(
+    lines: tuple[int, int], bytes_: tuple[int, int]
+) -> None:
     with pytest.raises(ModelValidationError, match="before it starts"):
-        Span(start=7, end=6)
+        Span(start=lines[0], end=lines[1], start_byte=bytes_[0], end_byte=bytes_[1])
 
 
 def test_a_failed_commit_leaves_the_thread_able_to_read(

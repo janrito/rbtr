@@ -1,6 +1,34 @@
 ; Shared patterns — identical across the JS and TS grammars.
-; Comments (JS/TS: single `comment` type for `//` and `/* */`, incl. JSDoc).
-(comment) @comment
+; Comments (JS/TS: single `comment` type for `//` and `/* */`, incl. JSDoc)
+; at a program's top level and in a class body, where they stand on their
+; own or fold into the declaration below. One inside a function or a test's
+; callback is that chunk's text.
+(program (comment) @comment)
+(class_body (comment) @comment)
+
+; A test or a group of tests, at any depth: `describe`, `context`, `it` and
+; `test` called with a name, captured on the statement so the call and its
+; callback are one chunk, named by the string. A test inside a group is a
+; test nested in it.
+((expression_statement
+  (call_expression
+    function: (identifier) @_test_fn
+    arguments: (arguments . (string (string_fragment) @_test_name))))
+  @test_function
+  (#any-of? @_test_fn "describe" "context" "it" "test"))
+
+; The statements a program runs, each one chunk; what is captured inside
+; one is a chunk nested in it. A call statement is one when it spans lines
+; (a test's statement is also a test, which it is); a one-line call stays
+; text around the captures.
+(program (if_statement) @statement)
+(program (try_statement) @statement)
+(program (for_statement) @statement)
+(program (for_in_statement) @statement)
+(program (while_statement) @statement)
+(program
+  ((expression_statement (call_expression)) @statement
+    (#match? @statement "\n")))
 
 ; method_definition covers class and object-literal members, generators,
 ; and get/set accessors; inside a class it promotes to a method scoped to

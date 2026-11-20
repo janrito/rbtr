@@ -49,7 +49,7 @@ def test_extracts_import_metadata(indexed: Indexed, files: dict[str, str], expec
     """The first import has the expected metadata."""
     with indexed(files) as build:
         reply = outline(build)
-    imports = [s.metadata for s in reply if s.kind == ChunkKind.IMPORT]
+    imports = [meta for s in reply for meta in s.imports]
     assert imports, f"no import extracted from {files!r}"
     assert imports[0] == ImportMeta(**expected)
 
@@ -66,7 +66,7 @@ def test_extracts_multi_import(
     """Multiple imports have correct count and per-import metadata."""
     with indexed(files) as build:
         reply = outline(build)
-    imports = [s.metadata for s in reply if s.kind == ChunkKind.IMPORT]
+    imports = [meta for s in reply for meta in s.imports]
     assert len(imports) == count
     assert imports == [ImportMeta(**expected) for expected in metadata_list]
 
@@ -83,7 +83,7 @@ def test_a_call_or_base_reaches_what_it_names(
 
 
 def test_an_empty_require_records_nothing(indexed: Indexed) -> None:
-    """`require ""` names no module: the import is listed, with no metadata."""
+    """`require ""` names no module: the import is listed, its module empty."""
     with indexed({"input.rb": 'require ""\n'}) as build:
         chunks = outline(build)
-    assert [(c.kind, c.metadata) for c in chunks] == [(ChunkKind.IMPORT, None)]
+    assert [(c.kind, c.imports) for c in chunks] == [(ChunkKind.IMPORT, [ImportMeta()])]

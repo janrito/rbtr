@@ -105,11 +105,9 @@ encoding the use-case tests already prove.
   failure is injected into a build (one of its SQL statements
   patched to fail), and a test of a state no build makes is
   deleted. Watched refs are written with `add_watched_refs`, as the
-  watch handler writes them. Crash residue is a
-  build stopped at its `edges` phase: pass `build_index` a `stop`
-  event and an `on_progress` that sets it. A snapshot every test in a
-  module only reads is built once, into `module_index` from
-  `module_repo`.
+  watch handler writes them. A build that stops or fails rolls back
+  the snapshot. A snapshot every test in a module only reads is built
+  once, into `module_index` from `module_repo`.
 
 ### Logic in a test means it starts too low
 
@@ -123,8 +121,10 @@ the tests. Work at these levels:
   `Index` reads, or through the daemon's handlers where a reply shape exists. A
   language test builds its files with `with indexed(files) as build:`, reads them with
   `rbtr.testing.reads` (`outline`, `read`) and checks them with
-  `rbtr.testing.assertions` (`assert_reached`, `assert_every_line_in_a_chunk`), so
-  every language test reads and checks the same way; an edge case is a set of files and
+  `rbtr.testing.assertions` (`assert_reached`, and on a sample
+  `assert_every_line_in_a_chunk` and `assert_no_undecided_kind_overlaps`, which core's
+  conformance test runs over every plugin here), so every language test reads and
+  checks the same way; an edge case is a set of files and
   what reaches each target, not chunks written by hand.
 - **A small low-level core.** Only for a rule a use case cannot
   isolate, such as the order rows reach inference in, or one that
@@ -251,18 +251,18 @@ types, makes it worse while appearing to address the note.
    frozen values belong in fixtures.
 2. **No module-level setup functions.** Long fixture bodies
    decompose into smaller fixtures, never into helpers.
-3. **Pure projections are allowed.** Small module-level
-   functions that transform values the test *already has*
-   (e.g. `rank(results, chunk_id) -> int`) are fine — they
-   don't hide dependencies.
+3. **No module-level functions but tests, fixtures and cases.**
+   Reshaping a reply is written in the test that reads it; a
+   check every test makes the same way is an `assert_*` in
+   `rbtr.testing.assertions`.
 4. **Shared values go in `conftest.py` fixtures.**
 5. **Exception:** values the *production code* also uses
    (e.g. `SCHEMA_VERSION` imported for assertion) are not
    test data.
-6. **Parametrize-time values may be module-level.** Pytest
-   needs them at collection time (before fixtures run).
-   Prefer inline literals; use module-level only when the
-   data is large enough to hurt readability.
+6. **Parametrize-time values are written in the decorator.**
+   Pytest needs them at collection time, before fixtures run, so
+   they are the `parametrize` argument itself, never a module
+   constant; data large enough to hurt readability is cases.
 
 ## Multi-line source fixtures
 

@@ -399,10 +399,12 @@ def case_ts_module_const() -> SymbolCase:
     return {"input.ts": "const MAX: number = 100;\n"}, [("variable", "MAX", "")]
 
 
-@case(tags=["symbol"])
+@case(
+    tags=["symbol"],
+)
 def case_js_object_destructure() -> SymbolCase:
     """Object destructuring (shorthand)."""
-    return {"input.js": "const {a, b} = o;\n"}, [("variable", "a", ""), ("variable", "b", "")]
+    return {"input.js": "const {a, b} = o;\n"}, [("variable", "a, b", "")]
 
 
 @case(tags=["symbol"])
@@ -411,34 +413,42 @@ def case_js_object_renamed() -> SymbolCase:
     return {"input.js": "const {a: ra} = o;\n"}, [("variable", "ra", "")]
 
 
-@case(tags=["symbol"])
+@case(
+    tags=["symbol"],
+)
 def case_js_array_destructure() -> SymbolCase:
     """Array destructuring."""
-    return {"input.js": "const [x, y] = arr;\n"}, [("variable", "x", ""), ("variable", "y", "")]
+    return {"input.js": "const [x, y] = arr;\n"}, [("variable", "x, y", "")]
 
 
-@case(tags=["symbol"])
+@case(
+    tags=["symbol"],
+)
 def case_js_object_rest() -> SymbolCase:
     """Object rest element."""
     return (
         {"input.js": "const {a, ...rest} = o;\n"},
-        [("variable", "a", ""), ("variable", "rest", "")],
+        [("variable", "a, rest", "")],
     )
 
 
-@case(tags=["symbol"])
+@case(
+    tags=["symbol"],
+)
 def case_js_exported_destructure() -> SymbolCase:
     """Exported destructuring."""
     return (
         {"input.js": "export const {a, b} = o;\n"},
-        [("variable", "a", ""), ("variable", "b", "")],
+        [("variable", "a, b", "")],
     )
 
 
-@case(tags=["symbol"])
+@case(
+    tags=["symbol"],
+)
 def case_ts_object_destructure() -> SymbolCase:
     """TS object destructuring."""
-    return {"input.ts": "const {a, b} = o;\n"}, [("variable", "a", ""), ("variable", "b", "")]
+    return {"input.ts": "const {a, b} = o;\n"}, [("variable", "a, b", "")]
 
 
 @case(tags=["symbol"], marks=_xfail_nested)
@@ -446,7 +456,7 @@ def case_js_nested_array_xfail() -> SymbolCase:
     """Nested array destructuring — only the outer level captured today."""
     return (
         {"input.js": "const [a, [b, c]] = x;\n"},
-        [("variable", "a", ""), ("variable", "b", ""), ("variable", "c", "")],
+        [("variable", "a, b, c", "")],
     )
 
 

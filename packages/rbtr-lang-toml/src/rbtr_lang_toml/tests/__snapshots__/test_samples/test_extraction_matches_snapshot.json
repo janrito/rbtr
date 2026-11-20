@@ -24,7 +24,7 @@
     "scope": "",
     "language": "toml",
     "line_start": 3,
-    "line_end": 6
+    "line_end": 5
   },
   {
     "name": "greeter",
@@ -33,7 +33,7 @@
     "scope": "tool",
     "language": "toml",
     "line_start": 7,
-    "line_end": 10
+    "line_end": 9
   },
   {
     "name": "limits",
@@ -42,7 +42,7 @@
     "scope": "tool::greeter",
     "language": "toml",
     "line_start": 11,
-    "line_end": 13
+    "line_end": 12
   },
   {
     "name": "locales",
@@ -51,7 +51,7 @@
     "scope": "",
     "language": "toml",
     "line_start": 14,
-    "line_end": 16
+    "line_end": 15
   },
   {
     "name": "locales",
@@ -60,7 +60,7 @@
     "scope": "",
     "language": "toml",
     "line_start": 17,
-    "line_end": 19
+    "line_end": 18
   },
   {
     "name": "dependencies",
@@ -79,11 +79,13 @@
     "language": "toml",
     "line_start": 21,
     "line_end": 21,
-    "metadata": {
-      "module": "crates/helper",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "crates/helper",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   }
 ]

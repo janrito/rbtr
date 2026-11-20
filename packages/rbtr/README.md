@@ -225,7 +225,9 @@ rbtr read-symbol Config --file-path src/auth/config.py
 
 ### `rbtr list-symbols <file>`
 
-Table of contents for a file — one line per symbol.
+Table of contents for a file — one line per symbol. A declaration
+of several names (`low, high = 1, 9`) is one symbol, listed as
+`low, high`.
 
 ```bash
 rbtr list-symbols src/rbtr/index/search.py
@@ -249,6 +251,10 @@ types, so:
 - a call on a value (`order.save()`) is followed only through a type
   written beside the local (`order: Order`, `order = Order()`);
 - a name a file imports twice reaches both imports;
+- an import of several modules (`import os, sys`) reaches each, but an
+  import of one name of a declaration of several (`from config import
+  high` for `low, high = 1, 9`) reaches nothing: the declaration is one
+  symbol, named `low, high`;
 - through several bases, every match is listed, not the one the
   language would pick.
 
@@ -375,7 +381,6 @@ rbtr gc --scope all               # every indexed repo
 rbtr gc --keep watched-only       # keep only HEAD and watched refs
 rbtr gc --keep head-only          # keep only HEAD
 rbtr gc --keep-refs main,release  # keep only HEAD plus these refs
-rbtr gc --keep everything         # sweep crashed-build residue only
 rbtr gc --no-compact              # skip the disk-reclaiming rewrite
 rbtr gc --dry-run                 # preview what would be dropped
 ```
@@ -395,8 +400,7 @@ just HEAD and the watch set, dropping unwatched branches and
 tags (the way to reclaim refs you no longer index).
 
 The rest: `--keep head-only` keeps only HEAD; `--keep-refs`
-keeps HEAD plus the refs you name; `--keep everything` drops no
-commits at all and sweeps residue from crashed builds. A run
+keeps HEAD plus the refs you name. A run
 keeps one set, so naming a second is refused.
 
 If the daemon is mid-build or mid-embed when you run it, gc waits
@@ -583,7 +587,7 @@ backend names and requirements.
 ## Supported languages
 
 Languages with tree-sitter grammars get structural
-extraction (symbol-level chunks, import metadata, scope
+extraction (symbol-level chunks, imports, scope
 detection). Everything else gets line-based chunking, so it
 stays searchable without structure.
 
@@ -713,7 +717,7 @@ dev = ["rbtr[test]"]   # the test harness (syrupy + pytest-cases)
 
 ### Capture conventions
 
-A capture's name decides the chunk kind. Nine produce chunks:
+A capture's name decides the chunk kind. Ten produce chunks:
 
 | Capture          | Name capture      | Produces                                                                             |
 | ---------------- | ----------------- | ------------------------------------------------------------------------------------ |
@@ -722,15 +726,41 @@ A capture's name decides the chunk kind. Nine produce chunks:
 | `@class`         | `@_cls_name`      | a class, struct, enum, trait, or other named collection of declarations              |
 | `@variable`      | `@_var_name`      | a module-level variable or constant                                                  |
 | `@test_function` | `@_test_name`     | a test, named by its description (RSpec's `describe` and `it`); no call reaches it   |
-| `@import`        | `@_import_module` | an import, with metadata for the edge graph                                          |
+| `@import`        | `@_import_module` | an import for the edge graph; a statement of several modules is one import of each   |
 | `@doc_section`   | `@_section_name`  | a prose section                                                                      |
 | `@config_key`    | `@_section_name`  | a config or data key — JSON object keys, TOML tables, YAML mappings, HCL blocks      |
 | `@comment`       | —                 | a comment; see below                                                                 |
+| `@statement`     | —                 | a statement the file runs (an `if __name__` block), one chunk holding what is in it  |
 
 Helper captures do not produce chunks of their own: `@_scope`
 contributes a scope segment that lexical nesting cannot reach (a Go
 method's receiver type), and `@_docstring` marks an interior docstring.
-Any capture starting with `_` is read but never becomes a chunk.
+Any capture starting with `_` is read but never becomes a chunk. Any
+other name must be one in the table, or the build fails naming it
+(`QueryCaptureError`): a misspelt `@statment` would capture nothing.
+
+**One node, one chunk.** Two patterns capturing one node make one chunk
+with every import they make, named by their names joined: a JSON `$ref`
+captured as `@config_key` and `@import` is one key that imports, and
+`low, high = 1, 9` one variable named `low, high`. The narrower kind names it: a
+`@test_function` over a `@function` or `@method`, and any kind over
+`@import` or `@statement`. Any other pair of kinds on one node is a
+defect the build reports (`kind_overlap` in the log,
+`IndexResult.kind_overlaps`); keep such patterns apart with predicates.
+Ruby's query reads a `require` and an RSpec `describe`, two calls of
+one shape, by the name called: `(#eq? @_call_name "require")` makes an
+import, `(#any-of? @_call_name "describe" "context" "feature")` a test.
+
+**Top-level statements.** Declare as `@statement` the compound statements
+a file runs at its root: an `if`, `try` or `with` block, a loop, a call
+that takes a callback or spans lines. A one-line statement needs no
+declaration: it is a fragment, and adjacent ones join into one. Capture a
+test or route on the statement node itself, so the statement and the
+named capture share a span and make one chunk. Capture comments where
+definitions sit (the root, a class body), not inside function bodies or
+callbacks, where they would cut the statement around them into
+fragments. Several fragments on one statement's lines in a sample's
+outline mean a capture inside it, or a statement to declare.
 
 **Headings a grammar leaves flat.** Where a grammar gives a heading no
 node holding its text, state the heading's level and the engine nests it:
@@ -772,22 +802,22 @@ engine applies to the name and import values a capture gives:
 the rST label `.. _intro:` `intro`. Put `#set!` before a pattern's
 predicates (py-tree-sitter 0.26.1 crashes otherwise).
 
-**Imports.** `@_import_module` populates `ImportMeta.module` straight
-from the query, stripping `<>` and `"` delimiters, and `@_import_names`
-its names, every captured node in order. A query states what an import
-binds in the importing file: `@_bind_name` and `@_bind_local` of one
-match bind a name under a local (`from m import a as b`), a name alone
-binds it under itself, and a local alone binds the module (`import numpy
-as np`). Every match on one statement and module counts, so a pattern per
-alias adds up to one import. `(#set! import.names "*")` imports every name,
-`(#set! import.prefix "./")` writes `./` before the module, reading it
-from the file's directory (Ruby's `require_relative`; Rust's `mod util;`
-writes `self::`), and `import.language_hint` directs resolution when the target
-is a different language — an HTML `<script src>` pointing at JavaScript,
-say. `#strip!` cuts what is written but not part of the module: Go binds
-an unaliased import under its path's last segment by stripping the rest,
-and JavaScript drops a written extension. The query states the whole
-import; there is no Python hook for one.
+**Imports.** Each import a chunk makes is an entry of its `metadata.imports`: its
+module, names, bindings and language hint. `@_import_module` gives the module straight
+from the query, stripping `<>` and `"` delimiters, and `@_import_names` its names, every
+captured node in order. A query states what an import binds in the importing file:
+`@_bind_name` and `@_bind_local` of one match bind a name under a local
+(`from m import a as b`), a name alone binds it under itself, and a local alone binds
+the module (`import numpy as np`). Every match on one statement and module counts, so a
+pattern per alias adds up to one import, and matches on one statement with different
+modules are the imports of one chunk (`import os, sys`). `(#set! import.names "*")`
+imports every name, `(#set! import.prefix "./")` writes `./` before the module, reading
+it from the file's directory (Ruby's `require_relative`; Rust's `mod util;` writes
+`self::`), and `import.language_hint` directs resolution when the target is a different
+language — an HTML `<script src>` pointing at JavaScript, say. `#strip!` cuts what is
+written but not part of the module: Go binds an unaliased import under its path's last
+segment by stripping the rest, and JavaScript drops a written extension. The query
+states the whole import; there is no Python hook for one.
 
 **Comments.** Capture your grammar's comment nodes as `@comment`,
 scoped to the file root, plus the module docstring where the language
@@ -933,15 +963,22 @@ def chunk_example(
             file_path=file_path,
             role=Section(kind=ChunkKind.DOC_SECTION, name=""),
             content=node.text.decode(),
-            span=Span(start=node.start_point[0] + 1, end=last_line(node)),
+            span=Span(
+                start=node.start_point[0] + 1,
+                end=last_line(node),
+                start_byte=node.start_byte,
+                end_byte=node.end_byte,
+            ),
         )
 ```
 
-Spans are 1-based and inclusive. Take the last line from
-`last_line`: tree-sitter rows are 0-based, and a node that
-consumes its trailing newline ends at column 0 of a row it does
-not occupy, so adding one to the end row overshoots such a node
-by a line.
+A span's lines are 1-based and inclusive; its bytes are the node's
+offsets, the end exclusive, and the chunk's content is exactly those
+bytes. Take the last line from `last_line`: tree-sitter rows are
+0-based, and a node that consumes its trailing newline ends at column 0
+of a row it does not occupy, so adding one to the end row overshoots
+such a node by a line. Core makes a chunk's id from its blob, file
+language and bytes.
 
 A file whose name claims no language, such as `notes.txt`, can still
 be read as yours by its content. List patterns that mark your
@@ -979,14 +1016,15 @@ src/rbtr_lang_swift/tests/
 
 Everything a test needs is in `rbtr.testing`:
 
-| Name                                  | From                      | What it does                                                                                                                                 |
-| ------------------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `indexed`                             | fixture                   | `with indexed(files) as build:` builds `{path: text}`, or a sample directory, and yields the build: its `index` and `build_index`'s `result` |
-| `outline(build)`                      | `rbtr.testing.reads`      | the symbols of every committed file (or of the paths given), as `list-symbols` gives them                                                    |
-| `read(build, symbol)`                 | `rbtr.testing.reads`      | a symbol's definitions with their text, as `read-symbol` gives them                                                                          |
-| `assert_reached(build, reached)`      | `rbtr.testing.assertions` | each target is reached by exactly the chunks listed                                                                                          |
-| `assert_every_line_in_a_chunk(build)` | `rbtr.testing.assertions` | no non-blank line of a committed file falls outside a symbol                                                                                 |
-| `snapshot_json`                       | fixture                   | snapshots a value as JSON                                                                                                                    |
+| Name                                       | From                      | What it does                                                                                                                                 |
+| ------------------------------------------ | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `indexed`                                  | fixture                   | `with indexed(files) as build:` builds `{path: text}`, or a sample directory, and yields the build: its `index` and `build_index`'s `result` |
+| `outline(build)`                           | `rbtr.testing.reads`      | the symbols of every committed file (or of the paths given), as `list-symbols` gives them                                                    |
+| `read(build, symbol)`                      | `rbtr.testing.reads`      | a symbol's definitions with their text, as `read-symbol` gives them                                                                          |
+| `assert_reached(build, reached)`           | `rbtr.testing.assertions` | each target is reached by exactly the chunks listed                                                                                          |
+| `assert_every_line_in_a_chunk(build)`      | `rbtr.testing.assertions` | no non-blank line of a committed file falls outside a symbol                                                                                 |
+| `assert_no_undecided_kind_overlaps(build)` | `rbtr.testing.assertions` | no node is captured as two kinds neither narrows                                                                                             |
+| `snapshot_json`                            | fixture                   | snapshots a value as JSON                                                                                                                    |
 
 A case returns its files and what they should give. A file of more than
 one line is a `"""\` block, never a string of escaped newlines:
@@ -1061,15 +1099,23 @@ definitions a wrong lookup would reach, with no referrers, as well as the
 ones a right lookup reaches.
 
 A sample is an example project in `samples/`, which `indexed` builds
-from its directory. Its outline is snapshotted, and every non-blank line
-must sit in a chunk:
+from its directory, and its outline is snapshotted. Two rules hold over
+every sample project: every non-blank line sits in a chunk, and every
+span of a file is one chunk, so no node is captured as two kinds neither
+narrows. Core checks both over each installed plugin's `tests/samples/`
+(each project directory, each under `imports/` and `calls/`, each loose
+file), and fails a plugin with no samples; a plugin outside this
+repository calls the two checks on its own sample projects:
 
 ```python
 # test_samples.py
 from pathlib import Path
 
 from rbtr.testing import Indexed
-from rbtr.testing.assertions import assert_every_line_in_a_chunk
+from rbtr.testing.assertions import (
+    assert_every_line_in_a_chunk,
+    assert_no_undecided_kind_overlaps,
+)
 from rbtr.testing.reads import outline
 from syrupy.assertion import SnapshotAssertion
 
@@ -1078,6 +1124,7 @@ def test_extraction_matches_snapshot(indexed: Indexed, snapshot_json: SnapshotAs
     with indexed(Path(__file__).parent / "samples" / "swift") as build:
         assert outline(build) == snapshot_json
         assert_every_line_in_a_chunk(build)
+        assert_no_undecided_kind_overlaps(build)
 ```
 
 A failing check is reported at the test's line, with pytest's diff.
@@ -1127,7 +1174,13 @@ anything that shapes the chunks it emits — bump
 `extraction_serial` on the registration. Each stored chunk records its
 own language's serial. On the next build, a file whose chunks carry an
 different contributor serial needs re-extraction; leaving the serial
-unchanged keeps the existing chunks. It is independent of the package version —
+unchanged keeps the existing chunks. A chunk whose span is unchanged
+keeps its id, and its embedding while its name and content are
+unchanged. That build also brings up to date
+what every other indexed commit sharing those files knows of them: their
+references are worked out again from the new chunks, so `find-refs` at an
+older commit answers from what the plugin extracts now. It is independent
+of the package version —
 bump it whenever extraction output changes, including during development
 before a release. See
 [ARCHITECTURE.md][arch-dedup]

@@ -24,10 +24,6 @@ HEAD_ONLY
     Keep the repo's current HEAD; drop every other indexed commit.
 KEEP
     Keep the union of HEAD and the caller-supplied refs; drop rest.
-ORPHANS
-    Do not drop any indexed commits.  Only clear the repo's residue
-    from builds that stopped part-way, and the chunks it orphans
-    (`WriteSession.cleanup`).
 """
 
 from __future__ import annotations
@@ -121,9 +117,6 @@ def run_gc(
     one.
     """
     repo = index.repo(repo_path)
-    if mode is GcMode.ORPHANS:
-        return _run_orphans_only(index, repo, dry_run=dry_run, compact=compact)
-
     keep_set = _resolve_keep_set(index, repo, mode=mode, refs=refs)
     drop_set = _resolve_drop_set(index, repo, keep_set=keep_set)
 
@@ -147,20 +140,6 @@ def run_gc(
         for sha in drop_set:
             total = total + session.drop_snapshot(snapshot_sha=sha)
         total = total + session.cleanup()
-    if compact:
-        index.compact(repo)
-    return total
-
-
-def _run_orphans_only(
-    index: Index, repo: Repo, *, dry_run: bool, compact: bool = False
-) -> GcCounts:
-    if dry_run:
-        # ORPHANS dry-run is conservative: report zero rather than
-        # adding a read-only counterpart to sweep_orphan_commits.
-        return GcCounts()
-    with index.session(repo) as session:
-        total = session.cleanup()
     if compact:
         index.compact(repo)
     return total

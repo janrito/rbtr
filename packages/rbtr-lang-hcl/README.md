@@ -10,10 +10,10 @@ HCL / Terraform support for [rbtr]. Optional plugin — install with
 Top-level blocks become **config-key** chunks (HCL is configuration, not
 code). A block is named by its type and labels combined.
 
-A `module` block's `source` becomes an **import**. A Terraform module is a
-directory rather than a file, so a `source` naming one inside the repository
-reaches every `.tf` file in it; a registry or git source reaches nothing,
-having nothing here to reach.
+A `module` block is one config key that also imports its `source`. A Terraform module is
+a directory rather than a file, so a `source` naming one inside the repository reaches
+every `.tf` file in it; a registry or git source reaches nothing, having nothing here to
+reach.
 
 ## Chunks produced
 
@@ -21,6 +21,7 @@ having nothing here to reach.
 resource "aws_instance" "web" {}   # config_key "resource aws_instance web"
 variable "region" {}               # config_key "variable region"
 terraform {}                       # config_key "terraform"
+module "x" { source = "./b" }      # config_key "module x", imports [{module: ./b}]
 ```
 
 ## Embedded / injected chunks

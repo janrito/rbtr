@@ -53,7 +53,7 @@ def test_extracts_import_metadata(indexed: Indexed, files: dict[str, str], expec
     """The first import has the expected metadata."""
     with indexed(files) as build:
         reply = outline(build)
-    imports = [s.metadata for s in reply if s.kind == ChunkKind.IMPORT]
+    imports = [meta for s in reply for meta in s.imports]
     assert imports, f"no import extracted from {files!r}"
     assert imports[0] == ImportMeta(**expected)
 
@@ -70,7 +70,7 @@ def test_extracts_multi_import(
     """Multiple imports have correct count and per-import metadata."""
     with indexed(files) as build:
         reply = outline(build)
-    imports = [s.metadata for s in reply if s.kind == ChunkKind.IMPORT]
+    imports = [meta for s in reply for meta in s.imports]
     assert len(imports) == count
     assert imports == [ImportMeta(**expected) for expected in metadata_list]
 
@@ -87,7 +87,7 @@ export { helper } from "./b";
 """
     with indexed({"input.ts": src}) as build:
         chunks = outline(build)
-    imports = [(c.metadata.module, c.name) for c in chunks if c.metadata]
+    imports = [(meta.module, c.name) for c in chunks for meta in c.imports]
     assert ("./c", 'export * from "./c";') in imports
     assert ("./b", 'export { helper } from "./b";') in imports
 
@@ -101,3 +101,38 @@ def test_a_call_or_base_reaches_what_it_names(
     """Each target `(path, symbol)` is reached by exactly the callers and subclasses named."""
     with indexed(files) as build:
         assert_reached(build, reached, edges={EdgeKind.CALLS, EdgeKind.INHERITS})
+
+
+def test_tests_and_statements_are_chunks_holding_what_is_captured_in_them(indexed: Indexed) -> None:
+    """A `test` is one test, its callback's comment inside it; a `describe` holds a helper and an `it`; JSDoc above a method folds into it; a top-level `if` is a statement."""
+    src = """\
+test("hello", () => {
+  // check it
+  expect(1).toBe(1);
+});
+
+describe("group", () => {
+  function helper() {}
+  it("works", () => {});
+});
+
+class A {
+  /** Doc for m. */
+  m() {}
+}
+
+if (ready) {
+  go();
+}
+"""
+    with indexed({"a.ts": src}) as build:
+        reply = outline(build)
+    assert sorted((s.line_start, s.line_end, s.kind.value, s.name) for s in reply) == [
+        (1, 4, "test_function", "hello"),
+        (6, 9, "test_function", "group"),
+        (7, 7, "function", "helper"),
+        (8, 8, "test_function", "works"),
+        (11, 14, "class", "A"),
+        (12, 13, "method", "m"),
+        (16, 18, "statement", ""),
+    ]

@@ -6,14 +6,12 @@ markdown: the figures are the behaviour, the table layout is not.
 
 from __future__ import annotations
 
-import threading
 from pathlib import Path
 
 import pygit2
 import pytest
 from pytest_mock import MockerFixture
 
-from rbtr.errors import BuildStopped
 from rbtr.git import normalise_repo_path
 from rbtr.index.build import build_index
 from rbtr.index.embed import embed_index
@@ -34,13 +32,10 @@ from rbtr_eval.index_stage import (
 
 
 @pytest.fixture
-def index_with_residue(tmp_path: Path) -> Index:
-    """One repo: HEAD built, and a second commit whose build stopped before it was marked indexed.
+def index_at_head(tmp_path: Path) -> Index:
+    """One repo built at HEAD: `app.py`, importing `load` from `cfg.py`.
 
-    HEAD holds `app.py`, importing `load` from `cfg.py`: an import, a
-    function and one edge between them, none embedded. The second commit
-    adds `gone.py`; its build stops after writing chunks, so no count may
-    include them.
+    An import, a function and one edge between them, none embedded.
     """
     app = b"""\
 from cfg import load
@@ -49,27 +44,10 @@ from cfg import load
 def load():
     return 1
 """
-    gone = b"""\
-def dead():
-    return 0
-"""
     repo = pygit2.init_repository(str(tmp_path / "repo"), bare=False, initial_head="main")
     head = make_commit(repo, {"app.py": app, "cfg.py": cfg})
-    residue = make_commit(
-        repo, {"app.py": app, "cfg.py": cfg, "gone.py": gone}, parents=[head], ref="refs/heads/wip"
-    )
     index = Index(str(tmp_path / "index" / "index.duckdb"), writable=True)
-    path = normalise_repo_path(repo.workdir)
-    build_index(path, str(head), index)
-    stop = threading.Event()
-    with pytest.raises(BuildStopped):
-        build_index(
-            path,
-            str(residue),
-            index,
-            stop=stop,
-            on_progress=lambda phase, _done, _total: stop.set() if phase == "edges" else None,
-        )
+    build_index(normalise_repo_path(repo.workdir), str(head), index)
     return index
 
 
@@ -95,10 +73,8 @@ def load():
 def index_with_fragments(tmp_path: Path) -> Index:
     """`app.py` built at HEAD: a class whose method shares its lines, and two fragments.
 
-    Lines 6-8 hold a call and an `if`; line 10 another call. A second
-    commit adds `gone.py`, whose `except` is a fragment; its build stops
-    after writing chunks, before marking the snapshot indexed, so no
-    count may include it.
+    Lines 6-8 hold a call, an `assert` and a `del`, which no language
+    declares; line 10 another call.
     """
     app = b"""\
 class Loader:
@@ -107,34 +83,15 @@ class Loader:
 
 
 Loader().load()
-if __name__ == "__main__":
-    Loader().load()
+assert Loader().load()
+del Loader
 
 print("done")
 """
-    gone = b"""\
-try:
-    import missing
-except ImportError:
-    missing = None
-"""
     repo = pygit2.init_repository(str(tmp_path / "repo"), bare=False, initial_head="main")
     head = make_commit(repo, {"app.py": app})
-    residue = make_commit(
-        repo, {"app.py": app, "gone.py": gone}, parents=[head], ref="refs/heads/wip"
-    )
     index = Index(str(tmp_path / "index" / "index.duckdb"), writable=True)
-    path = normalise_repo_path(repo.workdir)
-    build_index(path, str(head), index)
-    stop = threading.Event()
-    with pytest.raises(BuildStopped):
-        build_index(
-            path,
-            str(residue),
-            index,
-            stop=stop,
-            on_progress=lambda phase, _done, _total: stop.set() if phase == "edges" else None,
-        )
+    build_index(normalise_repo_path(repo.workdir), str(head), index)
     return index
 
 
@@ -154,30 +111,31 @@ def test_fragments_are_counted_by_language_and_by_node_type(index_with_fragments
             "fragments": 2,
             "fragment_lines": 4,
         },
-        {"lang": "python", "node_type": "if_statement", "fragments": 1, "fragment_lines": 3},
+        {"lang": "python", "node_type": "assert_statement", "fragments": 1, "fragment_lines": 3},
+        {"lang": "python", "node_type": "delete_statement", "fragments": 1, "fragment_lines": 3},
     ]
 
 
-def test_counts_describe_only_indexed_snapshots(index_with_residue: Index) -> None:
-    """A snapshot never marked indexed contributes to no count."""
-    corpus = corpus_refs(index_with_residue)
-    assert repo_counts(index_with_residue, corpus).rows(named=True) == [
+def test_counts_describe_the_corpus(index_at_head: Index) -> None:
+    """Each repo's chunks, locations and edges, the totals, and how many chunks are embedded."""
+    corpus = corpus_refs(index_at_head)
+    assert repo_counts(index_at_head, corpus).rows(named=True) == [
         {"repo": "repo", "chunks": 2, "locations": 2, "edges": 1}
     ]
-    assert totals(index_with_residue, corpus) == (2, 2, 1)
-    assert embedding_counts(index_with_residue, corpus).rows(named=True) == [
+    assert totals(index_at_head, corpus) == (2, 2, 1)
+    assert embedding_counts(index_at_head, corpus).rows(named=True) == [
         {"repo": "repo", "chunks": 2, "embedded": 0, "truncated": 0}
     ]
 
 
-def test_dimension_tables_attribute_each_edge_to_both_endpoints(index_with_residue: Index) -> None:
+def test_dimension_tables_attribute_each_edge_to_both_endpoints(index_at_head: Index) -> None:
     """An edge counts outbound for its source kind, inbound for its target."""
-    corpus = corpus_refs(index_with_residue)
-    assert kind_counts(index_with_residue, corpus).rows(named=True) == [
+    corpus = corpus_refs(index_at_head)
+    assert kind_counts(index_at_head, corpus).rows(named=True) == [
         {"kind": "function", "n": 1, "outbound_edges": 0, "inbound_edges": 1},
         {"kind": "import", "n": 1, "outbound_edges": 1, "inbound_edges": 0},
     ]
-    assert language_counts(index_with_residue, corpus).rows(named=True) == [
+    assert language_counts(index_at_head, corpus).rows(named=True) == [
         {"lang": "python", "n": 2, "outbound_edges": 1, "inbound_edges": 1}
     ]
 
@@ -202,7 +160,7 @@ def test_a_vendored_file_counts_once_as_content_and_twice_as_location(
     ids=["chunks-ready", "embed-ready"],
 )
 def test_the_sentinel_hash_is_fixed_for_a_given_index(
-    index_with_residue: Index, embed: bool, expected: str
+    index_at_head: Index, embed: bool, expected: str
 ) -> None:
     """The hash is DVC's change detector, so its value is a contract.
 
@@ -211,28 +169,28 @@ def test_the_sentinel_hash_is_fixed_for_a_given_index(
     re-run.  Recomputing the expected value inside the test would agree
     with any implementation and catch that move too late.
     """
-    assert sentinel_hash(index_with_residue, embed=embed) == expected
+    assert sentinel_hash(index_at_head, embed=embed) == expected
 
 
 def test_writing_an_embedding_moves_only_the_embed_ready_hash(
-    index_with_residue: Index, mocker: MockerFixture
+    index_at_head: Index, mocker: MockerFixture
 ) -> None:
     """Embedding progress is what the embed-ready sentinel tracks.
 
     The chunks-ready hash covers which snapshots are indexed, so it
     holds steady while embedding fills vectors in.
     """
-    before_chunks = sentinel_hash(index_with_residue, embed=False)
-    before_embed = sentinel_hash(index_with_residue, embed=True)
-    [head] = corpus_refs(index_with_residue).refs
-    assert index_with_residue.unembedded_chunk_ids(at=head), "fixture must leave a chunk to embed"
+    before_chunks = sentinel_hash(index_at_head, embed=False)
+    before_embed = sentinel_hash(index_at_head, embed=True)
+    [head] = corpus_refs(index_at_head).refs
+    assert index_at_head.unembedded_chunk_ids(at=head), "fixture must leave a chunk to embed"
 
     mocker.patch("rbtr.index.embeddings._load_model", return_value=StubModel())
     embedder = Embedder()
     try:
-        embed_index(index_with_residue, at=head, embedder=embedder)
+        embed_index(index_at_head, at=head, embedder=embedder)
     finally:
         embedder.close()
 
-    assert sentinel_hash(index_with_residue, embed=True) != before_embed
-    assert sentinel_hash(index_with_residue, embed=False) == before_chunks
+    assert sentinel_hash(index_at_head, embed=True) != before_embed
+    assert sentinel_hash(index_at_head, embed=False) == before_chunks

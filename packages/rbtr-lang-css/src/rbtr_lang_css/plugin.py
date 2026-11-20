@@ -13,7 +13,7 @@ Extracted chunks::
     @media (max-width: 600px) {}    → class, unnamed, scope ""
     @keyframes slide { ... }        → class "slide", scope ""
     @charset "utf-8";               → config_key, unnamed
-    @import url("reset.css");       → import, metadata {module: "reset.css"}
+    @import url("reset.css");       → import, imports [{module: "reset.css"}]
 """
 
 from __future__ import annotations

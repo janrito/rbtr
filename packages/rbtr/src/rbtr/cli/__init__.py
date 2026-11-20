@@ -146,15 +146,12 @@ class KeptSet(StrEnum):
     """The sets `--keep` can name, each a `GcMode` it selects.
 
     `GcMode.KEEP` has no member here: the refs it keeps are named by
-    `--keep-refs`, which is what selects it.  `EVERYTHING` is
-    `GcMode.ORPHANS` said as what survives it — every commit, since
-    it sweeps crashed-build residue alone.
+    `--keep-refs`, which is what selects it.
     """
 
     WATCHED = "watched"
     WATCHED_ONLY = "watched_only"
     HEAD_ONLY = "head_only"
-    EVERYTHING = "everything"
 
 
 KeepField = Annotated[KeptSet, BeforeValidator(_normalise_choice)]
@@ -380,13 +377,19 @@ class Watch(BaseModel):
         )
         repo = index.register(resolved_repo)
 
-        with progress_reporter("Parsing files", "Embedding") as (on_parse, on_embed):
+        with progress_reporter("Parsing files", "Inferring edges", "Embedding") as (
+            on_parse,
+            on_edges,
+            on_embed,
+        ):
 
             def on_progress(phase: str, done: int, total: int) -> None:
                 if phase == "embedding":
                     on_embed(done, total)
                 elif phase == "parsing":
                     on_parse(done, total)
+                elif phase == "edges":
+                    on_edges(done, total)
 
             # Each ref is an independent full build.
             result = build_index(
@@ -880,9 +883,8 @@ class Gc(BaseModel):
 
     `--keep` says what a run keeps: `watched` (the default — HEAD,
     local branches and tags, the watch set and the current worktree),
-    `watched-only`, `head-only`, or `orphans`, which drops no commits
-    and sweeps crashed-build residue. `--keep-refs <refs>` keeps those
-    refs and HEAD instead. Every run sweeps that residue.
+    `watched-only` or `head-only`. `--keep-refs <refs>` keeps those refs
+    and HEAD instead. Every run deletes what no snapshot claims.
 
     Operates on the current repo by default; `--scope all` reclaims
     across every indexed repo at once, keeping `watched` or
@@ -898,8 +900,7 @@ class Gc(BaseModel):
         KeptSet.WATCHED,
         description=(
             "What a run keeps: watched (HEAD, local branches/tags and the watch "
-            "set), watched-only, head-only, or everything (every commit; sweeps "
-            "crashed-build residue alone)."
+            "set), watched-only or head-only."
         ),
     )
     keep_refs: list[str] = Field(
@@ -917,8 +918,6 @@ class Gc(BaseModel):
         """The retention these flags name; refs to keep are their own."""
         if self.keep_refs:
             return GcMode.KEEP
-        if self.keep is KeptSet.EVERYTHING:
-            return GcMode.ORPHANS
         return GcMode(self.keep.value)
 
     @model_validator(mode="after")

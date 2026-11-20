@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from pytest_cases import parametrize_with_cases
 
-from rbtr.domain.models import ChunkKind
 from rbtr.testing import Indexed
 from rbtr.testing.reads import outline
 
@@ -31,6 +30,6 @@ body { color: #333; }
 """
     with indexed({"input.css": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     assert len(imports) == 1
     assert imports[0].module == "reset.css"

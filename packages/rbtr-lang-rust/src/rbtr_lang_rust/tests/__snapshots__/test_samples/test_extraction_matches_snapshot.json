@@ -25,17 +25,19 @@
     "language": "rust",
     "line_start": 11,
     "line_end": 11,
-    "metadata": {
-      "module": "std::collections",
-      "names": "HashMap",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "HashMap",
-          "local": "HashMap"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "std::collections",
+        "names": "HashMap",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "HashMap",
+            "local": "HashMap"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "use crate::config::LOCALE;",
@@ -45,17 +47,19 @@
     "language": "rust",
     "line_start": 13,
     "line_end": 13,
-    "metadata": {
-      "module": "crate::config",
-      "names": "LOCALE",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "LOCALE",
-          "local": "LOCALE"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "crate::config",
+        "names": "LOCALE",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "LOCALE",
+            "local": "LOCALE"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "use super::util;",
@@ -65,17 +69,19 @@
     "language": "rust",
     "line_start": 14,
     "line_end": 14,
-    "metadata": {
-      "module": "super",
-      "names": "util",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "util",
-          "local": "util"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "super",
+        "names": "util",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "util",
+            "local": "util"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "DEFAULT_GREETING",
@@ -283,17 +289,19 @@
     "language": "rust",
     "line_start": 3,
     "line_end": 3,
-    "metadata": {
-      "module": "crate::config",
-      "names": "LOCALE",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "LOCALE",
-          "local": "locale"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "crate::config",
+        "names": "LOCALE",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "LOCALE",
+            "local": "locale"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "Order",

@@ -34,6 +34,8 @@ WITH head AS (
     c.content,
     c.line_start,
     c.line_end,
+    c.start_byte,
+    c.end_byte,
     c.metadata,
     CASE
       WHEN c.embedding IS NULL THEN 'none'
@@ -72,6 +74,8 @@ base AS (
     c.content,
     c.line_start,
     c.line_end,
+    c.start_byte,
+    c.end_byte,
     c.metadata,
     CASE
       WHEN c.embedding IS NULL THEN 'none'
@@ -111,6 +115,8 @@ SELECT
   h.content,
   h.line_start,
   h.line_end,
+  h.start_byte,
+  h.end_byte,
   h.metadata,
   h.embedding_state
 FROM head AS h
@@ -140,6 +146,8 @@ SELECT
   b.content,
   b.line_start,
   b.line_end,
+  b.start_byte,
+  b.end_byte,
   b.metadata,
   b.embedding_state
 FROM base AS b
@@ -172,6 +180,8 @@ SELECT
   h.content,
   h.line_start,
   h.line_end,
+  h.start_byte,
+  h.end_byte,
   h.metadata,
   h.embedding_state
 FROM head AS h

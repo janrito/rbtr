@@ -19,8 +19,8 @@ itself (`pip install rbtr`).
 ```html
 <main id="content">…</main>           <!-- doc_section "content"                  -->
 <nav>…</nav>                          <!-- doc_section "nav"                      -->
-<script src="app.js"></script>        <!-- import {module: app.js, hint: javascript} -->
-<link rel="stylesheet" href="a.css">  <!-- import {module: a.css, hint: css}      -->
+<script src="app.js"></script>        <!-- import, imports [{module: app.js, hint: javascript}] -->
+<link rel="stylesheet" href="a.css">  <!-- import, imports [{module: a.css, hint: css}]      -->
 ```
 
 ## Embedded / injected chunks

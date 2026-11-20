@@ -67,11 +67,20 @@ def test_a_name_twice_in_a_file_is_reached_at_its_first_line(
             "kind": ["import", "function", "function"],
             "name": ["from b import f", "f", "f"],
             "language": ["code", "code", "code"],
-            "module": ["b.code", None, None],
-            "names": ["f", None, None],
-            "language_hint": ["", None, None],
             "scope": [""] * 3,
-            "bindings": [None] * 3,
+            "imports": [
+                [
+                    {
+                        "text": "from b import f",
+                        "module": "b.code",
+                        "names": "f",
+                        "language_hint": "",
+                        "bindings": [],
+                    }
+                ],
+                [],
+                [],
+            ],
             "refs": [None] * 3,
         }
     ).pipe(EdgeChunkRow.validate, cast=True)

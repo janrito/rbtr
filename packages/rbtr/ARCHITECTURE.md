@@ -86,10 +86,10 @@ persistence detail on the way out — see
    everything else gets line-based chunking.
 2. **Local and offline.** Embeddings run on-device (GGUF on
    Metal/CPU). The index is a set of DuckDB files. No API calls.
-3. **Incremental.** Builds are keyed by git blob SHA, and
-   chunks are content-addressed: only changed files are
-   re-extracted, embeddings persist, and byte-identical content
-   is shared across a project's checkouts. Clones have separate
+3. **Incremental.** Builds are keyed by git blob SHA, and a
+   chunk is a span of a blob: only changed files are
+   re-extracted, embeddings persist, and byte-identical files
+   share their chunks across a project's checkouts. Clones have separate
    project files and extract their own copies.
 
 ## Indexing
@@ -101,16 +101,19 @@ chunks and edges. It reads files from git, resolves their languages and
 reuses extractions that are already current. The remaining files pass
 through [extraction](#extraction) a hundred at a time.
 
-A build has three transactions:
+A build is one transaction of three steps, so a failure or a stop leaves
+the index as it was:
 
-1. **Extract:** write the snapshot's file list and any new chunks.
-2. **Infer edges:** connect the snapshot's full chunk set, including
-   reused chunks, through imports and documentation references.
-3. **Finalise:** mark the snapshot indexed and remove unfinished-build
-   residue.
+1. **Extract:** write any new chunks and the snapshot's file list.
+2. **Edges:** connect the snapshot's full chunk set, including reused
+   chunks, through imports, calls and documentation references; and
+   again for every other indexed snapshot that lists a blob this build
+   extracted again.
+3. **Finish:** mark the snapshot indexed and delete what no snapshot
+   claims.
 
-![How a build indexes a snapshot: three transactions, for extraction,
-edges and finishing, and the tables each writes](docs/diagrams/build.png)
+![How a build indexes a snapshot: one transaction of three steps, for
+extraction, edges and finishing, and the tables each writes](docs/diagrams/build.png)
 
 Embedding runs afterwards as a lower-priority job. Name and keyword
 search work as soon as indexing finishes; semantic search uses the
@@ -146,6 +149,14 @@ that boundary; [Record identity](#record-identity) defines the keys.
 ![How files become chunks once: two snapshots name the same blob for an
 unchanged file, so they share its chunks](docs/diagrams/content-addressing.png)
 
+A chunk's id hashes its blob, the language its file was read as, and
+its byte span (`start_byte`, `end_byte`), so one span of a blob is one
+chunk, whatever its kind and name. Bytes, not lines: several chunks can
+share a line, as `kind = 1; kind = 2` does, or a JSON `},` that closes
+an object and goes on with an array. Kind and name are not part of it:
+a re-extraction that keeps a span keeps its id, and a renamed chunk is
+the same row updated.
+
 For each batch, `session.current_blobs` returns the current
 `(blob_sha, file_language)` extractions. A pair is current when it has
 stored chunks and every contributing language's extraction serial
@@ -174,10 +185,19 @@ content is entirely in embedded languages.
 When re-extracting, `WriteSession.replace_chunks` deletes the old
 chunks for that `(blob_sha, file_language)` that the new extraction
 does not produce, then upserts the new ones. A chunk produced again keeps
-its embedding while its content is unchanged: the model reads its name,
-which its id covers, and its content. So a serial bump re-embeds only the
+its embedding while its name and content are unchanged: the model reads
+both, and neither is part of its id. So a serial bump re-embeds only the
 chunks it changes. Other host-language extractions of the same bytes are
 retained.
+
+Every indexed snapshot that lists the blob, in any checkout of the
+project, now reads the new chunks, so its stored edges are inferred again
+from them, in the same transaction: an edge names chunk ids, and a
+chunk that changed may have changed its id or what it imports and calls.
+A stop between the chunks and those edges would leave a snapshot whose
+edges name chunks it no longer reads. This happens when an extraction
+serial changes; an ordinary edit makes a new blob, which no older
+snapshot lists.
 
 ### Extraction
 
@@ -206,17 +226,17 @@ while its source is read; the rows retain the facts later rules need.
 A custom chunker returns `Chunk` values, which the adapter converts to
 the same chunk columns.
 
-The domain rules (`rbtr.domain.rules`) work over the batch's values.
-They fold comments into definitions, slice source text by byte offset,
-promote functions whose nearest scope is class-like to methods, and
-build plaintext windows. Assembly combines the results, adds any required
-[host-presence chunks](#content-addressed-chunks-and-blob-dedup), and
-orders each file's chunks. `PlacedChunkRow` adds file and order to the
-shared `ChunkRow` columns; those placement fields last only as long as
-assembly and grouping need them. The input bytes preserve offsets even
-when invalid UTF-8 bytes must be replaced. Each rule is one lazy plan,
-its schema checks part of the plan, collected before the next rule reads
-it ([why](#git-and-extraction)).
+The domain rules (`rbtr.domain.rules`) work over the batch's values. They end each
+capture before the whitespace its grammar folds into it (a Markdown paragraph's line
+break), fold comments into definitions, slice source text by byte offset, promote
+functions whose nearest scope is class-like to methods, and build plaintext windows.
+Assembly combines the results, adds any required
+[host-presence chunks](#content-addressed-chunks-and-blob-dedup), and orders each file's
+chunks. `PlacedChunkRow` adds file and order to the shared `ChunkRow` columns; those
+placement fields last only as long as assembly and grouping need them. The input bytes
+preserve offsets even when invalid UTF-8 bytes must be replaced. Each rule is one lazy
+plan, its schema checks part of the plan, collected before the next rule reads it
+([why](#git-and-extraction)).
 
 For example, this `client.py`:
 
@@ -242,7 +262,10 @@ The query identifies a function and its enclosing class; the rules
 make `retry` a method and fold its leading comment into both its span
 and its documentation. The class still contains its body. Comments
 inside definitions remain in their text; standalone comment blocks
-become searchable `COMMENT` chunks. Scope paths join enclosing names
+become searchable `COMMENT` chunks. A top-level statement a language
+declares (`@statement`, Python's `if __name__ == "__main__":`) is one
+chunk, and what is captured inside it nests in it, as `retry` nests in
+`Client` ([Declared statements](#git-and-extraction)). Scope paths join enclosing names
 with `::`, so a nested class would give a method a scope such as
 `Outer::Client`.
 
@@ -266,10 +289,17 @@ the fragments that start in its text: a fragment never spans a captured
 node, so none crosses into the next heading's.
 
 Staging (`staged_chunks`) adds the stable [chunk id](#record-identity),
-[search tokens](#fts-index-lifecycle) and each chunk's extraction
-serial. Staging keeps the stored chunk columns, leaving documentation
-and placement in the extraction frames. The store receives a validated
-`ChunkStagingRow` frame.
+[search tokens](#fts-index-lifecycle) and each chunk's extraction serial. A chunk's
+content is exactly its file's bytes from `start_byte` to `end_byte`: trimming whitespace
+moves the span's end, not the text, and the last line is the line of the span's last
+byte, so a span never ends in whitespace. The chunks of one span are one
+(`one_chunk_per_span`, in `assemble`): its imports are every capture's, in order, and
+its kind the one that narrows every other there (`narrows`), so a JSON `$ref` key
+is one `config_key` that imports, and `import os, sys` one import of two modules. A pair
+of kinds neither narrows takes the first in `ChunkKind` order and is reported as a kind
+overlap (`IndexResult.kind_overlaps`, logged `kind_overlap`): a defect of the language's
+patterns. Staging keeps the stored chunk columns, leaving documentation and placement in
+the extraction frames. The store receives a validated `ChunkStagingRow` frame.
 
 If a batch raises during extraction, `extract_files` halves it and
 retries until it isolates the failing file. That file is logged and
@@ -289,8 +319,8 @@ one session, which holds one cursor and one repo](docs/diagrams/write-session.pn
 The session also owns reads the transaction depends on, including
 current-blob checks and stored-language lookups. They see changes made
 on that cursor. A build registers its repo before opening the first
-session, and its final session cleans up residue from unfinished
-builds. [Repo registration](#repo-registration) and
+session, and its session ends by deleting what no snapshot claims.
+[Repo registration](#repo-registration) and
 [Garbage collection](#garbage-collection) describe those lifetimes.
 
 ## Language plugins
@@ -366,8 +396,11 @@ distribution:
   `Import`, `Comment`, `RawSlice`, `Fragment`), `Span`, `ChunkKind`,
   `ImportMeta`, `Lookup`, where a reference's path is looked up, and
   the declared resolution policies `ModuleStyle`, `SectionNames` and
-  `MemberOrder`. A chunk's references are read from its row, in
-  `metadata.refs`.
+  `MemberOrder`. A chunk's references and imports are read from its
+  row, in `metadata.refs` and `metadata.imports`; an `Import` role is one
+  import, and a chunk of several is a query's (one span, several
+  captures). `@statement` is a query capture only: the chunker roles
+  have none.
 
 None of these modules loads polars or dataframely, and a plugin imports
 nothing else from core: the frames, rows and rules are core's own.
@@ -392,7 +425,13 @@ builds a repository (`indexed`, from core's pytest plugin
 over the daemon's handlers): its outline is compared against committed
 snapshots under `__snapshots__/`, and its edges are checked as what
 reaches each target (`rbtr.testing.assertions`), the same checks every
-language test makes. A plugin's tests import from rbtr only
+language test makes. Core's conformance test
+(`test_plugin_conformance.py`) builds every sample project of every
+installed plugin (each directory, each under `imports/` and `calls/`,
+each loose file) and checks the rules extraction holds for any
+language: every non-blank line is in a chunk, no kind overlap is left
+undecided, and each chunk is the text of its byte span, one per span. A
+plugin with no samples fails it. A plugin's tests import from rbtr only
 `rbtr.testing` and its `reads` and `assertions`, and the models, held by
 an import-linter allow-list, so they reach neither the
 index, its frames nor the daemon's messages.
@@ -413,21 +452,19 @@ installs by default. So core's suite passes with
 any set of optional plugins installed, and a change to a plugin fails a
 test in that plugin.
 
-The snapshots record the reply shape, not the write model (`Chunk`),
-so a change to how chunks are written or stored changes no snapshot
-unless what a user reads changes too. A sample test does not extract
-each file and infer edges itself: that repeats the build and drifts
-from it, as a file no plugin claims is plaintext only in a build. Nor
-do the build and the tests share a pure files-to-chunks-and-edges
-function: the build is incremental, extracting only blobs the store
-lacks and inferring edges from everything the store holds for the
-snapshot, so such a function would be a path production never takes.
-Each sample test builds the sample itself with `indexed`, so a plugin
-builds its sample three times (for the snapshot, the edges and every
-line): the 80 sample tests take 33.6 s in one process, the slowest
-1.57 s. Revisit that if the builds grow too slow; one build per module
-needs a module-scoped fixture that builds files, which `indexed`, a
-factory a test calls, does not give.
+The snapshots record the reply shape, not the write model (`Chunk`), so a change to how
+chunks are written or stored changes no snapshot unless what a user reads changes too. A
+sample test does not extract each file and infer edges itself: that repeats the build
+and drifts from it, as a file no plugin claims is plaintext only in a build. Nor do the
+build and the tests share a pure files-to-chunks-and-edges function: the build is
+incremental, extracting only blobs the store lacks and inferring edges from everything
+the store holds for the snapshot, so such a function would be a path production never
+takes. Each sample test builds the sample itself with `indexed`, so a plugin builds its
+sample twice (for the snapshot and the edges), and the conformance test once more: the
+55 sample tests take 30.7 s in one process, the slowest 2.18 s, and the 86 conformance
+cases 21.1 s. Revisit that if the builds grow too slow; one build per module needs a
+module-scoped fixture that builds files, which `indexed`, a factory a test calls, does
+not give.
 
 The samples are exempt from the repo's linters and
 type-checker — they are fixtures, validated by their own
@@ -580,6 +617,7 @@ names leave unresolved is listed in that plugin's README, under
 | A call on a local reaches its class's member only through a written type: `x = make()` reads `make` as the type, and a local with no annotation or constructor reaches nothing | Types are read from what is written beside the local, not inferred                                                                                                               | `case_a_local_assigned_from_a_factory_reaches_the_class_it_returns` |
 | A name bound twice in one file reaches both                                                                                                                                    | Bindings keep no order, so a later import shadowing an earlier one cannot be told from alternatives (`try: import ujson as json / except: import json`), which should reach both | `case_a_later_import_of_a_name_shadows_an_earlier`                  |
 | `Special.save` returns every `save` up the chain                                                                                                                               | The qualified-name reader admits each ancestor's scope; the member order is applied to calls only                                                                                | `test_a_class_qualified_name_reaches_the_override_it_calls`         |
+| An import of one name of a declaration of several (`from config import high` for `low, high = 1, 9`) reaches nothing                                                           | The declaration is one chunk, named `low, high`, and an import matches a name exactly                                                                                            | `test_an_import_of_one_name_reaches_the_declaration_of_several`     |
 
 Powers `find-refs` and the importance signal in search
 ranking. `find-refs` first resolves the user's symbol *name*
@@ -625,9 +663,11 @@ It runs in polars rather than as recursive SQL: on home-assistant's
 461,105 calls the two gave the same edges, in 0.22 s and 0.84 GB
 against 4–6 s and 7.5 GB.
 
-Two choices keep the answers right. An import's location is its chunk id
-and its path: chunks are content-addressed, so byte-identical files share an
-import chunk, and each copy resolves relative to its own path. And an
+Two choices keep the answers right. An import's location is its chunk id, its
+path, and its place among its chunk's imports (`source_import`): chunks are
+content-addressed, so byte-identical files share an import chunk, and each copy
+resolves relative to its own path; and one chunk can make several imports
+(`import os as o, a as b`), each binding its own module. And an
 import's scope, its resolved files or its hinted language, is chosen
 before candidates are ranked, so an earlier chunk outside the scope cannot
 hide one inside it.
@@ -636,15 +676,17 @@ For example, take three files: `app.py` holding `from pkg.util import greet`,
 `src/pkg/util.py` defining `greet`, and `docs/guide.rst` saying
 ``Call :func:`greet` first.`` Python's resolution row tries the source roots `""` and
 `src`, the extensions `.py` and `.pyi`, and reads modules dotted; rST is prose and
-folds section names. The build reads the two imports as `EdgeChunkRow`s:
+folds section names. The build reads the two importing chunks as `EdgeChunkRow`s, each
+with a list of imports of one here:
 
-| `file_path`      | `name`                       | `language` | `module`   | `names` | `language_hint` |
-| ---------------- | ---------------------------- | ---------- | ---------- | ------- | --------------- |
-| `app.py`         | `from pkg.util import greet` | `python`   | `pkg.util` | `greet` |                 |
-| `docs/guide.rst` | ``:func:`greet` ``           | `rst`      |            | `greet` | `python`        |
+| `file_path`      | `name`                       | `language` | `imports`: `module` | `names` | `language_hint` |
+| ---------------- | ---------------------------- | ---------- | ------------------- | ------- | --------------- |
+| `app.py`         | `from pkg.util import greet` | `python`   | `pkg.util`          | `greet` |                 |
+| `docs/guide.rst` | ``:func:`greet` ``           | `rst`      |                     | `greet` | `python`        |
 
-`requested_imports` classifies them. The Python import names a module; the
-rST role is prose naming a name and no file, so it documents rather than imports:
+`requested_imports` reads every chunk's imports, one row each, and classifies them. The
+Python import names a module; the rST role is prose naming a name and no file, so it
+documents rather than imports:
 
 | `source_path`    | `way`    | `kind`      | `depth` | `module`   | `names`     | `language_hint` |
 | ---------------- | -------- | ----------- | ------- | ---------- | ----------- | --------------- |
@@ -937,7 +979,8 @@ tree_A is cleaned up by:
 The index is a registry and one DuckDB file per project (see
 [Index files](#index-files)). Its central design point is that
 **`chunks` is a content-addressed store**: a chunk row is keyed by `id`
-alone (a content hash) and carries **no `repo_id`**. The only table where
+alone (a hash of its blob, file language and byte span) and carries
+**no `repo_id`**. The only table where
 a repo meets content is **`file_snapshots`**, which maps
 `(repo_id, snapshot_sha, file_path) -> blob_sha`. So:
 
@@ -1084,14 +1127,147 @@ project file's tables, with the joins between them](docs/diagrams/data-model.png
 | `projects`          | `common_dir`, the git common directory, unique; `file` is unique too, so no two projects share a file                                                                                                     |
 | `repos`             | `path`, unique and always canonical; `id` is a surrogate the other tables carry                                                                                                                           |
 | `file_snapshots`    | `(repo_id, snapshot_sha, file_path)`                                                                                                                                                                      |
-| `chunks`            | `(id)` = first 16 hex of `sha256(blob_sha:file_language:kind:name:line_start:line_end)` — content-addressed, shared across a project's checkouts and paths                                                |
+| `chunks`            | `(id)` = first 16 hex of `sha256(blob_sha:file_language:start_byte:end_byte)` — one span of a blob, shared across a project's checkouts and paths                                                         |
 | `edges`             | `(repo_id, snapshot_sha, source_id, target_id, kind, source_path, target_path)` — the whole tuple is the key, the paths included: one import chunk imports a different sibling from each of its locations |
 | `indexed_snapshots` | `(repo_id, snapshot_sha)`                                                                                                                                                                                 |
 | `watched_refs`      | `(repo_id, ref)`                                                                                                                                                                                          |
 | `meta`              | `(key)`                                                                                                                                                                                                   |
 
 Chunk ids are sha256, so Python and DuckDB compute the same value: Python as rows
-are staged, polars having no sha256, and migrations in SQL.
+are staged, polars having no sha256, and migrations in SQL. [Tables](#tables)
+gives every column of each.
+
+### Tables
+
+Every column, key, sequence, index and check of the registry
+(`registry.sql`) and of a project's file (`schema.sql`), and what reads
+each. `metadata.*` are the fields of `chunks.metadata`; a **Joins** row
+names a join a read or write makes, which no table declares.
+
+#### Registry: `meta`
+
+| Column  | Type            | Key | Why                                                                          |
+| ------- | --------------- | --- | ---------------------------------------------------------------------------- |
+| `key`   | `TEXT`          | PK  | one value per key: schema_version, the version this registry was migrated to |
+| `value` | `TEXT NOT NULL` |     | the value; migrations on open compare it with SCHEMA_VERSION                 |
+
+#### Registry: `projects`
+
+| Column                       | Type              | Key | Why                                                                                       |
+| ---------------------------- | ----------------- | --- | ----------------------------------------------------------------------------------------- |
+| `id`                         | `INTEGER`         | PK  | surrogate from projects_id_seq; repos.project_id names it                                 |
+| `common_dir`                 | `TEXT NOT NULL`   | UQ  | the git common directory: a checkout and its linked worktrees share one, so one project   |
+| `file`                       | `TEXT NOT NULL`   | UQ  | the project's data file under index/; replaced by a fresh copy on compaction              |
+| `compacted_bytes`            | `BIGINT NOT NULL` |     | the file's size when last written whole: the baseline the compaction threshold grows from |
+| **Sequence projects_id_seq** |                   |     |                                                                                           |
+
+#### Registry: `repos`
+
+| Column                                                     | Type               | Key | Why                                                                                                                     |
+| ---------------------------------------------------------- | ------------------ | --- | ----------------------------------------------------------------------------------------------------------------------- |
+| `id`                                                       | `INTEGER`          | PK  | surrogate from repos_id_seq, unique across files; every per-repo row in a project file carries it as repo_id            |
+| `path`                                                     | `TEXT NOT NULL`    | UQ  | the canonical checkout path; requests name a repo by its path                                                           |
+| `project_id`                                               | `INTEGER NOT NULL` |     | the project whose file holds this repo's rows; no FOREIGN KEY, as DuckDB rejects updating a referenced projects.file    |
+| `missing_since`                                            | `TIMESTAMP`        |     | when maintenance first found the path gone; it forgets the repo after forget_after_s, clears this when the path is back |
+| **Sequence repos_id_seq**                                  |                    |     |                                                                                                                         |
+| **Joins**                                                  |                    |     |                                                                                                                         |
+| `projects ON project_id = id`                              |                    |     | which data file holds this checkout's rows                                                                              |
+| `every per-repo table of the project file ON id = repo_id` |                    |     | file_snapshots, edges, indexed_snapshots, watched_refs: across files, kept whole by the store                           |
+
+#### Project file: `meta`
+
+| Column  | Type            | Key | Why                                                                                                |
+| ------- | --------------- | --- | -------------------------------------------------------------------------------------------------- |
+| `key`   | `TEXT`          | PK  | schema_version, embedding_model, embedding_version                                                 |
+| `value` | `TEXT NOT NULL` |     | a model or format change clears every embedding on open (vectors of two models cannot be compared) |
+
+#### Project file: `file_snapshots`
+
+| Column                                                     | Type               | Key | Why                                                                                                             |
+| ---------------------------------------------------------- | ------------------ | --- | --------------------------------------------------------------------------------------------------------------- |
+| `repo_id`                                                  | `INTEGER NOT NULL` | PK  | which checkout; no DEFAULT, so a write that forgot it fails rather than filing rows under another repo          |
+| `snapshot_sha`                                             | `TEXT NOT NULL`    | PK  | a commit, or the working tree's tree SHA                                                                        |
+| `file_path`                                                | `TEXT NOT NULL`    | PK  | where the file is: a chunk carries no path, so a result's paths come from here                                  |
+| `blob_sha`                                                 | `TEXT NOT NULL`    |     | the file's content: joins to chunks, so unchanged files share extractions                                       |
+| `detected_language`                                        | `TEXT NOT NULL`    |     | the language the file was read as; joins to chunks.file_language; reused for files only content detection names |
+| **Keys, indexes**                                          |                    |     |                                                                                                                 |
+| `PRIMARY KEY (repo_id, snapshot_sha, file_path)`           |                    |     | one row per file of a snapshot; uniqueness only (replace_snapshots deletes, then inserts)                       |
+| `idx_snapshots_repo_commit (repo_id, snapshot_sha)`        |                    | IDX | every snapshot-scoped read filters on it                                                                        |
+| **Joins**                                                  |                    |     |                                                                                                                 |
+| `chunks ON blob_sha AND detected_language = file_language` |                    |     | a snapshot's chunks: every read and the edge pass go through this join                                          |
+| `indexed_snapshots ON repo_id, snapshot_sha`               |                    |     | a build writes a snapshot's rows here and its completion row in one transaction                                 |
+| `repos (registry) ON repo_id = id`                         |                    |     | across files, so no FOREIGN KEY: the store writes repo_id from the repo it holds                                |
+
+#### Project file: `chunks`
+
+| Column                                                          | Type               | Key | Why                                                                                                                                               |
+| --------------------------------------------------------------- | ------------------ | --- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                                                            | `TEXT`             | PK  | first 16 hex of sha256(blob_sha:file_language:start_byte:end_byte): one span of a blob read as one language; edges and the search index key on it |
+| `blob_sha`                                                      | `TEXT NOT NULL`    |     | the blob the chunk is a span of: joins to file_snapshots; re-extraction replaces by blob                                                          |
+| `kind`                                                          | `TEXT NOT NULL`    |     | the chunk's role, the narrowest of its captures (`narrows`): filters reads, sets the kind boost, picks edge rules                                 |
+| `name`                                                          | `TEXT NOT NULL`    |     | the name its captures give it, several joined by `,` (`low, high`), `''` when unnamed: name search, read-symbol, find-refs, edge targets          |
+| `scope`                                                         | `TEXT NOT NULL`    |     | the enclosing names (Outer::Inner): qualified names, member lookup, display                                                                       |
+| `language`                                                      | `TEXT NOT NULL`    |     | the chunk's own language (an embedded block's): its serial, hinted resolution, the plugin check                                                   |
+| `file_language`                                                 | `TEXT NOT NULL`    |     | the language the file was read as; joins to detected_language; the same bytes read twice are two extractions                                      |
+| `extraction_serial`                                             | `INTEGER NOT NULL` |     | the serial of the plugin that wrote it: a blob is re-extracted when this differs                                                                  |
+| `content`                                                       | `TEXT NOT NULL`    |     | exactly the blob's text from start_byte to end_byte: read-symbol's body, previews, the reranker, the embedding's input                            |
+| `content_tokens`                                                | `TEXT NOT NULL`    |     | search_tokens(content), computed once at write: the search index's body field                                                                     |
+| `name_tokens`                                                   | `TEXT NOT NULL`    |     | search_tokens(name): the search index's name field                                                                                                |
+| `start_byte`                                                    | `BIGINT NOT NULL`  |     | where the span starts in the blob: identity                                                                                                       |
+| `end_byte`                                                      | `BIGINT NOT NULL`  |     | where it ends, exclusive: identity                                                                                                                |
+| `line_start`                                                    | `INTEGER NOT NULL` |     | the first line: navigation, display, ordering (reads have no file text to turn bytes into lines)                                                  |
+| `line_end`                                                      | `INTEGER NOT NULL` |     | the line of the span's last byte: spans in replies, range checks                                                                                  |
+| `metadata`                                                      | `STRUCT NOT NULL`  |     | what the role carries beyond kind and names                                                                                                       |
+| `metadata.node_types`                                           | `TEXT[]`           |     | a fragment's syntax: diagnostic, read by rbtr-eval's index report                                                                                 |
+| `metadata.refs`                                                 | `STRUCT[]`         |     | the calls and bases a definition, class, statement or fragment writes: call and inherit edges                                                     |
+| `metadata.imports`                                              | `STRUCT[]`         |     | every import the span makes, on any kind (a $ref key imports): text, module, names, hint, bindings                                                |
+| `embedding`                                                     | `FLOAT[]`          |     | the semantic channel's vector, variable length; kept across re-extraction while names and content are unchanged                                   |
+| `embedding_truncated`                                           | `BOOLEAN NOT NULL` |     | the text exceeded the model's context: diagnostic, reported, never ranked                                                                         |
+| **Keys, checks, indexes**                                       |                    |     |                                                                                                                                                   |
+| `PRIMARY KEY (id)`                                              |                    |     | the target of the upsert's ON CONFLICT (id); staging refuses two rows of one id                                                                   |
+| `CHECK chunk_span`                                              |                    |     | end_byte >= start_byte and line_end >= line_start                                                                                                 |
+| `CHECK truncation_needs_embedding`                              |                    |     | truncation describes an embedding that exists                                                                                                     |
+| `idx_chunks_blob (blob_sha, file_language)`                     |                    | IDX | the snapshot join, current_blobs, replace by blob, the orphan prune                                                                               |
+| `search index fts_main_chunks`                                  |                    | FTS | BM25 over name_tokens and content_tokens, keyed by id; rebuilt after writes; IDF neutralised                                                      |
+| **Joins**                                                       |                    |     |                                                                                                                                                   |
+| `file_snapshots ON blob_sha, file_language = detected_language` |                    |     | where a chunk is: its repos and paths; one chunk, many locations                                                                                  |
+| `edges ON id = source_id / target_id`                           |                    |     | what it reaches and what reaches it                                                                                                               |
+
+#### Project file: `edges`
+
+| Column                                        | Type               | Key | Why                                                                                    |
+| --------------------------------------------- | ------------------ | --- | -------------------------------------------------------------------------------------- |
+| `repo_id`                                     | `INTEGER NOT NULL` | PK  | edges are per checkout                                                                 |
+| `snapshot_sha`                                | `TEXT NOT NULL`    | PK  | and per snapshot: a build replaces the edges of each snapshot whose chunks it changed  |
+| `source_id`                                   | `TEXT NOT NULL`    | PK  | the chunk that imports, calls, inherits or documents                                   |
+| `target_id`                                   | `TEXT NOT NULL`    | PK  | the chunk it reaches; find-refs and the importance signal read inbound edges           |
+| `kind`                                        | `TEXT NOT NULL`    | PK  | imports, documents, calls or inherits; weighted per kind in search                     |
+| `source_path`                                 | `TEXT NOT NULL`    | PK  | a chunk shared by two paths resolves relative to each, so the path is part of the edge |
+| `target_path`                                 | `TEXT NOT NULL`    | PK  | the same for the target; read by get_edges and qualified-name lookup                   |
+| **Keys**                                      |                    |     |                                                                                        |
+| `PRIMARY KEY (all seven)`                     |                    |     | insert_edges de-duplicates with ON CONFLICT DO NOTHING                                 |
+| **Joins**                                     |                    |     |                                                                                        |
+| `chunks ON source_id = id, ON target_id = id` |                    |     | inbound_refs names the referring chunk; inbound_degree counts a target's edges         |
+| `file_snapshots ON repo_id, snapshot_sha`     |                    |     | clean-up deletes the edges of a snapshot with no file list                             |
+
+#### Project file: `indexed_snapshots`
+
+| Column                                | Type                 | Key | Why                                                                                     |
+| ------------------------------------- | -------------------- | --- | --------------------------------------------------------------------------------------- |
+| `repo_id`                             | `INTEGER NOT NULL`   | PK  | completion is per checkout                                                              |
+| `snapshot_sha`                        | `TEXT NOT NULL`      | PK  | a snapshot is readable only with this row, written with its file list and edges         |
+| `indexed_at`                          | `TIMESTAMP NOT NULL` |     | newest first: the latest indexed commit for reads, the order embedding works in, status |
+| **Keys**                              |                      |     |                                                                                         |
+| `PRIMARY KEY (repo_id, snapshot_sha)` |                      |     | the target of mark_indexed's ON CONFLICT, which refreshes indexed_at                    |
+
+#### Project file: `watched_refs`
+
+| Column                       | Type               | Key | Why                                                                                    |
+| ---------------------------- | ------------------ | --- | -------------------------------------------------------------------------------------- |
+| `repo_id`                    | `INTEGER NOT NULL` | PK  | intent is per checkout; HEAD is seeded for every repo                                  |
+| `ref`                        | `TEXT NOT NULL`    | PK  | a branch, tag or SHA the watcher keeps indexed; garbage collection keeps what it names |
+| **Keys**                     |                    |     |                                                                                        |
+| `PRIMARY KEY (repo_id, ref)` |                    |     | the target of insert_watched_refs' ON CONFLICT DO NOTHING: watching twice is one watch |
 
 ### Embedding column
 
@@ -1226,9 +1402,9 @@ the views to the owner's rollback.
 
 `indexed_snapshots` records which `(repo, snapshot)` pairs are
 fully indexed. The daemon watcher checks this to trigger
-builds. GC uses it to identify orphans: any
-`file_snapshots` or `edges` row without a matching
-`indexed_snapshots` row is orphan.
+builds. A build writes it in the transaction that writes the
+snapshot's file list and edges, so a snapshot has a file list
+only once it is indexed.
 
 `indexed_snapshots` is **completion**; `watched_refs` is
 **intent** (which refs to keep indexed). See
@@ -1303,11 +1479,19 @@ or write of a waiting file raises `IndexMigratingError`
 
 A migration keeps every column it does not change, vectors included.
 DuckDB cannot add a constraint with `ALTER`, so such a migration
-rebuilds the table with `INSERT … SELECT`. That is how the two
-`CHECK`s on `chunks` (a span ends on or after its first line;
-truncation implies an embedding) reach existing files. A test runs
-each kind's chain over its base schema (`<start>.base.sql`) and
-compares the result with a new file's.
+rebuilds the table with `INSERT … SELECT`. A test runs each kind's
+chain over its base schema (`<start>.base.sql`) and compares the result
+with a new file's.
+
+A migration whose stored rows SQL cannot carry forward empties the
+project file instead, keeping its watched refs and `meta`.
+`2026.10.0__2026.11.2.sql` does, for any file from `2026.10.0`: a chunk's
+id hashes its byte span, which no stored row records, and every id and
+edge is of an earlier kind. On the first start after it, every read
+answers "not indexed" until its ref is built again; the daemon builds
+the watched refs before it embeds, so semantic search finds nothing
+until embedding catches up; a ref no one watches stays unindexed until
+it is watched.
 
 **Replacing an index too old to migrate.** The index is rebuilt from
 git, so it is replaced with an empty one, at the cost of re-indexing
@@ -1325,15 +1509,15 @@ rbtr declares no foreign keys; see
 
 ## Garbage collection
 
-`indexed_snapshots` is the authority. Data without a matching
-row is orphan. Both operations live on `WriteSession`:
+`indexed_snapshots` is the authority: a snapshot is kept or dropped by
+its row there. Both operations live on `WriteSession`:
 
 - `drop_snapshot` — removes all trace of a commit
   (indexed_snapshots row, snapshots, edges, orphaned chunks).
-- `cleanup` — removes residue from crashed builds
-  (snapshots/edges for uncommitted commits) and stale data
-  (chunks not referenced by any snapshot, edges whose
-  commit has no snapshots).
+- `cleanup` — removes what no snapshot claims: chunks not
+  referenced by any snapshot, and edges whose commit has no
+  snapshots. A build commits a snapshot's file list, edges and
+  mark together, so it leaves no unmarked snapshot to sweep.
 
 Because chunks are content-addressed and **shared by a project's
 checkouts**, the orphan sweep is a reference count over the
@@ -1383,8 +1567,8 @@ current worktree tree is always protected). So a routine
 never discards anything a branch points at or that you
 asked to keep indexed. `WATCHED_ONLY` keeps just HEAD plus
 the watch set, dropping unwatched branches/tags — the opt-in
-way to reclaim refs you no longer index. `HEAD_ONLY`,
-`KEEP`, and `ORPHANS` are the other explicit modes. Each
+way to reclaim refs you no longer index. `HEAD_ONLY` and
+`KEEP` are the other explicit modes. Each
 names a different keep-set, so the CLI refuses two at once
 rather than resolving them by precedence. If a mode drops a
 still-watched snapshot, the watcher rebuilds it on the next
@@ -1393,23 +1577,19 @@ somebody asks to read it. Collection never edits the watch set
 itself — that is `rbtr unwatch`'s job — so a thorough tidy trims
 first and collects second.
 
-GC is **per-repo by default**; `rbtr gc --scope all` reclaims across
-**every** registered repo at once (`GcAllRequest` ⇒ `run_gc_all`
-loops `run_gc` over `repos()`), and each repo's sweep reclaims
-the chunks no surviving snapshot of its project references.
-Globally it takes **`WATCHED` or `WATCHED_ONLY`** — the retentions
-stated in a repo's own terms, so every repo keeps at least its HEAD and
-its watch set. `HEAD_ONLY` and `KEEP` name one repo's refs and
-`ORPHANS` sweeps one repo's residue, so `GcAllRequest` cannot carry
-them. A repo is **skipped** when git cannot answer for it: a path
-that no longer resolves (never purged — forgetting it is a separate,
-explicit action; see below) or an unborn HEAD, which `run_gc` raises on
-and which must not end a pass over every other repo. Each repo is
-reported through `on_progress` as it is collected: inline, as a bar on
-stderr; from the daemon, as `progress` notifications whose work is
-`collect`, the first sent as it starts, and then `gc_ended`, which is
-sent however gc ends. None of them names a repo, since one gc covers
-many, and none touches a running build's progress.
+GC is **per-repo by default**; `rbtr gc --scope all` reclaims across **every**
+registered repo at once (`GcAllRequest` ⇒ `run_gc_all` loops `run_gc` over `repos()`),
+and each repo's sweep reclaims the chunks no surviving snapshot of its project
+references. Globally it takes **`WATCHED` or `WATCHED_ONLY`** — the retentions stated in
+a repo's own terms, so every repo keeps at least its HEAD and its watch set. `HEAD_ONLY`
+and `KEEP` name one repo's refs, so `GcAllRequest` cannot carry them. A repo is
+**skipped** when git cannot answer for it: a path that no longer resolves (never purged
+— forgetting it is a separate, explicit action; see below) or an unborn HEAD, which
+`run_gc` raises on and which must not end a pass over every other repo. Each repo is
+reported through `on_progress` as it is collected: inline, as a bar on stderr; from the
+daemon, as `progress` notifications whose work is `collect`, the first sent as it
+starts, and then `gc_ended`, which is sent however gc ends. None of them names a repo,
+since one gc covers many, and none touches a running build's progress.
 
 **Forgetting a repo** removes it entirely from the index, undoing what
 [registration](#repo-registration) set up (`Store.forget`).
@@ -1501,9 +1681,10 @@ contents suggest, and that a symbol many things depend on is
 more often the one you meant.
 
 **Kind boost** — what the chunk is. A class scores 1.5, a
-function or method 1.3, a variable 1.0, a doc section 0.8, a
-test function 0.7, a config key 0.6, a comment or raw
-line-chunk 0.5, a migration 0.4, an import 0.3. An import line
+function or method 1.3, a variable or API endpoint 1.0, a doc
+section 0.8, a test function 0.7, a config key 0.6, a comment,
+raw line-chunk, fragment or statement 0.5, a migration 0.4, an
+import 0.3. An import line
 matches a name as well as the definition does and is almost
 never what was wanted, which is what the bottom of that range
 is for.
@@ -1637,7 +1818,10 @@ stored (repo-relative) chunk paths.
 `read-symbol` and `find-refs` turn a name into chunks through
 `Index.name_matches`, as does search's name-match channel. A
 name matches by tier (exact, case-insensitive, prefix,
-substring), and only the best tier any file found is kept.
+substring), and only the best tier any file found is kept. A
+declaration of several names is one chunk named `low, high`, so
+`high` finds it within the name, and only where nothing matches
+`high` better in the snapshot.
 
 A qualified name is written in the canonical form a scope is
 stored in, `Outer::Inner::name` (`compose_scope`), or with any
@@ -1846,8 +2030,8 @@ opposite of what it is asked for. Each shape is its own type
 rather than one type with an optional body, so the wrong
 payload cannot be assembled by accident.
 
-`metadata` appears only on an import that records something, and
-null `repo_path` is omitted,
+`imports` appears only on a symbol that makes some (an import, or a
+key or section that imports), and null `repo_path` is omitted,
 as is the preview anchor (`match_line_offset`, `matched_terms`)
 when the hit has no literal match; the nine search signals
 collapse to a single `score` unless
@@ -2032,11 +2216,8 @@ state to reconcile after a crash. The embedding outcome distinguishes
 finishing a pass from standing aside or stopping, with stored counts showing
 the snapshot's actual completeness.
 
-A build retains writer access instead of yielding between phases. Cleanup
-in a competing checkout's build can remove chunks whose snapshot is not yet
-marked complete; allowing that cleanup into an unfinished build would break
-the completion boundary. Embedding has a safe yield point after each finite
-commit, whereas a build needs the wider protected workflow.
+A build holds writer access for its one transaction, which has no point
+to yield at. Embedding has a safe yield point after each finite commit.
 
 ### Daemon startup
 
@@ -2097,8 +2278,8 @@ Notification transport remains available until those producers finish.
 Only afterwards can models and sockets be closed.
 
 Background work stops cooperatively at boundaries it can safely leave.
-An interrupted build transaction rolls back while earlier committed phases
-remain. An embedding run reports its stopped outcome, retaining committed
+An interrupted build rolls its transaction back, leaving the index as it
+was. An embedding run reports its stopped outcome, retaining committed
 batches. Maintenance already running finishes with writer access retained.
 Cooperative stopping is not an indexing failure.
 
@@ -2122,9 +2303,9 @@ completion records identify finished builds; missing vectors identify
 outstanding embedding. A restart selects work from those inputs rather
 than restoring a transient job queue.
 
-Only the active transaction rolls back on failure. Earlier committed build
-phases and embedding batches remain available for reuse. A later build or
-collection removes snapshot rows never marked complete, while a new
+Only the active transaction rolls back on failure. A build is one
+transaction, so a failure leaves every snapshot's chunks, file list and
+edges as they were; embedding batches committed earlier remain, and a new
 embedding run reads the remaining missing vectors. Standing aside and
 crashing therefore resume through the same stored state.
 
@@ -2411,6 +2592,20 @@ tree-walk, so one extraction model covers every language. The cost
 is that tree-sitter cannot see blank lines, so grouping comment
 runs into blocks is a rule over the captured rows (`fold_comments`).
 
+**Declared statements.** A language may declare the top-level statements a
+file runs as `@statement` (Python's `if __name__ == "__main__":`, a test file's
+multi-line `describe(…)` call): each is one unnamed chunk, and what its query
+captures inside it is a chunk nested in it, as a method is in its class, so the
+statement's text is never cut into fragments around a `def`. Core applies no
+rule of its own on a file's root; a language with no declaration leaves such text
+to fragments. Every captured kind narrows a statement (`narrows`), so a
+JavaScript `test(…)` captured as a test and as a statement is a test. A
+statement holds the calls written in it, as a fragment does. A query capture
+must name a kind, a metadata capture or a `_` helper: any other name
+(`@statment`, or `@fragment`, which no capture makes) fails the build with
+`QueryCaptureError`, raised past `extract_files`' per-file isolation since no
+file is at fault.
+
 **Fragments for code no query names.** A query selects the constructs it names;
 everything else in a file — a module-level `if __name__ == "__main__":`,
 `module.exports = {…}`, a Go `package` clause, a parse error — would otherwise reach no
@@ -2418,16 +2613,21 @@ chunk, and no search could find it. After the query's chunks, the engine walks t
 by lines: a node no chunk touches is left over, a node one touches in part, or a
 left-over one longer than `chunk_lines`, is looked into, and left-over siblings join one
 `FRAGMENT` chunk until a blank line, a covered node or `chunk_lines` lines separate
-them. A run of anonymous syntax alone (a `try:` around captured imports, an `#endif`) is
-a fragment too, so every line of code reaches a chunk, as is a leaf touched only in
-part. A block the host's injection query delegates (an HTML `<script>`'s content)
-belongs to the language reading it, and the host's syntax around it (the `</script>`
-tag, a code fence, a section's other blocks) is the host's own, unless the block's
-language makes no fragments (`QueryExtraction.fragments`): Markdown hands every
-paragraph to its inline half for links, and that half's text is Markdown's. Each
-fragment records the types of the named nodes it holds, so what a language leaves to
-fragments is counted, and a frequent type is a pattern its query should name. Lines, not
-bytes, decide coverage, because a chunk keeps only its line span.
+them. Consecutive runs at any tree level with only whitespace and no blank line between
+them are one fragment too, up to `chunk_lines` lines: `run(` is one fragment though
+`run` and `(` sit at two levels, and Go's `import (` one though `(` belongs to the
+import list. A fragment per token was noise in results, and on one line such fragments
+shared an id under a line-based one. A run of anonymous syntax alone (a `try:` around
+captured imports, an `#endif`) is a fragment too, so every line of code reaches a chunk,
+as is a leaf touched only in part. A block the host's injection query delegates (an HTML
+`<script>`'s content) belongs to the language reading it, and the host's syntax around
+it (the `</script>` tag, a code fence, a section's other blocks) is the host's own,
+unless the block's language makes no fragments (`QueryExtraction.fragments`): Markdown
+hands every paragraph to its inline half for links, and that half's text is Markdown's.
+Each fragment records the types of the named nodes it holds, so what a language leaves
+to fragments is counted, and a frequent type is a pattern its query should name. Lines
+decide coverage: a fragment holds no line a captured span holds, but for a leaf touched
+only in part.
 
 A fragment is unnamed, weighted 0.5 in search like a comment, left out
 of bare-import fan-out (an importer depends on definitions, not on a
@@ -2557,19 +2757,68 @@ concurrent writers.
 **Migrations, not rebuilds.** A schema change migrates every file
 from the version it records. Replacing the index on every breaking
 change does not work here: it re-extracts every checkout and
-re-embeds every chunk to change a column.
+re-embeds every chunk to change a column. A change whose stored rows
+SQL cannot carry forward empties the project files instead, keeping the
+registry and watched refs: a chunk id built from byte offsets the file
+does not hold is one. Three ways of carrying the rows do not work here:
+nullable offsets filled in on the next extraction leave a state every
+reader must handle; a table holding embeddings to restore after the
+rebuild, and a Python migration step that re-extracts from git, are each
+a mechanism kept for a one-off cost.
+
+**A chunk is a span of a blob.** Its id is the first 16 hex characters
+(64 bits) of the sha256 of its blob, file language and byte span; the
+odds of two spans sharing one are about 2.7e-8 at a million chunks in a
+project file, 2.7e-6 at ten million. An id from the span's text alone,
+as git names a blob, does not work here: a chunk's lines, scope, calls
+and edges depend on where its text is, so they would move to a table of
+placements that every read joins through. 128 bits would add 16 bytes
+to every stored id, in `chunks` and twice per edge, for odds already
+small.
 
 **Roles describe chunks; rows expose their fields.** A custom chunker returns `Chunk`
-values whose roles (`Definition`, `Section`, `Import`, `Comment`,
-`RawSlice`, `Fragment`) carry the data for that kind. Query extraction produces the
-corresponding columns directly. Both paths reach `ChunkRow`: `kind`, `name` and span
-columns support filtering and identity, while `metadata` is a `STRUCT` of role payload
-fields, null where a role has none: an import's module, names, hint and bindings, a
-fragment's node types, what a definition, class or fragment calls, and a class's bases.
-A role that can record calls always stores a list, empty when it records none.
-`chunk_rows` flattens the chunker's values; staging adds the storage columns. Reads keep
-those rows rather than reconstructing write models. A struct passes between DuckDB and
-polars as Arrow; storing metadata as JSON would add per-row encoding and parsing.
+values whose roles (`Definition`, `Section`, `Import`, `Comment`, `RawSlice`,
+`Fragment`) carry the data for that kind. Query extraction produces the corresponding
+columns directly. Both paths reach `ChunkRow`: `kind`, `name` and span columns support
+filtering and identity, while `metadata` is a `STRUCT` of role payload fields: the
+imports the chunk makes (a list, empty when it makes none, each with its module, names,
+hint and bindings), a fragment's node types, what a definition, class, statement or
+fragment calls, and a class's bases. A role that can record calls always stores a list,
+empty when it records none. `chunk_rows` flattens the chunker's values, an `Import` role
+becoming an import list of one; staging adds the storage columns. Reads keep those rows
+rather than reconstructing write models. A struct passes between DuckDB and polars as
+Arrow; storing metadata as JSON would add per-row encoding and parsing.
+
+**One span, one chunk.** A node two patterns capture is one chunk: a JSON `$ref` is a
+key that imports, an HCL `module` block a key that imports its `source`, `import os,
+sys` one import of two modules, `low, high = 1, 9` one variable named `low, high`: its
+name is its captures' names joined by `, `, less an import's text where a key imports.
+Its kind is the narrowest of its captures
+(`narrows`, the one statement of kind precedence: a test narrows a function, every kind
+narrows an import); its imports and calls are every capture's. Indexes that
+cross-reference code hold the same: SCIP gives one occurrence several `symbol_roles`,
+and Kythe hangs several edges off one anchor. Two chunks of one span do not work here:
+the id is the span, so they would share an id and the index would keep either. Search
+weights a chunk by its kind, so a key that imports ranks as a key, and an import's
+lower weight applies only to a chunk that is an import alone.
+
+Three other ways of choosing do not work here. A priority per pattern, as Neovim's
+`#set! priority` gives highlights, is a setting no overlap in any plugin needs, since
+`narrows` decides every one the samples hold. The earliest or latest pattern
+winning makes the kind depend on a query's order, and tree-sitter's own runners
+disagree on which (tree-sitter issue #1374). Naming each import by its module, so
+`import os, sys` is two chunks, keeps two chunks over one span. Revisit if a language
+needs two kinds on one node that neither narrows.
+
+A list of names per chunk, so that `from config import high` and `read-symbol high`
+reach `low, high = 1, 9` exactly, does not pay. On five eval corpora (django,
+excalidraw, tokio, hugo, redis) a chunk of several names is 0 to 0.064% of named
+chunks, and some of those were query defects since fixed: Go's grouped `type ( … )`
+named every type on one chunk, and HTML named a form field by its `name`. The list made
+every reader join the names to show them and edge inference read a chunk once per
+name. One name costs the edge from an import of one of the names
+([what names resolve wrongly](#calls-and-bases)), and `read-symbol high` finds the
+declaration only within its name, beside any import named with `high`.
 
 **Opening the index migrates it.** Migration belongs to the `index`
 layer and reports through the log; the CLI just opens the index, and
@@ -2622,7 +2871,39 @@ Callers name what they read by value: a `Repo` from the registry,
 search. The store routes each to its file. A `WriteSession` is bound
 to one file and one repo: a DuckDB transaction writes one file, and a
 session that took a repo with every write could file rows under a
-repo of another project.
+repo of another project. Two of its writes reach the project's other
+checkouts, because chunks are shared by all of them: clean-up sweeps
+the chunks no snapshot claims, and re-extracting a blob re-infers the
+edges of every snapshot that lists it, which is why `edge_chunks` and
+`replace_edges` take a `SnapshotRef`.
+
+**A blob's chunks and the edges read from them commit together.**
+The build that re-extracts a blob re-infers, in its transaction, the
+edges of every other indexed snapshot that lists it.
+On this repository (1,075 files, 24,080 chunks) inferring and storing
+one snapshot's edges takes 0.23 to 0.29 s, so a plugin upgrade costs
+that per older indexed commit, with the writer held; reads go on
+against the last committed state. Two other shapes do not work here.
+Removing the older snapshots' indexed marks, for the watcher to
+rebuild them, makes a missing mark mean two things: clean-up reads it
+as a build that never finished and deletes the snapshot's file list
+and the chunks only it lists, embeddings included. A stored flag of
+stale edges, cleared by the worker one snapshot per transaction, adds
+state to read and keep right for a cost paid only when a serial
+changes. Revisit if re-inferring older snapshots grows long enough to
+hold the writer noticeably.
+
+**A build is one transaction.** Extraction, every edge it changes, the
+snapshot's file list and its indexed mark commit together, so no build
+commits a state a later step must repair. Splitting it (extract; edges;
+finish) keeps the extraction when a stop falls after the first commit,
+but the window that buys is the edge and finishing steps, 0.37 to 0.43 s
+on this repository (1,082 files) against 4.6 to 6.8 s of extraction,
+and the price is
+committing what is not yet whole: chunks no file list claims, which
+`WriteSession`'s commit check refuses, or a file list not marked
+indexed, which clean-up must sweep. Revisit if those steps grow long
+enough that a stop in them loses noticeable work.
 
 Two other shapes were considered and rejected. A store, or a DuckDB
 instance, per repo or per project breaks four things: the memory and

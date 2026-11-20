@@ -12,7 +12,7 @@ import structlog
 
 from rbtr.config import config
 from rbtr.domain.edge_frames import EdgeChunkRow, InferredEdgeRow
-from rbtr.domain.models import FileSnapshot, GcCounts, Repo
+from rbtr.domain.models import FileSnapshot, GcCounts, Repo, SnapshotRef
 from rbtr.index import load_sql
 from rbtr.index.db import build_fts, registered_views
 from rbtr.index.staging import (
@@ -38,11 +38,11 @@ _MARK_INDEXED_SQL = load_sql("mark_indexed.sql")
 _PRUNE_CHUNKS_SQL = load_sql("prune_chunks.sql")
 _PRUNE_EDGES_SQL = load_sql("prune_edges.sql")
 _SWEEP_ORPHAN_CHUNKS_SQL = load_sql("sweep_orphan_chunks.sql")
-_SWEEP_ORPHAN_EDGES_SQL = load_sql("sweep_orphan_edges.sql")
-_SWEEP_ORPHAN_SNAPSHOTS_SQL = load_sql("sweep_orphan_snapshots.sql")
 _UPDATE_EMBEDDINGS_SQL = load_sql("update_embeddings.sql")
 _UPSERT_CHUNKS_SQL = load_sql("upsert_chunks.sql")
 _UPSERT_SNAPSHOTS_SQL = load_sql("upsert_snapshots.sql")
+SNAPSHOTS_LISTING_BLOBS_SQL = load_sql("snapshots_listing_blobs.sql")
+SNAPSHOT_FILES_SQL = load_sql("snapshot_files.sql")
 
 log = structlog.get_logger(__name__)
 
@@ -55,12 +55,15 @@ class WriteSession:
     ```python
     with index.session(repo) as ws:
         ws.add_chunks(staged)                      # buffered, content-addressed
-        ws.replace_edges(edges, snapshot_sha=sha)  # immediate, under the repo
+        ws.replace_edges(edges, at=repo.at(sha))   # immediate
     # exit: flush buffer + commit + FTS rebuild; rollback on exception
     ```
 
     Every row a write adds belongs to the session's repo, so no method
-    takes one.  Chunks are the project's: its checkouts share them.  The
+    takes one, except edges: re-extracting a blob changes the chunks of
+    every snapshot that lists it, in any of the project's repos, so edges
+    are read and replaced at a snapshot (`at`), which may be another
+    checkout's.  Chunks are the project's: its checkouts share them.  The
     reads the transaction depends on (`current_blobs`,
     `snapshot_languages`) run on the session's cursor, so they see
     what it has written.
@@ -223,8 +226,8 @@ class WriteSession:
         (its language may have changed), so the chunks stored for each
         blob and file language in *chunks* that *chunks* does not hold are
         deleted. A chunk it holds again keeps its embedding while its
-        content is unchanged (`upsert_chunks.sql`), since the model reads
-        its name, part of its id, and its content.
+        name and content are unchanged (`upsert_chunks.sql`), which is
+        what the model reads.
         """
         blobs = chunks.group_by("file_language").agg(pl.col("blob_sha").unique(), pl.col("id"))
         for file_language, blob_shas, ids in blobs.iter_rows():
@@ -286,8 +289,34 @@ class WriteSession:
                 _UPSERT_SNAPSHOTS_SQL, staged_file_snapshots(snapshots, self._repo.repo_id)
             )
 
-    def edge_chunks(self, snapshot_sha: str) -> dy.DataFrame[EdgeChunkRow]:
-        """Every located chunk of the repo's snapshot *snapshot_sha*, as edge inference reads it.
+    def snapshots_listing(
+        self, blobs: set[tuple[str, str]], *, repos: Sequence[Repo]
+    ) -> list[SnapshotRef]:
+        """The indexed snapshots of *repos* that list one of *blobs*, each a `(blob_sha, file_language)` extraction.
+
+        Any repo of the project, the session's included: these are the
+        snapshots whose chunks change when the blobs are extracted again.
+        """
+        if not blobs:
+            return []
+        self._require_active()
+        pairs = pl.DataFrame(sorted(blobs), schema=["blob_sha", "file_language"], orient="row")
+        with registered_views(self._cursor, _stg=pairs) as cur:
+            rows = cur.sql(SNAPSHOTS_LISTING_BLOBS_SQL).fetchall()
+        by_id = {repo.repo_id: repo for repo in repos}
+        return [by_id[repo_id].at(sha) for repo_id, sha in rows if repo_id in by_id]
+
+    def snapshot_files(self, *, at: SnapshotRef) -> dict[str, str]:
+        """Each file of the snapshot *at*, and the blob it holds."""
+        self._require_active()
+        rows = self._cursor.sql(
+            SNAPSHOT_FILES_SQL,
+            params={"repo_id": at.repo.repo_id, "snapshot_sha": at.snapshot_sha},
+        ).fetchall()
+        return dict(rows)
+
+    def edge_chunks(self, *, at: SnapshotRef) -> dy.DataFrame[EdgeChunkRow]:
+        """Every located chunk of the snapshot *at*, as edge inference reads it.
 
         Ordered by path and position, so a duplicated chunk appears once per
         location and the first chunk of a file comes first.
@@ -297,22 +326,20 @@ class WriteSession:
         return (
             self._cursor.sql(
                 _EDGE_CHUNKS_SQL,
-                params={"repo_id": self._repo.repo_id, "snapshot_sha": snapshot_sha},
+                params={"repo_id": at.repo.repo_id, "snapshot_sha": at.snapshot_sha},
             )
             .pl()
             .pipe(EdgeChunkRow.validate, cast=True)
         )
 
-    def replace_edges(self, edges: dy.DataFrame[InferredEdgeRow], *, snapshot_sha: str) -> None:
-        """Atomically replace all edges of the repo's snapshot *snapshot_sha*."""
+    def replace_edges(self, edges: dy.DataFrame[InferredEdgeRow], *, at: SnapshotRef) -> None:
+        """Atomically replace all edges of the snapshot *at*."""
         self._require_active()
         self._cursor.execute(
-            _DELETE_EDGES_SQL, {"repo_id": self._repo.repo_id, "snapshot_sha": snapshot_sha}
+            _DELETE_EDGES_SQL, {"repo_id": at.repo.repo_id, "snapshot_sha": at.snapshot_sha}
         )
         if not edges.is_empty():
-            self._bulk_insert(
-                _INSERT_EDGES_SQL, staged_edges(edges, at=self._repo.at(snapshot_sha))
-            )
+            self._bulk_insert(_INSERT_EDGES_SQL, staged_edges(edges, at=at))
 
     def update_embeddings(self, embeddings: dy.DataFrame[EmbeddingStagingRow]) -> None:
         """Set each chunk's embedding and truncation flag from *embeddings*.
@@ -353,23 +380,15 @@ class WriteSession:
         )
 
     def cleanup(self) -> GcCounts:
-        """Remove the session's repo's residue and what it leaves unclaimed.
+        """Remove what no snapshot claims: rows a snapshot's rebuild or drop leaves.
 
-        1. Delete file snapshots and edges of the repo's snapshots never
-           marked indexed: what a build that stopped part-way left.
-        2. Delete chunks no file snapshot in the project references.
-        3. Delete the repo's edges whose snapshot has no file snapshots.
+        1. Delete chunks no file snapshot in the project references.
+        2. Delete the repo's edges whose snapshot has no file snapshots.
 
         A build runs it once its snapshot is marked indexed.  Returns
         counts of rows removed.
         """
         self._require_active()
-        snap_rows = self._cursor.execute(
-            _SWEEP_ORPHAN_SNAPSHOTS_SQL, {"repo_id": self._repo.repo_id}
-        ).fetchall()
-        orphan_edge_rows = self._cursor.execute(
-            _SWEEP_ORPHAN_EDGES_SQL, {"repo_id": self._repo.repo_id}
-        ).fetchall()
         chunk_rows = self._cursor.execute(_PRUNE_CHUNKS_SQL).fetchall()
         stale_edge_rows = self._cursor.execute(
             _PRUNE_EDGES_SQL, {"repo_id": self._repo.repo_id}
@@ -377,8 +396,4 @@ class WriteSession:
         chunks_deleted = int(chunk_rows[0][0])
         if chunks_deleted > 0:
             self._chunks_modified = True
-        return GcCounts(
-            file_snapshots=int(snap_rows[0][0]),
-            edges=int(orphan_edge_rows[0][0]) + int(stale_edge_rows[0][0]),
-            chunks=chunks_deleted,
-        )
+        return GcCounts(edges=int(stale_edge_rows[0][0]), chunks=chunks_deleted)

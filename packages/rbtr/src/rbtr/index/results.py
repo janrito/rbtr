@@ -26,7 +26,7 @@ from rbtr.domain.models import (
     SnapshotCounts,
     SnapshotRef,
 )
-from rbtr.domain.rules import ChunkRow
+from rbtr.domain.rules import ChunkRow, binding_list
 
 
 class SnapshotRefRow(dy.Schema):
@@ -128,6 +128,9 @@ class _ChunkIdentity(dy.Schema):
     content = dy.String(nullable=False)
     line_start = dy.Int32(nullable=False)
     line_end = dy.Int32(nullable=False)
+    # Where the chunk is in its blob: `content` is the bytes between.
+    start_byte = dy.Int64(nullable=False)
+    end_byte = dy.Int64(nullable=False)
     # The role's payload, as `ChunkStagingRow` writes it.
     metadata = ChunkRow.metadata
 
@@ -152,7 +155,7 @@ class SymbolRefRow(dy.Schema):
     """A chunk as a reply names and places it, without its body.
 
     The read model behind `list-symbols` and `changed-symbols`; a
-    chunk-result frame takes this shape with `import_metadata()`.
+    chunk-result frame takes this shape with `reply_imports()`.
     """
 
     name = dy.String(nullable=False)
@@ -162,15 +165,17 @@ class SymbolRefRow(dy.Schema):
     language = dy.String(nullable=False)
     line_start = dy.Int32(nullable=False)
     line_end = dy.Int32(nullable=False)
-    # An import's metadata when it records any; null otherwise.
-    metadata = dy.Struct(
-        {
-            "module": dy.String(nullable=False),
-            "names": dy.String(nullable=False),
-            "language_hint": dy.String(nullable=False),
-            "bindings": ChunkRow.metadata.inner["bindings"],
-        },
-        nullable=True,
+    # The imports the chunk makes, empty when it makes none.
+    imports = dy.List(
+        dy.Struct(
+            {
+                "module": dy.String(nullable=False),
+                "names": dy.String(nullable=False),
+                "language_hint": dy.String(nullable=False),
+                "bindings": binding_list(nullable=False),
+            }
+        ),
+        nullable=False,
     )
 
 
@@ -329,20 +334,14 @@ def chunk_ids_view(chunk_ids: list[str]) -> dy.DataFrame[ChunkIdRow]:
     return ChunkIdRow.validate(frame, cast=True)
 
 
-def import_metadata() -> pl.Expr:
-    """A row's import metadata, with the fields `SymbolRefRow` declares, when it records any.
-
-    Null for every other row: the `metadata` struct also holds other
-    roles' payloads, which no reply shows.
-    """
-    fields = [pl.col("metadata").struct.field(name) for name in SymbolRefRow.metadata.inner]
-    recorded = pl.any_horizontal(
-        pl.col("metadata").struct.field(name) != "" for name in ("module", "names", "language_hint")
-    ) | (pl.col("metadata").struct.field("bindings").list.len() > 0)
+def reply_imports() -> pl.Expr:
+    """A row's imports with the fields a reply shows (`SymbolRefRow.imports`), any kind of chunk's."""
+    fields = ("module", "names", "language_hint", "bindings")
     return (
-        pl.when((pl.col("kind") == ChunkKind.IMPORT) & recorded)
-        .then(pl.struct(fields))
-        .alias("metadata")
+        pl.col("metadata")
+        .struct.field("imports")
+        .list.eval(pl.struct(pl.element().struct.field(name) for name in fields))
+        .alias("imports")
     )
 
 

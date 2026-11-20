@@ -77,14 +77,13 @@ what it is used instead of, and the tools that find code are listed first.
 Shapes, not fixtures — the line numbers and scores below move
 with the code they describe.
 
-Every tool's reply is rbtr's own response, in the shape its output
-schema declares. codemode scripts receive that object as a
-structured value. The model reads it as text: one line per symbol
-as `path:line kind name`, each file once, and a method named with
-its scope (`EngineArgs::add_cli_args`, as `rbtr_read_symbol` takes
-it). A read first names the snapshot it read: its SHA, and whether
-that was the ref asked for, `head`, the dirty working tree, or the
-latest indexed commit because the one asked for is not indexed yet.
+Every tool's reply is rbtr's own response, in the shape its output schema declares.
+codemode scripts receive that object as a structured value. The model reads it as text:
+one line per symbol as `path:line kind name`, each file once, and a method named with
+its scope (`EngineArgs::add_cli_args`, as `rbtr_read_symbol` takes it). A read first
+names the snapshot it read: its SHA, and whether that was the ref asked for, `head`, the
+dirty working tree, or the latest indexed commit because the one asked for is not
+indexed yet.
 
 **`rbtr_search`** — query in, ranked hits out, each with the first
 8 lines of its source:

@@ -14,18 +14,27 @@
       ]))
   name: (field_identifier) @_method_name) @method
 
+; A declaration of one type is that type, `type` keyword and all; each type
+; of a grouped `type ( … )` is a class of its own.
 (type_declaration
-  (type_spec
-    name: (type_identifier) @_cls_name)) @class
+  "type"
+  .
+  [
+    (type_spec name: (type_identifier) @_cls_name)
+    (type_alias name: (type_identifier) @_cls_name)
+  ]) @class
+
+(type_declaration
+  "("
+  [
+    (type_spec name: (type_identifier) @_cls_name)
+    (type_alias name: (type_identifier) @_cls_name)
+  ] @class)
 
 (type_spec
   (interface_type
     (method_elem
       name: (field_identifier) @_method_name) @method))
-
-(type_declaration
-  (type_alias
-    name: (type_identifier) @_cls_name)) @class
 
 ; An import binds its package under its alias, or, written with none, under
 ; its path's last segment (`"example.com/m/greeter"` binds `greeter`); `.`

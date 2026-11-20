@@ -40,6 +40,7 @@ from tree_sitter import Language
 
 from rbtr.config import config
 from rbtr.errors import MissingLanguagePluginsError, RbtrError
+from rbtr.languages.plaintext import plaintext
 from rbtr.languages.registration import LanguageRegistration
 
 log = structlog.get_logger(__name__)
@@ -107,7 +108,11 @@ class LanguageManager:
 
     @contextmanager
     def limited_to(self, *registrations: LanguageRegistration) -> Iterator[None]:
-        """Hold exactly *registrations* for the `with` block, as a test loads only the languages it names.
+        """Hold *registrations* and plaintext for the `with` block, as a test loads only the languages it names.
+
+        Plaintext is held as installed builds always hold it, unless
+        *registrations* names its own: it claims no file, and a file no
+        other language claims is read as plaintext.
 
         On exit the manager is as it was: every installed language, the
         extensions and file names each claims, and the grammars it had
@@ -121,7 +126,9 @@ class LanguageManager:
         )
         self._registrations, self._ext_map, self._filename_map, self._grammar_cache = {}, {}, {}, {}
         try:
-            for registration in registrations:
+            named = {registration.id for registration in registrations}
+            fallback = () if plaintext.id in named else (plaintext,)
+            for registration in (*fallback, *registrations):
                 self.add(registration)
             yield
         finally:

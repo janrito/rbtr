@@ -29,7 +29,7 @@ Two tree-sitter query plugins, one for each half of the grammar:
 ```markdown
 # Guide                    <!-- doc_section "Guide"                       -->
 ## Setup                   <!-- doc_section "Setup", scope "Guide"         -->
-See [the API](api.md#run). <!-- import, metadata {module: api.md, names: run} -->
+See [the API](api.md#run). <!-- import, imports [{module: api.md, names: run}] -->
 ```
 
 ## Embedded / injected chunks

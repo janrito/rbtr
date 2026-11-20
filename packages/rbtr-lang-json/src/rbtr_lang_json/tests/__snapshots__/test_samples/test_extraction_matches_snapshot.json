@@ -168,7 +168,15 @@
     "scope": "",
     "language": "json",
     "line_start": 5,
-    "line_end": 5
+    "line_end": 5,
+    "imports": [
+      {
+        "module": "defs.json",
+        "names": "Name",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "recipient",
@@ -178,21 +186,6 @@
     "language": "json",
     "line_start": 5,
     "line_end": 5
-  },
-  {
-    "name": "\"$ref\": \"defs.json#/Name\"",
-    "kind": "import",
-    "file_path": "schema/greeting.json",
-    "scope": "",
-    "language": "json",
-    "line_start": 5,
-    "line_end": 5,
-    "metadata": {
-      "module": "defs.json",
-      "names": "Name",
-      "language_hint": "",
-      "bindings": []
-    }
   },
   {
     "name": "",

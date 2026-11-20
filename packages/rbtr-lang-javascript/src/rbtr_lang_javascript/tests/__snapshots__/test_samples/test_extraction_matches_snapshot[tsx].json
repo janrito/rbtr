@@ -52,17 +52,19 @@
     "language": "tsx",
     "line_start": 1,
     "line_end": 1,
-    "metadata": {
-      "module": "./b",
-      "names": "Helper",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "Helper",
-          "local": "Helper"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "./b",
+        "names": "Helper",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "Helper",
+            "local": "Helper"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "Helper",
@@ -90,17 +92,19 @@
     "language": "tsx",
     "line_start": 11,
     "line_end": 11,
-    "metadata": {
-      "module": "react",
-      "names": "useState",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "useState",
-          "local": "useState"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "react",
+        "names": "useState",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "useState",
+            "local": "useState"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "import type { ReactNode } from \"react\";",
@@ -110,17 +114,19 @@
     "language": "tsx",
     "line_start": 12,
     "line_end": 12,
-    "metadata": {
-      "module": "react",
-      "names": "ReactNode",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "ReactNode",
-          "local": "ReactNode"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "react",
+        "names": "ReactNode",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "ReactNode",
+            "local": "ReactNode"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "import { INITIAL_LABEL } from \"./labels\";",
@@ -130,17 +136,19 @@
     "language": "tsx",
     "line_start": 13,
     "line_end": 13,
-    "metadata": {
-      "module": "./labels",
-      "names": "INITIAL_LABEL",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "INITIAL_LABEL",
-          "local": "INITIAL_LABEL"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "./labels",
+        "names": "INITIAL_LABEL",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "INITIAL_LABEL",
+            "local": "INITIAL_LABEL"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "INITIAL_COUNT",

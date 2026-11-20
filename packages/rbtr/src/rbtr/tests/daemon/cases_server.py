@@ -40,7 +40,7 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.server import Daemon
 from rbtr.daemon.status import remove_status
-from rbtr.domain.rules import FileRow, PlacedChunkRow
+from rbtr.domain.rules import FileRow
 from rbtr.git import normalise_repo_path
 from rbtr.index import maintenance
 from rbtr.index.build import build_index
@@ -183,7 +183,7 @@ def case_shutdown_during_build(
     server = Daemon(runtime_dir, index=index, idle_poll_interval=60.0, busy_poll_interval=60.0)
     batch = extract.extract_batch
 
-    def held_extract(files: dy.DataFrame[FileRow]) -> dy.DataFrame[PlacedChunkRow]:
+    def held_extract(files: dy.DataFrame[FileRow]) -> extract.Extraction:
         write_started.set()
         assert write_released.wait(20), "file extraction was not released"
         return batch(files)

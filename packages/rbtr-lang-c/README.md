@@ -26,8 +26,8 @@ itself (`pip install rbtr`).
 void greet(const char *name);      /* function "greet"          */
 struct Point { int x, y; };        /* class "Point"             */
 enum Color { RED, GREEN };         /* class "Color"; variables RED, GREEN */
-#include <stdio.h>                 /* import, metadata {module: stdio.h}   */
-#include "greeter.h"               /* import, metadata {module: greeter.h} */
+#include <stdio.h>                 /* import, imports [{module: stdio.h, names: *}]   */
+#include "greeter.h"               /* import, imports [{module: greeter.h, names: *}] */
 ```
 
 ## Embedded / injected chunks

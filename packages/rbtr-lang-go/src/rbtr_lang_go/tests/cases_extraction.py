@@ -124,6 +124,20 @@ type ID string
 
 
 @case(tags=["symbol"])
+def case_go_grouped_types() -> SymbolCase:
+    """Each type of a `type ( … )` block, alias included, is a class of its own."""
+    src = """\
+package main
+
+type (
+    ID string
+    Name = string
+)
+"""
+    return {"input.go": src}, [("class", "ID", ""), ("class", "Name", "")]
+
+
+@case(tags=["symbol"])
 def case_go_multiple_types() -> SymbolCase:
     """Multiple type declarations."""
     src = """\

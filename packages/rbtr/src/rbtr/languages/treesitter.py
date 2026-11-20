@@ -27,13 +27,14 @@ from rbtr.config import config
 from rbtr.domain.identity import compose_scope
 from rbtr.domain.models import Chunk, ChunkKind, ImportMeta
 from rbtr.domain.rules import (
-    DEFINITION_KINDS,
+    HOLDER_KINDS,
     CaptureRow,
     FileRow,
     MetadataCaptureName,
     MetadataCaptureRow,
     PlacedChunkRow,
 )
+from rbtr.errors import QueryCaptureError
 from rbtr.languages.chunks import chunk_rows
 from rbtr.languages.manager import get_manager
 from rbtr.languages.registration import ChunkExtraction, QueryExtraction, last_line
@@ -55,6 +56,7 @@ CAPTURE_KINDS: frozenset[ChunkKind] = frozenset(
         ChunkKind.DOC_SECTION,
         ChunkKind.CONFIG_KEY,
         ChunkKind.COMMENT,
+        ChunkKind.STATEMENT,
     }
 )
 """The chunk kinds a query capture makes, each named by its kind's value.
@@ -361,7 +363,8 @@ def query_captures(
     by its first capture.
     """
     directives = Directives(
-        source.registration, compiled_query(source.tree.language, extraction.query)
+        source.registration,
+        checked_query(source.tree.language, extraction.query, source.registration.id),
     )
     nodes, metadata_captures = captured_nodes(source, directives)
     named: dict[int, str] = {}
@@ -387,9 +390,9 @@ def query_captures(
             *source.registration.resolve_scope(captured.capture, node, captured.captures),
         ]
         level, level_style = directives.level(captured)
-        end: tuple[int, int] | None = None
+        end: int | None = None
         if captured.capture == "doc_section" and level is None and level_style is None:
-            end = section_end(node, sections, source.content)
+            end = section_end(node, sections)
         rows.append(
             capture(
                 source,
@@ -420,7 +423,7 @@ def capture(
     first: Node,
     last: Node,
     *,
-    end: tuple[int, int] | None = None,
+    end: int | None = None,
     name: str = "",
     scope: list[str] | None = None,
     in_class: bool = False,
@@ -433,12 +436,12 @@ def capture(
 ) -> Capture:
     """A row for *source*'s span from *first*'s start to *last*'s end, numbered next in its file.
 
-    *end*, when given, is where a section's own text ends: its end byte
-    and last line. *meta* is an import's metadata, *node_types* a
+    *end*, when given, is the byte where a section's own text ends. The
+    row's last line is *last*'s, the line the fragment walk counts as
+    covered. *meta* is an import's metadata, *node_types* a
     fragment's, *match* the query match that captured it, *level* and
     *level_style* the level its pattern states.
     """
-    end_byte, line_end = end if end is not None else (last.end_byte, last_line(last))
     metadata: Metadata | None = None
     if meta is not None:
         metadata = Metadata(
@@ -447,7 +450,7 @@ def capture(
             language_hint=meta.language_hint,
             node_types=None,
         )
-    elif node_types is not None or kind.value in DEFINITION_KINDS:
+    elif node_types is not None or kind.value in HOLDER_KINDS:
         metadata = Metadata(module=None, names=None, language_hint=None, node_types=node_types)
     return Capture(
         file=source.file,
@@ -462,9 +465,9 @@ def capture(
         column=first.start_point[1],
         docs=docs or [],
         start_byte=first.start_byte,
-        end_byte=end_byte,
+        end_byte=end if end is not None else last.end_byte,
         line_start=first.start_point[0] + 1,
-        line_end=line_end,
+        line_end=last_line(last),
         metadata=metadata,
         level=level,
         level_style=level_style,
@@ -520,11 +523,6 @@ def captured_nodes(
                 )
                 continue
             if capture_name.startswith("_"):
-                continue
-            try:
-                if ChunkKind(capture_name) not in CAPTURE_KINDS:
-                    continue
-            except ValueError:
                 continue
             nodes.extend(
                 CapturedNode(pattern, match, node, capture_name, captures) for node in captured
@@ -613,23 +611,21 @@ class Directives:
         )
 
 
-def section_end(node: Node, sections: set[int], content: bytes) -> tuple[int, int]:
-    """The end byte and 1-based last line of section *node*'s own text.
+def section_end(node: Node, sections: set[int]) -> int:
+    """The byte where section *node*'s own text ends.
 
     When the section ends in captured sections (one of *sections*), nothing
     else after the first of them, its text is what comes before that one: a
     Markdown `# Title`'s chunk holds its text up to `## Install`, which has
     a chunk of its own. Any other section keeps its node's span: an HTML
     element's own content continues past a nested one, to its end tag
-    at least. Trailing whitespace is not the section's.
+    at least.
     """
     first = next((i for i, c in enumerate(node.children) if c.id in sections), None)
     end = node.end_byte
     if first is not None and all(c.id in sections for c in node.children[first:]):
         end = node.children[first].start_byte
-    while end > node.start_byte and content[end - 1 : end] in (b" ", b"\t", b"\r", b"\n"):
-        end -= 1
-    return end, content.count(b"\n", 0, end) + 1
+    return end
 
 
 def line_imports(
@@ -701,9 +697,12 @@ def fragments(
 
     A line is covered by a captured span, or by a node holding a block
     another language reads (`Source.holders`). The runs of uncovered
-    nodes (`runs`) are fragments, scoped like a capture at their start. A
-    run of anonymous syntax alone (`try:` around captured imports, the
-    `#endif` closing a guard) is a fragment too, with no node types.
+    nodes (`runs`) are fragments, scoped like a capture at their start;
+    consecutive runs with only whitespace and no blank line between them
+    are one, across tree levels (`run` and `(` of `run(`), up to
+    `config.chunk_lines` lines. A run of anonymous syntax alone (`try:`
+    around captured imports, the `#endif` closing a guard) is a fragment
+    too, with no node types.
     """
     if not extraction.fragments:
         return []
@@ -711,8 +710,18 @@ def fragments(
     lines = [*spans, *((holder.start_point[0] + 1, last_line(holder)) for holder in source.holders)]
     for start, end in lines:
         covered[start : end + 1] = b"\x01" * (end - start + 1)
-    rows: list[Capture] = []
+    joined: list[list[Node]] = []
     for run in runs(source.tree.root_node, covered, source.content):
+        if (
+            joined
+            and contiguous(source.content, joined[-1][-1].end_byte, run[0].start_byte)
+            and last_line(run[-1]) - joined[-1][0].start_point[0] <= config.chunk_lines
+        ):
+            joined[-1].extend(run)
+        else:
+            joined.append(run)
+    rows: list[Capture] = []
+    for run in joined:
         node_types = list(dict.fromkeys(node.type for node in run if node.is_named))
         scope = scope_names(enclosing_scopes(run[0], extraction.scope_types), named)
         rows.append(
@@ -767,6 +776,28 @@ def contiguous(content: bytes, a_end: int, b_start: int) -> bool:
         return False
     end = a_end - 1 if a_end > 0 and content[a_end - 1 : a_end] == b"\n" else a_end
     return content.count(b"\n", end, b_start) < 2
+
+
+@lru_cache(maxsize=32)
+def checked_query(grammar: Language, text: str, language: str) -> Query:
+    """*language*'s extraction query *text* compiled for *grammar*, cached; every capture names a kind, metadata or a helper.
+
+    A capture is a kind a query makes chunks of (`CAPTURE_KINDS`), a
+    metadata capture (`MetadataCaptureName`), or starts with `_`. Raises
+    `QueryCaptureError` for any other: it would be read as nothing.
+    """
+    query = compiled_query(grammar, text)
+    known = {kind.value for kind in CAPTURE_KINDS} | {name.value for name in MetadataCaptureName}
+    unknown = sorted(
+        {
+            name
+            for index in range(query.capture_count)
+            if not (name := query.capture_name(index)).startswith("_") and name not in known
+        }
+    )
+    if unknown:
+        raise QueryCaptureError(language=language, captures=unknown)
+    return query
 
 
 @lru_cache(maxsize=32)

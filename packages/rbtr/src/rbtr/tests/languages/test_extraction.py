@@ -17,6 +17,7 @@ import pytest
 
 from rbtr.config import config
 from rbtr.domain.models import ChunkKind
+from rbtr.errors import QueryCaptureError
 from rbtr.index.refs import resolve_read_ref
 from rbtr.languages.manager import get_manager
 from rbtr.languages.registration import LanguageRegistration, QueryExtraction
@@ -164,11 +165,11 @@ load("plain.html")
     with get_manager().limited_to(reg), indexed({"docs/guide.html": src}) as build:
         at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
         chunks = build.index.chunks(at=at, file_path="docs/guide.html").rows(named=True)
-    assert [
-        (c["metadata"]["module"], c["metadata"]["names"])
-        for c in chunks
-        if c["kind"] == ChunkKind.IMPORT
-    ] == [("page.html", "intro"), ("guide.html", "usage"), ("plain.html", "")]
+    assert [(imp["module"], imp["names"]) for c in chunks for imp in c["metadata"]["imports"]] == [
+        ("page.html", "intro"),
+        ("guide.html", "usage"),
+        ("plain.html", ""),
+    ]
 
 
 def test_a_section_ends_where_its_first_subsection_begins(
@@ -301,7 +302,7 @@ def test_strip_directive_shapes_an_import(
     with get_manager().limited_to(reg), indexed({"a.py": src}) as build:
         at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
         rows = build.index.chunks(at=at, file_path="a.py").rows(named=True)
-    [meta] = [c["metadata"] for c in rows if c["kind"] == ChunkKind.IMPORT]
+    [meta] = [imp for c in rows for imp in c["metadata"]["imports"]]
     assert (meta["module"], meta["names"]) == ("guide", "intro")
 
 
@@ -334,9 +335,9 @@ LINKS = [
         at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
         rows = build.index.chunks(at=at, file_path="a.py").rows(named=True)
     imports = [
-        (c["name"], c["metadata"]["module"], c["line_start"], c["line_end"])
+        (c["name"], imp["module"], c["line_start"], c["line_end"])
         for c in rows
-        if c["kind"] == ChunkKind.IMPORT
+        for imp in c["metadata"]["imports"]
     ]
     assert imports == [
         ("x:topics/intro", "topics/intro", 2, 2),
@@ -363,39 +364,37 @@ def test_set_directive_names_where_an_import_finds_its_name(
     with get_manager().limited_to(reg), indexed({"a.py": 'ref("intro")\n'}) as build:
         at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
         rows = build.index.chunks(at=at, file_path="a.py").rows(named=True)
-    [meta] = [c["metadata"] for c in rows if c["kind"] == ChunkKind.IMPORT]
+    [meta] = [imp for c in rows for imp in c["metadata"]["imports"]]
     assert (meta["names"], meta["language_hint"]) == ("intro", "rst")
 
 
-def test_unknown_capture_name_ignored(
-    indexed: Indexed,
-    tmp_path: Path,
-) -> None:
-    """Captures not in CAPTURE_KINDS are silently skipped."""
-    query_unknown = """\
+@pytest.mark.parametrize("capture", ["statment", "fragment"])
+def test_a_capture_naming_no_kind_fails_the_build(indexed: Indexed, capture: str) -> None:
+    """A capture no convention reads (a misspelt kind, or `fragment`, which no capture makes) fails the build, naming it and its language."""
+    query = f"""\
 (function_definition
   name: (identifier) @_fn_name) @function
-(class_definition) @unknown_thing
-"""
-    src = """\
-def f():
-    pass
-
-class C:
-    pass
+(class_definition) @{capture}
 """
     reg = LanguageRegistration(
         id="faketest",
         grammar_module="tree_sitter_python",
         extensions=frozenset({".py"}),
-        extraction=QueryExtraction(query=query_unknown),
+        extraction=QueryExtraction(query=query),
     )
-    with get_manager().limited_to(reg), indexed({"test.py": src}) as build:
-        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
-        chunks = build.index.chunks(at=at, file_path="test.py").rows(named=True)
-    kinds = {c["kind"] for c in chunks}
-    assert "function" in kinds
-    assert "class" not in kinds
+    with (
+        get_manager().limited_to(reg),
+        pytest.raises(QueryCaptureError, match=f"faketest query captures @{capture}"),
+        indexed(
+            {
+                "test.py": """\
+class C:
+    pass
+"""
+            }
+        ),
+    ):
+        pass
 
 
 @pytest.mark.parametrize(
@@ -653,7 +652,14 @@ class Config:
         at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
         chunks = build.index.chunks(at=at, file_path="t.py").rows(named=True)
     fragments = [(c["content"], c["scope"]) for c in chunks if c["kind"] == ChunkKind.FRAGMENT]
-    assert fragments == [("class Config:", "Config"), ("retries = 3", "Config")]
+    assert fragments == [
+        (
+            """\
+class Config:
+    retries = 3""",
+            "Config",
+        )
+    ]
 
 
 def test_a_run_of_code_splits_at_the_chunk_size(
@@ -757,11 +763,6 @@ run();
                 {"module": "sys", "names": "", "bindings": []},
             ],
             id="two-modules-are-two-imports",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="two imports of one statement share its name and lines, so their chunk "
-                "ids collide and the index keeps one",
-            ),
         ),
         pytest.param(
             """\
@@ -799,9 +800,9 @@ def test_a_query_states_an_imports_names_and_bindings(
         at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
         rows = build.index.chunks(at=at, file_path="t.py").rows(named=True)
     imports = [
-        {key: c["metadata"][key] for key in ("module", "names", "bindings")}
+        {key: imp[key] for key in ("module", "names", "bindings")}
         for c in rows
-        if c["kind"] == ChunkKind.IMPORT
+        for imp in c["metadata"]["imports"]
     ]
     assert imports == expected
 

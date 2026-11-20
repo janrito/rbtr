@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from rbtr.config import config
 from rbtr.domain.models import ChunkKind, EdgeKind, ImportMeta, RefSource, ScoredChunk
-from rbtr.index.results import ChunkResultRow, SymbolRefRow, SymbolRow, import_metadata
+from rbtr.index.results import ChunkResultRow, SymbolRefRow, SymbolRow, reply_imports
 
 _STRICT = ConfigDict(extra="forbid")
 
@@ -42,7 +42,7 @@ class SymbolRefOut(BaseModel):
     language: str = ""
     line_start: int
     line_end: int
-    metadata: ImportMeta | None = Field(default=None, exclude_if=lambda v: v is None)
+    imports: list[ImportMeta] = Field(default_factory=list, exclude_if=lambda v: not v)
 
 
 class SymbolOut(BaseModel):
@@ -63,7 +63,7 @@ class SymbolOut(BaseModel):
     content: str
     line_start: int
     line_end: int
-    metadata: ImportMeta | None = Field(default=None, exclude_if=lambda v: v is None)
+    imports: list[ImportMeta] = Field(default_factory=list, exclude_if=lambda v: not v)
 
 
 class Preview(BaseModel):
@@ -154,7 +154,7 @@ class SearchHitOut(BaseModel):
     line_end: int
     match_line_offset: int | None = Field(default=None, exclude_if=lambda v: v is None)
     matched_terms: list[str] = Field(default_factory=list, exclude_if=lambda v: not v)
-    metadata: ImportMeta | None = Field(default=None, exclude_if=lambda v: v is None)
+    imports: list[ImportMeta] = Field(default_factory=list, exclude_if=lambda v: not v)
     repo_path: str | None = Field(default=None, exclude_if=lambda v: v is None)
     score: float
     signals: SearchSignals | None = Field(default=None, exclude_if=lambda v: v is None)
@@ -176,7 +176,7 @@ class SearchHitOut(BaseModel):
             line_end=sc.line_end,
             match_line_offset=sc.match_line_offset,
             matched_terms=sc.matched_terms,
-            metadata=sc.metadata,
+            imports=sc.imports,
             repo_path=sc.repo_path,
             score=sc.score,
             signals=SearchSignals.from_scored(sc) if explain else None,
@@ -218,13 +218,13 @@ SymbolOuts = TypeAdapter(list[SymbolOut])
 
 def symbol_refs(frame: dy.DataFrame[ChunkResultRow]) -> list[SymbolRefOut]:
     """Each row of a chunk-result frame as a `SymbolRefOut`."""
-    rows = frame.with_columns(import_metadata()).pipe(SymbolRefRow.validate, cast=True)
+    rows = frame.with_columns(reply_imports()).pipe(SymbolRefRow.validate, cast=True)
     return SymbolRefOuts.validate_python(rows.to_dicts())
 
 
 def symbols(frame: dy.DataFrame[ChunkResultRow]) -> list[SymbolOut]:
     """Each row of a chunk-result frame as a `SymbolOut`, body included."""
-    rows = frame.with_columns(import_metadata()).pipe(SymbolRow.validate, cast=True)
+    rows = frame.with_columns(reply_imports()).pipe(SymbolRow.validate, cast=True)
     return SymbolOuts.validate_python(rows.to_dicts())
 
 

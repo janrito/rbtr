@@ -19,7 +19,7 @@ Public surface
 - `non_commit_shas`     — which indexed shas are not commits
 - `resolve_ref`         — unified ref → SHA resolution
 - `list_files`          — file listing (git tree or working tree)
-- `read_blob`           — single blob read
+- `read_blob`           — a blob's bytes by its SHA
 - `changed_files`       — diff between two refs (or ref vs worktree)
 - `names_for_commits`   — SHA → symbolic name mapping
 - `head_sha`            — current HEAD SHA (strict)
@@ -501,32 +501,14 @@ def list_files(
         )
 
 
-def read_blob(
-    repo_path: str,
-    ref: str,
-    path: str,
-) -> pygit2.Blob | None:
-    """Read a single blob from the object store.
+def read_blob(repo_path: str, blob_sha: str) -> bytes | None:
+    """The bytes of the blob *blob_sha* in the repository at *repo_path*, or `None` if it holds none.
 
-    Returns the `pygit2.Blob` for *path* at *ref*, or `None` if
-    the file doesn't exist at that ref.
+    A blob only a dirty working tree's snapshot wrote is a loose object
+    no commit reaches, which git may since have pruned.
     """
-    try:
-        repo = _open_repo(repo_path)
-    except RbtrError:
-        return None
-    try:
-        commit = _resolve_commit(repo, ref)
-    except RbtrError:
-        return None
-    try:
-        entry = commit.tree[path]
-    except KeyError:
-        return None
-    obj = repo.get(entry.id)
-    if isinstance(obj, pygit2.Blob):
-        return obj
-    return None
+    blob = _open_repo(repo_path).get(blob_sha)
+    return blob.data if isinstance(blob, pygit2.Blob) else None
 
 
 def changed_files(

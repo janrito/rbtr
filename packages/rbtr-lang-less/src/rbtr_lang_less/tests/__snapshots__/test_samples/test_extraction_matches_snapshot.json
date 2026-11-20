@@ -34,12 +34,14 @@
     "language": "less",
     "line_start": 7,
     "line_end": 7,
-    "metadata": {
-      "module": "base",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "base",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "@primary",
@@ -121,12 +123,14 @@
     "language": "less",
     "line_start": 40,
     "line_end": 40,
-    "metadata": {
-      "module": "partials/dark.less",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "partials/dark.less",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "",
@@ -145,12 +149,14 @@
     "language": "less",
     "line_start": 3,
     "line_end": 3,
-    "metadata": {
-      "module": "tokens.less",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "tokens.less",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": ".greeting--dark",

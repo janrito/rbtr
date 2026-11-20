@@ -39,11 +39,32 @@ class ChunkKind(StrEnum):
     API_ENDPOINT = "api_endpoint"
     RAW_CHUNK = "raw_chunk"
     FRAGMENT = "fragment"
+    STATEMENT = "statement"
 
 
 CODE_KINDS: frozenset[ChunkKind] = frozenset(
     {ChunkKind.FUNCTION, ChunkKind.CLASS, ChunkKind.METHOD},
 )
+
+
+def narrows(kind: ChunkKind, other: ChunkKind) -> bool:
+    """Whether a span captured as *kind* and *other* is a *kind* chunk: the only statement of kind precedence.
+
+    Every kind but `import` narrows `import`, as a key or section that
+    imports is that key or section, and `statement`, as a declared
+    statement that is also a test is that test; a test narrows the
+    function or method it is. Two kinds neither narrows take the first in
+    `ChunkKind` order, and the overlap is the plugin's to fix.
+    """
+    if kind is other or kind is ChunkKind.IMPORT:
+        return False
+    match other:
+        case ChunkKind.IMPORT | ChunkKind.STATEMENT:
+            return True
+        case ChunkKind.FUNCTION | ChunkKind.METHOD:
+            return kind is ChunkKind.TEST_FUNCTION
+        case _:
+            return False
 
 
 class QueryKind(StrEnum):
@@ -272,15 +293,27 @@ type Role = Annotated[
 
 
 class Span(BaseModel, frozen=True):
-    """The lines a chunk occupies: 1-based, inclusive, never ending before it starts."""
+    """Where a chunk is in its file: its bytes, `start_byte` up to `end_byte`, and the lines they fall on.
+
+    Lines are 1-based and inclusive; neither the bytes nor the lines end
+    before they start.
+    """
 
     start: int
     end: int
+    start_byte: int
+    end_byte: int
 
     @model_validator(mode="after")
     def ends_after_it_starts(self) -> Span:
         if self.end < self.start:
             msg = f"a span cannot end (line {self.end}) before it starts (line {self.start})"
+            raise ValueError(msg)
+        if self.end_byte < self.start_byte:
+            msg = (
+                f"a span cannot end (byte {self.end_byte}) before it starts"
+                f" (byte {self.start_byte})"
+            )
             raise ValueError(msg)
         return self
 
@@ -298,10 +331,10 @@ class Chunk(BaseModel, frozen=True):
     identity: one chunk can be reached at several paths, which
     `file_snapshots` records.
 
-    Frozen, because a chunk *is* its content: two with the same content
-    are the same chunk, and changing one of the fields that says so makes
-    it a different chunk rather than the same one altered. Labelling one
-    therefore returns a copy.
+    Frozen, because a chunk *is* a span of a blob read as one language:
+    changing one of the fields that says so makes it a different chunk
+    rather than the same one altered. Labelling one therefore returns a
+    copy.
     """
 
     blob_sha: str
@@ -353,10 +386,8 @@ class Chunk(BaseModel, frozen=True):
     @computed_field  # type: ignore[prop-decorator]  # pydantic needs the property last
     @property
     def id(self) -> str:
-        """This chunk's `chunk_id`: location is the province of `file_snapshots`."""
-        return chunk_id(
-            self.blob_sha, self.file_language, self.kind, self.name, self.line_start, self.line_end
-        )
+        """This chunk's `chunk_id`, from its blob, file language and byte span; its paths are `file_snapshots`'."""
+        return chunk_id(self.blob_sha, self.file_language, self.span.start_byte, self.span.end_byte)
 
 
 class ScoredChunk(BaseModel, frozen=True):
@@ -385,8 +416,8 @@ class ScoredChunk(BaseModel, frozen=True):
     content: str
     line_start: int
     line_end: int
-    metadata: ImportMeta | None = None
-    """An import's metadata when it records any; `None` for every other result."""
+    imports: list[ImportMeta] = Field(default_factory=list)
+    """The imports the chunk makes, empty when it makes none."""
     embedding_state: EmbeddingState = Field(default=EmbeddingState.NONE, exclude=True)
     score: float
     lexical: float
@@ -632,7 +663,6 @@ class GcMode(StrEnum):
 
     HEAD_ONLY = "head_only"  # keep current HEAD, drop the rest
     KEEP = "keep"  # keep only listed refs
-    ORPHANS = "orphans"  # sweep residue only, drop no commits
     WATCHED = "watched"  # default: HEAD + local branches/tags/notes + watched
     WATCHED_ONLY = "watched_only"  # HEAD + resolved watched_refs only
 
@@ -667,9 +697,29 @@ class GcCounts:
         )
 
 
+class KindOverlap(BaseModel, frozen=True):
+    """Captures of more than one kind on one span of a file, and the kind its chunk took.
+
+    `narrowed` is whether `narrows` decided it; one it did not took the
+    first of `kinds` in `ChunkKind` order, and is a defect of the language's
+    patterns.
+    """
+
+    path: str
+    line: int
+    kinds: tuple[ChunkKind, ...]
+    kept: ChunkKind
+    narrowed: bool
+
+
 @dataclass
 class IndexResult:
-    """Outcome of an index build or update."""
+    """Outcome of an index build or update.
+
+    `kind_overlaps` are the spans its extraction captured as more than one
+    kind (`KindOverlap`).
+    """
 
     stats: IndexStats = field(default_factory=IndexStats)
     errors: list[str] = field(default_factory=list)
+    kind_overlaps: list[KindOverlap] = field(default_factory=list)

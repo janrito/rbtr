@@ -30,7 +30,7 @@ $primary: #333;                /* variable "$primary"                   */
 %card { … }                    /* class "%card"                         */
 .btn { … }                     /* class ".btn"                          */
 @keyframes slide { … }         /* class "slide"                         */
-@use "config";                 /* import, metadata {module: "config"}   */
+@use "config";                 /* import, imports [{module: "config"}]   */
 ```
 
 ## Embedded / injected chunks

@@ -51,22 +51,15 @@
     "scope": "",
     "language": "hcl",
     "line_start": 31,
-    "line_end": 33
-  },
-  {
-    "name": "module \"greeter\" {\n  source = \"./modules/greeter\"\n}",
-    "kind": "import",
-    "file_path": "main.tf",
-    "scope": "",
-    "language": "hcl",
-    "line_start": 31,
     "line_end": 33,
-    "metadata": {
-      "module": "./modules/greeter",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "./modules/greeter",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "variable name",
@@ -102,22 +95,15 @@
     "scope": "",
     "language": "hcl",
     "line_start": 1,
-    "line_end": 3
-  },
-  {
-    "name": "module \"x\" {\n  source = \"./b\"\n}",
-    "kind": "import",
-    "file_path": "tf/a.tf",
-    "scope": "",
-    "language": "hcl",
-    "line_start": 1,
     "line_end": 3,
-    "metadata": {
-      "module": "./b",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "./b",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "resource null_resource y",

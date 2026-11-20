@@ -1,4 +1,4 @@
-"""The checks language tests make the same way: what reaches a symbol, and that every line is in one.
+"""The checks language tests make the same way: what reaches a symbol, that every line is in one, and that a span's kinds are decided.
 
 A failing check is reported at the test's line, with pytest's diff:
 `rbtr.testing` registers this module for assertion rewriting, and each check
@@ -65,3 +65,14 @@ def assert_every_line_in_a_chunk(build: IndexBuild) -> None:
         if text.strip() and (path, number) not in spanned
     ]
     assert uncovered == []
+
+
+def assert_no_undecided_kind_overlaps(build: IndexBuild) -> None:
+    """No span of *build* was captured as two kinds neither narrows (`narrows`); each one that was is listed as `path:line: kinds -> kept`."""
+    __tracebackhide__ = True
+    undecided = [
+        f"{overlap.path}:{overlap.line}: {', '.join(overlap.kinds)} -> {overlap.kept}"
+        for overlap in build.result.kind_overlaps
+        if not overlap.narrowed
+    ]
+    assert undecided == []

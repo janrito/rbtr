@@ -381,14 +381,13 @@ def _render_chunk(symbol: SymbolOut) -> None:
     t.append(f"  {symbol.name}")
     _out.print(t)
 
-    # Detail line — scope and metadata
-    if symbol.scope or symbol.metadata:
+    # Detail line — scope and the imports it makes
+    if symbol.scope or symbol.imports:
         d = Text("  ")
         if symbol.scope:
             d.append(symbol.scope, style="dim")
-        if symbol.metadata:
-            meta = symbol.metadata
-            if symbol.scope:
+        for meta in symbol.imports:
+            if d.plain.strip():
                 d.append("  ", style="dim")
             if meta.module:
                 d.append(meta.module, style="dim")

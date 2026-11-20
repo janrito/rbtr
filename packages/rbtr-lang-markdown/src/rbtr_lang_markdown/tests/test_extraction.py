@@ -126,7 +126,7 @@ See [other doc](other.md) for details.
 """
     with indexed({"input.md": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     assert len(imports) == 1
     assert imports[0].module == "other.md"
 
@@ -140,7 +140,7 @@ See [API section](api.md#my-function) for the API.
 """
     with indexed({"input.md": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     assert len(imports) == 1
     assert imports[0].module == "api.md"
     assert imports[0].names == "my-function"
@@ -157,7 +157,7 @@ Jump to [usage](#usage).
 """
     with indexed({"docs/guide.md": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     assert [(i.module, i.names) for i in imports] == [("guide.md", "usage")]
 
 
@@ -170,7 +170,7 @@ See [source](../src/foo.py) for details.
 """
     with indexed({"input.md": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     assert len(imports) == 1
     assert imports[0].module == "../src/foo.py"
 
@@ -184,7 +184,7 @@ See [example](https://example.com) and [mail](mailto:a@b.com).
 """
     with indexed({"input.md": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     assert imports == []
 
 
@@ -197,7 +197,7 @@ See [a](one.md) and [b](two.py) here.
 """
     with indexed({"input.md": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     modules = {c.module for c in imports}
     assert modules == {"one.md", "two.py"}
 
@@ -211,7 +211,7 @@ Call do_stuff to process the data.
 """
     with indexed({"input.md": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     assert imports == []
 
 

@@ -133,9 +133,10 @@ def target_name_keys() -> pl.Expr:
 def requested_imports(
     chunks: dy.DataFrame[EdgeChunkRow], resolutions: dy.DataFrame[LanguageResolutionRow]
 ) -> dy.DataFrame[ImportRow]:
-    """The imports among *chunks*, one row each.
+    """The imports *chunks* make, one row each.
 
-    Each keeps its source id, path and language and its text. Its way is
+    Each keeps its source id, path and language, its place among its
+    chunk's imports, and its text. Its way is
     `MODULE` when it names a module or a relative depth, `NAME` when prose
     names something and no file, else `TEXT`. Prose documents what it names
     (`DOCUMENTS`) by `MODULE` or `NAME`; every other edge `IMPORTS`. Names
@@ -146,7 +147,10 @@ def requested_imports(
         return ImportRow.create_empty()
     prose = pl.col("prose").fill_null(value=False)
     return (
-        chunks.filter(pl.col("kind") == ChunkKind.IMPORT)
+        chunks.filter(pl.col("imports").list.len() > 0)
+        .with_columns(source_import=pl.int_ranges(0, pl.col("imports").list.len()))
+        .explode("imports", "source_import")
+        .unnest("imports")
         .join(
             resolutions.select(
                 "language",
@@ -159,16 +163,13 @@ def requested_imports(
             on="language",
             how="left",
         )
-        .with_columns(
-            pl.col("module", "names", "language_hint").fill_null(""),
-            pl.col("bindings").fill_null([]),
-        )
         .with_columns(way=import_way(prose))
         .select(
             source_id="id",
             source_path="file_path",
+            source_import="source_import",
             source_language="language",
-            text="name",
+            text="text",
             way="way",
             kind=import_edge_kind(prose),
             line_start="line_start",
@@ -206,7 +207,7 @@ def reached_targets(
     """
     if imports.is_empty():
         return InferredEdgeRow.create_empty()
-    location = ["source_id", "source_path"]
+    location = ["source_id", "source_path", "source_import"]
     columns = list(InferredEdgeRow.create_empty().columns)
     ordered = chunks.sort("file_path", "line_start", maintain_order=True)
     symbols = ordered.filter(named_by_imports()).select(

@@ -47,6 +47,13 @@ it, it should be a chunk. Bias toward **over-capture**, not under-capture.
   `tree_sitter_query` pattern with no outer label is an anonymous section.
   Pure metadata (`COMMENT ON`), usage/references and runtime-generated
   symbols have no definition chunk of their own; references belong to edges.
+- **One span, one chunk.** A declaration of several names (`low, high = 1,
+  9`, `const { a, b } = x`) is one chunk named by its names joined (`low,
+  high`), not a chunk per
+  name; a statement importing several modules (`import os, sys`) is one
+  import chunk listing each; a key that imports (a JSON `$ref`, an HCL
+  `module`) is one key that imports. Nothing is dropped: each name stays
+  searchable, as a word of the joined one.
 - When unsure, capture it. A spurious chunk is cheaper than an invisible
   symbol.
 
@@ -95,7 +102,9 @@ to core.
 
 **A plugin never touches polars or dataframely**, in its code or its
 tests. It imports only core's domain types (`Chunk` and its roles,
-`Span`, `ChunkKind`, the resolution enums) and the registration helpers
+`Span` — lines and byte offsets; core makes a chunk's id from its blob,
+language and bytes, so a plugin never computes one — `ChunkKind`, the
+resolution enums) and the registration helpers
 (`rbtr.languages.registration`): never a frame, a row schema or a module
 that defines one. An import-linter contract in the root `pyproject.toml`
 holds it: it allows a plugin `rbtr.domain.models` and
@@ -150,7 +159,8 @@ The query's capture names drive the chunk kind (see `CAPTURE_KINDS` in
   class-like is also promoted to a method)
 - `@variable` / `@_var_name` — module/top-level variables, constants, fields
 - `@import` — import statements (module, names and bindings via `@_import_module`,
-  `@_import_names`, `@_bind_name` / `@_bind_local`, `#strip!` and `#set!`)
+  `@_import_names`, `@_bind_name` / `@_bind_local`, `#strip!` and `#set!`); a
+  statement of several modules is one chunk importing each
 - `@_scope` — optional: a node whose **text** becomes the symbol's innermost
   scope segment, for scopes lexical nesting can't reach (e.g. a Go method's
   receiver type). Strictly additive: absent → no effect.
@@ -167,8 +177,19 @@ The query's capture names drive the chunk kind (see `CAPTURE_KINDS` in
   `@reference.call` and class bases from `tags.scm`
 - `@_self` / `@_super` — the names that reach the enclosing class's
   instance and bases (`self`, `this`, `super`), marked with a predicate
+- `@statement` — a top-level statement the file runs, kept whole, unnamed
+  (`if __name__` blocks, multi-line calls); captures inside it nest in it
 
-Capture names starting with `_` are read but never become chunks.
+Capture names starting with `_` are read but never become chunks; any other
+name must be one of the above (or a metadata capture), else the build fails
+with `QueryCaptureError` naming it — `@fragment` included, since a fragment is
+what no capture names.
+
+Two patterns on one node make one chunk with every import they make (a JSON
+`$ref` key that imports). The narrower kind names it: `@test_function`
+over `@function` / `@method`, any kind over `@import` or `@statement`
+(`narrows`). Any other pair is a defect the build reports as a
+`kind_overlap`; keep such patterns apart with predicates.
 
 The display name comes from the paired `@_*_name` capture via the built-in
 name resolver. When a query cannot express the name, attach a
@@ -230,7 +251,9 @@ rather than implementing comment folding in the plugin.
 
 Searchable code left outside query captures becomes unnamed `FRAGMENT`
 chunks, each recording its named syntax-node types (`role.meta.node_types`).
-Blank lines and punctuation alone need no chunk. `QueryExtraction.fragments`
+Leftover text with no blank line in it is one fragment across tree levels
+(`run(` is one, not `run` and `(`). Blank lines and punctuation alone need
+no chunk. `QueryExtraction.fragments`
 controls this behaviour and is enabled by default. See
 [Git and extraction][fragment-rationale] for the grouping rationale.
 
@@ -239,9 +262,11 @@ controls this behaviour and is enabled by default. See
 A fragment is a gap report, not a target. Read the gaps two ways:
 
 - **A sample's snapshot.** Each `test_samples.py` snapshots the outline
-  of a build of the sample, fragments among it, and checks that no line
-  falls outside a chunk (`assert_every_line_in_a_chunk`, which lists the
-  ones that do). A fragment holding a definition is a missing capture: a C
+  of a build of the sample, fragments among it. Core's conformance test
+  (`test_plugin_conformance.py`) checks, over every sample project of every
+  plugin, that no line falls outside a chunk (listing the ones that do) and
+  that every span is one chunk with no undecided kind overlap: a plugin's
+  requirements. A fragment holding a definition is a missing capture: a C
   prototype inside an `#ifndef` guard. A fragment holding part of one is a
   capture of the wrong node: Python's decorators sat in fragments until its
   query captured `decorated_definition`.
@@ -316,7 +341,9 @@ the adapter (`query_captures`) reads them for every captured node:
    review the diff. Add a case for it too: a file and the symbols it
    gives, or, for a call, base or import, a small project and what
    reaches each target (`assert_reached`), with the definitions a wrong
-   lookup would reach listed as reached by nothing.
+   lookup would reach listed as reached by nothing. Core's conformance
+   test (`test_plugin_conformance.py`) then checks the new sample: every
+   line in a chunk, one chunk per span, no undecided kind overlap.
 4. Bump `extraction_serial` — any extraction change triggers
    re-extraction of stored blobs. It is independent of the package
    version: bump it during development (before any release) when output
@@ -334,7 +361,8 @@ the adapter (`query_captures`) reads them for every captured node:
   one too many for a node that consumes its trailing newline and ends at
   column 0 of the next row. Import `last_line` from `rbtr.languages.registration`
   and delete any local trailing-newline correction — a compensation left
-  beside it decrements twice.
+  beside it decrements twice. Bytes need no correction: set `start_byte`
+  and `end_byte` from the node, and make the content exactly those bytes.
 - **Non-lexical scope → `@_scope`.** Scope otherwise follows tree ancestry.
   A Go method's receiver is a child, so capture it as `@_scope`.
 - **Name test files explicitly.** A case's files are `{path: source}`
@@ -389,7 +417,8 @@ Curated per-language verdicts (take / modify / ignore) and the
 
 How a plugin is tested (its cases, sample, import scenarios, detection,
 and what `rbtr.testing` provides: `indexed`, `outline`, `read`,
-`assert_reached`, `assert_every_line_in_a_chunk`) is described once, in the
+`assert_reached`, `assert_every_line_in_a_chunk`,
+`assert_no_undecided_kind_overlaps`) is described once, in the
 `rbtr` README's "Testing the plugin" section (`packages/rbtr/README.md`).
 On top of it, in this repository:
 

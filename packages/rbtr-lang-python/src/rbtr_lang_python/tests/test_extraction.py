@@ -53,7 +53,7 @@ def test_extracts_import_metadata(indexed: Indexed, files: dict[str, str], expec
     """The first import has the expected metadata."""
     with indexed(files) as build:
         reply = outline(build)
-    imports = [s.metadata for s in reply if s.kind == ChunkKind.IMPORT]
+    imports = [meta for s in reply for meta in s.imports]
     assert imports, f"no import extracted from {files!r}"
     assert imports[0] == ImportMeta(**expected)
 
@@ -70,7 +70,7 @@ def test_extracts_multi_import(
     """Multiple imports have correct count and per-import metadata."""
     with indexed(files) as build:
         reply = outline(build)
-    imports = [s.metadata for s in reply if s.kind == ChunkKind.IMPORT]
+    imports = [meta for s in reply for meta in s.imports]
     assert len(imports) == count
     assert imports == [ImportMeta(**expected) for expected in metadata_list]
 
@@ -124,15 +124,14 @@ def test_py_a_local_or_attribute_is_no_variable(indexed: Indexed, src: str) -> N
 
 
 def test_py_tuple_unpacking_captured_as_variables(indexed: Indexed) -> None:
-    """Flat tuple-unpacking binds each target as its own VARIABLE chunk, spanning the whole statement."""
+    """Flat tuple-unpacking is one VARIABLE chunk over the whole statement, named by its targets joined."""
     src = """\
 a, b = compute()
 """
     with indexed({"a.py": src}) as build:
         reply = outline(build)
     assert [(s.kind, s.name, s.line_start, s.line_end) for s in reply] == [
-        (ChunkKind.VARIABLE, "a", 1, 1),
-        (ChunkKind.VARIABLE, "b", 1, 1),
+        (ChunkKind.VARIABLE, "a, b", 1, 1),
     ]
 
 
@@ -152,11 +151,46 @@ import numpy as np
     with indexed({"a.py": src}) as build:
         reply = outline(build)
     assert [
-        (s.name, s.metadata.module if s.metadata else "")
+        (s.name, s.imports[0].module if s.imports else "")
         for s in reply
         if s.kind == ChunkKind.IMPORT
     ] == [
         ("from __future__ import annotations", ""),
         ("import os", "os"),
         ("import numpy as np", "numpy"),
+    ]
+
+
+def test_a_modules_statements_are_chunks_holding_what_is_captured_in_them(indexed: Indexed) -> None:
+    """`try`, `if __name__` and a call spanning lines are statements, with their imports and definitions nested; a one-line call is a fragment."""
+    src = """\
+try:
+    import ujson as json
+except ImportError:
+    import json
+
+setup(
+    name="x",
+)
+print("one")
+
+if __name__ == "__main__":
+    def main():
+        pass
+    main()
+
+if DEBUG:
+    print("debug")
+"""
+    with indexed({"a.py": src}) as build:
+        reply = outline(build)
+    assert sorted((s.line_start, s.line_end, s.kind.value, s.name) for s in reply) == [
+        (1, 4, "statement", ""),
+        (2, 2, "import", "import ujson as json"),
+        (4, 4, "import", "import json"),
+        (6, 8, "statement", ""),
+        (9, 9, "fragment", ""),
+        (11, 14, "statement", ""),
+        (12, 13, "function", "main"),
+        (16, 17, "statement", ""),
     ]

@@ -459,7 +459,7 @@ class Index:
         """Query chunks visible at *at* with optional filters, one row per location.
 
         Rows come in one order every read: by file path, start line, end
-        line, kind, name and id.
+        line, kind, names and id.
         """
         kind_val = kind.value if kind is not None else None
         params = {

@@ -4,15 +4,23 @@
 (element (start_tag (tag_name) @_tag)
   (#any-of? @_tag "head" "body" "article" "aside" "nav" "section" "header" "main" "footer" "figure" "form" "dialog" "details" "table")) @doc_section
 
-; Any other element with an `id` or `name`, which a link's fragment names.
+; Any other element with an `id`, or an `<a>` with a `name`: what a link's
+; fragment names. A form field's `name` is the field's, not an anchor.
 ; `#not-match?`, not `#not-any-of?`: py-tree-sitter 0.26.1 excludes nothing
 ; with a `#not-any-of?` of several values.
 (element
   (start_tag (tag_name) @_tag
     (attribute (attribute_name) @_a
       (quoted_attribute_value (attribute_value) @_section_name)))
-  (#any-of? @_a "id" "name")
+  (#eq? @_a "id")
   (#not-match? @_tag "^(head|body|article|aside|nav|section|header|main|footer|figure|form|dialog|details|table)$")) @doc_section
+
+(element
+  (start_tag (tag_name) @_tag
+    (attribute (attribute_name) @_a
+      (quoted_attribute_value (attribute_value) @_section_name)))
+  (#eq? @_tag "a")
+  (#eq? @_a "name")) @doc_section
 
 ; A start tag alone, as inline HTML in Markdown gives one (`<a id="x">`),
 ; parses as an error holding the tag.
@@ -20,7 +28,14 @@
   (start_tag
     (attribute (attribute_name) @_a
       (quoted_attribute_value (attribute_value) @_section_name)))
-  (#any-of? @_a "id" "name")) @doc_section
+  (#eq? @_a "id")) @doc_section
+
+(ERROR
+  (start_tag (tag_name) @_tag
+    (attribute (attribute_name) @_a
+      (quoted_attribute_value (attribute_value) @_section_name)))
+  (#eq? @_tag "a")
+  (#eq? @_a "name")) @doc_section
 
 ; A script's `src` imports JavaScript, a stylesheet link's `href` CSS: each
 ; is hinted so it resolves by that language's rules.

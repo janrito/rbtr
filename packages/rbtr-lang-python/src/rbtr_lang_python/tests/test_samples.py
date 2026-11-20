@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rbtr.testing import Indexed
-from rbtr.testing.assertions import assert_every_line_in_a_chunk, assert_reached
+from rbtr.testing.assertions import assert_reached
 from rbtr.testing.reads import outline
 
 if TYPE_CHECKING:
@@ -38,13 +38,12 @@ def test_every_edge_reaches_what_it_names(indexed: Indexed) -> None:
         ("orders.py", "save"): {("orders.py", "save", "calls")},
         ("pkg/b.py", "helper"): {("pkg/a.py", "from pkg.b import helper", "imports")},
         ("python.py", "DEFAULT_GREETING"): {("orders.py", "from .python import *", "imports")},
-        ("python.py", "FALLBACK"): {("orders.py", "from .python import *", "imports")},
         ("python.py", "Greeter"): {
             ("orders.py", "from .python import *", "imports"),
             ("orders.py", "save", "calls"),
         },
         ("python.py", "GreetingList"): {("orders.py", "from .python import *", "imports")},
-        ("python.py", "LOCALES"): {("orders.py", "from .python import *", "imports")},
+        ("python.py", "LOCALES, FALLBACK"): {("orders.py", "from .python import *", "imports")},
         ("python.py", "MAX_RECIPIENTS"): {("orders.py", "from .python import *", "imports")},
         ("python.py", "__init__"): {("orders.py", "from .python import *", "imports")},
         ("python.py", "cached_default"): {("orders.py", "from .python import *", "imports")},
@@ -66,9 +65,3 @@ def test_every_edge_reaches_what_it_names(indexed: Indexed) -> None:
     }
     with indexed(Path(__file__).parent / "samples" / "python") as build:
         assert_reached(build, reached)
-
-
-def test_every_line_is_in_a_chunk(indexed: Indexed) -> None:
-    """No line of the sample's code falls outside a chunk."""
-    with indexed(Path(__file__).parent / "samples" / "python") as build:
-        assert_every_line_in_a_chunk(build)

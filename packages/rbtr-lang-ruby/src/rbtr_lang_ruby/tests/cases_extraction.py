@@ -296,16 +296,20 @@ def case_ruby_constant() -> SymbolCase:
     return {"input.rb": "MAX_SIZE = 100\n"}, [("variable", "MAX_SIZE", "")]
 
 
-@case(tags=["symbol"])
+@case(
+    tags=["symbol"],
+)
 def case_ruby_multiple_assignment() -> SymbolCase:
     """Ruby multiple assignment of constants."""
-    return {"input.rb": "A, B = 1, 2\n"}, [("variable", "A", ""), ("variable", "B", "")]
+    return {"input.rb": "A, B = 1, 2\n"}, [("variable", "A, B", "")]
 
 
-@case(tags=["symbol"])
+@case(
+    tags=["symbol"],
+)
 def case_ruby_splat_assignment() -> SymbolCase:
     """Ruby splat target."""
-    return {"input.rb": "A, *B = list\n"}, [("variable", "A", ""), ("variable", "B", "")]
+    return {"input.rb": "A, *B = list\n"}, [("variable", "A, B", "")]
 
 
 @case(tags=["symbol"], marks=_xfail_nested)
@@ -313,7 +317,7 @@ def case_ruby_nested_unpack_xfail() -> SymbolCase:
     """Ruby nested destructuring — only the outer level captured today."""
     return (
         {"input.rb": "(A, B), C = x\n"},
-        [("variable", "A", ""), ("variable", "B", ""), ("variable", "C", "")],
+        [("variable", "A, B, C", "")],
     )
 
 

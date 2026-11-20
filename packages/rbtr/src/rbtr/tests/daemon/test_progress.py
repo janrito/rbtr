@@ -169,7 +169,7 @@ def test_status_sees_progress_before_the_relay_receives_it(
         [job] = status.active
         assert isinstance(job.work, BuildWork)
         assert job.phase == "edges"
-        assert job.current == job.total == 0
+        assert (job.current, job.total) == (0, 1)
     finally:
         relay_released.set()
         write_released.set()
@@ -217,7 +217,7 @@ def test_an_earlier_runs_delivery_keeps_the_current_runs_progress(
         assert isinstance(job.work, BuildWork)
         assert job.work.repo_path == second_repo
         assert job.phase == "edges"
-        assert job.current == job.total == 0
+        assert (job.current, job.total) == (0, 1)
     finally:
         relay_released.set()
         write_released.set()

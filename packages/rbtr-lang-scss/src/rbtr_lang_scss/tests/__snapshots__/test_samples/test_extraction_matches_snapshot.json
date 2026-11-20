@@ -34,12 +34,14 @@
     "language": "scss",
     "line_start": 3,
     "line_end": 3,
-    "metadata": {
-      "module": "tokens",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "tokens",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": ".greeting--dark",
@@ -103,12 +105,14 @@
     "language": "scss",
     "line_start": 9,
     "line_end": 9,
-    "metadata": {
-      "module": "config",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "config",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "@forward \"theme\";",
@@ -118,12 +122,14 @@
     "language": "scss",
     "line_start": 10,
     "line_end": 10,
-    "metadata": {
-      "module": "theme",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "theme",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "@import \"reset\";",
@@ -133,12 +139,14 @@
     "language": "scss",
     "line_start": 11,
     "line_end": 11,
-    "metadata": {
-      "module": "reset",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "reset",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "$primary",
@@ -238,12 +246,14 @@
     "language": "scss",
     "line_start": 55,
     "line_end": 55,
-    "metadata": {
-      "module": "partials/dark",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "partials/dark",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "",

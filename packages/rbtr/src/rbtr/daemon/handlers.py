@@ -90,7 +90,7 @@ from rbtr.git import (
 from rbtr.index.gc import run_gc, run_gc_all
 from rbtr.index.progress import RepoProgressCallback, _noop_repo_progress
 from rbtr.index.refs import ensure_indexed, latest_refs, resolve_read_ref
-from rbtr.index.results import ChunkResultRow, SymbolRefRow, import_metadata
+from rbtr.index.results import ChunkResultRow, SymbolRefRow, reply_imports
 from rbtr.index.search import search
 from rbtr.index.watch import forget_stale_repos, remove_stale_refs, unwatch_refs
 from rbtr.languages.manager import get_manager
@@ -262,7 +262,7 @@ def handle_changed_symbols(request: ChangedSymbolsRequest, index: Index) -> Chan
         file_paths=request.file_paths,
     )
     changes = ChangedSymbols.validate_python(
-        frame.with_columns(import_metadata())
+        frame.with_columns(reply_imports())
         .select(
             pl.struct(SymbolRefRow.column_names()).alias("chunk"),
             pl.col("change_kind").alias("change"),

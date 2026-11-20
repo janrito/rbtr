@@ -25,12 +25,14 @@
     "language": "css",
     "line_start": 8,
     "line_end": 8,
-    "metadata": {
-      "module": "reset.css",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "reset.css",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "@import \"theme.css\";",
@@ -40,12 +42,14 @@
     "language": "css",
     "line_start": 9,
     "line_end": 9,
-    "metadata": {
-      "module": "theme.css",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "theme.css",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": ":root",
@@ -118,12 +122,14 @@
     "language": "css",
     "line_start": 38,
     "line_end": 38,
-    "metadata": {
-      "module": "partials/dark.css",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "partials/dark.css",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "",
@@ -142,12 +148,14 @@
     "language": "css",
     "line_start": 3,
     "line_end": 3,
-    "metadata": {
-      "module": "palette.css",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "palette.css",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": ".greeting--dark",
