@@ -1,8 +1,8 @@
 """Behaviour tests for extract query generation.
 
-Docstring detection uses tree-sitter's `extract_doc_spans`
-on the chunk content. Tested through the observable output:
-which provenances are produced for each symbol.
+Docstring detection is `rbtr.languages.extract.docstring` on the
+chunk content. Tested through the observable output: which
+provenances are produced for each symbol.
 """
 
 from __future__ import annotations

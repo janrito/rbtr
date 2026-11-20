@@ -2,9 +2,10 @@
 
 Each case returns `(content, language, name, expected_provenances)`
 where `expected_provenances` is the set of provenance values the
-symbol should produce.  Docstring detection uses tree-sitter
-via `extract_doc_spans` — tested through the observable
-output (presence or absence of the `docstring` provenance).
+symbol should produce.  Docstring detection is
+`rbtr.languages.extract.docstring` — tested through the
+observable output (presence or absence of the `docstring`
+provenance).
 """
 
 from __future__ import annotations
