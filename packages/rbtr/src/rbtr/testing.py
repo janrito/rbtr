@@ -1,25 +1,25 @@
 """Shipped test tools for rbtr, its language plugins and its other packages.
 
 What a test suite (in- or out-of-tree) can't easily re-derive: a
-pydantic-aware snapshot serialiser, a readable edge renderer, and an
-isolated on-disk index. Other setup —
-running extraction, loading samples — belongs in each suite's own fixtures,
-calling `rbtr.languages.extract.extract_file` directly.
+pydantic-aware snapshot serialiser, a sample project built as rbtr
+builds a repository, readable renderings of what a build holds, and an
+isolated on-disk index.
 
 Also a pytest plugin (the `pytest11` entry point on `rbtr`): it provides the
-`snapshot_json` and `isolated_db` fixtures, so every test suite
-gets them with no conftest boilerplate.
+`snapshot_json`, `sample_index`, `sample_ref` and `isolated_db` fixtures, so
+every test suite gets them with no conftest boilerplate.
 
 Always shipped (a normal module); it imports `syrupy` and `pytest`, so it is
 only *importable* with the `rbtr[test]` extra installed — exactly the test
-context that uses it. `render_edges` is a projection feeding a snapshot
-assertion; keep it a projection — do not fold it into an `assert_*` helper,
-which would hide syrupy's snapshot comparison.
+context that uses it. `render_edges` and `uncovered_lines` are projections
+feeding snapshot assertions; keep them projections — do not fold them into
+`assert_*` helpers, which would hide syrupy's snapshot comparison.
 """
 
 from __future__ import annotations
 
 import os
+import shutil
 import signal
 import time
 from collections.abc import Generator
@@ -28,10 +28,10 @@ from typing import TYPE_CHECKING
 
 import dataframely as dy
 import polars as pl
+import pygit2
 import pytest
 from pydantic import TypeAdapter
 from syrupy.extensions.single_file import SingleFileSnapshotExtension, WriteMode
-from tree_sitter import Parser
 
 from rbtr.daemon.status import is_pid_alive, read_status
 from rbtr.domain.models import Chunk, Chunks
@@ -40,7 +40,10 @@ if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
     from syrupy.types import PropertyFilter, PropertyMatcher, SerializableData, SerializedData
 
-    from rbtr.languages.edges import EdgeChunkRow, InferredEdgeRow
+    from rbtr.domain.models import SnapshotRef
+    from rbtr.index.index import Index
+    from rbtr.index.results import ChunkResultRow, EdgeResultRow
+    from rbtr.languages.edges import EdgeChunkRow
 
 
 def edge_rows(chunks: list[Chunk]) -> dy.DataFrame[EdgeChunkRow]:
@@ -67,16 +70,17 @@ def edge_rows(chunks: list[Chunk]) -> dy.DataFrame[EdgeChunkRow]:
     )
 
 
-def render_edges(edges: dy.DataFrame[InferredEdgeRow], chunks: list[Chunk]) -> list[str]:
+def render_edges(
+    edges: dy.DataFrame[EdgeResultRow], chunks: dy.DataFrame[ChunkResultRow]
+) -> list[str]:
     """Render edges as readable, sorted `src -> tgt [kind]` lines.
 
     Joins each edge's endpoint ids back to their chunks so a snapshot shows
     *which* chunks are linked (raw ids are opaque hashes).
     """
-    labels = pl.DataFrame(
-        {"id": [c.id for c in chunks], "label": [f"{c.file_path}::{c.name}" for c in chunks]},
-        schema={"id": pl.String, "label": pl.String},
-    ).unique("id", keep="last")
+    labels = chunks.select("id", label=pl.format("{}::{}", "file_path", "name")).unique(
+        "id", keep="last"
+    )
     return (
         edges.join(
             labels.rename({"id": "source_id", "label": "source_label"}), on="source_id", how="left"
@@ -127,54 +131,63 @@ def snapshot_json(snapshot: SnapshotAssertion) -> SnapshotAssertion:
     return snapshot.use_extension(PydanticSnapshotExtension)
 
 
-class DroppedBlocks(AssertionError):
-    """Syntax in a file that no chunk reaches."""
+def uncovered_lines(sample_dir: Path, chunks: dy.DataFrame[ChunkResultRow]) -> list[str]:
+    """Each non-blank line of *sample_dir*'s files that no chunk spans, as `path:line: text`."""
+    files = sorted(path for path in sample_dir.rglob("*") if path.is_file())
+    lines = pl.DataFrame(
+        [
+            (str(path.relative_to(sample_dir)), number, text)
+            for path in files
+            for number, text in enumerate(path.read_text().splitlines(), start=1)
+        ],
+        schema={"file_path": pl.String, "line": pl.Int32, "text": pl.String},
+        orient="row",
+    ).filter(pl.col("text").str.strip_chars() != "")
+    spanned = chunks.select(
+        "file_path", line=pl.int_ranges("line_start", pl.col("line_end") + 1, dtype=pl.Int32)
+    ).explode("line")
+    return (
+        lines.join(spanned, on=["file_path", "line"], how="anti")
+        .sort("file_path", "line")
+        .select(pl.format("{}:{}: {}", "file_path", "line", "text"))
+        .to_series()
+        .to_list()
+    )
 
-    def __init__(self, file_path: str, dropped: list[tuple[str, int]]) -> None:
-        super().__init__(f"{file_path}: no chunk reaches {dropped}")
 
+@pytest.fixture(scope="module")
+def sample_index(sample_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Generator[Index]:
+    """*sample_dir*'s files, committed to a fresh repository and built into an in-memory index.
 
-def assert_fully_chunked(file_path: str, text: str, chunks: list[Chunk], language: str) -> None:
-    """Every named node of a file's syntax, read as *language*, reaches a chunk.
-
-    A node is reached when some chunk overlaps its lines. A node whose
-    lines chunks cover only in part is looked into, and each of its
-    named children must be reached the same way: an `if` holding an
-    import leaves its own header line to be reached. A node holding a
-    block the language's injection query delegates (an HTML `<script>`
-    element) counts as reached, as extraction treats it.
+    A plugin's test module defines `sample_dir`, module-scoped: the sample
+    project its tests read. The build is the one `rbtr` runs on a
+    repository, so the index holds what a user's index would.
     """
-    # deferred: `rbtr.languages` imports `rbtr.config`, which this plugin
+    # deferred: `rbtr.index` imports `rbtr.config`, which this plugin
     # must not load before pytest-env applies (see `isolated_db`).
-    from rbtr.languages.chunks import last_line
-    from rbtr.languages.manager import get_manager
-    from rbtr.languages.treesitter import injection_holders
+    from rbtr.git import normalise_repo_path
+    from rbtr.index.build import build_index
+    from rbtr.index.index import Index
 
-    manager = get_manager()
-    registration = manager.get_registration(language)
-    grammar = manager.grammar(language)
-    if registration is None or grammar is None:
-        msg = f"{language} has no grammar to read {file_path} with"
-        raise ValueError(msg)
-    tree = Parser(grammar).parse(text.encode())
-    spans = [(c.line_start, c.line_end) for c in chunks if c.file_path == file_path] + [
-        (node.start_point[0] + 1, last_line(node)) for node in injection_holders(registration, tree)
-    ]
-    covered = {line for start, end in spans for line in range(start, end + 1)}
+    workdir = tmp_path_factory.mktemp("sample") / sample_dir.name
+    shutil.copytree(sample_dir, workdir)
+    repo = pygit2.init_repository(str(workdir), bare=False, initial_head="main")
+    repo.index.add_all()
+    repo.index.write()
+    author = pygit2.Signature("rbtr", "rbtr@example.com")
+    sha = repo.create_commit("HEAD", author, author, "sample", repo.index.write_tree(), [])
+    index = Index(writable=True)
+    build_index(normalise_repo_path(str(workdir)), str(sha), index)
+    yield index
+    index.close()
 
-    missing: list[tuple[str, int]] = []
-    # Nodes still to look at, the next on top, so they are visited in source order.
-    pending = tree.root_node.named_children[::-1]
-    while pending:
-        node = pending.pop()
-        lines = set(range(node.start_point[0] + 1, last_line(node) + 1))
-        if not lines & covered:
-            missing.append((node.type, node.start_point[0] + 1))
-        elif not lines <= covered:
-            pending.extend(node.named_children[::-1])
-    if missing:
-        # Raised rather than asserted: this ships, and `-O` strips an assert.
-        raise DroppedBlocks(file_path, missing)
+
+@pytest.fixture(scope="module")
+def sample_ref(sample_index: Index) -> SnapshotRef:
+    """The snapshot `sample_index` built."""
+    [repo] = sample_index.repos()
+    [snapshot] = sample_index.indexed_snapshots(repo)
+    return repo.at(snapshot.snapshot_sha)
 
 
 def _terminate_daemon_for(runtime_dir: Path, *, timeout: float = 5.0) -> None:

@@ -1,280 +1,168 @@
 [
   {
-    "blob_sha": "sha1",
+    "name": "name",
+    "kind": "config_key",
     "file_path": "json.json",
-    "role": {
-      "kind": "config_key",
-      "name": "name"
-    },
     "scope": "",
     "language": "json",
-    "file_language": "json",
     "content": "\"name\": \"greeter\"",
-    "span": {
-      "start": 2,
-      "end": 2
-    },
-    "id": "3b6dd850e3e3752a"
+    "line_start": 2,
+    "line_end": 2
   },
   {
-    "blob_sha": "sha1",
+    "name": "version",
+    "kind": "config_key",
     "file_path": "json.json",
-    "role": {
-      "kind": "config_key",
-      "name": "version"
-    },
     "scope": "",
     "language": "json",
-    "file_language": "json",
     "content": "\"version\": \"1.0.0\"",
-    "span": {
-      "start": 3,
-      "end": 3
-    },
-    "id": "a059576fe1473efe"
+    "line_start": 3,
+    "line_end": 3
   },
   {
-    "blob_sha": "sha1",
+    "name": "defaults",
+    "kind": "config_key",
     "file_path": "json.json",
-    "role": {
-      "kind": "config_key",
-      "name": "defaults"
-    },
     "scope": "",
     "language": "json",
-    "file_language": "json",
     "content": "\"defaults\": {\n    \"greeting\": \"Hello\",\n    \"locale\": \"en\"\n  }",
-    "span": {
-      "start": 4,
-      "end": 7
-    },
-    "id": "cc300e28219ead37"
+    "line_start": 4,
+    "line_end": 7
   },
   {
-    "blob_sha": "sha1",
+    "name": "greeting",
+    "kind": "config_key",
     "file_path": "json.json",
-    "role": {
-      "kind": "config_key",
-      "name": "greeting"
-    },
     "scope": "",
     "language": "json",
-    "file_language": "json",
     "content": "\"greeting\": \"Hello\"",
-    "span": {
-      "start": 5,
-      "end": 5
-    },
-    "id": "4129601aeeaeb683"
+    "line_start": 5,
+    "line_end": 5
   },
   {
-    "blob_sha": "sha1",
+    "name": "locale",
+    "kind": "config_key",
     "file_path": "json.json",
-    "role": {
-      "kind": "config_key",
-      "name": "locale"
-    },
     "scope": "",
     "language": "json",
-    "file_language": "json",
     "content": "\"locale\": \"en\"",
-    "span": {
-      "start": 6,
-      "end": 6
-    },
-    "id": "9681039edbb00040"
+    "line_start": 6,
+    "line_end": 6
   },
   {
-    "blob_sha": "sha1",
+    "name": "locales",
+    "kind": "config_key",
     "file_path": "json.json",
-    "role": {
-      "kind": "config_key",
-      "name": "locales"
-    },
     "scope": "",
     "language": "json",
-    "file_language": "json",
     "content": "\"locales\": [\"en\", \"fr\"]",
-    "span": {
-      "start": 8,
-      "end": 8
-    },
-    "id": "832e35f22ae9a561"
+    "line_start": 8,
+    "line_end": 8
   },
   {
-    "blob_sha": "sha1",
+    "name": "$comment",
+    "kind": "config_key",
     "file_path": "schema/defs.json",
-    "role": {
-      "kind": "config_key",
-      "name": "$comment"
-    },
     "scope": "",
     "language": "json",
-    "file_language": "json",
     "content": "\"$comment\": \"Referred to from schema/greeting.json as a bare sibling.\"",
-    "span": {
-      "start": 2,
-      "end": 2
-    },
-    "id": "2c00abd3f86ca52a"
+    "line_start": 2,
+    "line_end": 2
   },
   {
-    "blob_sha": "sha1",
+    "name": "Name",
+    "kind": "config_key",
     "file_path": "schema/defs.json",
-    "role": {
-      "kind": "config_key",
-      "name": "Name"
-    },
     "scope": "",
     "language": "json",
-    "file_language": "json",
     "content": "\"Name\": {\n    \"type\": \"string\",\n    \"minLength\": 1\n  }",
-    "span": {
-      "start": 3,
-      "end": 6
-    },
-    "id": "cf0a30f8c145364c"
+    "line_start": 3,
+    "line_end": 6
   },
   {
-    "blob_sha": "sha1",
+    "name": "type",
+    "kind": "config_key",
     "file_path": "schema/defs.json",
-    "role": {
-      "kind": "config_key",
-      "name": "type"
-    },
     "scope": "",
     "language": "json",
-    "file_language": "json",
     "content": "\"type\": \"string\"",
-    "span": {
-      "start": 4,
-      "end": 4
-    },
-    "id": "7150bcdc4307a6a6"
+    "line_start": 4,
+    "line_end": 4
   },
   {
-    "blob_sha": "sha1",
+    "name": "minLength",
+    "kind": "config_key",
     "file_path": "schema/defs.json",
-    "role": {
-      "kind": "config_key",
-      "name": "minLength"
-    },
     "scope": "",
     "language": "json",
-    "file_language": "json",
     "content": "\"minLength\": 1",
-    "span": {
-      "start": 5,
-      "end": 5
-    },
-    "id": "d449819b44b881c8"
+    "line_start": 5,
+    "line_end": 5
   },
   {
-    "blob_sha": "sha1",
+    "name": "$comment",
+    "kind": "config_key",
     "file_path": "schema/greeting.json",
-    "role": {
-      "kind": "config_key",
-      "name": "$comment"
-    },
     "scope": "",
     "language": "json",
-    "file_language": "json",
     "content": "\"$comment\": \"Refers into its bare sibling, which only resolves relative to this directory.\"",
-    "span": {
-      "start": 2,
-      "end": 2
-    },
-    "id": "2c00abd3f86ca52a"
+    "line_start": 2,
+    "line_end": 2
   },
   {
-    "blob_sha": "sha1",
+    "name": "type",
+    "kind": "config_key",
     "file_path": "schema/greeting.json",
-    "role": {
-      "kind": "config_key",
-      "name": "type"
-    },
     "scope": "",
     "language": "json",
-    "file_language": "json",
     "content": "\"type\": \"object\"",
-    "span": {
-      "start": 3,
-      "end": 3
-    },
-    "id": "5f2c0917d45381d5"
+    "line_start": 3,
+    "line_end": 3
   },
   {
-    "blob_sha": "sha1",
+    "name": "properties",
+    "kind": "config_key",
     "file_path": "schema/greeting.json",
-    "role": {
-      "kind": "config_key",
-      "name": "properties"
-    },
     "scope": "",
     "language": "json",
-    "file_language": "json",
     "content": "\"properties\": {\n    \"recipient\": { \"$ref\": \"defs.json#/Name\" }\n  }",
-    "span": {
-      "start": 4,
-      "end": 6
-    },
-    "id": "d5f2c28098b8efb7"
+    "line_start": 4,
+    "line_end": 6
   },
   {
-    "blob_sha": "sha1",
+    "name": "$ref",
+    "kind": "config_key",
     "file_path": "schema/greeting.json",
-    "role": {
-      "kind": "config_key",
-      "name": "recipient"
-    },
     "scope": "",
     "language": "json",
-    "file_language": "json",
+    "content": "\"$ref\": \"defs.json#/Name\"",
+    "line_start": 5,
+    "line_end": 5
+  },
+  {
+    "name": "recipient",
+    "kind": "config_key",
+    "file_path": "schema/greeting.json",
+    "scope": "",
+    "language": "json",
     "content": "\"recipient\": { \"$ref\": \"defs.json#/Name\" }",
-    "span": {
-      "start": 5,
-      "end": 5
-    },
-    "id": "e0a96b72685764db"
+    "line_start": 5,
+    "line_end": 5
   },
   {
-    "blob_sha": "sha1",
+    "name": "\"$ref\": \"defs.json#/Name\"",
+    "kind": "import",
     "file_path": "schema/greeting.json",
-    "role": {
-      "kind": "config_key",
-      "name": "$ref"
-    },
     "scope": "",
     "language": "json",
-    "file_language": "json",
     "content": "\"$ref\": \"defs.json#/Name\"",
-    "span": {
-      "start": 5,
-      "end": 5
-    },
-    "id": "88d44c7351662f14"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "schema/greeting.json",
-    "role": {
-      "kind": "import",
-      "name": "\"$ref\": \"defs.json#/Name\"",
-      "meta": {
-        "module": "defs.json",
-        "names": "Name",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
-    "scope": "",
-    "language": "json",
-    "file_language": "json",
-    "content": "\"$ref\": \"defs.json#/Name\"",
-    "span": {
-      "start": 5,
-      "end": 5
-    },
-    "id": "56a8b4e1fe14fc24"
+    "line_start": 5,
+    "line_end": 5,
+    "metadata": {
+      "module": "defs.json",
+      "names": "Name",
+      "dots": "",
+      "language_hint": ""
+    }
   }
 ]

@@ -1,719 +1,424 @@
 [
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "comment",
     "file_path": "cli.py",
-    "role": {
-      "kind": "comment"
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
     "content": "\"\"\"Run the greeter from the command line.\"\"\"",
-    "span": {
-      "start": 1,
-      "end": 1
-    },
-    "id": "5580e5551412db6c"
+    "line_start": 1,
+    "line_end": 1
   },
   {
-    "blob_sha": "sha1",
+    "name": "import sys",
+    "kind": "import",
     "file_path": "cli.py",
-    "role": {
-      "kind": "import",
-      "name": "import sys",
-      "meta": {
-        "module": "sys",
-        "names": "",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
     "content": "import sys",
-    "span": {
-      "start": 3,
-      "end": 3
-    },
-    "id": "2714fc8c5b3395c2"
+    "line_start": 3,
+    "line_end": 3,
+    "metadata": {
+      "module": "sys",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "fragment",
     "file_path": "cli.py",
-    "role": {
-      "kind": "import",
-      "name": "import readline",
-      "meta": {
-        "module": "readline",
-        "names": "",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
-    "content": "import readline",
-    "span": {
-      "start": 9,
-      "end": 9
-    },
-    "id": "d7292dff54dca2ea"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "cli.py",
-    "role": {
-      "kind": "fragment",
-      "meta": {
-        "node_types": [
-          "expression_statement"
-        ]
-      }
-    },
-    "scope": "",
-    "language": "python",
-    "file_language": "python",
     "content": "sys.path.insert(0, \".\")\nOPTIONS[\"verbose\"] = True",
-    "span": {
-      "start": 5,
-      "end": 6
-    },
-    "id": "d59643a56ef0d591"
+    "line_start": 5,
+    "line_end": 6
   },
   {
-    "blob_sha": "sha1",
+    "name": "import readline",
+    "kind": "import",
     "file_path": "cli.py",
-    "role": {
-      "kind": "fragment",
-      "meta": {
-        "node_types": [
-          "except_clause"
-        ]
-      }
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
+    "content": "import readline",
+    "line_start": 9,
+    "line_end": 9,
+    "metadata": {
+      "module": "readline",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "cli.py",
+    "scope": "",
+    "language": "python",
     "content": "except ImportError:\n    readline = None",
-    "span": {
-      "start": 10,
-      "end": 11
-    },
-    "id": "d6bf127df987d8e4"
+    "line_start": 10,
+    "line_end": 11
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "fragment",
     "file_path": "cli.py",
-    "role": {
-      "kind": "fragment",
-      "meta": {
-        "node_types": [
-          "for_statement"
-        ]
-      }
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
     "content": "for name in sys.argv[1:]:\n    print(name)",
-    "span": {
-      "start": 13,
-      "end": 14
-    },
-    "id": "de36162f1ea29d04"
+    "line_start": 13,
+    "line_end": 14
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "fragment",
     "file_path": "cli.py",
-    "role": {
-      "kind": "fragment",
-      "meta": {
-        "node_types": [
-          "with_statement"
-        ]
-      }
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
     "content": "with open(\"greeting.log\", \"a\") as log:\n    log.write(\"ran\\n\")",
-    "span": {
-      "start": 16,
-      "end": 17
-    },
-    "id": "8245ab9773fb1e57"
+    "line_start": 16,
+    "line_end": 17
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "fragment",
     "file_path": "cli.py",
-    "role": {
-      "kind": "fragment",
-      "meta": {
-        "node_types": [
-          "delete_statement",
-          "assert_statement"
-        ]
-      }
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
     "content": "del readline\nassert sys.argv",
-    "span": {
-      "start": 19,
-      "end": 20
-    },
-    "id": "de168f7e5319b625"
+    "line_start": 19,
+    "line_end": 20
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "fragment",
     "file_path": "cli.py",
-    "role": {
-      "kind": "fragment",
-      "meta": {
-        "node_types": [
-          "if_statement"
-        ]
-      }
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
     "content": "if __name__ == \"__main__\":\n    print(\"greeter\")",
-    "span": {
-      "start": 22,
-      "end": 23
-    },
-    "id": "38b3f18ccb97d64f"
+    "line_start": 22,
+    "line_end": 23
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "comment",
     "file_path": "config.py",
-    "role": {
-      "kind": "comment"
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
     "content": "\"\"\"Configuration values for the greeter.\"\"\"",
-    "span": {
-      "start": 1,
-      "end": 1
-    },
-    "id": "5580e5551412db6c"
+    "line_start": 1,
+    "line_end": 1
   },
   {
-    "blob_sha": "sha1",
+    "name": "LOCALE",
+    "kind": "variable",
     "file_path": "config.py",
-    "role": {
-      "kind": "variable",
-      "name": "LOCALE"
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
     "content": "LOCALE = \"en\"",
-    "span": {
-      "start": 3,
-      "end": 3
-    },
-    "id": "17132d64aac4d32b"
+    "line_start": 3,
+    "line_end": 3
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "comment",
     "file_path": "python.py",
-    "role": {
-      "kind": "comment"
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
     "content": "# Top-of-file banner comment, attached to nothing.\n# Second banner line, same block.",
-    "span": {
-      "start": 1,
-      "end": 2
-    },
-    "id": "b2af0545a26d7d13"
+    "line_start": 1,
+    "line_end": 2
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "comment",
     "file_path": "python.py",
-    "role": {
-      "kind": "comment"
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
     "content": "\"\"\"Greeter — formats greetings for named recipients.\n\nA sample module exercising the constructs the python plugin extracts:\nfunctions (sync, async, decorated), classes, methods (instance, property,\nstatic, class), module-level variables (including tuple unpacking and\nannotated assignments), nested functions (scoped to their parent), PEP 695\n`type` aliases (as classes), the import styles that carry distinct\nmetadata, and standalone / leading comments.\n\"\"\"",
-    "span": {
-      "start": 4,
-      "end": 12
-    },
-    "id": "31de03f2336983f1"
+    "line_start": 4,
+    "line_end": 12
   },
   {
-    "blob_sha": "sha1",
+    "name": "from __future__ import annotations",
+    "kind": "import",
     "file_path": "python.py",
-    "role": {
-      "kind": "import",
-      "name": "from __future__ import annotations",
-      "meta": {
-        "module": "",
-        "names": "",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
     "content": "from __future__ import annotations",
-    "span": {
-      "start": 14,
-      "end": 14
-    },
-    "id": "479d6b4b06efa7cc"
+    "line_start": 14,
+    "line_end": 14
   },
   {
-    "blob_sha": "sha1",
+    "name": "import os",
+    "kind": "import",
     "file_path": "python.py",
-    "role": {
-      "kind": "import",
-      "name": "import os",
-      "meta": {
-        "module": "os",
-        "names": "",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
     "content": "import os",
-    "span": {
-      "start": 16,
-      "end": 16
-    },
-    "id": "bc0241511702f5e8"
+    "line_start": 16,
+    "line_end": 16,
+    "metadata": {
+      "module": "os",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
   },
   {
-    "blob_sha": "sha1",
+    "name": "import os.path as osp",
+    "kind": "import",
     "file_path": "python.py",
-    "role": {
-      "kind": "import",
-      "name": "import os.path as osp",
-      "meta": {
-        "module": "os.path",
-        "names": "",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
     "content": "import os.path as osp",
-    "span": {
-      "start": 17,
-      "end": 17
-    },
-    "id": "df492926528bfa30"
+    "line_start": 17,
+    "line_end": 17,
+    "metadata": {
+      "module": "os.path",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
   },
   {
-    "blob_sha": "sha1",
+    "name": "from functools import lru_cache",
+    "kind": "import",
     "file_path": "python.py",
-    "role": {
-      "kind": "import",
-      "name": "from functools import lru_cache",
-      "meta": {
-        "module": "functools",
-        "names": "lru_cache",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
     "content": "from functools import lru_cache",
-    "span": {
-      "start": 18,
-      "end": 18
-    },
-    "id": "51d6889362d6fbd8"
+    "line_start": 18,
+    "line_end": 18,
+    "metadata": {
+      "module": "functools",
+      "names": "lru_cache",
+      "dots": "",
+      "language_hint": ""
+    }
   },
   {
-    "blob_sha": "sha1",
+    "name": "from pathlib import Path as P",
+    "kind": "import",
     "file_path": "python.py",
-    "role": {
-      "kind": "import",
-      "name": "from pathlib import Path as P",
-      "meta": {
-        "module": "pathlib",
-        "names": "Path",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
     "content": "from pathlib import Path as P",
-    "span": {
-      "start": 19,
-      "end": 19
-    },
-    "id": "82596e40b5cddb35"
+    "line_start": 19,
+    "line_end": 19,
+    "metadata": {
+      "module": "pathlib",
+      "names": "Path",
+      "dots": "",
+      "language_hint": ""
+    }
   },
   {
-    "blob_sha": "sha1",
+    "name": "from .config import LOCALE",
+    "kind": "import",
     "file_path": "python.py",
-    "role": {
-      "kind": "import",
-      "name": "from .config import LOCALE",
-      "meta": {
-        "module": "config",
-        "names": "LOCALE",
-        "dots": "1",
-        "language_hint": ""
-      }
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
     "content": "from .config import LOCALE",
-    "span": {
-      "start": 21,
-      "end": 21
-    },
-    "id": "2ed24d12b7cfe30c"
+    "line_start": 21,
+    "line_end": 21,
+    "metadata": {
+      "module": "config",
+      "names": "LOCALE",
+      "dots": "1",
+      "language_hint": ""
+    }
   },
   {
-    "blob_sha": "sha1",
+    "name": "GreetingList",
+    "kind": "class",
     "file_path": "python.py",
-    "role": {
-      "kind": "class",
-      "name": "GreetingList"
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
     "content": "type GreetingList = list[str]",
-    "span": {
-      "start": 23,
-      "end": 23
-    },
-    "id": "5a0b65ab15c43c79"
+    "line_start": 23,
+    "line_end": 23
   },
   {
-    "blob_sha": "sha1",
+    "name": "DEFAULT_GREETING",
+    "kind": "variable",
     "file_path": "python.py",
-    "role": {
-      "kind": "variable",
-      "name": "DEFAULT_GREETING"
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
     "content": "DEFAULT_GREETING = \"Hello\"",
-    "span": {
-      "start": 25,
-      "end": 25
-    },
-    "id": "662b56676dcd85d9"
+    "line_start": 25,
+    "line_end": 25
   },
   {
-    "blob_sha": "sha1",
+    "name": "FALLBACK",
+    "kind": "variable",
     "file_path": "python.py",
-    "role": {
-      "kind": "variable",
-      "name": "LOCALES"
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
     "content": "LOCALES, FALLBACK = (\"en\", \"fr\"), \"en\"",
-    "span": {
-      "start": 26,
-      "end": 26
-    },
-    "id": "89ac218f83d39f84"
+    "line_start": 26,
+    "line_end": 26
   },
   {
-    "blob_sha": "sha1",
+    "name": "LOCALES",
+    "kind": "variable",
     "file_path": "python.py",
-    "role": {
-      "kind": "variable",
-      "name": "FALLBACK"
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
     "content": "LOCALES, FALLBACK = (\"en\", \"fr\"), \"en\"",
-    "span": {
-      "start": 26,
-      "end": 26
-    },
-    "id": "f59fb45b47181f25"
+    "line_start": 26,
+    "line_end": 26
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "comment",
     "file_path": "python.py",
-    "role": {
-      "kind": "variable",
-      "name": "MAX_RECIPIENTS"
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
-    "content": "MAX_RECIPIENTS: int = 100",
-    "span": {
-      "start": 27,
-      "end": 27
-    },
-    "id": "420c1c7134cac624"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "python.py",
-    "role": {
-      "kind": "comment"
-    },
-    "scope": "",
-    "language": "python",
-    "file_language": "python",
     "content": "# trailing comment: not folded, its own chunk",
-    "span": {
-      "start": 27,
-      "end": 27
-    },
-    "id": "9758c6cfb2e4fc86"
+    "line_start": 27,
+    "line_end": 27
   },
   {
-    "blob_sha": "sha1",
+    "name": "MAX_RECIPIENTS",
+    "kind": "variable",
     "file_path": "python.py",
-    "role": {
-      "kind": "comment"
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
+    "content": "MAX_RECIPIENTS: int = 100",
+    "line_start": 27,
+    "line_end": 27
+  },
+  {
+    "name": "",
+    "kind": "comment",
+    "file_path": "python.py",
+    "scope": "",
+    "language": "python",
     "content": "# Section: greeting helpers.\n# A standalone block between definitions.",
-    "span": {
-      "start": 29,
-      "end": 30
-    },
-    "id": "1cd0a40dcf750dcf"
+    "line_start": 29,
+    "line_end": 30
   },
   {
-    "blob_sha": "sha1",
+    "name": "format_greeting",
+    "kind": "function",
     "file_path": "python.py",
-    "role": {
-      "kind": "function",
-      "name": "format_greeting"
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
     "content": "# Leading doc comment folded into format_greeting.\ndef format_greeting(name: str) -> str:\n    \"\"\"Return a greeting for ``name`` in the configured locale.\"\"\"\n\n    def normalise(raw: str) -> str:\n        \"\"\"Trim and title-case a raw recipient name.\"\"\"\n        return raw.strip().title()\n\n    return f\"{DEFAULT_GREETING}, {normalise(name)} ({LOCALE})\"",
-    "span": {
-      "start": 33,
-      "end": 41
-    },
-    "id": "07f780afe34f832f"
+    "line_start": 33,
+    "line_end": 41
   },
   {
-    "blob_sha": "sha1",
+    "name": "normalise",
+    "kind": "function",
     "file_path": "python.py",
-    "role": {
-      "kind": "function",
-      "name": "normalise"
-    },
     "scope": "format_greeting",
     "language": "python",
-    "file_language": "python",
     "content": "def normalise(raw: str) -> str:\n        \"\"\"Trim and title-case a raw recipient name.\"\"\"\n        return raw.strip().title()",
-    "span": {
-      "start": 37,
-      "end": 39
-    },
-    "id": "640a3da9f90df1ab"
+    "line_start": 37,
+    "line_end": 39
   },
   {
-    "blob_sha": "sha1",
+    "name": "fetch_remote_greeting",
+    "kind": "function",
     "file_path": "python.py",
-    "role": {
-      "kind": "function",
-      "name": "fetch_remote_greeting"
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
     "content": "async def fetch_remote_greeting(url: str) -> str:\n    \"\"\"Fetch a greeting template from a remote source.\"\"\"\n    return os.environ.get(\"GREETING\", DEFAULT_GREETING)",
-    "span": {
-      "start": 44,
-      "end": 46
-    },
-    "id": "8169bc94456142b8"
+    "line_start": 44,
+    "line_end": 46
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "fragment",
     "file_path": "python.py",
-    "role": {
-      "kind": "function",
-      "name": "cached_default"
-    },
     "scope": "",
     "language": "python",
-    "file_language": "python",
-    "content": "def cached_default() -> str:\n    \"\"\"Cache and return the default greeting prefix.\"\"\"\n    return DEFAULT_GREETING",
-    "span": {
-      "start": 50,
-      "end": 52
-    },
-    "id": "eb0e1237e14c20cb"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "python.py",
-    "role": {
-      "kind": "class",
-      "name": "Greeter"
-    },
-    "scope": "",
-    "language": "python",
-    "file_language": "python",
-    "content": "class Greeter:\n    \"\"\"Stateful greeter holding a prefix and recipient log.\"\"\"\n\n    def __init__(self, prefix: str = DEFAULT_GREETING) -> None:\n        self.prefix = prefix\n        self._seen: list[str] = []\n\n    def greet(self, name: str) -> str:\n        \"\"\"Greet ``name`` and record the recipient.\"\"\"\n        self._seen.append(name)\n        return format_greeting(name)\n\n    @property\n    def seen(self) -> list[str]:\n        \"\"\"Recipients greeted so far.\"\"\"\n        return list(self._seen)\n\n    @staticmethod\n    def shout(message: str) -> str:\n        \"\"\"Upper-case a message.\"\"\"\n        return message.upper()\n\n    @classmethod\n    def default(cls) -> Greeter:\n        \"\"\"Build a greeter with the default prefix.\"\"\"\n        return cls(DEFAULT_GREETING)",
-    "span": {
-      "start": 55,
-      "end": 80
-    },
-    "id": "7624e0c692fb11f2"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "python.py",
-    "role": {
-      "kind": "method",
-      "name": "__init__"
-    },
-    "scope": "Greeter",
-    "language": "python",
-    "file_language": "python",
-    "content": "def __init__(self, prefix: str = DEFAULT_GREETING) -> None:\n        self.prefix = prefix\n        self._seen: list[str] = []",
-    "span": {
-      "start": 58,
-      "end": 60
-    },
-    "id": "8b5737f1d5f8265a"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "python.py",
-    "role": {
-      "kind": "method",
-      "name": "greet"
-    },
-    "scope": "Greeter",
-    "language": "python",
-    "file_language": "python",
-    "content": "def greet(self, name: str) -> str:\n        \"\"\"Greet ``name`` and record the recipient.\"\"\"\n        self._seen.append(name)\n        return format_greeting(name)",
-    "span": {
-      "start": 62,
-      "end": 65
-    },
-    "id": "966765d257a7ffce"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "python.py",
-    "role": {
-      "kind": "method",
-      "name": "seen"
-    },
-    "scope": "Greeter",
-    "language": "python",
-    "file_language": "python",
-    "content": "def seen(self) -> list[str]:\n        \"\"\"Recipients greeted so far.\"\"\"\n        return list(self._seen)",
-    "span": {
-      "start": 68,
-      "end": 70
-    },
-    "id": "c748f4dd7a7d49ff"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "python.py",
-    "role": {
-      "kind": "method",
-      "name": "shout"
-    },
-    "scope": "Greeter",
-    "language": "python",
-    "file_language": "python",
-    "content": "def shout(message: str) -> str:\n        \"\"\"Upper-case a message.\"\"\"\n        return message.upper()",
-    "span": {
-      "start": 73,
-      "end": 75
-    },
-    "id": "d3d098dc03b10302"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "python.py",
-    "role": {
-      "kind": "method",
-      "name": "default"
-    },
-    "scope": "Greeter",
-    "language": "python",
-    "file_language": "python",
-    "content": "def default(cls) -> Greeter:\n        \"\"\"Build a greeter with the default prefix.\"\"\"\n        return cls(DEFAULT_GREETING)",
-    "span": {
-      "start": 78,
-      "end": 80
-    },
-    "id": "e64ddefa4df1e58f"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "python.py",
-    "role": {
-      "kind": "function",
-      "name": "config_path"
-    },
-    "scope": "",
-    "language": "python",
-    "file_language": "python",
-    "content": "def config_path() -> P:\n    \"\"\"Return the path to the greeter config file.\"\"\"\n    return P.home() / \".greeter\"",
-    "span": {
-      "start": 83,
-      "end": 85
-    },
-    "id": "64cbb79e676b4e9d"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "python.py",
-    "role": {
-      "kind": "fragment",
-      "meta": {
-        "node_types": [
-          "decorator"
-        ]
-      }
-    },
-    "scope": "",
-    "language": "python",
-    "file_language": "python",
     "content": "@lru_cache",
-    "span": {
-      "start": 49,
-      "end": 49
-    },
-    "id": "3737d43147fb34bf"
+    "line_start": 49,
+    "line_end": 49
+  },
+  {
+    "name": "cached_default",
+    "kind": "function",
+    "file_path": "python.py",
+    "scope": "",
+    "language": "python",
+    "content": "def cached_default() -> str:\n    \"\"\"Cache and return the default greeting prefix.\"\"\"\n    return DEFAULT_GREETING",
+    "line_start": 50,
+    "line_end": 52
+  },
+  {
+    "name": "Greeter",
+    "kind": "class",
+    "file_path": "python.py",
+    "scope": "",
+    "language": "python",
+    "content": "class Greeter:\n    \"\"\"Stateful greeter holding a prefix and recipient log.\"\"\"\n\n    def __init__(self, prefix: str = DEFAULT_GREETING) -> None:\n        self.prefix = prefix\n        self._seen: list[str] = []\n\n    def greet(self, name: str) -> str:\n        \"\"\"Greet ``name`` and record the recipient.\"\"\"\n        self._seen.append(name)\n        return format_greeting(name)\n\n    @property\n    def seen(self) -> list[str]:\n        \"\"\"Recipients greeted so far.\"\"\"\n        return list(self._seen)\n\n    @staticmethod\n    def shout(message: str) -> str:\n        \"\"\"Upper-case a message.\"\"\"\n        return message.upper()\n\n    @classmethod\n    def default(cls) -> Greeter:\n        \"\"\"Build a greeter with the default prefix.\"\"\"\n        return cls(DEFAULT_GREETING)",
+    "line_start": 55,
+    "line_end": 80
+  },
+  {
+    "name": "__init__",
+    "kind": "method",
+    "file_path": "python.py",
+    "scope": "Greeter",
+    "language": "python",
+    "content": "def __init__(self, prefix: str = DEFAULT_GREETING) -> None:\n        self.prefix = prefix\n        self._seen: list[str] = []",
+    "line_start": 58,
+    "line_end": 60
+  },
+  {
+    "name": "greet",
+    "kind": "method",
+    "file_path": "python.py",
+    "scope": "Greeter",
+    "language": "python",
+    "content": "def greet(self, name: str) -> str:\n        \"\"\"Greet ``name`` and record the recipient.\"\"\"\n        self._seen.append(name)\n        return format_greeting(name)",
+    "line_start": 62,
+    "line_end": 65
+  },
+  {
+    "name": "seen",
+    "kind": "method",
+    "file_path": "python.py",
+    "scope": "Greeter",
+    "language": "python",
+    "content": "def seen(self) -> list[str]:\n        \"\"\"Recipients greeted so far.\"\"\"\n        return list(self._seen)",
+    "line_start": 68,
+    "line_end": 70
+  },
+  {
+    "name": "shout",
+    "kind": "method",
+    "file_path": "python.py",
+    "scope": "Greeter",
+    "language": "python",
+    "content": "def shout(message: str) -> str:\n        \"\"\"Upper-case a message.\"\"\"\n        return message.upper()",
+    "line_start": 73,
+    "line_end": 75
+  },
+  {
+    "name": "default",
+    "kind": "method",
+    "file_path": "python.py",
+    "scope": "Greeter",
+    "language": "python",
+    "content": "def default(cls) -> Greeter:\n        \"\"\"Build a greeter with the default prefix.\"\"\"\n        return cls(DEFAULT_GREETING)",
+    "line_start": 78,
+    "line_end": 80
+  },
+  {
+    "name": "config_path",
+    "kind": "function",
+    "file_path": "python.py",
+    "scope": "",
+    "language": "python",
+    "content": "def config_path() -> P:\n    \"\"\"Return the path to the greeter config file.\"\"\"\n    return P.home() / \".greeter\"",
+    "line_start": 83,
+    "line_end": 85
   }
 ]

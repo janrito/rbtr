@@ -1,306 +1,190 @@
 [
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "comment",
     "file_path": "base.less",
-    "role": {
-      "kind": "comment"
-    },
     "scope": "",
     "language": "less",
-    "file_language": "less",
     "content": "// Imported by less.less via `@import \"base\"`.",
-    "span": {
-      "start": 1,
-      "end": 1
-    },
-    "id": "71698a6c624fc960"
+    "line_start": 1,
+    "line_end": 1
   },
   {
-    "blob_sha": "sha1",
+    "name": "@bg",
+    "kind": "variable",
     "file_path": "base.less",
-    "role": {
-      "kind": "variable",
-      "name": "@bg"
-    },
     "scope": "",
     "language": "less",
-    "file_language": "less",
     "content": "@bg: #ffffff;",
-    "span": {
-      "start": 3,
-      "end": 3
-    },
-    "id": "837abe811d55f219"
+    "line_start": 3,
+    "line_end": 3
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "comment",
     "file_path": "less.less",
-    "role": {
-      "kind": "comment"
-    },
     "scope": "",
     "language": "less",
-    "file_language": "less",
     "content": "// Greeter theme (Less).\n//\n// The Less plugin extracts @-variables, .mixin() definitions, rule sets\n// and @media/@charset/@keyframes as doc sections, and @import as imports.\n// Mixin calls (e.g. `.rounded(8px)`) are references, not definitions.",
-    "span": {
-      "start": 1,
-      "end": 5
-    },
-    "id": "8209659e6455d986"
+    "line_start": 1,
+    "line_end": 5
   },
   {
-    "blob_sha": "sha1",
+    "name": "@import \"base\";",
+    "kind": "import",
     "file_path": "less.less",
-    "role": {
-      "kind": "import",
-      "name": "@import \"base\";",
-      "meta": {
-        "module": "base",
-        "names": "",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
     "scope": "",
     "language": "less",
-    "file_language": "less",
     "content": "@import \"base\";",
-    "span": {
-      "start": 7,
-      "end": 7
-    },
-    "id": "f048740420fb950f"
+    "line_start": 7,
+    "line_end": 7,
+    "metadata": {
+      "module": "base",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
   },
   {
-    "blob_sha": "sha1",
+    "name": "@primary",
+    "kind": "variable",
     "file_path": "less.less",
-    "role": {
-      "kind": "variable",
-      "name": "@primary"
-    },
     "scope": "",
     "language": "less",
-    "file_language": "less",
     "content": "@primary: #333;",
-    "span": {
-      "start": 9,
-      "end": 9
-    },
-    "id": "90cc2ea8356e9258"
+    "line_start": 9,
+    "line_end": 9
   },
   {
-    "blob_sha": "sha1",
+    "name": "@spacing",
+    "kind": "variable",
     "file_path": "less.less",
-    "role": {
-      "kind": "variable",
-      "name": "@spacing"
-    },
     "scope": "",
     "language": "less",
-    "file_language": "less",
     "content": "@spacing: 8px;",
-    "span": {
-      "start": 10,
-      "end": 10
-    },
-    "id": "dfa4fcd6bb9ca8dc"
+    "line_start": 10,
+    "line_end": 10
   },
   {
-    "blob_sha": "sha1",
+    "name": "rounded",
+    "kind": "function",
     "file_path": "less.less",
-    "role": {
-      "kind": "function",
-      "name": "rounded"
-    },
     "scope": "",
     "language": "less",
-    "file_language": "less",
     "content": ".rounded(@radius: 4px) {\n  border-radius: @radius;\n}",
-    "span": {
-      "start": 12,
-      "end": 14
-    },
-    "id": "f966c2712450d388"
+    "line_start": 12,
+    "line_end": 14
   },
   {
-    "blob_sha": "sha1",
+    "name": ".greeter",
+    "kind": "class",
     "file_path": "less.less",
-    "role": {
-      "kind": "class",
-      "name": ".greeter"
-    },
     "scope": "",
     "language": "less",
-    "file_language": "less",
     "content": ".greeter {\n  color: @primary;\n  padding: @spacing;\n  .rounded(8px);\n  .greeting-label {\n    text-transform: uppercase;\n  }\n}",
-    "span": {
-      "start": 16,
-      "end": 23
-    },
-    "id": "3c04530906d60e4d"
+    "line_start": 16,
+    "line_end": 23
   },
   {
-    "blob_sha": "sha1",
+    "name": ".greeting-label",
+    "kind": "class",
     "file_path": "less.less",
-    "role": {
-      "kind": "class",
-      "name": ".greeting-label"
-    },
     "scope": ".greeter",
     "language": "less",
-    "file_language": "less",
     "content": ".greeting-label {\n    text-transform: uppercase;\n  }",
-    "span": {
-      "start": 20,
-      "end": 22
-    },
-    "id": "852720c757a85ba8"
+    "line_start": 20,
+    "line_end": 22
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "class",
     "file_path": "less.less",
-    "role": {
-      "kind": "class",
-      "name": ""
-    },
     "scope": "",
     "language": "less",
-    "file_language": "less",
     "content": "@media (max-width: 600px) {\n  .greeter {\n    font-size: 14px;\n  }\n}",
-    "span": {
-      "start": 25,
-      "end": 29
-    },
-    "id": "e0f22662ab1ffe7b"
+    "line_start": 25,
+    "line_end": 29
   },
   {
-    "blob_sha": "sha1",
+    "name": ".greeter",
+    "kind": "class",
     "file_path": "less.less",
-    "role": {
-      "kind": "class",
-      "name": ".greeter"
-    },
     "scope": "",
     "language": "less",
-    "file_language": "less",
     "content": ".greeter {\n    font-size: 14px;\n  }",
-    "span": {
-      "start": 26,
-      "end": 28
-    },
-    "id": "a81bc1863fd8b29c"
+    "line_start": 26,
+    "line_end": 28
   },
   {
-    "blob_sha": "sha1",
+    "name": "greeting-fade",
+    "kind": "class",
     "file_path": "less.less",
-    "role": {
-      "kind": "class",
-      "name": "greeting-fade"
-    },
     "scope": "",
     "language": "less",
-    "file_language": "less",
     "content": "@keyframes greeting-fade {\n  from {\n    opacity: 0;\n  }\n  to {\n    opacity: 1;\n  }\n}",
-    "span": {
-      "start": 31,
-      "end": 38
-    },
-    "id": "a20a92b7069da8d3"
+    "line_start": 31,
+    "line_end": 38
   },
   {
-    "blob_sha": "sha1",
+    "name": "@import \"partials/dark.less\";",
+    "kind": "import",
     "file_path": "less.less",
-    "role": {
-      "kind": "import",
-      "name": "@import \"partials/dark.less\";",
-      "meta": {
-        "module": "partials/dark.less",
-        "names": "",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
     "scope": "",
     "language": "less",
-    "file_language": "less",
     "content": "@import \"partials/dark.less\";",
-    "span": {
-      "start": 40,
-      "end": 40
-    },
-    "id": "1a7586aaf6a8d9af"
+    "line_start": 40,
+    "line_end": 40,
+    "metadata": {
+      "module": "partials/dark.less",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "comment",
     "file_path": "partials/dark.less",
-    "role": {
-      "kind": "comment"
-    },
     "scope": "",
     "language": "less",
-    "file_language": "less",
     "content": "// Imported by less.less. Imports its own sibling by bare name, which only\n// resolves relative to this directory.",
-    "span": {
-      "start": 1,
-      "end": 2
-    },
-    "id": "e0a8aefe746d1fe6"
+    "line_start": 1,
+    "line_end": 2
   },
   {
-    "blob_sha": "sha1",
+    "name": "@import \"tokens.less\";",
+    "kind": "import",
     "file_path": "partials/dark.less",
-    "role": {
-      "kind": "import",
-      "name": "@import \"tokens.less\";",
-      "meta": {
-        "module": "tokens.less",
-        "names": "",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
     "scope": "",
     "language": "less",
-    "file_language": "less",
     "content": "@import \"tokens.less\";",
-    "span": {
-      "start": 3,
-      "end": 3
-    },
-    "id": "b8856ac1553fbc10"
+    "line_start": 3,
+    "line_end": 3,
+    "metadata": {
+      "module": "tokens.less",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
   },
   {
-    "blob_sha": "sha1",
+    "name": ".greeting--dark",
+    "kind": "class",
     "file_path": "partials/dark.less",
-    "role": {
-      "kind": "class",
-      "name": ".greeting--dark"
-    },
     "scope": "",
     "language": "less",
-    "file_language": "less",
     "content": ".greeting--dark {\n  color: @ink;\n}",
-    "span": {
-      "start": 5,
-      "end": 7
-    },
-    "id": "97351d499b111481"
+    "line_start": 5,
+    "line_end": 7
   },
   {
-    "blob_sha": "sha1",
+    "name": "@ink",
+    "kind": "variable",
     "file_path": "partials/tokens.less",
-    "role": {
-      "kind": "variable",
-      "name": "@ink"
-    },
     "scope": "",
     "language": "less",
-    "file_language": "less",
     "content": "// Imported by partials/dark.less as a bare sibling.\n@ink: #eeeeee;",
-    "span": {
-      "start": 1,
-      "end": 2
-    },
-    "id": "42c36ec05d16f246"
+    "line_start": 1,
+    "line_end": 2
   }
 ]

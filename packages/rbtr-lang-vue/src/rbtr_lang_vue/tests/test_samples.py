@@ -1,54 +1,36 @@
-"""Vue sample extraction: the `samples/vue/` project through the real pipeline."""
+"""Vue sample extraction: the `samples/vue/` project, built as rbtr builds a repository."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import polars as pl
 import pytest
 from tree_sitter import Parser
 
-from rbtr.domain.models import Chunk, ChunkKind
-from rbtr.git import FileEntry
-from rbtr.languages.edges import InferredEdgeRow, infer_import_edges
-from rbtr.languages.extract import extract_file
+from rbtr.daemon.dto import symbols
+from rbtr.domain.models import ChunkKind
 from rbtr.languages.manager import get_manager
-from rbtr.languages.resolution import build_resolution_map
-from rbtr.testing import assert_fully_chunked, edge_rows, render_edges
+from rbtr.languages.plaintext import PLAINTEXT
+from rbtr.testing import render_edges, uncovered_lines
 
 if TYPE_CHECKING:
-    import dataframely as dy
     from syrupy.assertion import SnapshotAssertion
 
-
-@pytest.fixture
-def project() -> list[tuple[str, str]]:
-    root = Path(__file__).parent / "samples" / "vue"
-    return [
-        (str(p.relative_to(root)), p.read_text()) for p in sorted(root.rglob("*")) if p.is_file()
-    ]
+    from rbtr.domain.models import SnapshotRef
+    from rbtr.index.index import Index
 
 
-@pytest.fixture
-def chunks(project: list[tuple[str, str]]) -> list[Chunk]:
-    manager = get_manager()
-    out: list[Chunk] = []
-    for path, text in project:
-        lang = manager.detect_language(path) or "vue"
-        out.extend(extract_file(FileEntry(path, "sha1", text.encode()), lang))
-    return out
+@pytest.fixture(scope="module")
+def sample_dir() -> Path:
+    """The `samples/vue/` project."""
+    return Path(__file__).parent / "samples" / "vue"
 
 
-@pytest.fixture
-def edges(project: list[tuple[str, str]], chunks: list[Chunk]) -> dy.DataFrame[InferredEdgeRow]:
-    manager = get_manager()
-    repo_files = {path for path, _ in project}
-    return infer_import_edges(edge_rows(chunks), repo_files, build_resolution_map(manager))
-
-
-def test_emits_expected_kinds(chunks: list[Chunk]) -> None:
+def test_emits_expected_kinds(sample_index: Index, sample_ref: SnapshotRef) -> None:
     """The `<script lang="ts">` and blocks are delegated to TypeScript/SCSS; the template is a host chunk."""
-    kinds = {c.kind for c in chunks}
+    kinds = {s.kind for s in symbols(sample_index.chunks(at=sample_ref))}
     assert {
         ChunkKind.FUNCTION,
         ChunkKind.VARIABLE,
@@ -57,30 +39,38 @@ def test_emits_expected_kinds(chunks: list[Chunk]) -> None:
     } <= kinds
 
 
-def test_parses_cleanly(project: list[tuple[str, str]]) -> None:
+def test_parses_cleanly(sample_dir: Path, sample_index: Index, sample_ref: SnapshotRef) -> None:
+    """Every source file is valid in the language the build read it as.
+
+    A file no plugin claims is plaintext, which has no grammar to parse it.
+    """
     manager = get_manager()
-    for path, text in project:
-        grammar = manager.grammar(manager.detect_language(path) or "vue")
-        assert grammar is not None
-        assert not Parser(grammar).parse(text.encode()).root_node.has_error, path
+    files = (
+        sample_index.chunks(at=sample_ref)
+        .filter(pl.col("file_language") != PLAINTEXT)
+        .select("file_path", "file_language")
+        .unique()
+    )
+    for path, language in files.rows():
+        grammar = manager.grammar(language)
+        assert grammar is not None, path
+        assert not Parser(grammar).parse((sample_dir / path).read_bytes()).root_node.has_error, path
 
 
-def test_extraction_matches_snapshot(chunks: list[Chunk], snapshot_json: SnapshotAssertion) -> None:
-    assert chunks == snapshot_json
+def test_extraction_matches_snapshot(
+    sample_index: Index, sample_ref: SnapshotRef, snapshot_json: SnapshotAssertion
+) -> None:
+    assert symbols(sample_index.chunks(at=sample_ref)) == snapshot_json
 
 
 def test_edges_match_snapshot(
-    chunks: list[Chunk], edges: dy.DataFrame[InferredEdgeRow], snapshot_json: SnapshotAssertion
+    sample_index: Index, sample_ref: SnapshotRef, snapshot_json: SnapshotAssertion
 ) -> None:
-    assert render_edges(edges, chunks) == snapshot_json
+    chunks = sample_index.chunks(at=sample_ref)
+    assert render_edges(sample_index.edges(within=[sample_ref]), chunks) == snapshot_json
 
 
-def test_every_block_of_every_document_is_chunked(
-    project: list[tuple[str, str]], chunks: list[Chunk]
+def test_uncovered_lines_match_snapshot(
+    sample_dir: Path, sample_index: Index, sample_ref: SnapshotRef, snapshot_json: SnapshotAssertion
 ) -> None:
-    """A chunker owns the whole document, so no top-level block is dropped."""
-    manager = get_manager()
-    for path, text in project:
-        if manager.detect_language(path) != "vue":
-            continue
-        assert_fully_chunked(path, text, chunks, "vue")
+    assert uncovered_lines(sample_dir, sample_index.chunks(at=sample_ref)) == snapshot_json

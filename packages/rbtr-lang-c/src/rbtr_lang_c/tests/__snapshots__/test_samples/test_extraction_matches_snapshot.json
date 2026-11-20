@@ -1,627 +1,370 @@
 [
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "comment",
     "file_path": "c.c",
-    "role": {
-      "kind": "comment"
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
     "content": "/* Greeter — format greetings for named recipients.\n *\n * The C plugin extracts functions, function prototypes, struct/union/\n * enum/typedef type definitions (as classes), top-level variables\n * (including pointer-declared globals), function/object-like macros,\n * and #include imports (system and local). */",
-    "span": {
-      "start": 1,
-      "end": 6
-    },
-    "id": "671af27916e08aa4"
+    "line_start": 1,
+    "line_end": 6
   },
   {
-    "blob_sha": "sha1",
+    "name": "#include <stdio.h>",
+    "kind": "import",
     "file_path": "c.c",
-    "role": {
-      "kind": "import",
-      "name": "#include <stdio.h>",
-      "meta": {
-        "module": "stdio.h",
-        "names": "",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
     "content": "#include <stdio.h>\n",
-    "span": {
-      "start": 8,
-      "end": 8
-    },
-    "id": "9bff01cc40e3cda4"
+    "line_start": 8,
+    "line_end": 8,
+    "metadata": {
+      "module": "stdio.h",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
   },
   {
-    "blob_sha": "sha1",
+    "name": "#include \"greeter.h\"",
+    "kind": "import",
     "file_path": "c.c",
-    "role": {
-      "kind": "import",
-      "name": "#include \"greeter.h\"",
-      "meta": {
-        "module": "greeter.h",
-        "names": "",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
     "content": "#include \"greeter.h\"\n",
-    "span": {
-      "start": 9,
-      "end": 9
-    },
-    "id": "f841654bacd2cd5a"
+    "line_start": 9,
+    "line_end": 9,
+    "metadata": {
+      "module": "greeter.h",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
   },
   {
-    "blob_sha": "sha1",
+    "name": "MAX_NAME",
+    "kind": "variable",
     "file_path": "c.c",
-    "role": {
-      "kind": "variable",
-      "name": "MAX_NAME"
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
     "content": "#define MAX_NAME 64\n",
-    "span": {
-      "start": 11,
-      "end": 11
-    },
-    "id": "4887328b39e1ad46"
+    "line_start": 11,
+    "line_end": 11
   },
   {
-    "blob_sha": "sha1",
+    "name": "SQUARE",
+    "kind": "function",
     "file_path": "c.c",
-    "role": {
-      "kind": "function",
-      "name": "SQUARE"
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
     "content": "#define SQUARE(x) ((x) * (x))\n",
-    "span": {
-      "start": 12,
-      "end": 12
-    },
-    "id": "8d3e9e31880f6c2d"
+    "line_start": 12,
+    "line_end": 12
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "comment",
     "file_path": "c.c",
-    "role": {
-      "kind": "variable",
-      "name": "greeter_count"
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
-    "content": "int greeter_count = 0;",
-    "span": {
-      "start": 14,
-      "end": 14
-    },
-    "id": "f96e969b47b3894b"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "c.c",
-    "role": {
-      "kind": "comment"
-    },
-    "scope": "",
-    "language": "c",
-    "file_language": "c",
     "content": "// trailing comment: its own chunk, not folded",
-    "span": {
-      "start": 14,
-      "end": 14
-    },
-    "id": "f5aea743d10bb3dc"
+    "line_start": 14,
+    "line_end": 14
   },
   {
-    "blob_sha": "sha1",
+    "name": "greeter_count",
+    "kind": "variable",
     "file_path": "c.c",
-    "role": {
-      "kind": "variable",
-      "name": "default_prefix"
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
+    "content": "int greeter_count = 0;",
+    "line_start": 14,
+    "line_end": 14
+  },
+  {
+    "name": "default_prefix",
+    "kind": "variable",
+    "file_path": "c.c",
+    "scope": "",
+    "language": "c",
     "content": "const char *default_prefix = \"Hello\";",
-    "span": {
-      "start": 15,
-      "end": 15
-    },
-    "id": "4d902ff2946beef2"
+    "line_start": 15,
+    "line_end": 15
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "comment",
     "file_path": "c.c",
-    "role": {
-      "kind": "comment"
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
     "content": "/* Standalone note, separated by blank lines from any definition. */\n/* Second line of the same block. */",
-    "span": {
-      "start": 17,
-      "end": 18
-    },
-    "id": "c63b7b29139120e6"
+    "line_start": 17,
+    "line_end": 18
   },
   {
-    "blob_sha": "sha1",
+    "name": "Greeter",
+    "kind": "class",
     "file_path": "c.c",
-    "role": {
-      "kind": "class",
-      "name": "Greeter"
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
     "content": "/* A greeter holding a prefix string. */\nstruct Greeter {\n    const char *prefix;\n}",
-    "span": {
-      "start": 20,
-      "end": 23
-    },
-    "id": "5a04d7c056a1eae5"
+    "line_start": 20,
+    "line_end": 23
   },
   {
-    "blob_sha": "sha1",
+    "name": "Greeter",
+    "kind": "class",
     "file_path": "c.c",
-    "role": {
-      "kind": "class",
-      "name": "Greeter"
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
     "content": "typedef struct Greeter Greeter;",
-    "span": {
-      "start": 25,
-      "end": 25
-    },
-    "id": "89a9210587fd1dd7"
+    "line_start": 25,
+    "line_end": 25
   },
   {
-    "blob_sha": "sha1",
+    "name": "GreetCallback",
+    "kind": "class",
     "file_path": "c.c",
-    "role": {
-      "kind": "class",
-      "name": "GreetCallback"
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
     "content": "/* A callback invoked for each formatted greeting. */\ntypedef void (*GreetCallback)(const char *line);",
-    "span": {
-      "start": 27,
-      "end": 28
-    },
-    "id": "ee48b2198927667f"
+    "line_start": 27,
+    "line_end": 28
   },
   {
-    "blob_sha": "sha1",
+    "name": "Payload",
+    "kind": "class",
     "file_path": "c.c",
-    "role": {
-      "kind": "class",
-      "name": "Payload"
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
     "content": "/* A tagged greeting payload. */\nunion Payload {\n    int code;\n    const char *text;\n}",
-    "span": {
-      "start": 30,
-      "end": 34
-    },
-    "id": "94af451e2538078b"
+    "line_start": 30,
+    "line_end": 34
   },
   {
-    "blob_sha": "sha1",
+    "name": "Locale",
+    "kind": "class",
     "file_path": "c.c",
-    "role": {
-      "kind": "class",
-      "name": "Locale"
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
     "content": "enum Locale { LOCALE_EN, LOCALE_FR }",
-    "span": {
-      "start": 36,
-      "end": 36
-    },
-    "id": "a5341b3dfd6d4b14"
+    "line_start": 36,
+    "line_end": 36
   },
   {
-    "blob_sha": "sha1",
+    "name": "LOCALE_EN",
+    "kind": "variable",
     "file_path": "c.c",
-    "role": {
-      "kind": "variable",
-      "name": "LOCALE_EN"
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
     "content": "LOCALE_EN",
-    "span": {
-      "start": 36,
-      "end": 36
-    },
-    "id": "a1a70f2979aba10f"
+    "line_start": 36,
+    "line_end": 36
   },
   {
-    "blob_sha": "sha1",
+    "name": "LOCALE_FR",
+    "kind": "variable",
     "file_path": "c.c",
-    "role": {
-      "kind": "variable",
-      "name": "LOCALE_FR"
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
     "content": "LOCALE_FR",
-    "span": {
-      "start": 36,
-      "end": 36
-    },
-    "id": "acfd32f2946ac945"
+    "line_start": 36,
+    "line_end": 36
   },
   {
-    "blob_sha": "sha1",
+    "name": "greeter_default",
+    "kind": "function",
     "file_path": "c.c",
-    "role": {
-      "kind": "function",
-      "name": "greeter_default"
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
     "content": "/* Build a greeter with the default prefix. */\nGreeter greeter_default(void);",
-    "span": {
-      "start": 38,
-      "end": 39
-    },
-    "id": "1bb2cd010b690084"
+    "line_start": 38,
+    "line_end": 39
   },
   {
-    "blob_sha": "sha1",
+    "name": "format_greeting",
+    "kind": "function",
     "file_path": "c.c",
-    "role": {
-      "kind": "function",
-      "name": "format_greeting"
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
     "content": "/* Format a greeting for `name` into `buf`. */\nint format_greeting(const Greeter *g, const char *name, char *buf, int n) {\n    return snprintf(buf, (size_t)n, \"%s, %s\", g->prefix, name);\n}",
-    "span": {
-      "start": 41,
-      "end": 44
-    },
-    "id": "b148e129e5a8d0f1"
+    "line_start": 41,
+    "line_end": 44
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "comment",
     "file_path": "greeter.h",
-    "role": {
-      "kind": "comment"
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
     "content": "/* Header companion for c.c — declares the greeter API.\n *\n * Resolves the `#include \"greeter.h\"` edge and exercises C prototype and\n * type-definition capture (declared, not defined, here). */",
-    "span": {
-      "start": 1,
-      "end": 4
-    },
-    "id": "9030eab5aed3851a"
+    "line_start": 1,
+    "line_end": 4
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "fragment",
     "file_path": "greeter.h",
-    "role": {
-      "kind": "variable",
-      "name": "GREETER_H"
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
-    "content": "#define GREETER_H\n",
-    "span": {
-      "start": 6,
-      "end": 6
-    },
-    "id": "901edb57f11ddea3"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "greeter.h",
-    "role": {
-      "kind": "variable",
-      "name": "MAX_NAME"
-    },
-    "scope": "",
-    "language": "c",
-    "file_language": "c",
-    "content": "#define MAX_NAME 64\n",
-    "span": {
-      "start": 8,
-      "end": 8
-    },
-    "id": "4789087046c6a5de"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "greeter.h",
-    "role": {
-      "kind": "class",
-      "name": "Greeter"
-    },
-    "scope": "",
-    "language": "c",
-    "file_language": "c",
-    "content": "/* A greeter holding a prefix string. */\nstruct Greeter {\n    const char *prefix;\n}",
-    "span": {
-      "start": 10,
-      "end": 13
-    },
-    "id": "f892b8224d857c05"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "greeter.h",
-    "role": {
-      "kind": "class",
-      "name": "Greeter"
-    },
-    "scope": "",
-    "language": "c",
-    "file_language": "c",
-    "content": "typedef struct Greeter Greeter;",
-    "span": {
-      "start": 15,
-      "end": 15
-    },
-    "id": "fc9e5d4af7a20b60"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "greeter.h",
-    "role": {
-      "kind": "comment"
-    },
-    "scope": "",
-    "language": "c",
-    "file_language": "c",
-    "content": "/* Build a greeter with the default prefix. */",
-    "span": {
-      "start": 17,
-      "end": 17
-    },
-    "id": "6020c10898fb5005"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "greeter.h",
-    "role": {
-      "kind": "comment"
-    },
-    "scope": "",
-    "language": "c",
-    "file_language": "c",
-    "content": "/* Format a greeting for `name` into `buf`. */",
-    "span": {
-      "start": 20,
-      "end": 20
-    },
-    "id": "c5b79b393f2730e2"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "greeter.h",
-    "role": {
-      "kind": "fragment",
-      "meta": {
-        "node_types": [
-          "identifier"
-        ]
-      }
-    },
-    "scope": "",
-    "language": "c",
-    "file_language": "c",
     "content": "#ifndef GREETER_H",
-    "span": {
-      "start": 5,
-      "end": 5
-    },
-    "id": "a99adce695ad4948"
+    "line_start": 5,
+    "line_end": 5
   },
   {
-    "blob_sha": "sha1",
+    "name": "GREETER_H",
+    "kind": "variable",
     "file_path": "greeter.h",
-    "role": {
-      "kind": "fragment",
-      "meta": {
-        "node_types": [
-          "declaration"
-        ]
-      }
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
+    "content": "#define GREETER_H\n",
+    "line_start": 6,
+    "line_end": 6
+  },
+  {
+    "name": "MAX_NAME",
+    "kind": "variable",
+    "file_path": "greeter.h",
+    "scope": "",
+    "language": "c",
+    "content": "#define MAX_NAME 64\n",
+    "line_start": 8,
+    "line_end": 8
+  },
+  {
+    "name": "Greeter",
+    "kind": "class",
+    "file_path": "greeter.h",
+    "scope": "",
+    "language": "c",
+    "content": "/* A greeter holding a prefix string. */\nstruct Greeter {\n    const char *prefix;\n}",
+    "line_start": 10,
+    "line_end": 13
+  },
+  {
+    "name": "Greeter",
+    "kind": "class",
+    "file_path": "greeter.h",
+    "scope": "",
+    "language": "c",
+    "content": "typedef struct Greeter Greeter;",
+    "line_start": 15,
+    "line_end": 15
+  },
+  {
+    "name": "",
+    "kind": "comment",
+    "file_path": "greeter.h",
+    "scope": "",
+    "language": "c",
+    "content": "/* Build a greeter with the default prefix. */",
+    "line_start": 17,
+    "line_end": 17
+  },
+  {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "greeter.h",
+    "scope": "",
+    "language": "c",
     "content": "Greeter greeter_default(void);",
-    "span": {
-      "start": 18,
-      "end": 18
-    },
-    "id": "e3f8473ab0e466d9"
+    "line_start": 18,
+    "line_end": 18
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "comment",
     "file_path": "greeter.h",
-    "role": {
-      "kind": "fragment",
-      "meta": {
-        "node_types": [
-          "declaration"
-        ]
-      }
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
+    "content": "/* Format a greeting for `name` into `buf`. */",
+    "line_start": 20,
+    "line_end": 20
+  },
+  {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "greeter.h",
+    "scope": "",
+    "language": "c",
     "content": "int format_greeting(const Greeter *g, const char *name, char *buf, int n);",
-    "span": {
-      "start": 21,
-      "end": 21
-    },
-    "id": "efab07d10a89957a"
+    "line_start": 21,
+    "line_end": 21
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "comment",
     "file_path": "util/text.c",
-    "role": {
-      "kind": "comment"
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
     "content": "/* Includes its own sibling by bare name. */",
-    "span": {
-      "start": 1,
-      "end": 1
-    },
-    "id": "0754ac7dd958f3ae"
+    "line_start": 1,
+    "line_end": 1
   },
   {
-    "blob_sha": "sha1",
+    "name": "#include \"text.h\"",
+    "kind": "import",
     "file_path": "util/text.c",
-    "role": {
-      "kind": "import",
-      "name": "#include \"text.h\"",
-      "meta": {
-        "module": "text.h",
-        "names": "",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
     "content": "#include \"text.h\"\n",
-    "span": {
-      "start": 2,
-      "end": 2
-    },
-    "id": "94415905fb20f19f"
+    "line_start": 2,
+    "line_end": 2,
+    "metadata": {
+      "module": "text.h",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
   },
   {
-    "blob_sha": "sha1",
+    "name": "text_length",
+    "kind": "function",
     "file_path": "util/text.c",
-    "role": {
-      "kind": "function",
-      "name": "text_length"
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
     "content": "int text_length(const char *s) {\n  int n = 0;\n  while (s[n] != '\\0') {\n    n++;\n  }\n  return n;\n}",
-    "span": {
-      "start": 4,
-      "end": 10
-    },
-    "id": "9de16b293ce6c7f8"
+    "line_start": 4,
+    "line_end": 10
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "comment",
     "file_path": "util/text.h",
-    "role": {
-      "kind": "comment"
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
     "content": "/* Included by util/text.c as a bare sibling, which only resolves relative\n   to this directory. */",
-    "span": {
-      "start": 1,
-      "end": 2
-    },
-    "id": "9ff3e5ac780a7e90"
+    "line_start": 1,
+    "line_end": 2
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "fragment",
     "file_path": "util/text.h",
-    "role": {
-      "kind": "variable",
-      "name": "GREETER_UTIL_TEXT_H"
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
-    "content": "#define GREETER_UTIL_TEXT_H\n",
-    "span": {
-      "start": 4,
-      "end": 4
-    },
-    "id": "46c2713ca66abfa3"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "util/text.h",
-    "role": {
-      "kind": "fragment",
-      "meta": {
-        "node_types": [
-          "identifier"
-        ]
-      }
-    },
-    "scope": "",
-    "language": "c",
-    "file_language": "c",
     "content": "#ifndef GREETER_UTIL_TEXT_H",
-    "span": {
-      "start": 3,
-      "end": 3
-    },
-    "id": "6acdc8d6c3de3dc3"
+    "line_start": 3,
+    "line_end": 3
   },
   {
-    "blob_sha": "sha1",
+    "name": "GREETER_UTIL_TEXT_H",
+    "kind": "variable",
     "file_path": "util/text.h",
-    "role": {
-      "kind": "fragment",
-      "meta": {
-        "node_types": [
-          "declaration"
-        ]
-      }
-    },
     "scope": "",
     "language": "c",
-    "file_language": "c",
+    "content": "#define GREETER_UTIL_TEXT_H\n",
+    "line_start": 4,
+    "line_end": 4
+  },
+  {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "util/text.h",
+    "scope": "",
+    "language": "c",
     "content": "int text_length(const char *s);",
-    "span": {
-      "start": 6,
-      "end": 6
-    },
-    "id": "9b7e96b54851ad5f"
+    "line_start": 6,
+    "line_end": 6
   }
 ]
