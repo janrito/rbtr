@@ -17,7 +17,7 @@ These are pure functions -- they never touch DuckDB directly.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 
 import dataframely as dy
 import polars as pl
@@ -202,17 +202,3 @@ def serial_map_view(serials: dict[str, int]) -> dy.DataFrame[SerialMapRow]:
             "extraction_serial": list(serials.values()),
         }
     ).pipe(SerialMapRow.validate, cast=True)
-
-
-class BlobLanguageRow(dy.Schema):
-    """Backs the cursor-registered `_blobs` join view: a blob, and the language its file is read as."""
-
-    blob_sha = dy.String(nullable=False)
-    language = dy.String(nullable=False)
-
-
-def blob_languages_view(blobs: Sequence[tuple[str, str]]) -> dy.DataFrame[BlobLanguageRow]:
-    """Build the `_blobs` join view from `(blob_sha, language)` pairs."""
-    return pl.DataFrame(blobs, schema=BlobLanguageRow.create_empty().schema, orient="row").pipe(
-        BlobLanguageRow.validate, cast=True
-    )

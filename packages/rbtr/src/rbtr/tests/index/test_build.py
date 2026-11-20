@@ -286,6 +286,19 @@ def test_build_dedups_across_linked_worktrees(
     assert edges_1 == edges_2
 
 
+def test_identical_blobs_in_separate_projects_are_extracted(
+    git_repo: pygit2.Repository, snapshot_sha: str, tmp_path: Path, index: Index
+) -> None:
+    """A clone extracts its own chunks even when another project holds the same bytes."""
+    original = build_index(git_repo.workdir, snapshot_sha, index)
+    clone = pygit2.clone_repository(git_repo.path, str(tmp_path / "clone"))
+
+    result = build_index(clone.workdir, snapshot_sha, index)
+
+    assert original.stats.parsed_files > 0
+    assert result.stats.parsed_files == original.stats.parsed_files
+
+
 @pytest.fixture
 def divergent_sha(linked_worktree: pygit2.Repository) -> str:
     """Advance the linked worktree by one commit editing `src/utils.py`.

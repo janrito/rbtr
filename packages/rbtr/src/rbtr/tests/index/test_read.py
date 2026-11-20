@@ -114,8 +114,7 @@ def test_current_blobs_match(
 ) -> None:
     index, s = blob_query
     with index.session(index.repo("/repo")) as ws:
-        pair = (s.query_blob, s.query_language)
-        current = pair in ws.current_blobs([pair], serial_map_view(s.serial_map))
+        current = ws.current_blobs(s.query_blobs, serial_map_view(s.serial_map))
     assert current == s.expected
 
 
@@ -153,7 +152,7 @@ def test_delete_chunks_for_blobs_removes_target(index: Index) -> None:
         ws.delete_chunks_for_blobs({"b1"}, file_language="")
 
     with index.session(repo) as ws:
-        assert ws.current_blobs([("b1", ""), ("b2", "")], serial_map_view({"": 1})) == {("b2", "")}
+        assert ws.current_blobs(["b1", "b2"], serial_map_view({"": 1})) == {("b2", "")}
 
 
 def test_edges_returns_all(module_index: Index, import_graph: SnapshotRef) -> None:

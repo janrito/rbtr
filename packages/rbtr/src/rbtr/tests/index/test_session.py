@@ -416,8 +416,11 @@ def test_replacing_a_snapshot_with_nothing_hides_its_chunks(
 
     assert index.chunks(at=repo.at("head")).is_empty()
     with index.session(repo) as ws:
-        pairs = [(math_func.blob_sha, ""), (http_func.blob_sha, "")]
-        assert ws.current_blobs(pairs, serial_map_view({"": 1})) == set(pairs)
+        blobs = [math_func.blob_sha, http_func.blob_sha]
+        assert ws.current_blobs(blobs, serial_map_view({"": 1})) == {
+            (math_func.blob_sha, ""),
+            (http_func.blob_sha, ""),
+        }
 
 
 def test_a_span_cannot_end_before_it_starts() -> None:

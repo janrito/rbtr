@@ -20,7 +20,7 @@ from __future__ import annotations
 import itertools
 import threading
 import time
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,7 +40,7 @@ from rbtr.git import FileEntry, changed_files, list_files, non_commit_shas, norm
 from rbtr.index.index import Index
 from rbtr.index.progress import ProgressCallback, _noop_progress
 from rbtr.index.results import ChunkResultRow
-from rbtr.index.staging import SerialMapRow, serial_map_view, staged_chunks
+from rbtr.index.staging import serial_map_view, staged_chunks
 from rbtr.languages.edges import EdgeChunkRow, infer_import_edges
 from rbtr.languages.extract import BATCH_FILES, extract_files, file_rows
 from rbtr.languages.manager import get_manager
@@ -90,62 +90,45 @@ class FileToExtract:
     language: str
 
 
-def listed_files(
-    files: Iterable[FileEntry],
-    snapshot_languages: Callable[[Sequence[str]], dict[str, str]],
-    current_blobs: Callable[
-        [Sequence[tuple[str, str]], dy.DataFrame[SerialMapRow]], set[tuple[str, str]]
-    ],
-    changed: set[str] | None,
-    serials: dy.DataFrame[SerialMapRow],
-    stop: threading.Event | None,
-) -> Iterator[list[StoredFile | FileToExtract]]:
-    """*files*, `BATCH_FILES` at a time, each as a `StoredFile` or a `FileToExtract`.
+def file_languages(
+    files: Sequence[FileEntry], stored: dict[str, str], changed: set[str] | None
+) -> list[tuple[FileEntry, str]]:
+    """Each file with its language: extension, stored detection, then content.
 
-    A file is skipped when it is unchanged since the base snapshot (when
-    *changed* lists the files that changed), or when *current_blobs* finds
-    its blob already extracted as its language under *serials*.
-    *snapshot_languages* gives the language each path was recorded in. A
-    batch costs one query of each.
+    Files outside *changed* keep their extension or stored language;
+    content detection applies to new or changed files. Plaintext is the
+    fallback when no language claims a file.
     """
     mgr = get_manager()
-    for batch in itertools.batched(files, BATCH_FILES, strict=False):
-        if stop is not None and stop.is_set():
-            raise BuildStopped
+    resolved: list[tuple[FileEntry, str]] = []
+    for entry in files:
+        language = mgr.detect_language(entry.path) or stored.get(entry.path, "")
+        if not language and (changed is None or entry.path in changed):
+            text = entry.content.decode(errors="replace")
+            language = mgr.detect_language_by_content(text) or ""
+        resolved.append((entry, language or PLAINTEXT))
+    return resolved
 
-        # Resolve language: extension first, then stored detection.
-        # Every file needs it, including one that is skipped below:
-        # a snapshot row pairs with its chunks on the language the
-        # file was extracted as, so a row without one has no chunks.
-        by_extension = {entry.path: mgr.detect_language(entry.path) or "" for entry in batch}
-        stored = snapshot_languages(
-            [path for path, language in by_extension.items() if not language]
-        )
-        languages: list[str] = []
-        for entry in batch:
-            language = by_extension[entry.path] or stored.get(entry.path, "")
-            if not language and (changed is None or entry.path in changed):
-                # Content sniff, for a new file whose extension says nothing.
-                text = entry.content.decode(errors="replace")
-                language = mgr.detect_language_by_content(text) or ""
-            # Nothing claimed it, so it is plaintext: a language, not
-            # a blank. Settled before the blob check, which asks whether
-            # this blob was already extracted as this language.
-            languages.append(language or PLAINTEXT)
 
-        current = current_blobs(
-            [(entry.blob_sha, language) for entry, language in zip(batch, languages, strict=True)],
-            serials,
-        )
-        listed: list[StoredFile | FileToExtract] = []
-        for entry, language in zip(batch, languages, strict=True):
-            if changed is not None and entry.path not in changed:
-                listed.append(StoredFile(entry, language, FileOutcome.SKIPPED_UNCHANGED))
-            elif (entry.blob_sha, language) in current:
-                listed.append(StoredFile(entry, language, FileOutcome.SKIPPED_CURRENT))
-            else:
-                listed.append(FileToExtract(entry, language))
-        yield listed
+def listed_files(
+    files: Sequence[tuple[FileEntry, str]],
+    current: set[tuple[str, str]],
+    changed: set[str] | None,
+) -> list[StoredFile | FileToExtract]:
+    """Classify resolved files using their current extractions and changed paths.
+
+    A file outside *changed* is unchanged. Otherwise its blob must have
+    a current extraction in the resolved language to be stored already.
+    """
+    listed: list[StoredFile | FileToExtract] = []
+    for entry, language in files:
+        if changed is not None and entry.path not in changed:
+            listed.append(StoredFile(entry, language, FileOutcome.SKIPPED_UNCHANGED))
+        elif (entry.blob_sha, language) in current:
+            listed.append(StoredFile(entry, language, FileOutcome.SKIPPED_CURRENT))
+        else:
+            listed.append(FileToExtract(entry, language))
+    return listed
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,10 +170,7 @@ def _extract_and_store_chunks(
         for lang in mgr.all_language_ids()
         if (reg := mgr.get_registration(lang)) is not None
     }
-    # The dedup gate checks every stored chunk against its language's
-    # current serial.  Plaintext is in the registry like any other, so
-    # there is no pseudo-language to add here.
-    dedup_serials = serial_by_language
+    serials = serial_map_view(serial_by_language)
     repo_root = Path(repo_path).resolve()
     ignore = load_ignore(repo_root)
     changed: set[str] | None = None
@@ -218,15 +198,20 @@ def _extract_and_store_chunks(
             max_file_size=config.max_file_size,
             ignore=ignore,
         )
-        listed = listed_files(
-            files,
-            session.snapshot_languages,
-            session.current_blobs,
-            changed,
-            serial_map_view(dedup_serials),
-            stop,
-        )
-        for batch in listed:
+        for entries in itertools.batched(files, BATCH_FILES, strict=False):
+            if stop is not None and stop.is_set():
+                raise BuildStopped
+            stored = session.snapshot_languages([entry.path for entry in entries])
+            resolved = file_languages(entries, stored, changed)
+            current = session.current_blobs(
+                [
+                    entry.blob_sha
+                    for entry, _ in resolved
+                    if changed is None or entry.path in changed
+                ],
+                serials,
+            )
+            batch = listed_files(resolved, current, changed)
             to_extract = [(f.entry, f.language) for f in batch if isinstance(f, FileToExtract)]
             failed: list[str] = []
             if to_extract:

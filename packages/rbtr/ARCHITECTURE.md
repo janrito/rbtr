@@ -146,16 +146,16 @@ are reused — no re-parsing, no re-embedding. A clone is a
 project of its own, so it parses and embeds its content again.
 
 The build checks each batch of files before extracting it, in one
-query (`session.current_blobs`) over the batch's `(blob_sha,
-language)` pairs, where `language` is each file's detected host
-language, and the current `{language: extraction serial}` registry
-map. The check spans the repo's project, so a blob already chunked
-by any of its checkouts is reused. A blob is **up to date** — the
-file skipped and only its `file_snapshots` row written — iff it has
-at least one chunk in the detected `language` *and* every stored
-chunk is at its language's current extraction serial. Both are
-matched against registered `_blobs` and `_serial_map` views (a
-`LEFT JOIN`; a chunk with no matching serial row is stale).
+query (`session.current_blobs`) with their blob SHAs as a bound list
+parameter. It returns the current `(blob_sha, file_language)`
+extractions; a file is skipped when its blob and detected host language
+match a returned pair. The check spans the repo's project, so a blob
+already chunked by any of its checkouts is reused. A blob is **up to
+date** — the file skipped and only its `file_snapshots` row written —
+iff it has at least one chunk in that host language *and* every stored
+chunk is at its language's current extraction serial. The query joins
+chunks against a registered `_serial_map` view of the current registry
+(a `LEFT JOIN`; a chunk with no matching serial row is stale).
 
 Two things force re-extraction; when the new chunks are
 stored, the blob's old chunks in that language are deleted
@@ -190,13 +190,15 @@ embedded language, so such a file dedups like any other: a
 bump to *any* contributor (the host or a delegated language)
 re-extracts it, and an unchanged file is skipped.
 
-Language is resolved once per file before the dedup check, in order:
-file extension → the `detected_language` recorded on an earlier
-`file_snapshots` row for that path (`snapshot_languages`, one query
-per batch) → a content sniff for never-seen files. Persisting the
-detected language on the snapshot is what lets a file
-identified by its content skip the sniff —
-and the needless re-extraction — on every subsequent build.
+The build service batches the git entries, fetches their stored
+languages (`snapshot_languages`) and checks their blobs
+(`current_blobs`). Between the queries, `file_languages` pairs each
+entry with its resolved language: file extension → stored
+`detected_language` → a content sniff for never-seen files. Persisting
+the detected language lets a file identified by its content skip the
+sniff on subsequent builds. `listed_files` classifies those resolved
+pairs using the current extractions and changed paths. The service
+extracts the files that need it and writes the batch's results.
 
 ### Write path
 
@@ -2399,8 +2401,12 @@ runs no rules and stores nothing.
 **The blob check runs once per batch.** Each batch's files are checked
 against the store in one query, and their stored languages looked up in
 another. On Django's 5,668 files, against a store that holds their
-chunks, a query per file takes 18.2 s and a query per batch of a hundred
-0.27 s. One query for the whole tree takes 0.01 s, but the build streams
+chunks, a query per file takes 18.2 s. Per batch of a hundred, a bound
+list of blob SHAs takes 0.14 s against 0.30 s for constructing,
+validating and registering a frame of `(blob_sha, language)` pairs.
+The SHAs start as Python values, and the table already holds each
+extraction's host language, so the bound list supplies the filter
+directly. One query for the whole tree takes about 0.01 s, but the build streams
 each file's content from git with its listing; checking the whole tree
 first would mean listing it twice, and checking again the files whose
 language only their content names. Building the five evaluation

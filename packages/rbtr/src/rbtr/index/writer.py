@@ -18,7 +18,6 @@ from rbtr.index.staging import (
     ChunkStagingRow,
     EmbeddingStagingRow,
     SerialMapRow,
-    blob_languages_view,
     staged_edges,
     staged_file_snapshots,
 )
@@ -157,45 +156,21 @@ class WriteSession:
             cur.execute(sql)
 
     def current_blobs(
-        self, blobs: Sequence[tuple[str, str]], serials: dy.DataFrame[SerialMapRow]
+        self, blob_shas: Sequence[str], serials: dy.DataFrame[SerialMapRow]
     ) -> set[tuple[str, str]]:
-        """The `(blob_sha, language)` pairs of *blobs* whose chunks are up to date.
+        """The current `(blob_sha, file_language)` extractions of *blob_shas*.
 
-        This is the blob-dedup check: the build asks it of a batch of files
-        before extracting them, and skips the files whose pair it returns.
-        The check spans the session's project (its chunks are
-        content-addressed and shared by its checkouts), so a blob already
-        parsed by any of them is reused — no re-parse when a linked
-        worktree indexes it.  It runs on the session's cursor, so it sees
-        chunks this transaction deleted.
-
-        A pair's *language* is the file's detected host language;
-        *serials* maps each language to its current extraction serial
-        (the full registry).  A blob is up to date iff it has ≥1 chunk in
-        *language* **and** every chunk's `(language, extraction_serial)`
-        matches a row in *serials*.  Either condition failing triggers
-        re-extraction:
-
-        - Detected language changed — a blob indexed as plaintext, then
-          a plugin registered for the extension → no chunk in the new
-          language → re-extract.  (Every file leaves a host-language
-          chunk, so this check is reliable.)
-        - A language's extraction serial is bumped → chunks stored at
-          the old serial no longer match → re-extracted.
-        - A multi-language file (SFC) lists every embedded language
-          plus the host, so bumping *any* contributor (the svelte
-          host or the delegated typescript) re-extracts the file;
-          when none change, it is skipped like any other blob.
+        Each returned pair has stored chunks and every chunk's language
+        and extraction serial matches *serials*, including embedded
+        languages. Results span the session's project and reflect
+        transaction-local deletions. An absent blob has no result.
         """
-        if not blobs:
+        if not blob_shas:
             return set()
         self._require_active()
-        with registered_views(
-            self._cursor, _blobs=blob_languages_view(blobs), _serial_map=serials
-        ) as cur:
-            return {
-                (blob_sha, language) for blob_sha, language in cur.sql(CURRENT_BLOBS_SQL).fetchall()
-            }
+        with registered_views(self._cursor, _serial_map=serials) as cur:
+            rows = cur.sql(CURRENT_BLOBS_SQL, params={"blob_shas": list(blob_shas)}).fetchall()
+            return {(blob_sha, language) for blob_sha, language in rows}
 
     def snapshot_languages(self, file_paths: Sequence[str]) -> dict[str, str]:
         """Each of *file_paths*' language, as one of the repo's snapshots recorded it.
