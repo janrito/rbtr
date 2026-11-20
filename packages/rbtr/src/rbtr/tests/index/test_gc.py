@@ -25,11 +25,8 @@ from rbtr.git import normalise_repo_path, worktree_tree_sha
 from rbtr.index.build import build_index, drop_stale_worktree_shas
 from rbtr.index.gc import run_gc, run_gc_all
 from rbtr.index.index import Index
-from rbtr.index.staging import staged_chunks
-from rbtr.languages.chunks import chunk_rows
 
 from ..conftest import make_commit
-from .conftest import make_chunk, make_snap
 
 
 @dataclass(frozen=True)
@@ -208,21 +205,22 @@ def test_gc_frees_only_unshared_chunks(gc: GcFixture, tmp_path: Path) -> None:
     assert gc.index.chunk_counts_for_snapshot(at=other_head).total > 0  # shared chunk survives
 
 
-def test_gc_reports_reclaimed_orphan_chunks(gc: GcFixture) -> None:
+def test_gc_reports_reclaimed_orphan_chunks(gc: GcFixture, tmp_path: Path) -> None:
     """Pre-existing orphans (e.g. left by a forgotten repo) are reclaimed
     *and counted*, even when gc drops no commits — the reporting gap the
     forget->gc smoke test surfaced.
     """
-    # An orphan arises the way production makes one: a chunk stored with
-    # its claim, and the claim later removed.
+    # An orphan arises the way production makes one: a linked worktree of
+    # the project builds a file no other checkout holds, then is forgotten.
+    gc.repo.add_worktree("side", str(tmp_path / "side"))
+    side = normalise_repo_path(str(tmp_path / "side"))
+    only_side = make_commit(
+        gc.repo, {"z.py": b"orphan = 1\n"}, ref="refs/heads/side-only", parents=[]
+    )
+    build_index(side, str(only_side), gc.index)
+    gc.index.forget(gc.index.repo(side))
     with gc.index.session(gc.registered) as ws:
         ws.add_watched_refs([gc.c2])  # keep every commit -> no drops
-        ws.add_chunks(
-            staged_chunks(chunk_rows([make_chunk("orphan", path="z.py", blob="b_orphan")]), {})
-        )
-        ws.replace_snapshots([make_snap("forgotten", "z.py", "b_orphan")], snapshot_sha="forgotten")
-    with gc.index.session(gc.registered) as ws:
-        ws.replace_snapshots([], snapshot_sha="forgotten")
     assert gc.index.count_orphan_chunks() == 1
 
     counts = run_gc(gc.index, gc.repo_path, mode=GcMode.WATCHED, refs=[], dry_run=False)

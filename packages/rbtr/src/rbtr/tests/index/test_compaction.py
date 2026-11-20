@@ -16,6 +16,7 @@ from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
 
+import pygit2
 import pytest
 from pytest_cases import parametrize_with_cases
 from pytest_mock import MockerFixture
@@ -24,13 +25,11 @@ from rbtr.config import config
 from rbtr.daemon.handlers import handle_gc
 from rbtr.daemon.messages import GcRequest, GcResponse
 from rbtr.domain.models import GcMode, SnapshotRef
-from rbtr.git import head_sha
+from rbtr.index.build import build_index
 from rbtr.index.index import Index
-from rbtr.index.staging import staged_chunks
-from rbtr.languages.chunks import chunk_rows
 
+from ..conftest import make_commit
 from .cases_gc_compaction import CompactionScenario
-from .conftest import make_chunk, make_snap
 
 
 @dataclass(frozen=True)
@@ -48,48 +47,38 @@ class ChurnedIndex:
 def churned_index(fake_repo: str, isolated_db: Path) -> Generator[ChurnedIndex]:
     """A file-backed store over `fake_repo`, churned to leave free space.
 
-    One pass seeds many chunks; a later pass deletes most of them and
-    their snapshots.  Deleted rows leave free space a rewrite reclaims;
-    DuckDB reuses the space of replaced rows, so re-seeding the same
-    chunks would leave none.  What is left is claimed by the repo's
-    single HEAD commit, so a default gc drops nothing and only
-    compaction can change the file size.
+    A commit of 20 files of 40 documented functions each is built, then a
+    child keeping two of them, and a gc drops the first commit: the chunks
+    of the 18 files it dropped are deleted, leaving free space a rewrite
+    reclaims. What is left is the repo's HEAD commit, so a default gc drops
+    nothing and only compaction can change the file size.
     """
-    head = head_sha(fake_repo)
-    # Deleting 720 of 800 chunks frees about 2.6 MB a rewrite reclaims.
+    repo = pygit2.Repository(fake_repo)
+    doc = "".join(
+        f"    Retry step {line}: wait twice as long as the step before.\n" for line in range(20)
+    )
+    files = {
+        f"m{m}.py": "\n\n".join(
+            f'def calculate_retry_backoff_{m * 40 + i}(attempt):\n    """\n{doc}    """\n'
+            "    return 2 ** attempt\n"
+            for i in range(40)
+        ).encode()
+        for m in range(20)
+    }
+    first = make_commit(repo, files, parents=[repo.head.peel(pygit2.Commit).id])
+    head = make_commit(repo, {f"m{m}.py": files[f"m{m}.py"] for m in range(2)}, parents=[first])
     index = Index.from_config(writable=True)
-    repo = index.register(fake_repo)
-    with index.session(repo) as ws:
-        chunks = [
-            make_chunk(
-                f"chunk-{i}",
-                name=f"calculate_retry_backoff_{i}",
-                content=f"def calculate_retry_backoff_{i}(attempt): return 2 ** attempt",
-                blob=f"blob-{i}",
-                path=f"m{i}.py",
-            )
-            for i in range(800)
-        ]
-        ws.add_chunks(staged_chunks(chunk_rows(chunks), {}))
-        ws.replace_snapshots(
-            [make_snap(head, f"m{i}.py", f"blob-{i}") for i in range(800)], snapshot_sha=head
-        )
-        ws.mark_indexed(snapshot_sha=head)
+    build_index(fake_repo, str(first), index)
+    build_index(fake_repo, str(head), index)
+    handle_gc(GcRequest(repo_path=fake_repo, mode=GcMode.WATCHED, compact=False), index)
     index.close()
     # Reopen so the delete is checkpointed in a separate pass, as across
     # daemon restarts.
     index = Index.from_config(writable=True)
-    with index.session(repo) as ws:
-        ws.delete_chunks_for_blobs({f"blob-{i}" for i in range(80, 800)}, "")
-        ws.replace_snapshots(
-            [make_snap(head, f"m{i}.py", f"blob-{i}") for i in range(80)], snapshot_sha=head
-        )
-    index.close()
-    index = Index.from_config(writable=True)
     yield ChurnedIndex(
         index=index,
         repo_path=fake_repo,
-        ref=repo.at(head),
+        ref=index.repo(fake_repo).at(str(head)),
         query="retry backoff",
     )
     index.close()

@@ -1,6 +1,6 @@
 """Scenarios for schema and embedding-version recovery.
 
-Cases take the `math_func` fixture from `conftest.py`.  Cases tagged
+Cases tagged
 `migration` open an index whose files record older schema versions
 and return a `MigrationScenario`; the rest return a
 `VersioningScenario`.
@@ -13,19 +13,18 @@ from dataclasses import dataclass, field
 import duckdb
 from pytest_cases import case
 
-from rbtr.domain.models import Chunk
 from rbtr.errors import IndexSchemaTooNewError, RbtrError
 
 
 @dataclass(frozen=True)
 class DbState:
-    """Pre-reopen state the fixture writes to disk."""
+    """Pre-reopen state the fixture writes to disk: `built` builds a commit of one module, `embedded` embeds it too."""
 
     schema_version: str | None = ""
     embedding_model: str | None = None
     embedding_version: str | None = None
-    seeded_chunks: list[Chunk] = field(default_factory=list)
-    seeded_embeddings: dict[str, list[float]] = field(default_factory=dict)
+    built: bool = False
+    embedded: bool = False
     create_bare_file: bool = False
 
 
@@ -42,11 +41,11 @@ class VersioningScenario:
     current: str | None = None
 
 
-def case_schema_version_mismatch_nukes_db(math_func: Chunk) -> VersioningScenario:
+def case_schema_version_mismatch_nukes_db() -> VersioningScenario:
     return VersioningScenario(
         before=DbState(
             schema_version="1",
-            seeded_chunks=[math_func],
+            built=True,
         ),
         expected_chunks_survive=False,
         expected_embeddings_survive=False,
@@ -61,10 +60,10 @@ def case_schema_missing_meta_table_nukes_db() -> VersioningScenario:
     )
 
 
-def case_schema_older_than_every_shipped_migration_nukes_db(math_func: Chunk) -> VersioningScenario:
+def case_schema_older_than_every_shipped_migration_nukes_db() -> VersioningScenario:
     """A retired migration leaves the files that needed it too old to migrate."""
     return VersioningScenario(
-        before=DbState(schema_version="2026.10.0", seeded_chunks=[math_func]),
+        before=DbState(schema_version="2026.10.0", built=True),
         migrations={"registry/2026.11.0__2026.12.0.sql": "CREATE TABLE added_note (x INT);"},
         current="2026.12.0",
         expected_chunks_survive=False,
@@ -72,52 +71,46 @@ def case_schema_older_than_every_shipped_migration_nukes_db(math_func: Chunk) ->
     )
 
 
-def case_schema_version_match_keeps_data(math_func: Chunk) -> VersioningScenario:
+def case_schema_version_match_keeps_data() -> VersioningScenario:
     return VersioningScenario(
-        before=DbState(seeded_chunks=[math_func]),
+        before=DbState(built=True),
     )
 
 
-def case_embedding_meta_mismatch_clears_embeddings(
-    math_func: Chunk,
-) -> VersioningScenario:
+def case_embedding_meta_mismatch_clears_embeddings() -> VersioningScenario:
     """Stale embedding meta (model or version) triggers clearing."""
     return VersioningScenario(
         before=DbState(
             embedding_model="stale/model.gguf",
             embedding_version="999",
-            seeded_chunks=[math_func],
-            seeded_embeddings={math_func.id: [0.1, 0.2, 0.3]},
+            built=True,
+            embedded=True,
         ),
         expected_embeddings_survive=False,
         expected_meta_stored=True,
     )
 
 
-def case_embedding_meta_match_keeps_embeddings(
-    math_func: Chunk,
-) -> VersioningScenario:
+def case_embedding_meta_match_keeps_embeddings() -> VersioningScenario:
     """Current model and version match — embeddings survive."""
     return VersioningScenario(
         before=DbState(
             # None = let the fixture use the current values.
             embedding_model=None,
             embedding_version=None,
-            seeded_chunks=[math_func],
-            seeded_embeddings={math_func.id: [0.1, 0.2, 0.3]},
+            built=True,
+            embedded=True,
         ),
         expected_embeddings_survive=True,
     )
 
 
-def case_embedding_model_change_clears_embeddings(
-    math_func: Chunk,
-) -> VersioningScenario:
+def case_embedding_model_change_clears_embeddings() -> VersioningScenario:
     """Changing config.embedding_model clears embeddings."""
     return VersioningScenario(
         before=DbState(
-            seeded_chunks=[math_func],
-            seeded_embeddings={math_func.id: [0.1, 0.2, 0.3]},
+            built=True,
+            embedded=True,
         ),
         config_embedding_model="other/model.gguf",
         expected_embeddings_survive=False,

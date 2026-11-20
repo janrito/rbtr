@@ -26,12 +26,7 @@ from pytest_mock import MockerFixture
 
 from rbtr.config import config, index_dir_of
 from rbtr.domain.models import (
-    Chunk,
     EmbeddingState,
-    FileSnapshot,
-    Import,
-    ImportMeta,
-    Span,
 )
 from rbtr.errors import (
     IndexLockedError,
@@ -43,14 +38,26 @@ from rbtr.git import normalise_repo_path
 from rbtr.index import load_sql
 from rbtr.index.build import build_index
 from rbtr.index.constants import EMBEDDING_FORMAT_VERSION, SCHEMA_VERSION
+from rbtr.index.embed import embed_index
+from rbtr.index.embeddings import Embedder
 from rbtr.index.index import Index
 from rbtr.index.migrations import BringForward, FileKind, Migrate, chain, parse_calver, run
-from rbtr.index.staging import EmbeddingStagingRow, staged_chunks
-from rbtr.languages.chunks import chunk_rows
 from rbtr.tests.conftest import make_commit
 
 from .cases_index_versioning import FileAfter, MigrationScenario, VersioningScenario
-from .conftest import make_chunk, make_snap
+
+
+@pytest.fixture
+def seeded_commit(fake_repo: str) -> str:
+    """A commit of `fake_repo` holding one module, defining `add`."""
+    repo = pygit2.Repository(fake_repo)
+    return str(
+        make_commit(
+            repo,
+            {"maths.py": b"def add(a, b):\n    return a + b\n"},
+            parents=[repo.head.peel(pygit2.Commit).id],
+        )
+    )
 
 
 def test_registry_and_project_file_hold_their_tables(tmp_path: Path) -> None:
@@ -78,6 +85,9 @@ def reopened(
     tmp_path: Path,
     chains: Path,
     mocker: MockerFixture,
+    fake_repo: str,
+    seeded_commit: str,
+    stubbed_embedder: Embedder,
 ) -> Iterator[tuple[Index, VersioningScenario]]:
     path = tmp_path / "index.duckdb"
     before = scenario.before
@@ -87,33 +97,15 @@ def reopened(
             con.execute("CREATE TABLE dummy (x INT)")
     else:
         seed = Index(path, writable=True)
-        registered = seed.register("/repo")
+        if before.built:
+            build_index(fake_repo, seeded_commit, seed)
+            if before.embedded:
+                embed_index(
+                    seed, at=seed.repo(fake_repo).at(seeded_commit), embedder=stubbed_embedder
+                )
+        else:
+            seed.register(fake_repo)
         (project_file,) = (path.parent / "index").glob("*.duckdb")
-        with seed.session(registered) as ws:
-            ws.add_chunks(staged_chunks(chunk_rows(before.seeded_chunks), {}))
-            if before.seeded_chunks:
-                ws.replace_snapshots(
-                    [
-                        FileSnapshot(
-                            snapshot_sha="head",
-                            file_path=c.file_path,
-                            blob_sha=c.blob_sha,
-                        )
-                        for c in before.seeded_chunks
-                    ],
-                    snapshot_sha="head",
-                )
-            if before.seeded_embeddings:
-                ids = list(before.seeded_embeddings.keys())
-                vecs = list(before.seeded_embeddings.values())
-                ws.update_embeddings(
-                    EmbeddingStagingRow.validate(
-                        pl.DataFrame({"id": ids, "embedding": vecs}).with_columns(
-                            embedding_truncated=False
-                        ),
-                        cast=True,
-                    )
-                )
         seed.close()
 
         # The schema version is the registry's; the embedding meta, the file's.
@@ -147,14 +139,14 @@ def reopened(
 
 
 def test_chunks_survive_matches_scenario(
-    reopened: tuple[Index, VersioningScenario],
+    reopened: tuple[Index, VersioningScenario], seeded_commit: str
 ) -> None:
     index, scenario = reopened
-    if not scenario.before.seeded_chunks:
+    if not scenario.before.built:
         return
     if scenario.expected_chunks_survive:
         [repo] = index.repos()
-        assert not index.chunks(at=repo.at("head")).is_empty(), "expected chunks to survive"
+        assert not index.chunks(at=repo.at(seeded_commit)).is_empty(), "expected chunks to survive"
     else:
         assert index.repos() == [], "expected the index to be replaced"
         projects = Path(str(index.db_path)).parent / "index"
@@ -162,15 +154,15 @@ def test_chunks_survive_matches_scenario(
 
 
 def test_embeddings_survive_matches_scenario(
-    reopened: tuple[Index, VersioningScenario],
+    reopened: tuple[Index, VersioningScenario], seeded_commit: str
 ) -> None:
     index, scenario = reopened
-    if not scenario.before.seeded_embeddings:
+    if not scenario.before.embedded:
         return
     if not scenario.expected_chunks_survive:
         return
     [repo] = index.repos()
-    chunks = index.chunks(at=repo.at("head"))
+    chunks = index.chunks(at=repo.at(seeded_commit))
     any_embedded = (chunks["embedding_state"] != EmbeddingState.NONE).any()
     if scenario.expected_embeddings_survive:
         assert any_embedded, "expected some embedding to survive"
@@ -179,12 +171,12 @@ def test_embeddings_survive_matches_scenario(
 
 
 def test_embedding_meta_stored_after_change(
-    reopened: tuple[Index, VersioningScenario],
+    reopened: tuple[Index, VersioningScenario], fake_repo: str
 ) -> None:
     index, scenario = reopened
     if not scenario.expected_meta_stored:
         return
-    with index.reader(index.repo("/repo")) as cur:
+    with index.reader(index.repo(fake_repo)) as cur:
         rows = cur.sql(
             "SELECT key, value FROM meta WHERE key IN ('embedding_model', 'embedding_version')"
         ).fetchall()
@@ -193,28 +185,19 @@ def test_embedding_meta_stored_after_change(
     assert stored["embedding_version"] == str(EMBEDDING_FORMAT_VERSION)
 
 
-def _seed_one_chunk(path: Path) -> None:
-    """Seed *path* with a single indexed chunk at the current schema."""
-    seed = Index(path, writable=True)
-    repo = seed.register("/repo")
-    with seed.session(repo) as ws:
-        ws.add_chunks(staged_chunks(chunk_rows([make_chunk("c1")]), {}))
-        ws.replace_snapshots(
-            [FileSnapshot(snapshot_sha="head", file_path="f.py", blob_sha="blob_c1")],
-            snapshot_sha="head",
-        )
-    seed.close()
-
-
-def test_an_index_under_a_path_with_a_quote_opens_and_reopens(tmp_path: Path) -> None:
+def test_an_index_under_a_path_with_a_quote_opens_and_reopens(
+    tmp_path: Path, fake_repo: str, seeded_commit: str
+) -> None:
     """A single quote in the index's path reaches DuckDB intact."""
     path = tmp_path / "o'brien" / "index.duckdb"
-    _seed_one_chunk(path)
+    seed = Index(path, writable=True)
+    build_index(fake_repo, seeded_commit, seed)
+    seed.close()
 
     index = Index(path, writable=True)
     try:
         [repo] = index.repos()
-        assert len(index.chunks(at=repo.at("head"))) == 1
+        assert len(index.chunks(at=repo.at(seeded_commit))) == 1
     finally:
         index.close()
 
@@ -230,7 +213,7 @@ def test_reading_a_db_rbtr_never_built_says_it_is_not_built(tmp_path: Path) -> N
 
 
 def test_an_index_older_than_migrations_is_replaced_by_an_empty_one(
-    tmp_path: Path, log_output: structlog.testing.LogCapture
+    tmp_path: Path, log_output: structlog.testing.LogCapture, fake_repo: str, seeded_commit: str
 ) -> None:
     """An index older than this rbtr can migrate is replaced whole, its files with it, and the open warns.
 
@@ -240,7 +223,9 @@ def test_an_index_older_than_migrations_is_replaced_by_an_empty_one(
     says what it replaced, for the daemon to record in discovery.
     """
     path = tmp_path / "index.duckdb"
-    _seed_one_chunk(path)
+    seed = Index(path, writable=True)
+    build_index(fake_repo, seeded_commit, seed)
+    seed.close()
     with duckdb.connect(str(path)) as con:
         con.execute("CREATE TABLE padding AS SELECT md5(range::VARCHAR) AS x FROM range(1000000)")
         con.execute(
@@ -262,43 +247,39 @@ def test_an_index_older_than_migrations_is_replaced_by_an_empty_one(
     assert warning["stored"] == "2000.1.1"
 
 
-def test_second_open_in_process_is_locked_out(tmp_path: Path) -> None:
+def test_second_open_in_process_is_locked_out(
+    tmp_path: Path, fake_repo: str, seeded_commit: str
+) -> None:
     """A second index on an open one is refused and the first keeps working.
 
     DuckDB attaches a file to one instance per process, so the second index
     meets the index held, as one in another process would.
     """
     db_path = tmp_path / "index.duckdb"
-    _seed_one_chunk(db_path)
+    seed = Index(db_path, writable=True)
+    build_index(fake_repo, seeded_commit, seed)
+    seed.close()
     index = Index(db_path, writable=True)
     [repo] = index.repos()
     try:
         with pytest.raises(IndexLockedError):
             Index(db_path)
-        assert not index.chunks(at=repo.at("head")).is_empty()
+        assert not index.chunks(at=repo.at(seeded_commit)).is_empty()
     finally:
         index.close()
 
 
-def test_fts_persists_across_reopen(tmp_path: Path) -> None:
+def test_fts_persists_across_reopen(tmp_path: Path, fake_repo: str, seeded_commit: str) -> None:
     """FTS index survives close + reopen without rebuild."""
     db_path = tmp_path / "index.duckdb"
-    chunk = make_chunk("persist_1", name="persist_check")
-
     index1 = Index(db_path, writable=True)
-    repo = index1.register("/repo")
-    with index1.session(repo) as ws:
-        ws.add_chunks(staged_chunks(chunk_rows([chunk]), {}))
-        ws.replace_snapshots(
-            [FileSnapshot(snapshot_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha)],
-            snapshot_sha="head",
-        )
-    ref = repo.at("head")
-    assert len(index1.fulltext_matches("persist", within=[ref], top_k=5)) == 1
+    build_index(fake_repo, seeded_commit, index1)
+    ref = index1.repo(fake_repo).at(seeded_commit)
+    assert len(index1.fulltext_matches("add", within=[ref], top_k=5)) == 1
     index1.close()
 
     index2 = Index(db_path, writable=True)
-    assert len(index2.fulltext_matches("persist", within=[ref], top_k=5)) == 1
+    assert len(index2.fulltext_matches("add", within=[ref], top_k=5)) == 1
     index2.close()
 
 
@@ -329,14 +310,18 @@ def test_checkouts_of_one_repository_share_a_project_file(
         index.close()
 
 
-def test_opening_deletes_files_the_registry_does_not_name(tmp_path: Path) -> None:
+def test_opening_deletes_files_the_registry_does_not_name(
+    tmp_path: Path, fake_repo: str, seeded_commit: str
+) -> None:
     """A build or retirement a crash interrupted leaves files nothing names.
 
     Opening the index deletes them, and the copies the compaction that once
     renamed `index.duckdb.compact-*` over the index left beside it.
     """
     path = tmp_path / "index.duckdb"
-    _seed_one_chunk(path)
+    seed = Index(path, writable=True)
+    build_index(fake_repo, seeded_commit, seed)
+    seed.close()
     projects = tmp_path / "index"
     (named,) = projects.iterdir()
     strays = [projects / "stray.duckdb", projects / "stray.duckdb.wal"]
@@ -353,23 +338,22 @@ def test_opening_deletes_files_the_registry_does_not_name(tmp_path: Path) -> Non
         assert list(projects.iterdir()) == [named]
         assert not old_copy.exists()
         assert not old_spill.exists()
-        assert not index.chunks(at=repo.at("head")).is_empty()
+        assert not index.chunks(at=repo.at(seeded_commit)).is_empty()
     finally:
         index.close()
 
 
-def test_forgetting_a_projects_last_checkout_deletes_its_file(tmp_path: Path) -> None:
+def test_forgetting_a_projects_last_checkout_deletes_its_file(
+    tmp_path: Path, fake_repo: str, seeded_commit: str
+) -> None:
     """The project's file is deleted with its last checkout, and the repo is unknown after.
 
     Other projects stay as they were.
     """
     index = Index(tmp_path / "index.duckdb", writable=True)
     kept = index.register("/kept")
-    forgotten = index.register("/forgotten")
-    with index.session(forgotten) as ws:
-        ws.add_chunks(staged_chunks(chunk_rows([make_chunk("c", path="a.py", blob="b")]), {}))
-        ws.replace_snapshots([make_snap("head", "a.py", "b")], snapshot_sha="head")
-        ws.mark_indexed(snapshot_sha="head")
+    build_index(fake_repo, seeded_commit, index)
+    forgotten = index.repo(fake_repo)
     query = "SELECT path FROM duckdb_databases() WHERE database_name = current_database()"
     with index.reader(kept) as cur:
         kept_file = Path(cur.sql(query).fetchall()[0][0]).name
@@ -380,9 +364,9 @@ def test_forgetting_a_projects_last_checkout_deletes_its_file(tmp_path: Path) ->
 
     assert index.repos() == [kept]
     with pytest.raises(RepoNotFoundError):
-        index.repo("/forgotten")
+        index.repo(fake_repo)
     with pytest.raises(RepoNotFoundError):
-        index.has_indexed(at=forgotten.at("head"))
+        index.has_indexed(at=forgotten.at(seeded_commit))
     index.close()
     files = {p.name for p in (tmp_path / "index").iterdir()}
     assert kept_file in files
@@ -392,7 +376,12 @@ def test_forgetting_a_projects_last_checkout_deletes_its_file(tmp_path: Path) ->
 @fixture
 @parametrize_with_cases("scenario", cases=".cases_index_versioning", has_tag="migration")
 def migration(
-    scenario: MigrationScenario, tmp_path: Path, chains: Path, mocker: MockerFixture
+    scenario: MigrationScenario,
+    tmp_path: Path,
+    chains: Path,
+    mocker: MockerFixture,
+    fake_repo: str,
+    seeded_commit: str,
 ) -> MigrationScenario:
     """The index at `tmp_path / "index.duckdb"`, its files at *scenario*'s stored versions.
 
@@ -400,7 +389,9 @@ def migration(
     version is *scenario*'s `current`.
     """
     path = tmp_path / "index.duckdb"
-    _seed_one_chunk(path)
+    seed = Index(path, writable=True)
+    build_index(fake_repo, seeded_commit, seed)
+    seed.close()
     (project_file,) = (tmp_path / "index").glob("*.duckdb")
     with duckdb.connect(str(path)) as con:
         con.execute(
@@ -418,7 +409,7 @@ def migration(
 
 
 def test_opening_brings_each_file_forward_or_leaves_it(
-    migration: MigrationScenario, tmp_path: Path
+    migration: MigrationScenario, tmp_path: Path, fake_repo: str, seeded_commit: str
 ) -> None:
     """Opening runs each file's migrations, or refuses and leaves the files where they were.
 
@@ -434,8 +425,10 @@ def test_opening_brings_each_file_forward_or_leaves_it(
         index = Index(path, writable=migration.writable)
         try:
             [repo] = index.repos()
-            assert not index.chunks(at=repo.at("head")).is_empty()
-            assert not index.fulltext_matches("c1", within=[repo.at("head")], top_k=5).is_empty()
+            assert not index.chunks(at=repo.at(seeded_commit)).is_empty()
+            assert not index.fulltext_matches(
+                "add", within=[repo.at(seeded_commit)], top_k=5
+            ).is_empty()
             assert index.replaced is None
         finally:
             index.close()
@@ -457,11 +450,13 @@ def test_opening_brings_each_file_forward_or_leaves_it(
 
 
 def test_a_deferred_migration_refuses_its_file_until_it_runs(
-    tmp_path: Path, chains: Path, mocker: MockerFixture
+    tmp_path: Path, chains: Path, mocker: MockerFixture, fake_repo: str, seeded_commit: str
 ) -> None:
     """`Migrate.LATER` leaves a project file that migrates on a copy unreadable until `migrate`."""
     path = tmp_path / "index.duckdb"
-    _seed_one_chunk(path)
+    seed = Index(path, writable=True)
+    build_index(fake_repo, seeded_commit, seed)
+    seed.close()
     (chains / "project").mkdir()
     (chains / "project" / f"{SCHEMA_VERSION}__2099.1.0.sql").write_text("SELECT 1;")
     mocker.patch("rbtr.index.store.SCHEMA_VERSION", "2099.1.0")
@@ -471,20 +466,22 @@ def test_a_deferred_migration_refuses_its_file_until_it_runs(
         [repo] = index.repos()
         assert index.migrating
         with pytest.raises(IndexMigratingError):
-            index.chunks(at=repo.at("head"))
+            index.chunks(at=repo.at(seeded_commit))
         index.migrate()
         assert not index.migrating
-        assert not index.chunks(at=repo.at("head")).is_empty()
+        assert not index.chunks(at=repo.at(seeded_commit)).is_empty()
     finally:
         index.close()
 
 
 def test_a_migrated_file_deletes_the_file_it_replaced_at_once(
-    tmp_path: Path, chains: Path, mocker: MockerFixture
+    tmp_path: Path, chains: Path, mocker: MockerFixture, fake_repo: str, seeded_commit: str
 ) -> None:
     """No read uses a file waiting to migrate, so its copy replaces it on disk straight away."""
     path = tmp_path / "index.duckdb"
-    _seed_one_chunk(path)
+    seed = Index(path, writable=True)
+    build_index(fake_repo, seeded_commit, seed)
+    seed.close()
     (old_file,) = (tmp_path / "index").glob("*.duckdb")
     (chains / "project").mkdir()
     (chains / "project" / f"{SCHEMA_VERSION}__2099.1.0.sql").write_text("SELECT 1;")
@@ -500,7 +497,13 @@ def test_a_migrated_file_deletes_the_file_it_replaced_at_once(
 
 @pytest.mark.parametrize(("ratio", "compacted"), [(1000.0, False), (1.0, True)])
 def test_a_copy_a_migration_grew_is_copied_again(
-    ratio: float, compacted: bool, tmp_path: Path, chains: Path, mocker: MockerFixture
+    ratio: float,
+    compacted: bool,
+    tmp_path: Path,
+    chains: Path,
+    mocker: MockerFixture,
+    fake_repo: str,
+    seeded_commit: str,
 ) -> None:
     """A migration that rebuilds a table leaves the old one's space; past the growth ratio the copy is compacted.
 
@@ -509,7 +512,9 @@ def test_a_copy_a_migration_grew_is_copied_again(
     the rebuild left: the uncompacted file is compacted by maintenance.
     """
     path = tmp_path / "index.duckdb"
-    _seed_one_chunk(path)
+    seed = Index(path, writable=True)
+    build_index(fake_repo, seeded_commit, seed)
+    seed.close()
     (old_file,) = (tmp_path / "index").glob("*.duckdb")
     with duckdb.connect(str(old_file)) as con:
         con.execute("CREATE TABLE padding AS SELECT md5(range::VARCHAR) AS x FROM range(200000)")
@@ -576,7 +581,9 @@ at {migrations[0].start}"
         assert migrated_ddl == fresh_ddl
 
 
-def test_a_project_file_from_2026_10_0_keeps_its_import_metadata(tmp_path: Path) -> None:
+def test_a_project_file_from_2026_10_0_keeps_its_import_metadata(
+    tmp_path: Path, fake_repo: str
+) -> None:
     """A file holding metadata as JSON text opens with each import's metadata as it was.
 
     The file is written now and forged back to 2026.10.0's shape: every
@@ -584,19 +591,16 @@ def test_a_project_file_from_2026_10_0_keeps_its_import_metadata(tmp_path: Path)
     as files written then hold it.
     """
     path = tmp_path / "index.duckdb"
-    imp = Chunk(
-        blob_sha="blob_app",
-        file_path="app.py",
-        role=Import(name="import os", meta=ImportMeta(module="os")),
-        content="import os",
-        span=Span(start=1, end=1),
+    git = pygit2.Repository(fake_repo)
+    sha = str(
+        make_commit(
+            git,
+            {"app.py": b"import os\n\n\ndef load():\n    pass\n"},
+            parents=[git.head.peel(pygit2.Commit).id],
+        )
     )
-    fn = make_chunk("load", path="app.py", blob="blob_app")
     seed = Index(path, writable=True)
-    repo = seed.register("/repo")
-    with seed.session(repo) as ws:
-        ws.add_chunks(staged_chunks(chunk_rows([imp, fn]), {}))
-        ws.replace_snapshots([make_snap("head", "app.py", "blob_app")], snapshot_sha="head")
+    build_index(fake_repo, sha, seed)
     seed.close()
     (project_file,) = (tmp_path / "index").glob("*.duckdb")
     with duckdb.connect(str(project_file)) as con:
@@ -617,7 +621,7 @@ UPDATE meta SET value = '2026.10.0' WHERE key = 'schema_version';
     index = Index(path, writable=True)
     try:
         [repo] = index.repos()
-        read = index.chunks(at=repo.at("head"))
+        read = index.chunks(at=repo.at(sha))
     finally:
         index.close()
     assert read.select(pl.col("kind").cast(pl.String), "metadata").sort("kind").rows() == [
