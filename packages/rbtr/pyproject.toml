@@ -35,13 +35,13 @@ classifiers = [
 ]
 requires-python = ">=3.13"
 dependencies = [
-  "duckdb>=1.5.6",
+  "duckdb>=2.0.0",
   "dataframely>=3.1.2",
   "huggingface-hub>=2.2.0",
   "llama-cpp-python>=0.3.36",
   "pathspec>=1.1.1",
   "platformdirs>=4.13.0",
-  "polars>=2.0.0",
+  "polars>=2.1.0",
   # Required though never called: duckdb needs it imported before threading.
   "pyarrow>=26.0.0",
   "pydantic>=2.14.1",
@@ -104,10 +104,17 @@ toml = ["rbtr-lang-toml"]
 tree_sitter_query = ["rbtr-lang-tree-sitter-query"]
 vue = ["rbtr-lang-vue"]
 yaml = ["rbtr-lang-yaml"]
-# Convenience aggregate: `all` pulls every optional plugin (the defaults are
-# already required deps, so `rbtr[all]` installs every language). No `web`
-# grouping — html and javascript are defaults, so it would only add css.
-all = [
+# Prebuilt llama.cpp backends.  When uv syncs this workspace, each takes
+# llama-cpp-python from its wheel index (the root `pyproject.toml`);
+# installed from PyPI they add nothing, so pass that index with `--index`.
+# macOS has none: its PyPI build already uses Metal.
+cpu = ["llama-cpp-python>=0.3.36"]
+vulkan = ["llama-cpp-python>=0.3.36"]
+cuda = ["llama-cpp-python>=0.3.36"]
+# Convenience aggregate: `languages` pulls every optional plugin (the defaults
+# are already required deps, so `rbtr[languages]` installs every language). No
+# `web` grouping — html and javascript are defaults, so it would only add css.
+languages = [
   "rbtr-lang-css",
   "rbtr-lang-scss",
   "rbtr-lang-less",
@@ -163,8 +170,6 @@ rbtr-lang-vue = { workspace = true }
 rbtr-lang-yaml = { workspace = true }
 
 [dependency-groups]
-llama-cpp-source = ["llama-cpp-python>=0.3.24"]
-llama-cpp-cpu = ["llama-cpp-python>=0.3.24"]
 dev = [
   "pyinstrument>=5.0",
   "pytest-mock",

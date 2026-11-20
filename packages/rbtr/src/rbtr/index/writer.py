@@ -106,11 +106,18 @@ class WriteSession:
 
         Rolls back and raises `RuntimeError` when the session inserted
         chunks and wrote no `file_snapshots` row, rather than
-        committing chunks the next clean-up would delete.
+        committing chunks the next clean-up would delete.  Rolls back
+        and re-raises when the flush or the check fails.
         """
         self._require_active()
-        self._flush_chunks()
-        if (unclaimed := self._count_unclaimed_blobs()) > 0:
+        try:
+            self._flush_chunks()
+            unclaimed = self._count_unclaimed_blobs()
+        except BaseException:
+            self._cursor.rollback()
+            self._active = False
+            raise
+        if unclaimed > 0:
             self._cursor.rollback()
             self._active = False
             msg = (
@@ -132,8 +139,7 @@ class WriteSession:
             sorted(self._inserted_blobs), schema=["blob_sha", "file_language"], orient="row"
         )
         with registered_views(self._cursor, _stg=pairs) as cur:
-            row = cur.execute(_COUNT_UNCLAIMED_BLOBS_SQL).fetchone()
-        return int(row[0]) if row else 0
+            return int(cur.sql(_COUNT_UNCLAIMED_BLOBS_SQL).fetchall()[0][0])
 
     def _require_active(self) -> None:
         if not self._active:
@@ -195,10 +201,10 @@ class WriteSession:
         """
         self._require_active()
         with registered_views(self._cursor, _serial_map=serial_map_view(serials)) as cur:
-            row = cur.execute(
-                _BLOB_IS_CURRENT_SQL, {"blob_sha": blob_sha, "language": language}
-            ).fetchone()
-        return bool(row[0]) if row and row[0] is not None else False
+            rows = cur.sql(
+                _BLOB_IS_CURRENT_SQL, params={"blob_sha": blob_sha, "language": language}
+            ).fetchall()
+        return bool(rows[0][0])
 
     def get_snapshot_language(self, file_path: str) -> str:
         """Return the language *file_path* was detected as in any of the repo's snapshots.
@@ -207,10 +213,11 @@ class WriteSession:
         indexed as plaintext.
         """
         self._require_active()
-        row = self._cursor.execute(
-            _GET_SNAPSHOT_LANGUAGE_SQL, {"repo_id": self._repo.repo_id, "file_path": file_path}
-        ).fetchone()
-        return str(row[0]) if row else ""
+        rows = self._cursor.sql(
+            _GET_SNAPSHOT_LANGUAGE_SQL,
+            params={"repo_id": self._repo.repo_id, "file_path": file_path},
+        ).fetchall()
+        return str(rows[0][0]) if rows else ""
 
     def add_chunk(self, chunk: TokenisedChunk) -> None:
         """Buffer a content-addressed chunk for insertion.
@@ -338,17 +345,17 @@ class WriteSession:
         """Remove all trace of the repo's snapshot *snapshot_sha*."""
         self._require_active()
         params = {"repo_id": self._repo.repo_id, "snapshot_sha": snapshot_sha}
-        commit_row = self._cursor.execute(_DROP_SNAPSHOT_SQL, params).fetchone()
-        snap_row = self._cursor.execute(_DELETE_SNAPSHOTS_SQL, params).fetchone()
-        edge_row = self._cursor.execute(_DELETE_EDGES_SQL, params).fetchone()
-        chunk_row = self._cursor.execute(_SWEEP_ORPHAN_CHUNKS_SQL).fetchone()
-        chunks_deleted = int(chunk_row[0]) if chunk_row else 0
+        commit_rows = self._cursor.execute(_DROP_SNAPSHOT_SQL, params).fetchall()
+        snap_rows = self._cursor.execute(_DELETE_SNAPSHOTS_SQL, params).fetchall()
+        edge_rows = self._cursor.execute(_DELETE_EDGES_SQL, params).fetchall()
+        chunk_rows = self._cursor.execute(_SWEEP_ORPHAN_CHUNKS_SQL).fetchall()
+        chunks_deleted = int(chunk_rows[0][0])
         if chunks_deleted > 0:
             self._chunks_modified = True
         return GcCounts(
-            snapshots=int(commit_row[0]) if commit_row else 0,
-            file_snapshots=int(snap_row[0]) if snap_row else 0,
-            edges=int(edge_row[0]) if edge_row else 0,
+            snapshots=int(commit_rows[0][0]),
+            file_snapshots=int(snap_rows[0][0]),
+            edges=int(edge_rows[0][0]),
             chunks=chunks_deleted,
         )
 
@@ -364,24 +371,21 @@ class WriteSession:
         counts of rows removed.
         """
         self._require_active()
-        snap_row = self._cursor.execute(
+        snap_rows = self._cursor.execute(
             _SWEEP_ORPHAN_SNAPSHOTS_SQL, {"repo_id": self._repo.repo_id}
-        ).fetchone()
-        orphan_edge_row = self._cursor.execute(
+        ).fetchall()
+        orphan_edge_rows = self._cursor.execute(
             _SWEEP_ORPHAN_EDGES_SQL, {"repo_id": self._repo.repo_id}
-        ).fetchone()
-        chunk_row = self._cursor.execute(_PRUNE_CHUNKS_SQL).fetchone()
-        stale_edge_row = self._cursor.execute(
+        ).fetchall()
+        chunk_rows = self._cursor.execute(_PRUNE_CHUNKS_SQL).fetchall()
+        stale_edge_rows = self._cursor.execute(
             _PRUNE_EDGES_SQL, {"repo_id": self._repo.repo_id}
-        ).fetchone()
-        chunks_deleted = int(chunk_row[0]) if chunk_row else 0
+        ).fetchall()
+        chunks_deleted = int(chunk_rows[0][0])
         if chunks_deleted > 0:
             self._chunks_modified = True
         return GcCounts(
-            file_snapshots=int(snap_row[0]) if snap_row else 0,
-            edges=(
-                (int(orphan_edge_row[0]) if orphan_edge_row else 0)
-                + (int(stale_edge_row[0]) if stale_edge_row else 0)
-            ),
+            file_snapshots=int(snap_rows[0][0]),
+            edges=int(orphan_edge_rows[0][0]) + int(stale_edge_rows[0][0]),
             chunks=chunks_deleted,
         )

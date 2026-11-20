@@ -1,7 +1,8 @@
 [tool.uv]
 conflicts = [[
-  { package = "rbtr", group = "llama-cpp-source" },
-  { package = "rbtr", group = "llama-cpp-cpu" },
+  { package = "rbtr", extra = "cpu" },
+  { package = "rbtr", extra = "vulkan" },
+  { package = "rbtr", extra = "cuda" },
 ]]
 
 [tool.uv.workspace]
@@ -11,13 +12,29 @@ members = ["packages/*"]
 exclude = ["packages/pi-rbtr"]
 
 [tool.uv.sources]
+# Each backend extra's wheel index.  The markers keep the lock to the
+# platforms whose wheels it can read: the indexes' macOS arm64 wheels for
+# 0.3.36 are corrupt zips, which uv rejects.  On macOS, sync no backend
+# extra: the PyPI build already uses Metal.
 llama-cpp-python = [
-  { index = "llama-cpp-python-cpu", group = "llama-cpp-cpu", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
+  { index = "llama-cpp-python-cpu", extra = "cpu", marker = "(sys_platform == 'linux' and platform_machine in 'x86_64 aarch64') or (sys_platform == 'win32' and platform_machine == 'AMD64')" },
+  { index = "llama-cpp-python-vulkan", extra = "vulkan", marker = "(sys_platform == 'linux' and platform_machine == 'x86_64') or (sys_platform == 'win32' and platform_machine == 'AMD64')" },
+  { index = "llama-cpp-python-cuda", extra = "cuda", marker = "(sys_platform == 'linux' and platform_machine == 'x86_64') or (sys_platform == 'win32' and platform_machine == 'AMD64')" },
 ]
 
 [[tool.uv.index]]
 name = "llama-cpp-python-cpu"
 url = "https://abetlen.github.io/llama-cpp-python/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "llama-cpp-python-vulkan"
+url = "https://abetlen.github.io/llama-cpp-python/whl/vulkan"
+explicit = true
+
+[[tool.uv.index]]
+name = "llama-cpp-python-cuda"
+url = "https://abetlen.github.io/llama-cpp-python/whl/cu124"
 explicit = true
 
 # -- ruff --

@@ -84,11 +84,12 @@ function runRbtr(executable: string, env: NodeJS.ProcessEnv, ...args: string[]):
 }
 
 /**
- * How long a test waits for a condition: 20 s, which leaves 10 s of the
- * 30 s test timeout for the test's own steps. A daemon that indexes or
- * starts under load takes most of it.
+ * How long a test waits for a condition: 60 s, which leaves 30 s of the
+ * 90 s test timeout for the test's own steps. It only bounds a hang: a
+ * condition that holds ends the wait at once, and a daemon that indexes
+ * or starts under load can take tens of seconds.
  */
-export const READY_MS = 20_000;
+export const READY_MS = 60_000;
 
 /** Resolves once *ready* holds, checking every 50 ms; rejects after `READY_MS`. */
 export async function until(ready: () => boolean | Promise<boolean>): Promise<void> {

@@ -161,6 +161,10 @@ class Index:
         """Compact every project file grown past *ratio*; see `Store.compact_grown`."""
         return self._store.compact_grown(ratio)
 
+    def rebuild_fts(self) -> int:
+        """Rebuild every project file's FTS index; see `Store.rebuild_fts`."""
+        return self._store.rebuild_fts()
+
     def missing_since(self) -> dict[Repo, datetime]:
         """When each repo whose path was found gone was first found so."""
         return self._store.missing_since()
@@ -198,27 +202,28 @@ class Index:
         """Return the repo's watched refs (symbolic names), sorted by name."""
         rows = (
             self._store.data(repo)
-            .execute(_LIST_WATCHED_REFS_SQL, {"repo_id": repo.repo_id})
+            .sql(_LIST_WATCHED_REFS_SQL, params={"repo_id": repo.repo_id})
             .fetchall()
         )
         return [str(r[0]) for r in rows]
 
     def has_indexed(self, *, at: SnapshotRef) -> bool:
         """Return whether the snapshot at *at* was fully indexed."""
-        row = (
+        rows = (
             self._store.data(at.repo)
-            .execute(
-                _HAS_INDEXED_SQL, {"repo_id": at.repo.repo_id, "snapshot_sha": at.snapshot_sha}
+            .sql(
+                _HAS_INDEXED_SQL,
+                params={"repo_id": at.repo.repo_id, "snapshot_sha": at.snapshot_sha},
             )
-            .fetchone()
+            .fetchall()
         )
-        return row is not None
+        return bool(rows)
 
     def indexed_snapshots(self, repo: Repo) -> list[IndexedSnapshot]:
         """Return the repo's indexed snapshots, newest first."""
         rows = (
             self._store.data(repo)
-            .execute(_LIST_INDEXED_COMMITS_SQL, {"repo_id": repo.repo_id})
+            .sql(_LIST_INDEXED_COMMITS_SQL, params={"repo_id": repo.repo_id})
             .fetchall()
         )
         return [IndexedSnapshot(snapshot_sha=str(r[0]), indexed_at=r[1]) for r in rows]
@@ -228,30 +233,30 @@ class Index:
 
         Read-only. Used by dry-run GC reporting.
         """
-        row = (
+        rows = (
             self._store.data(at.repo)
-            .execute(
+            .sql(
                 _COUNT_FILE_SNAPSHOTS_SQL,
-                {"repo_id": at.repo.repo_id, "snapshot_sha": at.snapshot_sha},
+                params={"repo_id": at.repo.repo_id, "snapshot_sha": at.snapshot_sha},
             )
-            .fetchone()
+            .fetchall()
         )
-        return int(row[0]) if row else 0
+        return int(rows[0][0]) if rows else 0
 
     def count_edges(self, *, at: SnapshotRef) -> int:
         """Return the number of `edges` rows for this commit.
 
         Read-only. Used by dry-run GC reporting.
         """
-        row = (
+        rows = (
             self._store.data(at.repo)
-            .execute(
+            .sql(
                 _COUNT_EDGES_SQL,
-                {"repo_id": at.repo.repo_id, "snapshot_sha": at.snapshot_sha},
+                params={"repo_id": at.repo.repo_id, "snapshot_sha": at.snapshot_sha},
             )
-            .fetchone()
+            .fetchall()
         )
-        return int(row[0]) if row else 0
+        return int(rows[0][0]) if rows else 0
 
     def count_orphan_chunks(self) -> int:
         """Count chunks no file snapshot in their project references.
@@ -260,8 +265,8 @@ class Index:
         checkouts, so a chunk is an orphan iff no snapshot of any of them
         references its `(blob_sha, file_language)`.  Summed over projects.
         """
-        rows = self._store.each_file(lambda cur: cur.execute(_COUNT_ORPHAN_CHUNKS_SQL).fetchone())
-        return sum(int(row[0]) for row in rows if row is not None)
+        rows = self._store.each_file(lambda cur: cur.sql(_COUNT_ORPHAN_CHUNKS_SQL).fetchall())
+        return sum(int(file_rows[0][0]) for file_rows in rows if file_rows)
 
     def count_gc_chunk_split(self, repo: Repo, drop_shas: list[str]) -> ChunkSplit:
         """Split a GC drop set's chunks into those it frees and those it keeps.
@@ -276,10 +281,10 @@ class Index:
         if not drop_shas:
             return ChunkSplit(dropped=0, kept=0)
         params = {"repo_id": repo.repo_id, "drop_shas": drop_shas}
-        row = self._store.data(repo).execute(_COUNT_GC_CHUNK_SPLIT_SQL, params).fetchone()
-        if row is None:
+        rows = self._store.data(repo).sql(_COUNT_GC_CHUNK_SPLIT_SQL, params=params).fetchall()
+        if not rows:
             return ChunkSplit(dropped=0, kept=0)
-        return ChunkSplit(dropped=int(row[0]), kept=int(row[1]))
+        return ChunkSplit(dropped=int(rows[0][0]), kept=int(rows[0][1]))
 
     def chunk_counts_by_snapshot(
         self, *, repo: Repo | None = None
@@ -312,7 +317,7 @@ class Index:
         params = {"repo_id": repo_id, "snapshot_sha": snapshot_sha}
 
         def count(cur: duckdb.DuckDBPyConnection) -> pl.DataFrame:
-            return cur.execute(_CHUNK_COUNTS_BY_SNAPSHOT_SQL, params).pl()
+            return cur.sql(_CHUNK_COUNTS_BY_SNAPSHOT_SQL, params=params).pl()
 
         frames = (
             [count(self._store.data(repo))] if repo is not None else self._store.each_file(count)
@@ -350,9 +355,9 @@ class Index:
         """
         rows = (
             self._store.data(at.repo)
-            .execute(
+            .sql(
                 _UNEMBEDDED_CHUNK_IDS_SQL,
-                {"repo_id": at.repo.repo_id, "snapshot_sha": at.snapshot_sha},
+                params={"repo_id": at.repo.repo_id, "snapshot_sha": at.snapshot_sha},
             )
             .fetchall()
         )
@@ -372,7 +377,7 @@ class Index:
             self._store.data(at.repo), _chunk_ids=chunk_ids_view(chunk_ids)
         ) as cur:
             frame = (
-                cur.execute(_GET_CHUNKS_BY_ID_SQL, params)
+                cur.sql(_GET_CHUNKS_BY_ID_SQL, params=params)
                 .pl()
                 .pipe(_decode_metadata)
                 .pipe(ChunkResultRow.validate, cast=True)
@@ -386,9 +391,7 @@ class Index:
         result is the set of languages some plugin has actually
         extracted -- a record of the plugin set that built the index.
         """
-        rows = self._store.each_file(
-            lambda cur: cur.execute(_DISTINCT_CHUNK_LANGUAGES_SQL).fetchall()
-        )
+        rows = self._store.each_file(lambda cur: cur.sql(_DISTINCT_CHUNK_LANGUAGES_SQL).fetchall())
         return {str(r[0]) for file_rows in rows for r in file_rows}
 
     def chunks(
@@ -410,7 +413,7 @@ class Index:
         }
         frame = (
             self._store.data(at.repo)
-            .execute(_GET_CHUNKS_SQL, params)
+            .sql(_GET_CHUNKS_SQL, params=params)
             .pl()
             .pipe(_decode_metadata)
             .pipe(ChunkResultRow.validate, cast=True)
@@ -431,7 +434,7 @@ class Index:
             self._store.data(at.repo), _snapshot_refs=snapshot_refs_view([at])
         ) as cur:
             return (
-                cur.execute(_INBOUND_REFS_SQL, {"target_ids": target_ids})
+                cur.sql(_INBOUND_REFS_SQL, params={"target_ids": target_ids})
                 .pl()
                 .pipe(InboundRefResultRow.validate, cast=True)
             )
@@ -453,7 +456,7 @@ class Index:
         }
         return (
             self._store.data(at.repo)
-            .execute(_GET_CHUNKS_SQL, params)
+            .sql(_GET_CHUNKS_SQL, params=params)
             .pl()
             .select(
                 "file_path",
@@ -537,7 +540,7 @@ class Index:
         paths = file_paths_view(file_paths or [])
         with registered_views(self._store.data(between.repo), _file_paths=paths) as cur:
             return (
-                cur.execute(_CHANGED_SYMBOLS_SQL, params)
+                cur.sql(_CHANGED_SYMBOLS_SQL, params=params)
                 .pl()
                 .pipe(_decode_metadata)
                 .pipe(ChangedSymbolRow.validate, cast=True)
@@ -630,7 +633,7 @@ class Index:
         def read(cur: duckdb.DuckDBPyConnection, refs: list[SnapshotRef]) -> pl.DataFrame:
             views = {"_snapshot_refs": snapshot_refs_view(refs), **frames}
             with registered_views(cur, **views) as c:
-                return c.execute(sql, params).pl()
+                return c.sql(sql, params=params).pl()
 
         return self._store.across(within, read)
 

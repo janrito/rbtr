@@ -113,7 +113,7 @@ class Store:
         self._projects_dir.mkdir(exist_ok=True)
         # An in-memory instance spills to `.tmp` in the working directory
         # unless told otherwise; this is where a file database would.
-        self._con.execute(f"SET temp_directory = {_quote(f'{path}.tmp')}")
+        self._con.execute("SET temp_directory = ?", [f"{path}.tmp"])
         self._attach_registry()
         # Enforce the schema version *while holding the registry* (and
         # thus DuckDB's exclusive lock), so no second process can open
@@ -143,8 +143,8 @@ class Store:
         this process does.
         """
         try:
-            self._con.execute(f"ATTACH {_quote(target)} AS {alias}")
-        except (duckdb.IOException, duckdb.BinderException) as exc:
+            self._con.execute(f"ATTACH ? AS {alias}", [target])
+        except (duckdb.IOException, duckdb.ResourceInUseException) as exc:
             message = str(exc).lower()
             if "lock" not in message and "file handle conflict" not in message:
                 raise
@@ -173,7 +173,7 @@ class Store:
         gets the registry's tables when writable.
         """
         try:
-            rows = self._registry().execute(_GET_SCHEMA_VERSION_SQL).fetchall()
+            rows = self._registry().sql(_GET_SCHEMA_VERSION_SQL).fetchall()
         except duckdb.CatalogException:
             if self._writable:
                 self._create_registry()
@@ -216,8 +216,8 @@ class Store:
         nothing.
         """
         cur = self._registry()
-        projects = cur.execute(_LIST_PROJECTS_SQL).fetchall()
-        repos = cur.execute(_LIST_REPOS_SQL).fetchall()
+        projects = cur.sql(_LIST_PROJECTS_SQL).fetchall()
+        repos = cur.sql(_LIST_REPOS_SQL).fetchall()
         dropped = set(self._file_of.values()) - {str(r[1]) for r in projects}
         self._file_of = {int(r[0]): str(r[1]) for r in projects}
         self._project_of = {int(r[0]): int(r[2]) for r in repos}
@@ -326,8 +326,8 @@ class Store:
             return existing
         shared = common_dir(path) or path
         cur = self._registry()
-        row = cur.execute(_GET_PROJECT_SQL, {"common_dir": shared}).fetchone()
-        if row is None:
+        rows = cur.sql(_GET_PROJECT_SQL, params={"common_dir": shared}).fetchall()
+        if not rows:
             file = self._new_file()
             project = {
                 "common_dir": shared,
@@ -338,7 +338,7 @@ class Store:
             project_id = int(cur.execute(_INSERT_PROJECT_SQL, project).fetchall()[0][0])
         else:
             cur.begin()
-            project_id = int(row[0])
+            project_id = int(rows[0][0])
         params = {"path": path, "project_id": project_id}
         repo_id = int(cur.execute(_REGISTER_REPO_SQL, params).fetchall()[0][0])
         cur.commit()
@@ -418,15 +418,25 @@ class Store:
         compacted.
         """
         self.require_writable()
-        rows = self._registry().execute(_LIST_PROJECTS_SQL).fetchall()
+        rows = self._registry().sql(_LIST_PROJECTS_SQL).fetchall()
         grown = [int(r[0]) for r in rows if self._file_bytes(str(r[1])) > ratio * int(r[2])]
         for project_id in grown:
             self._compact_project(project_id)
         return len(grown)
 
+    def rebuild_fts(self) -> int:
+        """Rebuild every project file's FTS index; return how many were rebuilt.
+
+        A rebuild writes the index in the loaded FTS extension's format.
+        """
+        self.require_writable()
+        for file in self._file_of.values():
+            build_fts(self._cursor_for(_alias(file)))
+        return len(self._file_of)
+
     def missing_since(self) -> dict[Repo, datetime]:
         """When each repo whose path was found gone was first found so."""
-        rows = self._registry().execute(_LIST_MISSING_REPOS_SQL).fetchall()
+        rows = self._registry().sql(_LIST_MISSING_REPOS_SQL).fetchall()
         # Stored as UTC without a zone: DuckDB needs `pytz` to return one.
         return {
             Repo(repo_id=int(r[0]), repo_path=str(r[1])): r[2].replace(tzinfo=UTC) for r in rows
@@ -469,7 +479,7 @@ class Store:
 
     def _check_embedding_version(self, cur: duckdb.DuckDBPyConnection) -> None:
         """Clear a file's embeddings if the format version or model changed."""
-        rows = cur.execute(_GET_EMBEDDING_META_SQL).fetchall()
+        rows = cur.sql(_GET_EMBEDDING_META_SQL).fetchall()
         stored: dict[str, str] = {str(r[0]): str(r[1]) for r in rows}
 
         stored_version = stored.get("embedding_version", "")
@@ -480,8 +490,7 @@ class Store:
         if stored_version == current_version and stored_model == current_model:
             return
 
-        n = cur.execute(_COUNT_EMBEDDINGS_SQL).fetchone()
-        count = n[0] if n else 0
+        count = cur.sql(_COUNT_EMBEDDINGS_SQL).fetchall()[0][0]
         if count > 0:
             log.warning(
                 "embedding_config_changed",
@@ -500,7 +509,10 @@ class Store:
 
         Caches one cursor per thread and file to avoid the overhead of
         `connection.cursor()` on every operation (which triggers `getcwd`
-        + `stat` syscalls in DuckDB).
+        + `stat` syscalls in DuckDB); a fresh cursor and its `USE` cost
+        about 60 µs more than a cached one.  A cached cursor is shared by
+        every later call on the thread, so a read must leave no result
+        open on it.
         """
         cursors: dict[str, duckdb.DuckDBPyConnection] = self._local.__dict__.setdefault(
             "cursors", {}
@@ -631,17 +643,6 @@ class Store:
 def _alias(file: str) -> str:
     """The name a project file is attached under: `p_` and its uuid."""
     return f"p_{file.removesuffix('.duckdb')}"
-
-
-def _quote(text: str) -> str:
-    """*text* as a SQL string literal.
-
-    DuckDB parses an `ATTACH` path or a `SET` value as a literal and takes
-    neither as a bound parameter, so the value is interpolated: every
-    single quote in it is doubled to keep the literal unbreakable.
-    """
-    escaped = text.replace("'", "''")
-    return f"'{escaped}'"
 
 
 def _delete(path: Path) -> None:

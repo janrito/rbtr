@@ -65,13 +65,13 @@ def test_config_replies_while_repository_discovery_is_running(
     with ThreadPoolExecutor(max_workers=2) as clients:
         scoped = clients.submit(rpc_send, StatusRequest(repo_path=fake_repo))
         try:
-            assert started.wait(5)
-            configured = clients.submit(rpc_send, DaemonConfigRequest()).result(timeout=5)
+            assert started.wait(30)
+            configured = clients.submit(rpc_send, DaemonConfigRequest()).result(timeout=30)
             assert configured.kind == "daemon_config"
             assert not scoped.done()
         finally:
             released.set()
-        assert scoped.result(timeout=5).kind == "status"
+        assert scoped.result(timeout=30).kind == "status"
 
 
 @parametrize_with_cases("read_request", cases=".cases_rpc")
@@ -93,8 +93,8 @@ def test_reads_finish_while_gpu_and_writer_requests_wait(
         search = clients.submit(rpc_send, SearchRequest(repo_path=fake_repo, query="load_config"))
         writer = clients.submit(rpc_send, WatchRequest(repo_path=fake_repo, refs=["main"]))
         try:
-            assert query_started.wait(5)
-            assert write_started.wait(5)
+            assert query_started.wait(30)
+            assert write_started.wait(30)
             requests: list[tuple[bytes, Request]] = [
                 (b"search", SearchRequest(repo_path=fake_repo, query="Application")),
                 (b"watch", WatchRequest(repo_path=fake_repo, refs=["HEAD"])),
@@ -111,8 +111,8 @@ def test_reads_finish_while_gpu_and_writer_requests_wait(
         finally:
             query_released.set()
             write_released.set()
-        assert isinstance(search.result(timeout=5), SearchResponse)
-        assert writer.result(timeout=5).kind == "watch_set"
+        assert isinstance(search.result(timeout=30), SearchResponse)
+        assert writer.result(timeout=30).kind == "watch_set"
         replies = [rpc_peer.recv_multipart() for _ in range(2)]
         assert {frames[0] for frames in replies} == {b"search", b"watch"}
         assert all(response_adapter.validate_json(frames[-1]).kind != "error" for frames in replies)
@@ -149,8 +149,8 @@ def test_read_capacity_queues_without_rejecting(
             peak = max(peak, active)
         try:
             if not released.is_set():
-                started.wait(timeout=10)
-                assert released.wait(10)
+                started.wait(timeout=30)
+                assert released.wait(30)
             return original()
         finally:
             with lock:
@@ -163,7 +163,7 @@ def test_read_capacity_queues_without_rejecting(
     ):
         reads = [clients.submit(rpc_send, StatusRequest(repo_path=fake_repo)) for _ in range(limit)]
         try:
-            started.wait(timeout=10)
+            started.wait(timeout=30)
             rpc_peer.send_multipart(
                 [b"read", b"", StatusRequest(repo_path=fake_repo).model_dump_json().encode()]
             )
@@ -182,7 +182,7 @@ def test_read_capacity_queues_without_rejecting(
             assert peak == limit
         finally:
             released.set()
-        assert all(read.result(timeout=5).kind == "status" for read in reads)
+        assert all(read.result(timeout=30).kind == "status" for read in reads)
         frames = rpc_peer.recv_multipart()
         assert frames[:2] == [b"read", b""]
         assert response_adapter.validate_json(frames[-1]).kind == "status"
@@ -207,8 +207,8 @@ def test_shutdown_errors_resource_waiters_before_running_work_finishes(
         active = clients.submit(rpc_send, SearchRequest(repo_path=fake_repo, query="load_config"))
         writer = clients.submit(rpc_send, WatchRequest(repo_path=fake_repo, refs=["main"]))
         try:
-            assert query_started.wait(5)
-            assert write_started.wait(5)
+            assert query_started.wait(30)
+            assert write_started.wait(30)
             requests: list[tuple[bytes, Request]] = [
                 (b"search", SearchRequest(repo_path=fake_repo, query="Application")),
                 (b"watch", WatchRequest(repo_path=fake_repo, refs=[daemon_commit])),
@@ -232,9 +232,9 @@ def test_shutdown_errors_resource_waiters_before_running_work_finishes(
         finally:
             query_released.set()
             write_released.set()
-        assert active.result(timeout=5).kind == "search"
-        assert writer.result(timeout=5).kind == "watch_set"
-        assert stop.result(timeout=5).kind == "ok"
+        assert active.result(timeout=30).kind == "search"
+        assert writer.result(timeout=30).kind == "watch_set"
+        assert stop.result(timeout=30).kind == "ok"
     assert daemon_commit not in seeded_index.watched_refs(seeded_index.repo(fake_repo))
 
 
@@ -271,7 +271,7 @@ def test_shutdown_removes_work_waiting_in_the_executor(
                     assert released.wait(20)
 
                 blocker = loop.run_in_executor(None, block)
-                await asyncio.wait_for(occupied.wait(), timeout=5)
+                await asyncio.wait_for(occupied.wait(), timeout=30)
                 submitted = asyncio.Event()
                 original_submit = executor.submit
 
@@ -286,9 +286,9 @@ def test_shutdown_removes_work_waiting_in_the_executor(
                 write = loop.run_in_executor(
                     clients, rpc_send, WatchRequest(repo_path=fake_repo, refs=[daemon_commit])
                 )
-                await asyncio.wait_for(submitted.wait(), timeout=5)
+                await asyncio.wait_for(submitted.wait(), timeout=30)
                 stop = loop.run_in_executor(clients, rpc_send, ShutdownRequest())
-                response = await asyncio.wait_for(asyncio.shield(write), timeout=5)
+                response = await asyncio.wait_for(asyncio.shield(write), timeout=30)
                 assert isinstance(response, ErrorResponse)
                 assert response.code is ErrorCode.SHUTTING_DOWN
                 assert not stop.done()
@@ -319,13 +319,13 @@ def test_read_overlapping_registry_changes_returns_a_result_or_domain_error(
     with ThreadPoolExecutor(max_workers=2) as clients:
         read = clients.submit(rpc_send, SearchRequest(repo_path=fake_repo, query="load_config"))
         try:
-            assert query_started.wait(5)
-            response = clients.submit(rpc_send, mutation).result(timeout=10)
+            assert query_started.wait(30)
+            response = clients.submit(rpc_send, mutation).result(timeout=30)
             assert not isinstance(response, ErrorResponse)
             assert not read.done()
         finally:
             query_released.set()
-        response = read.result(timeout=5)
+        response = read.result(timeout=30)
         if isinstance(response, ErrorResponse):
             assert response.code in {
                 ErrorCode.REPO_NOT_FOUND,
@@ -353,13 +353,13 @@ def test_disconnected_search_finishes_without_blocking_other_clients(
             client.send(
                 SearchRequest(repo_path=fake_repo, query="load_config").model_dump_json().encode()
             )
-            assert query_started.wait(5)
+            assert query_started.wait(30)
             client.close()
             assert rpc_send(StatusRequest(repo_path=fake_repo)).kind == "status"
         finally:
             client.close()
             query_released.set()
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             if any(
                 entry["event"] == "request_complete" and entry["kind"] == "search"

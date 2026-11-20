@@ -13,7 +13,7 @@ import { runRbtr } from "../extensions/rbtr/exec.js";
 import { RbtrReplyError } from "../extensions/rbtr/reply-error.js";
 
 function piExiting(result: { stdout: string; stderr: string; code: number }): Pick<ExtensionAPI, "exec"> {
-  return { exec: async () => ({ ...result, killed: false }) };
+  return { exec: async () => ({ ...result, killed: false, truncated: false }) };
 }
 
 const rbtr = { executable: "rbtr", baseArgs: ["--json"], description: "rbtr (PATH)" };

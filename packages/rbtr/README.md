@@ -28,7 +28,7 @@ For example, install the CUDA 12.4 wheel:
 ```bash
 uv tool install \
   --index https://abetlen.github.io/llama-cpp-python/whl/cu124 \
-  "rbtr[all]"
+  "rbtr[languages]"
 ```
 
 Or install the Vulkan wheel:
@@ -36,7 +36,7 @@ Or install the Vulkan wheel:
 ```bash
 uv tool install \
   --index https://abetlen.github.io/llama-cpp-python/whl/vulkan \
-  "rbtr[all]"
+  "rbtr[languages]"
 ```
 
 Choose a backend compatible with the machine's drivers and platform. See the
@@ -958,8 +958,8 @@ for the dedup mechanism.
   original query only (no keyword or variant widening).
 - **No reranker model** → search returns fusion-ranked
   results without cross-encoder reranking.
-- **No FTS index** (first search before any build completes)
-  → error with guidance to run `rbtr watch`.
+- **No index yet** (a read before the first build) → error
+  with guidance to run `rbtr watch`.
 
 ## Development
 
@@ -971,6 +971,14 @@ git clone <repo-url>
 cd rbtr
 just setup    # uv sync + npm install
 just check    # lint, typecheck, and every test suite
+```
+
+`just setup` builds `llama-cpp-python` from PyPI; on macOS that build
+already uses Metal. On Linux or Windows, add an extra to sync a prebuilt
+backend instead, one of `cpu`, `vulkan` or `cuda` (CUDA 12.4):
+
+```bash
+uv sync --all-packages --extra cuda
 ```
 
 See [ARCHITECTURE.md][arch] for internals.
