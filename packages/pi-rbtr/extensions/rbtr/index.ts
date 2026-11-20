@@ -29,6 +29,7 @@ import { errorReply, type ResolvedCommand, resolveCommand, runRbtrJson, statusRe
 import { Footer } from "./footer.js";
 import type {
   ChangedSymbolsResponse,
+  ErrorResponse,
   FindRefsResponse,
   GcMode,
   GcResponse,
@@ -182,6 +183,9 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   // The repository's root as rbtr names it, from its status and watch
   // replies (ARCHITECTURE: "The repository root comes from rbtr").
   let repoRoot: string | null = null;
+  // Whether the session runs in a git repository; true until startup
+  // finds that it does not.
+  let inRepository = true;
   // Bumped on every session start and shutdown, so a startup that
   // finishes after its session ended changes nothing.
   let generation = 0;
@@ -296,25 +300,27 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     throw err;
   }
 
-  async function queryIndexStatus(repo: string): Promise<StatusResponse | null> {
+  async function queryIndexStatus(repo: string): Promise<StatusResponse | ErrorResponse | null> {
     const status = await indexStatus(repo);
-    if (status) learnRepoRoot(status);
+    if (status?.kind === "status") learnRepoRoot(status);
     return status;
   }
 
-  async function indexStatus(repo: string): Promise<StatusResponse | null> {
+  /** The index status of *repo*: rbtr's error when it answered with one, `null` when it did not answer. */
+  async function indexStatus(repo: string): Promise<StatusResponse | ErrorResponse | null> {
     if (session.available) {
       try {
         return await session.send({ kind: "status", repo_path: repo });
       } catch (err) {
-        if (err instanceof RbtrReplyError) return null;
+        if (err instanceof RbtrReplyError) return { kind: "error", code: err.code, message: err.message };
         // transport — fall through to CLI
       }
     }
     if (!resolved) return null;
     try {
       return await runRbtrJson<StatusResponse>(pi, resolved, ["status"], { timeout: 5000 });
-    } catch {
+    } catch (err) {
+      if (err instanceof RbtrReplyError) return { kind: "error", code: err.code, message: err.message };
       return null;
     }
   }
@@ -393,6 +399,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   pi.on("session_start", (_event, ctx) => {
     settings = loadSettings(ctx.cwd, ctx.isProjectTrusted());
     repoRoot = null;
+    inRepository = true;
     footer = new Footer(ctx);
     footer.setSpinner("muted", (frame) => `rbtr: ${frame} starting…`);
     const current = ++generation;
@@ -472,14 +479,15 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
 
     cli = "available";
 
-    if (decision.kind === "indexed") {
+    if (decision.kind === "no-repo") inRepository = false;
+    if (decision.kind === "indexed" || decision.kind === "no-repo") {
       const shown = statusFooter(status, session.available);
       footer?.setStatic(shown.color, shown.text);
       return;
     }
 
     if (decision.kind === "transient") {
-      ctx.ui.notify("rbtr index temporarily unavailable (database busy); will retry.", "warning");
+      ctx.ui.notify(decision.message, "warning");
     }
 
     // empty or transient: index if enabled (the CLI auto-starts /
@@ -488,7 +496,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     if (decision.index) {
       void triggerIndex(ctx);
     } else if (decision.kind === "transient") {
-      footer?.setStatic("muted", "rbtr: index unavailable — retrying");
+      footer?.setStatic("muted", "rbtr: index unavailable");
     } else {
       const shown = statusFooter(status, session.available);
       footer?.setStatic(shown.color, shown.text);
@@ -624,7 +632,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
   // pi's `rbtr` prompt section (ARCHITECTURE: "What the model reads first").
   pi.on("before_agent_start", async (event) => {
     const { sections } = event.systemPromptOptions;
-    if (cli === "missing") {
+    if (cli === "missing" || !inRepository) {
       delete sections.rbtr;
       return;
     }
@@ -741,8 +749,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         return;
       }
       const status = await queryIndexStatus(ctx.cwd);
-      if (!status) {
-        ctx.ui.notify("Failed to get index status", "error");
+      if (status?.kind !== "status") {
+        ctx.ui.notify(status?.message ?? "Failed to get index status", "error");
         return;
       }
       const refs = status.indexed_refs ?? [];

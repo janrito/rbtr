@@ -49,11 +49,10 @@ inactive; `rbtr_index_tools` loads them when the agent needs them:
 | `rbtr_status`          | Check whether the index exists and how many symbols it contains                                                               |
 | `rbtr_gc`              | Reclaim index storage. **Destructive**; previews as a dry run, and deletes only after you confirm                             |
 
-The extension also adds a one-line note to the system prompt, so
-the agent knows the index is there without being told: rbtr tools
-to find code by meaning, structure or name, grep for exact
-strings. Each tool's description leads with what it is used
-instead of, and the tools that find code are listed first.
+Inside a git repository, the extension also adds a one-line note to the system prompt,
+so the agent knows the index is there without being told: rbtr tools to find code by
+meaning, structure or name, grep for exact strings. Each tool's description leads with
+what it is used instead of, and the tools that find code are listed first.
 
 ### When to use which tool
 
@@ -181,6 +180,8 @@ The extension shows index state in the pi footer:
 - **Building:** `rbtr: ⠋ parsing 42/177 · 12s…` (spinner
   with phase, progress and elapsed time; a static `⟳`
   outside pi's terminal UI).
+- **Collecting:** `rbtr: ⠋ collecting 3/10…` while garbage
+  collection runs.
 - **Ready:** `rbtr: ● 1.2k symbols`. `○` with
   `· 42% embedded` or `· not embedded` while embedding is
   incomplete, and `· not running` when the CLI serves the
@@ -194,6 +195,10 @@ The extension shows index state in the pi footer:
 - **Ref not indexed:** `rbtr: ref not indexed`, when the
   repository's other refs are indexed but not the one reads use;
   reads use the latest indexed commit.
+- **Not a repository:** `rbtr: not a git repository`, when pi runs
+  outside a git repository; nothing is indexed.
+- **Unavailable:** `rbtr: index unavailable`, when rbtr could not
+  read the index status.
 - **Error:** `rbtr: cannot run`, `rbtr: indexing failed`,
   or `rbtr: ✗ error`.
 

@@ -57,23 +57,52 @@ describe.for<{
 
 // Startup indexes a repository it finds unindexed, or cannot tell about
 // because rbtr cannot read its index, only when autoIndex is on.
-describe.for<{ index: "unindexed" | "unreadable"; settings: { autoIndex: boolean; command?: string }; footer: RegExp }>(
-  [
-    { index: "unindexed", settings: { autoIndex: true }, footer: / symbols/ },
-    { index: "unindexed", settings: { autoIndex: false }, footer: /^rbtr: repo not indexed — \/rbtr-index$/ },
-    {
-      index: "unreadable",
-      settings: { autoIndex: false, command: DAEMON_AT },
-      footer: /^rbtr: index unavailable — retrying$/,
-    },
-  ],
-)("in a repository whose index is $index, with autoIndex $settings.autoIndex", ({ settings, footer }) => {
-  test.override({ projectSettings: settings });
-  test.override("cwd", ({ writableRepo }) => writableRepo);
+describe.for<{
+  index: "unindexed" | "unreadable";
+  settings: { autoIndex: boolean; command?: string };
+  footer: RegExp;
+  notifications: string[];
+}>([
+  { index: "unindexed", settings: { autoIndex: true }, footer: / symbols/, notifications: [] },
+  {
+    index: "unindexed",
+    settings: { autoIndex: false },
+    footer: /^rbtr: repo not indexed — \/rbtr-index$/,
+    notifications: [],
+  },
+  {
+    index: "unreadable",
+    settings: { autoIndex: false, command: DAEMON_AT },
+    footer: /^rbtr: index unavailable$/,
+    notifications: [
+      "rbtr daemon start/restart failed: daemon-at: daemon start: no index here. Falling back to CLI mode.",
+      "rbtr could not read the index status.",
+    ],
+  },
+])(
+  "in a repository whose index is $index, with autoIndex $settings.autoIndex",
+  ({ settings, footer, notifications }) => {
+    test.override({ projectSettings: settings });
+    test.override("cwd", ({ writableRepo }) => writableRepo);
 
-  test("startup indexes only when autoIndex is on", async ({ pi }) => {
+    test("startup indexes only when autoIndex is on", async ({ pi }) => {
+      await pi.start();
+      await until(() => footer.test(pi.ui.statuses.at(-1) ?? ""));
+      expect(pi.ui.notifications).toEqual(notifications);
+    });
+  },
+);
+
+describe("outside a git repository", () => {
+  test.override("cwd", ({ outside }) => outside);
+
+  test("startup says so in the footer, and indexes and prompts nothing", async ({ pi }) => {
     await pi.start();
-    await until(() => footer.test(pi.ui.statuses.at(-1) ?? ""));
+    await until(() => pi.ui.statuses.at(-1) === "rbtr: not a git repository");
+    await pi.run();
+    const system = pi.runtime.session.messages.find((message): message is SystemMessage => message.role === "system");
+    expect(system?.sections?.rbtr).toBeUndefined();
+    expect(pi.ui.notifications).toEqual([]);
   });
 });
 
