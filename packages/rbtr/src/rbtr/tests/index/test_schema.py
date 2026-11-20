@@ -469,7 +469,12 @@ def test_a_deferred_migration_refuses_its_file_until_it_runs(
 def test_a_copy_a_migration_grew_is_copied_again(
     ratio: float, compacted: bool, tmp_path: Path, chains: Path, mocker: MockerFixture
 ) -> None:
-    """A migration that rebuilds a table leaves the old one's space; past the growth ratio the copy is compacted."""
+    """A migration that rebuilds a table leaves the old one's space; past the growth ratio the copy is compacted.
+
+    Either way the registry records, as the size the file was last written
+    whole, the copy before the migration ran or the compacted one, so
+    maintenance measures growth from the data and not from the space left.
+    """
     path = tmp_path / "index.duckdb"
     _seed_one_chunk(path)
     (old_file,) = (tmp_path / "index").glob("*.duckdb")
@@ -489,6 +494,9 @@ ALTER TABLE rebuilt RENAME TO padding;
 
     (new_file,) = (tmp_path / "index").glob("*.duckdb")
     assert (new_file.stat().st_size < 1.5 * old_bytes) == compacted
+    with duckdb.connect(str(path), read_only=True) as con:
+        [(baseline,)] = con.sql("SELECT compacted_bytes FROM projects").fetchall()
+    assert baseline < 1.5 * old_bytes
 
 
 @pytest.mark.parametrize(
