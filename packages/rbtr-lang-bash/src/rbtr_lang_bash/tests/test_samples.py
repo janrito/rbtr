@@ -14,15 +14,16 @@ from typing import TYPE_CHECKING
 import pytest
 from tree_sitter import Parser
 
-from rbtr.domain.models import Chunk, ChunkKind, Edge
+from rbtr.domain.models import Chunk, ChunkKind
 from rbtr.git import FileEntry
-from rbtr.languages.edges import infer_import_edges
+from rbtr.languages.edges import InferredEdgeRow, infer_import_edges
 from rbtr.languages.extract import extract_file
 from rbtr.languages.manager import get_manager
 from rbtr.languages.resolution import build_resolution_map
 from rbtr.testing import edge_rows, render_edges
 
 if TYPE_CHECKING:
+    import dataframely as dy
     from syrupy.assertion import SnapshotAssertion
 
 
@@ -47,7 +48,7 @@ def chunks(project: list[tuple[str, str]]) -> list[Chunk]:
 
 
 @pytest.fixture
-def edges(project: list[tuple[str, str]], chunks: list[Chunk]) -> list[Edge]:
+def edges(project: list[tuple[str, str]], chunks: list[Chunk]) -> dy.DataFrame[InferredEdgeRow]:
     """Import edges inferred across the project's files."""
     manager = get_manager()
     return infer_import_edges(
@@ -80,6 +81,6 @@ def test_extraction_matches_snapshot(chunks: list[Chunk], snapshot_json: Snapsho
 
 
 def test_edges_match_snapshot(
-    chunks: list[Chunk], edges: list[Edge], snapshot_json: SnapshotAssertion
+    chunks: list[Chunk], edges: dy.DataFrame[InferredEdgeRow], snapshot_json: SnapshotAssertion
 ) -> None:
     assert render_edges(edges, chunks) == snapshot_json

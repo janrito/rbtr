@@ -336,23 +336,6 @@ class FileSnapshot(BaseModel, frozen=True):
     detected_language: str = ""
 
 
-class Edge(BaseModel, frozen=True):
-    """A directed relationship between content at two locations.
-
-    A chunk is content and sits at as many paths as hold those bytes, so
-    the paths are part of the relationship: `docx/helpers.py` importing
-    its sibling and `xlsx/helpers.py` importing a different one are two
-    edges from a single import chunk, distinguished by where each end
-    sits. `find-refs` reports the location that did the referring.
-    """
-
-    source_id: str
-    target_id: str
-    kind: EdgeKind
-    source_path: str
-    target_path: str
-
-
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SnapshotRef:
     """A registered repo at one of its snapshots: what a read is scoped to.
@@ -516,7 +499,6 @@ class Scope(StrEnum):
 Chunks = TypeAdapter(list[Chunk])
 ScoredChunks = TypeAdapter(list[ScoredChunk])
 FileSnapshots = TypeAdapter(list[FileSnapshot])
-Edges = TypeAdapter(list[Edge])
 
 
 class FileOutcome(StrEnum):

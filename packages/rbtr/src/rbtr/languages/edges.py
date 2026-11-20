@@ -30,7 +30,7 @@ from pathlib import PurePosixPath
 import dataframely as dy
 import polars as pl
 
-from rbtr.domain.models import ChunkKind, Edge, EdgeKind, Edges, ImportMeta
+from rbtr.domain.models import ChunkKind, EdgeKind, ImportMeta
 from rbtr.languages.resolution import ImportResolution, import_files
 
 
@@ -81,7 +81,14 @@ class ImportRow(dy.Schema):
 
 
 class InferredEdgeRow(dy.Schema):
-    """An edge one way of resolving imports infers: an import to a chunk it reaches."""
+    """An edge: an import chunk at one location reaching a chunk at another.
+
+    A chunk is content and sits at as many paths as hold those bytes, so
+    the paths are part of the relationship: `docx/helpers.py` importing
+    its sibling and `xlsx/helpers.py` importing a different one are two
+    edges from a single import chunk, distinguished by where each end
+    sits. `find-refs` reports the location that did the referring.
+    """
 
     source_id = dy.String(nullable=False)
     target_id = dy.String(nullable=False)
@@ -310,7 +317,7 @@ def infer_import_edges(
     chunks: dy.DataFrame[EdgeChunkRow],
     repo_files: set[str],
     resolution_map: dict[str, ImportResolution] | None = None,
-) -> list[Edge]:
+) -> dy.DataFrame[InferredEdgeRow]:
     """Infer the edges *chunks*' imports make to the chunks they reach.
 
     Each import takes one `ImportWay`, resolved by `_bare_edges` and
@@ -345,4 +352,4 @@ def infer_import_edges(
             _text_edges(imports, symbols, repo_files, index_stems),
         ]
     )
-    return Edges.validate_python(edges.to_dicts())
+    return edges.pipe(InferredEdgeRow.validate)

@@ -8,13 +8,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import polars as pl
 import pygit2
 import pytest
 
-from rbtr.domain.models import Edge, EdgeKind
+from rbtr.domain.models import EdgeKind
 from rbtr.git import normalise_repo_path
 from rbtr.index.build import build_index
 from rbtr.index.index import Index
+from rbtr.languages.edges import InferredEdgeRow
 from rbtr.tests.conftest import make_commit
 from rbtr_eval.corpus import Corpus, corpus_refs
 from rbtr_eval.index_stage import (
@@ -64,15 +66,20 @@ def index_with_residue(tmp_path: Path) -> Index:
                 ws.add_chunk(c)
             ws.insert_snapshots([snap(sha, chunks[0])])
         ws.insert_edges(
-            [
-                Edge(
-                    source_id=imp.id,
-                    target_id=fn.id,
-                    kind=EdgeKind.IMPORTS,
-                    source_path=imp.file_path,
-                    target_path=fn.file_path,
-                )
-            ],
+            InferredEdgeRow.validate(
+                pl.DataFrame(
+                    [
+                        {
+                            "source_id": imp.id,
+                            "target_id": fn.id,
+                            "kind": EdgeKind.IMPORTS,
+                            "source_path": imp.file_path,
+                            "target_path": fn.file_path,
+                        }
+                    ]
+                ),
+                cast=True,
+            ),
             snapshot_sha=INDEXED,
         )
         ws.mark_indexed(snapshot_sha=INDEXED)

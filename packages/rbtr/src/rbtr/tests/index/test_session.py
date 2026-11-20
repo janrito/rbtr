@@ -11,6 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import duckdb
+import polars as pl
 import pytest
 from dataframely.exc import ValidationError
 from pydantic import ValidationError as ModelValidationError
@@ -18,10 +19,11 @@ from pytest_cases import parametrize_with_cases
 from pytest_mock import MockerFixture
 
 from rbtr.config import config
-from rbtr.domain.models import Edge, EdgeKind, FileSnapshot, Repo, SnapshotRef, Span
+from rbtr.domain.models import EdgeKind, FileSnapshot, Repo, SnapshotRef, Span
 from rbtr.errors import RepoNotFoundError
 from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
+from rbtr.languages.edges import InferredEdgeRow
 
 from .cases_index_repos import RepoSequence
 from .cases_index_watched_refs import WatchedRefScenario
@@ -218,7 +220,7 @@ def test_empty_operations_are_noops(index: Index) -> None:
     repo = index.register("/repo")
     with index.session(repo) as ws:
         ws.insert_snapshots([])
-        ws.insert_edges([], snapshot_sha="c1")
+        ws.insert_edges(InferredEdgeRow.create_empty(), snapshot_sha="c1")
         ws.update_embeddings([], [])
         ws.delete_chunks_for_blobs(set(), file_language="")
 
@@ -286,28 +288,28 @@ def test_replace_snapshots_scoped_to_commit(index: Index) -> None:
 
 def test_replace_edges_scoped_to_commit(index: Index) -> None:
     """Replacing edges for one commit doesn't touch another."""
-    e1 = Edge(
-        source_id="a",
-        target_id="b",
-        kind=EdgeKind.IMPORTS,
-        source_path="src/a.py",
-        target_path="src/b.py",
-    )
-    e2 = Edge(
-        source_id="c",
-        target_id="d",
-        kind=EdgeKind.IMPORTS,
-        source_path="src/c.py",
-        target_path="src/d.py",
-    )
+    e1 = {
+        "source_id": "a",
+        "target_id": "b",
+        "kind": EdgeKind.IMPORTS,
+        "source_path": "src/a.py",
+        "target_path": "src/b.py",
+    }
+    e2 = {
+        "source_id": "c",
+        "target_id": "d",
+        "kind": EdgeKind.IMPORTS,
+        "source_path": "src/c.py",
+        "target_path": "src/d.py",
+    }
 
     repo = index.register("/repo")
     with index.session(repo) as ws:
-        ws.insert_edges([e1], snapshot_sha="c1")
-        ws.insert_edges([e2], snapshot_sha="c2")
+        ws.insert_edges(InferredEdgeRow.validate(pl.DataFrame([e1]), cast=True), snapshot_sha="c1")
+        ws.insert_edges(InferredEdgeRow.validate(pl.DataFrame([e2]), cast=True), snapshot_sha="c2")
 
     with index.session(repo) as ws:
-        ws.replace_edges([], snapshot_sha="c1")
+        ws.replace_edges(InferredEdgeRow.create_empty(), snapshot_sha="c1")
 
     assert index.count_edges(at=repo.at("c1")) == 0
     assert index.count_edges(at=repo.at("c2")) == 1

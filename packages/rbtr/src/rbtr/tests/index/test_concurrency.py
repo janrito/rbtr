@@ -5,9 +5,12 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from rbtr.domain.models import Edge, EdgeKind, FileSnapshot
+import polars as pl
+
+from rbtr.domain.models import EdgeKind, FileSnapshot
 from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
+from rbtr.languages.edges import InferredEdgeRow
 
 from .conftest import make_chunk
 
@@ -39,15 +42,20 @@ def test_commit_makes_writes_visible_during_concurrent_work(
                 ],
             )
             session.insert_edges(
-                [
-                    Edge(
-                        source_id=math_func.id,
-                        target_id=http_func.id,
-                        kind=EdgeKind.IMPORTS,
-                        source_path=math_func.file_path,
-                        target_path=http_func.file_path,
-                    )
-                ],
+                InferredEdgeRow.validate(
+                    pl.DataFrame(
+                        [
+                            {
+                                "source_id": math_func.id,
+                                "target_id": http_func.id,
+                                "kind": EdgeKind.IMPORTS,
+                                "source_path": math_func.file_path,
+                                "target_path": http_func.file_path,
+                            }
+                        ]
+                    ),
+                    cast=True,
+                ),
                 snapshot_sha="head",
             )
         first_done.set()

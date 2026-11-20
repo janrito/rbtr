@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from types import TracebackType
 
+import dataframely as dy
 import duckdb
 import polars as pl
 import structlog
 
 from rbtr.config import config
-from rbtr.domain.models import Edge, FileSnapshot, GcCounts, Repo
+from rbtr.domain.models import FileSnapshot, GcCounts, Repo
 from rbtr.index import load_sql
 from rbtr.index.db import build_fts, registered_views
 from rbtr.index.staging import (
@@ -20,6 +21,7 @@ from rbtr.index.staging import (
     staged_embeddings,
     staged_file_snapshots,
 )
+from rbtr.languages.edges import InferredEdgeRow
 
 _BLOB_IS_CURRENT_SQL = load_sql("blob_is_current.sql")
 _COUNT_UNCLAIMED_BLOBS_SQL = load_sql("count_unclaimed_blobs.sql")
@@ -288,13 +290,13 @@ class WriteSession:
         )
         self.insert_snapshots(snapshots)
 
-    def insert_edges(self, edges: list[Edge], *, snapshot_sha: str) -> None:
+    def insert_edges(self, edges: dy.DataFrame[InferredEdgeRow], *, snapshot_sha: str) -> None:
         """Batch insert edges of the repo's snapshot *snapshot_sha*."""
-        if not edges:
+        if edges.is_empty():
             return
         self._bulk_insert(_INSERT_EDGES_SQL, staged_edges(edges, at=self._repo.at(snapshot_sha)))
 
-    def replace_edges(self, edges: list[Edge], *, snapshot_sha: str) -> None:
+    def replace_edges(self, edges: dy.DataFrame[InferredEdgeRow], *, snapshot_sha: str) -> None:
         """Atomically replace all edges of the repo's snapshot *snapshot_sha*."""
         self._require_active()
         self._cursor.execute(
