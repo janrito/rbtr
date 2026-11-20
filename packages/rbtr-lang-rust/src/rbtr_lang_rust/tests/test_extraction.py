@@ -17,8 +17,8 @@ from rbtr.testing.reads import outline, read
 @parametrize_with_cases("files, expected", cases=".cases_extraction", has_tag="symbol")
 def test_extracts_expected_symbols(indexed: Indexed, files: dict[str, str], expected: list) -> None:
     """Each expected (kind, name, scope) tuple appears in the outline."""
-    with indexed(files) as index:
-        reply = outline(index)
+    with indexed(files) as build:
+        reply = outline(build)
     symbols = [(s.kind, s.name, s.scope) for s in reply]
     for exp in expected:
         assert exp in symbols, f"expected {exp} not found in {symbols}"
@@ -34,8 +34,8 @@ def test_extracts_all_expected_kinds(
     expected_methods: list[tuple[str, str]],
 ) -> None:
     """Realistic source produces all expected chunk kinds and method scoping."""
-    with indexed(files) as index:
-        reply = outline(index)
+    with indexed(files) as build:
+        reply = outline(build)
     kinds = {s.kind for s in reply}
     for kind in expected_kinds:
         assert kind in kinds, f"expected kind {kind!r} not in {kinds}"
@@ -47,8 +47,8 @@ def test_extracts_all_expected_kinds(
 @parametrize_with_cases("files, expected", cases=".cases_extraction", has_tag="import")
 def test_extracts_import_metadata(indexed: Indexed, files: dict[str, str], expected: dict) -> None:
     """The first import has the expected metadata."""
-    with indexed(files) as index:
-        reply = outline(index)
+    with indexed(files) as build:
+        reply = outline(build)
     imports = [s.metadata for s in reply if s.kind == ChunkKind.IMPORT]
     assert imports, f"no import extracted from {files!r}"
     assert imports[0] == ImportMeta(**expected)
@@ -62,8 +62,8 @@ impl Svc {
     fn new() -> Self { Svc {} }
 }
 """
-    with indexed({"input.rs": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.rs": src}) as build:
+        chunks = outline(build)
     svc_classes = [c for c in chunks if c.kind == ChunkKind.CLASS and c.name == "Svc"]
     assert len(svc_classes) == 2  # struct + impl
 
@@ -82,9 +82,9 @@ pub struct Config {
     name: String,
 }
 """
-    with indexed({"input.rs": src}) as index:
-        chunks = outline(index)
-        [struct] = read(index, "Config")
+    with indexed({"input.rs": src}) as build:
+        chunks = outline(build)
+        [struct] = read(build, "Config")
     assert struct.line_start == 3
     assert "#[derive(Serialize, Debug)]" in struct.content
     assert [(c.line_start, c.line_end) for c in chunks if c.kind == ChunkKind.COMMENT] == [(1, 1)]
@@ -97,5 +97,5 @@ def test_a_call_or_base_reaches_what_it_names(
     reached: dict[Target, set[Referrer]],
 ) -> None:
     """Each target `(path, symbol)` is reached by exactly the callers and subclasses named."""
-    with indexed(files) as index:
-        assert_reached(index, reached, edges={EdgeKind.CALLS, EdgeKind.INHERITS})
+    with indexed(files) as build:
+        assert_reached(build, reached, edges={EdgeKind.CALLS, EdgeKind.INHERITS})

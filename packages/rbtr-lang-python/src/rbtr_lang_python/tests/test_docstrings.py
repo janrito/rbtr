@@ -19,8 +19,8 @@ def test_documented_chunk_includes_doc_text(
     indexed: Indexed, files: dict[str, str], name: str, snippet: str
 ) -> None:
     """By default the chunk content carries the symbol's docs."""
-    with indexed(files) as index:
-        [chunk] = read(index, name)
+    with indexed(files) as build:
+        [chunk] = read(build, name)
     assert snippet in chunk.content, (
         f"expected {snippet!r} in {name} content; got:\n{chunk.content!r}"
     )
@@ -31,8 +31,8 @@ def test_no_phantom_documentation(
     indexed: Indexed, files: dict[str, str], name: str, snippet: str
 ) -> None:
     """Symbols without documentation do not gain any in content."""
-    with indexed(files) as index:
-        [chunk] = read(index, name)
+    with indexed(files) as build:
+        [chunk] = read(build, name)
     assert snippet not in chunk.content, (
         f"unexpected {snippet!r} in {name} content; got:\n{chunk.content!r}"
     )

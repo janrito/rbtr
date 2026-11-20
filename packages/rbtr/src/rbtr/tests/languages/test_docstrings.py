@@ -27,9 +27,9 @@ def test_exterior_leading_comment_folds_into_symbol(indexed: Indexed, tmp_path: 
 // Compute the answer.
 int answer(void) { return 42; }
 """
-    with get_manager().limited_to(c_language), indexed({"x.c": src}) as index:
-        at = resolve_read_ref(index, index.repo(str(tmp_path)), None).at
-        chunks = index.chunks(at=at, file_path="x.c").rows(named=True)
+    with get_manager().limited_to(c_language), indexed({"x.c": src}) as build:
+        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
+        chunks = build.index.chunks(at=at, file_path="x.c").rows(named=True)
     assert [(c["kind"], c["name"], c["line_start"], c["content"]) for c in chunks] == [
         (ChunkKind.FUNCTION, "answer", 1, src.rstrip("\n"))
     ]
@@ -44,9 +44,9 @@ def test_blank_separated_comment_stays_standalone(indexed: Indexed, tmp_path: Pa
 
 int answer(void) { return 42; }
 """
-    with get_manager().limited_to(c_language), indexed({"x.c": src}) as index:
-        at = resolve_read_ref(index, index.repo(str(tmp_path)), None).at
-        chunks = index.chunks(at=at, file_path="x.c").rows(named=True)
+    with get_manager().limited_to(c_language), indexed({"x.c": src}) as build:
+        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
+        chunks = build.index.chunks(at=at, file_path="x.c").rows(named=True)
     assert [(c["kind"], c["name"], c["line_start"], c["content"]) for c in chunks] == [
         (ChunkKind.COMMENT, "", 1, "// A banner, attached to nothing."),
         (ChunkKind.FUNCTION, "answer", 3, "int answer(void) { return 42; }"),
@@ -66,9 +66,9 @@ def answer():
     """Compute the answer."""
     return 42
 '''
-    with get_manager().limited_to(python), indexed({"x.py": src}) as index:
-        at = resolve_read_ref(index, index.repo(str(tmp_path)), None).at
-        chunks = index.chunks(at=at, file_path="x.py").rows(named=True)
+    with get_manager().limited_to(python), indexed({"x.py": src}) as build:
+        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
+        chunks = build.index.chunks(at=at, file_path="x.py").rows(named=True)
     assert [(c["kind"], c["name"], c["line_start"], c["content"]) for c in chunks] == [
         (ChunkKind.FUNCTION, "answer", 1, src.rstrip("\n"))
     ]

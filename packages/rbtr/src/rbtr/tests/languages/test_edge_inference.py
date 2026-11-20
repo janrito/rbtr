@@ -40,8 +40,8 @@ def test_an_import_reaches_what_its_way_resolves_to(
     prose_languages: list[LanguageRegistration],
     scenario: ImportWayScenario,
 ) -> None:
-    with get_manager().limited_to(*prose_languages), indexed(scenario.files) as index:
-        assert_reached(index, scenario.reached)
+    with get_manager().limited_to(*prose_languages), indexed(scenario.files) as build:
+        assert_reached(build, scenario.reached)
 
 
 @pytest.fixture

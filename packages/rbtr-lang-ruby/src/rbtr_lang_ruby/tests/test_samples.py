@@ -14,8 +14,8 @@ if TYPE_CHECKING:
 
 
 def test_extraction_matches_snapshot(indexed: Indexed, snapshot_json: SnapshotAssertion) -> None:
-    with indexed(Path(__file__).parent / "samples" / "ruby") as index:
-        symbols = outline(index)
+    with indexed(Path(__file__).parent / "samples" / "ruby") as build:
+        symbols = outline(build)
     assert symbols == snapshot_json
 
 
@@ -41,11 +41,11 @@ def test_every_edge_reaches_what_it_names(indexed: Indexed) -> None:
         },
         ("ruby.rb", "Shoutable"): {("ruby.rb", "Greeter", "inherits")},
     }
-    with indexed(Path(__file__).parent / "samples" / "ruby") as index:
-        assert_reached(index, reached)
+    with indexed(Path(__file__).parent / "samples" / "ruby") as build:
+        assert_reached(build, reached)
 
 
 def test_every_line_is_in_a_chunk(indexed: Indexed) -> None:
     """No line of the sample's code falls outside a chunk."""
-    with indexed(Path(__file__).parent / "samples" / "ruby") as index:
-        assert_every_line_in_a_chunk(index)
+    with indexed(Path(__file__).parent / "samples" / "ruby") as build:
+        assert_every_line_in_a_chunk(build)

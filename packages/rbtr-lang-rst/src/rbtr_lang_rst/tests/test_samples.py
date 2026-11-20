@@ -18,8 +18,8 @@ if TYPE_CHECKING:
 
 
 def test_extraction_matches_snapshot(indexed: Indexed, snapshot_json: SnapshotAssertion) -> None:
-    with indexed(Path(__file__).parent / "samples" / "rst") as index:
-        symbols = outline(index)
+    with indexed(Path(__file__).parent / "samples" / "rst") as build:
+        symbols = outline(build)
     assert symbols == snapshot_json
 
 
@@ -53,11 +53,11 @@ def test_every_edge_reaches_what_it_names(indexed: Indexed) -> None:
         ("topics/detail.rst", "Detail"): {("topics/intro.rst", ":doc:`detail`", "documents")},
         ("topics/intro.rst", "Intro"): {("rst.rst", ":doc:`topics/intro`", "documents")},
     }
-    with indexed(Path(__file__).parent / "samples" / "rst") as index:
-        assert_reached(index, reached)
+    with indexed(Path(__file__).parent / "samples" / "rst") as build:
+        assert_reached(build, reached)
 
 
 def test_every_line_is_in_a_chunk(indexed: Indexed) -> None:
     """No line of the sample's code falls outside a chunk."""
-    with indexed(Path(__file__).parent / "samples" / "rst") as index:
-        assert_every_line_in_a_chunk(index)
+    with indexed(Path(__file__).parent / "samples" / "rst") as build:
+        assert_every_line_in_a_chunk(build)

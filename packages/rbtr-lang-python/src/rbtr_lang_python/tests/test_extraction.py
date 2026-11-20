@@ -21,8 +21,8 @@ from rbtr.testing.reads import outline, read
 @parametrize_with_cases("files, expected", cases=".cases_extraction", has_tag="symbol")
 def test_extracts_expected_symbols(indexed: Indexed, files: dict[str, str], expected: list) -> None:
     """Each expected (kind, name, scope) tuple appears in the outline."""
-    with indexed(files) as index:
-        reply = outline(index)
+    with indexed(files) as build:
+        reply = outline(build)
     symbols = [(s.kind, s.name, s.scope) for s in reply]
     for exp in expected:
         assert exp in symbols, f"expected {exp} not found in {symbols}"
@@ -38,8 +38,8 @@ def test_extracts_all_expected_kinds(
     expected_methods: list[tuple[str, str]],
 ) -> None:
     """Realistic source produces all expected chunk kinds and method scoping."""
-    with indexed(files) as index:
-        reply = outline(index)
+    with indexed(files) as build:
+        reply = outline(build)
     kinds = {s.kind for s in reply}
     for kind in expected_kinds:
         assert kind in kinds, f"expected kind {kind!r} not in {kinds}"
@@ -51,8 +51,8 @@ def test_extracts_all_expected_kinds(
 @parametrize_with_cases("files, expected", cases=".cases_extraction", has_tag="import")
 def test_extracts_import_metadata(indexed: Indexed, files: dict[str, str], expected: dict) -> None:
     """The first import has the expected metadata."""
-    with indexed(files) as index:
-        reply = outline(index)
+    with indexed(files) as build:
+        reply = outline(build)
     imports = [s.metadata for s in reply if s.kind == ChunkKind.IMPORT]
     assert imports, f"no import extracted from {files!r}"
     assert imports[0] == ImportMeta(**expected)
@@ -68,8 +68,8 @@ def test_extracts_multi_import(
     metadata_list: list[dict],
 ) -> None:
     """Multiple imports have correct count and per-import metadata."""
-    with indexed(files) as index:
-        reply = outline(index)
+    with indexed(files) as build:
+        reply = outline(build)
     imports = [s.metadata for s in reply if s.kind == ChunkKind.IMPORT]
     assert len(imports) == count
     assert imports == [ImportMeta(**expected) for expected in metadata_list]
@@ -82,8 +82,8 @@ def test_a_call_or_base_reaches_what_it_names(
     reached: dict[Target, set[Referrer]],
 ) -> None:
     """Each target `(path, symbol)` is reached by exactly the callers and subclasses named."""
-    with indexed(files) as index:
-        assert_reached(index, reached, edges={EdgeKind.CALLS, EdgeKind.INHERITS})
+    with indexed(files) as build:
+        assert_reached(build, reached, edges={EdgeKind.CALLS, EdgeKind.INHERITS})
 
 
 def test_py_module_variable_content_is_whole_statement(indexed: Indexed) -> None:
@@ -91,8 +91,8 @@ def test_py_module_variable_content_is_whole_statement(indexed: Indexed) -> None
     src = """\
 MAX_SIZE = 100
 """
-    with indexed({"a.py": src}) as index:
-        definitions = read(index, "MAX_SIZE")
+    with indexed({"a.py": src}) as build:
+        definitions = read(build, "MAX_SIZE")
     assert [(s.kind, s.content) for s in definitions] == [(ChunkKind.VARIABLE, "MAX_SIZE = 100")]
 
 
@@ -118,8 +118,8 @@ class Config:
 )
 def test_py_a_local_or_attribute_is_no_variable(indexed: Indexed, src: str) -> None:
     """Assignments inside a function or a class body stay part of its chunk."""
-    with indexed({"a.py": src}) as index:
-        reply = outline(index)
+    with indexed({"a.py": src}) as build:
+        reply = outline(build)
     assert [s for s in reply if s.kind == ChunkKind.VARIABLE] == []
 
 
@@ -128,8 +128,8 @@ def test_py_tuple_unpacking_captured_as_variables(indexed: Indexed) -> None:
     src = """\
 a, b = compute()
 """
-    with indexed({"a.py": src}) as index:
-        reply = outline(index)
+    with indexed({"a.py": src}) as build:
+        reply = outline(build)
     assert [(s.kind, s.name, s.line_start, s.line_end) for s in reply] == [
         (ChunkKind.VARIABLE, "a", 1, 1),
         (ChunkKind.VARIABLE, "b", 1, 1),
@@ -149,8 +149,8 @@ from __future__ import annotations
 import os
 import numpy as np
 """
-    with indexed({"a.py": src}) as index:
-        reply = outline(index)
+    with indexed({"a.py": src}) as build:
+        reply = outline(build)
     assert [
         (s.name, s.metadata.module if s.metadata else "")
         for s in reply

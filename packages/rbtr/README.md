@@ -979,14 +979,14 @@ src/rbtr_lang_swift/tests/
 
 Everything a test needs is in `rbtr.testing`:
 
-| Name                                  | From                      | What it does                                                                                       |
-| ------------------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------- |
-| `indexed`                             | fixture                   | `with indexed(files) as index:` builds `{path: text}`, or a sample directory, and yields the index |
-| `outline(index)`                      | `rbtr.testing.reads`      | the symbols of every committed file (or of the paths given), as `list-symbols` gives them          |
-| `read(index, symbol)`                 | `rbtr.testing.reads`      | a symbol's definitions with their text, as `read-symbol` gives them                                |
-| `assert_reached(index, reached)`      | `rbtr.testing.assertions` | each target is reached by exactly the chunks listed                                                |
-| `assert_every_line_in_a_chunk(index)` | `rbtr.testing.assertions` | no non-blank line of a committed file falls outside a symbol                                       |
-| `snapshot_json`                       | fixture                   | snapshots a value as JSON                                                                          |
+| Name                                  | From                      | What it does                                                                                                                                 |
+| ------------------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `indexed`                             | fixture                   | `with indexed(files) as build:` builds `{path: text}`, or a sample directory, and yields the build: its `index` and `build_index`'s `result` |
+| `outline(build)`                      | `rbtr.testing.reads`      | the symbols of every committed file (or of the paths given), as `list-symbols` gives them                                                    |
+| `read(build, symbol)`                 | `rbtr.testing.reads`      | a symbol's definitions with their text, as `read-symbol` gives them                                                                          |
+| `assert_reached(build, reached)`      | `rbtr.testing.assertions` | each target is reached by exactly the chunks listed                                                                                          |
+| `assert_every_line_in_a_chunk(build)` | `rbtr.testing.assertions` | no non-blank line of a committed file falls outside a symbol                                                                                 |
+| `snapshot_json`                       | fixture                   | snapshots a value as JSON                                                                                                                    |
 
 A case returns its files and what they should give. A file of more than
 one line is a `"""\` block, never a string of escaped newlines:
@@ -1011,8 +1011,8 @@ from rbtr.testing.reads import outline
 
 @parametrize_with_cases("files, expected", cases=".cases_extraction", has_tag="symbol")
 def test_extracts_expected_symbols(indexed: Indexed, files: dict[str, str], expected: list) -> None:
-    with indexed(files) as index:
-        symbols = [(s.kind, s.name, s.scope) for s in outline(index)]
+    with indexed(files) as build:
+        symbols = [(s.kind, s.name, s.scope) for s in outline(build)]
     assert symbols == expected
 ```
 
@@ -1051,8 +1051,8 @@ func run() { log() }
 def test_each_target_is_reached_by_exactly_the_chunks_named(
     indexed: Indexed, files: dict[str, str], reached: dict[Target, set[Referrer]]
 ) -> None:
-    with indexed(files) as index:
-        assert_reached(index, reached)
+    with indexed(files) as build:
+        assert_reached(build, reached)
 ```
 
 A target that no symbol of its path names fails the check, so a
@@ -1075,9 +1075,9 @@ from syrupy.assertion import SnapshotAssertion
 
 
 def test_extraction_matches_snapshot(indexed: Indexed, snapshot_json: SnapshotAssertion) -> None:
-    with indexed(Path(__file__).parent / "samples" / "swift") as index:
-        assert outline(index) == snapshot_json
-        assert_every_line_in_a_chunk(index)
+    with indexed(Path(__file__).parent / "samples" / "swift") as build:
+        assert outline(build) == snapshot_json
+        assert_every_line_in_a_chunk(build)
 ```
 
 A failing check is reported at the test's line, with pytest's diff.
@@ -1100,8 +1100,8 @@ from rbtr.testing.reads import outline
 
 @pytest.mark.parametrize(("path", "language"), [("App.swift", "swift")])
 def test_claims_its_files(indexed: Indexed, path: str, language: str) -> None:
-    with indexed({path: ""}) as index:
-        assert {symbol.language for symbol in outline(index, [path])} == {language}
+    with indexed({path: ""}) as build:
+        assert {symbol.language for symbol in outline(build)} == {language}
 ```
 
 A plugin's tests import from rbtr only `rbtr.testing` and its `reads`

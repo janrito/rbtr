@@ -1,6 +1,6 @@
-"""Read an index `indexed` built as an agent reads one: a file's outline, a symbol's definitions.
+"""Read a build `indexed` made as an agent reads an index: a file's outline, a symbol's definitions.
 
-The index holds one repository, the one `indexed` committed the files to;
+Its index holds one repository, the one `indexed` committed the files to;
 each reader finds it.
 """
 
@@ -14,18 +14,18 @@ import pygit2
 from rbtr.daemon.dto import SymbolOut, SymbolRefOut
 from rbtr.daemon.handlers import handle_list_symbols, handle_read_symbol
 from rbtr.daemon.messages import ListSymbolsRequest, ReadSymbolRequest
-from rbtr.index.index import Index
+from rbtr.testing import IndexBuild
 
 
-def repo_path(index: Index) -> str:
-    """The path of the one repository *index* holds."""
-    [repo] = index.repos()
+def repo_path(build: IndexBuild) -> str:
+    """The path of the one repository *build*'s index holds."""
+    [repo] = build.index.repos()
     return repo.repo_path
 
 
-def committed_files(index: Index) -> dict[str, str]:
+def committed_files(build: IndexBuild) -> dict[str, str]:
     """Each file the commit `indexed` made holds, as `{path: text}`, in path order."""
-    repo = pygit2.Repository(repo_path(index))
+    repo = pygit2.Repository(repo_path(build))
     files: dict[str, str] = {}
     pending = [("", repo.head.peel(pygit2.Commit).tree)]
     while pending:
@@ -38,27 +38,27 @@ def committed_files(index: Index) -> dict[str, str]:
     return dict(sorted(files.items(), key=lambda item: Path(item[0])))
 
 
-def outline(index: Index, paths: Iterable[str] | None = None) -> list[SymbolRefOut]:
+def outline(build: IndexBuild, paths: Iterable[str] | None = None) -> list[SymbolRefOut]:
     """The symbols `list-symbols` gives for each of *paths*, file by file; for every committed file when none are given."""
-    root = repo_path(index)
+    root = repo_path(build)
     if paths is None:
-        paths = committed_files(index)
+        paths = committed_files(build)
     return [
         symbol
         for path in paths
         for symbol in handle_list_symbols(
-            ListSymbolsRequest(repo_path=root, file_path=path), index
+            ListSymbolsRequest(repo_path=root, file_path=path), build.index
         ).chunks
     ]
 
 
-def read(index: Index, symbol: str, path: str | None = None) -> list[SymbolOut]:
+def read(build: IndexBuild, symbol: str, path: str | None = None) -> list[SymbolOut]:
     """The definitions `read-symbol` gives for *symbol*, with their text; only *path*'s when given."""
     return handle_read_symbol(
         ReadSymbolRequest(
-            repo_path=repo_path(index),
+            repo_path=repo_path(build),
             symbol=symbol,
             file_paths=None if path is None else [path],
         ),
-        index,
+        build.index,
     ).chunks

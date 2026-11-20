@@ -17,8 +17,8 @@ from rbtr.testing.reads import outline
 @parametrize_with_cases("files, expected", cases=".cases_extraction", has_tag="symbol")
 def test_extracts_expected_symbols(indexed: Indexed, files: dict[str, str], expected: list) -> None:
     """Each expected (kind, name, scope) tuple appears in the outline."""
-    with indexed(files) as index:
-        reply = outline(index)
+    with indexed(files) as build:
+        reply = outline(build)
     symbols = [(s.kind, s.name, s.scope) for s in reply]
     for exp in expected:
         assert exp in symbols, f"expected {exp} not found in {symbols}"
@@ -30,8 +30,8 @@ def test_html_non_semantic_is_a_fragment(indexed: Indexed) -> None:
     A non-semantic wrapper (`<div>`) is not elevated to a doc_section, so
     it reaches a chunk only as code no pattern names.
     """
-    with indexed({"input.html": "<div>hello</div>"}) as index:
-        chunks = outline(index)
+    with indexed({"input.html": "<div>hello</div>"}) as build:
+        chunks = outline(build)
     assert [(c.kind, c.line_start, c.line_end) for c in chunks] == [(ChunkKind.FRAGMENT, 1, 1)]
 
 
@@ -43,8 +43,8 @@ def test_html_script_src_produces_import(indexed: Indexed) -> None:
 <body><p>hello</p></body>
 </html>
 """
-    with indexed({"input.html": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.html": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert len(imports) == 1
     assert imports[0].module == "app.js"
@@ -59,8 +59,8 @@ def test_html_link_href_produces_import(indexed: Indexed) -> None:
 <body><p>hello</p></body>
 </html>
 """
-    with indexed({"input.html": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.html": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert len(imports) == 1
     assert imports[0].module == "styles.css"
@@ -75,8 +75,8 @@ def test_html_self_closing_link_produces_import(indexed: Indexed) -> None:
 <body><p>hello</p></body>
 </html>
 """
-    with indexed({"input.html": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.html": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert len(imports) == 1
     assert imports[0].module == "styles.css"
@@ -95,8 +95,8 @@ def test_html_anchor_href_names_a_page(indexed: Indexed) -> None:
 </body>
 </html>
 """
-    with indexed({"page.html": src}) as index:
-        chunks = outline(index)
+    with indexed({"page.html": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     # `list-symbols` gives a line's symbols in name order, not source order.
     assert [(i.module, i.names, i.language_hint) for i in imports] == [
@@ -119,8 +119,8 @@ def test_an_element_a_fragment_can_name_is_a_section_named_by_it(indexed: Indexe
 </body>
 </html>
 """
-    with indexed({"input.html": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.html": src}) as build:
+        chunks = outline(build)
     # `list-symbols` gives a line's symbols in name order, not source order.
     assert [c.name for c in chunks if c.kind == ChunkKind.DOC_SECTION] == [
         "body",
@@ -129,6 +129,6 @@ def test_an_element_a_fragment_can_name_is_a_section_named_by_it(indexed: Indexe
         "setup",
         "section",
     ]
-    with indexed({"input.html": '<a id="here">'}) as index:
-        lone = outline(index)
+    with indexed({"input.html": '<a id="here">'}) as build:
+        lone = outline(build)
     assert [c.name for c in lone if c.kind == ChunkKind.DOC_SECTION] == ["here"]

@@ -155,5 +155,5 @@ def test_each_target_is_reached_by_exactly_the_chunks_named(
     reached: dict[Target, set[Referrer]],
 ) -> None:
     """Each target `(path, symbol)` of the sample under `samples/calls/` is reached by exactly the chunks named, by any edge."""
-    with indexed(Path(__file__).parent / "samples" / "calls" / sample) as index:
-        assert_reached(index, reached)
+    with indexed(Path(__file__).parent / "samples" / "calls" / sample) as build:
+        assert_reached(build, reached)

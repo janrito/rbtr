@@ -16,8 +16,8 @@ from rbtr.testing.reads import outline
 @parametrize_with_cases("files, expected", cases=".cases_extraction", has_tag="symbol")
 def test_extracts_expected_symbols(indexed: Indexed, files: dict[str, str], expected: list) -> None:
     """Each expected (kind, name, scope) tuple appears in the outline."""
-    with indexed(files) as index:
-        reply = outline(index)
+    with indexed(files) as build:
+        reply = outline(build)
     symbols = [(s.kind, s.name, s.scope) for s in reply]
     for exp in expected:
         assert exp in symbols, f"expected {exp} not found in {symbols}"
@@ -33,8 +33,8 @@ def test_extracts_all_expected_kinds(
     expected_methods: list[tuple[str, str]],
 ) -> None:
     """Realistic source produces all expected chunk kinds and method scoping."""
-    with indexed(files) as index:
-        reply = outline(index)
+    with indexed(files) as build:
+        reply = outline(build)
     kinds = {s.kind for s in reply}
     for kind in expected_kinds:
         assert kind in kinds, f"expected kind {kind!r} not in {kinds}"
@@ -49,8 +49,8 @@ def test_bash_source_and_dot_extracted_as_imports(indexed: Indexed) -> None:
 source ./env.sh
 . /etc/profile
 """
-    with indexed({"input.sh": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.sh": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert len(imports) == 2
     modules = {c.module for c in imports}
@@ -74,8 +74,8 @@ if [ -d "$DEST" ]; then
   systemctl restart app
 fi
 """
-    with indexed({"deploy.sh": src}) as index:
-        chunks = outline(index)
+    with indexed({"deploy.sh": src}) as build:
+        chunks = outline(build)
     covered = {line for c in chunks for line in range(c.line_start, c.line_end + 1)}
     lines = src.splitlines()
     uncovered = [

@@ -35,5 +35,5 @@ def test_a_call_or_base_reaches_the_definition_it_names(
     code_languages: list[LanguageRegistration],
     scenario: CallScenario,
 ) -> None:
-    with get_manager().limited_to(*code_languages), indexed(scenario.files) as index:
-        assert_reached(index, scenario.reached, edges={EdgeKind.CALLS, EdgeKind.INHERITS})
+    with get_manager().limited_to(*code_languages), indexed(scenario.files) as build:
+        assert_reached(build, scenario.reached, edges={EdgeKind.CALLS, EdgeKind.INHERITS})

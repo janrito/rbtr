@@ -21,8 +21,8 @@ from rbtr.testing.reads import outline
 @parametrize_with_cases("files, expected", cases=".cases_extraction", has_tag="symbol")
 def test_extracts_expected_symbols(indexed: Indexed, files: dict[str, str], expected: list) -> None:
     """Each expected (kind, name, scope) tuple appears in the outline."""
-    with indexed(files) as index:
-        reply = outline(index)
+    with indexed(files) as build:
+        reply = outline(build)
     symbols = [(s.kind, s.name, s.scope) for s in reply]
     for exp in expected:
         assert exp in symbols, f"expected {exp} not found in {symbols}"
@@ -38,8 +38,8 @@ def test_extracts_all_expected_kinds(
     expected_methods: list[tuple[str, str]],
 ) -> None:
     """Realistic source produces all expected chunk kinds and method scoping."""
-    with indexed(files) as index:
-        reply = outline(index)
+    with indexed(files) as build:
+        reply = outline(build)
     kinds = {s.kind for s in reply}
     for kind in expected_kinds:
         assert kind in kinds, f"expected kind {kind!r} not in {kinds}"
@@ -51,8 +51,8 @@ def test_extracts_all_expected_kinds(
 @parametrize_with_cases("files, expected", cases=".cases_extraction", has_tag="import")
 def test_extracts_import_metadata(indexed: Indexed, files: dict[str, str], expected: dict) -> None:
     """The first import has the expected metadata."""
-    with indexed(files) as index:
-        reply = outline(index)
+    with indexed(files) as build:
+        reply = outline(build)
     imports = [s.metadata for s in reply if s.kind == ChunkKind.IMPORT]
     assert imports, f"no import extracted from {files!r}"
     assert imports[0] == ImportMeta(**expected)
@@ -68,8 +68,8 @@ def test_extracts_multi_import(
     metadata_list: list[dict],
 ) -> None:
     """Multiple imports have correct count and per-import metadata."""
-    with indexed(files) as index:
-        reply = outline(index)
+    with indexed(files) as build:
+        reply = outline(build)
     imports = [s.metadata for s in reply if s.kind == ChunkKind.IMPORT]
     assert len(imports) == count
     assert imports == [ImportMeta(**expected) for expected in metadata_list]
@@ -85,8 +85,8 @@ def test_re_export_is_an_import_carrying_its_module(indexed: Indexed) -> None:
 export * from "./c";
 export { helper } from "./b";
 """
-    with indexed({"input.ts": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.ts": src}) as build:
+        chunks = outline(build)
     imports = [(c.metadata.module, c.name) for c in chunks if c.metadata]
     assert ("./c", 'export * from "./c";') in imports
     assert ("./b", 'export { helper } from "./b";') in imports
@@ -99,5 +99,5 @@ def test_a_call_or_base_reaches_what_it_names(
     reached: dict[Target, set[Referrer]],
 ) -> None:
     """Each target `(path, symbol)` is reached by exactly the callers and subclasses named."""
-    with indexed(files) as index:
-        assert_reached(index, reached, edges={EdgeKind.CALLS, EdgeKind.INHERITS})
+    with indexed(files) as build:
+        assert_reached(build, reached, edges={EdgeKind.CALLS, EdgeKind.INHERITS})

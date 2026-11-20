@@ -24,8 +24,8 @@ if TYPE_CHECKING:
 def test_extraction_matches_snapshot(
     indexed: Indexed, sample: str, snapshot_json: SnapshotAssertion
 ) -> None:
-    with indexed(Path(__file__).parent / "samples" / sample) as index:
-        symbols = outline(index)
+    with indexed(Path(__file__).parent / "samples" / sample) as build:
+        symbols = outline(build)
     assert symbols == snapshot_json
 
 
@@ -133,12 +133,12 @@ def test_every_edge_reaches_what_it_names(
     reached: dict[Target, set[Referrer]],
 ) -> None:
     """Each target the sample's edges reach is reached by exactly the chunks named, by any edge."""
-    with indexed(Path(__file__).parent / "samples" / sample) as index:
-        assert_reached(index, reached)
+    with indexed(Path(__file__).parent / "samples" / sample) as build:
+        assert_reached(build, reached)
 
 
 @pytest.mark.parametrize("sample", ["javascript", "typescript", "tsx"])
 def test_every_line_is_in_a_chunk(indexed: Indexed, sample: str) -> None:
     """No line of the sample's code falls outside a chunk."""
-    with indexed(Path(__file__).parent / "samples" / sample) as index:
-        assert_every_line_in_a_chunk(index)
+    with indexed(Path(__file__).parent / "samples" / sample) as build:
+        assert_every_line_in_a_chunk(build)

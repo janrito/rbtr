@@ -1,8 +1,8 @@
 """Shipped test tools for rbtr, its language plugins and its other packages.
 
 A pytest plugin (the `pytest11` entry point on `rbtr`), so every test suite
-gets its fixtures with no conftest: `indexed` builds a test's files into an
-index, `snapshot_json` snapshots pydantic values, and `isolated_db` gives a
+gets its fixtures with no conftest: `indexed` builds a test's files and
+yields the build, its index and result, `snapshot_json` snapshots pydantic values, and `isolated_db` gives a
 test its own on-disk index.
 
 A language test reads what it built through `rbtr.testing.reads`
@@ -22,6 +22,7 @@ import signal
 import time
 from collections.abc import Callable, Generator, Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -42,6 +43,7 @@ if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
     from syrupy.types import PropertyFilter, PropertyMatcher, SerializableData, SerializedData
 
+    from rbtr.domain.models import IndexResult
     from rbtr.index.index import Index
 
 
@@ -77,8 +79,16 @@ def snapshot_json(snapshot: SnapshotAssertion) -> SnapshotAssertion:
     return snapshot.use_extension(PydanticSnapshotExtension)
 
 
-type Indexed = Callable[[Mapping[str, str] | Path], AbstractContextManager[Index]]
-"""What the `indexed` fixture gives: `with indexed(files) as index:`, *files* a mapping or a sample directory."""
+@dataclass(frozen=True)
+class IndexBuild:
+    """What one build of a test's files gives: the index it wrote, and `build_index`'s result."""
+
+    index: Index
+    result: IndexResult
+
+
+type Indexed = Callable[[Mapping[str, str] | Path], AbstractContextManager[IndexBuild]]
+"""What the `indexed` fixture gives: `with indexed(files) as build:`, *files* a mapping or a sample directory."""
 
 
 # ----------------------------------------------------------------------------
@@ -102,14 +112,15 @@ type Indexed = Callable[[Mapping[str, str] | Path], AbstractContextManager[Index
 # ----------------------------------------------------------------------------
 @pytest.fixture
 def indexed(tmp_path: Path) -> Indexed:
-    """Index files in a repository in `tmp_path`: `with indexed(files) as index:`.
+    """Build files in a repository in `tmp_path`: `with indexed(files) as build:`.
 
     Writes *files* (`{path: text}`, or every file under a sample directory,
     by its path within it) under `tmp_path`, commits them on top
     of its branch (the engine reads a repository by its path), builds the
     commit into an in-memory index with the languages the manager holds
-    (every installed one, or those `limited_to` names), and closes it when
-    the block ends. Read it with `rbtr.testing.reads` and check it with
+    (every installed one, or those `limited_to` names), and yields the
+    build: the index and `build_index`'s result. The index closes when the
+    block ends. Read the build with `rbtr.testing.reads` and check it with
     `rbtr.testing.assertions`.
     """
     # deferred: `rbtr.index` imports `rbtr.config` (see `isolated_db`).
@@ -117,7 +128,7 @@ def indexed(tmp_path: Path) -> Indexed:
     from rbtr.index.index import Index
 
     @contextmanager
-    def build(files: Mapping[str, str] | Path) -> Iterator[Index]:
+    def build(files: Mapping[str, str] | Path) -> Iterator[IndexBuild]:
         written = (
             {
                 str(path.relative_to(files)): path.read_text()
@@ -139,8 +150,7 @@ def indexed(tmp_path: Path) -> Indexed:
         sha = str(repo.create_commit("HEAD", author, author, "files", tree, parents))
         index = Index(writable=True)
         try:
-            build_index(str(tmp_path), sha, index)
-            yield index
+            yield IndexBuild(index, build_index(str(tmp_path), sha, index))
         finally:
             index.close()
 

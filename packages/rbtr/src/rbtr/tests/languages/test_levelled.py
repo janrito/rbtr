@@ -19,9 +19,9 @@ def test_a_heading_ends_at_the_next_and_sits_under_a_higher_one(
 ) -> None:
     with (
         get_manager().limited_to(markdown, markdown_inline, rst),
-        indexed({scenario.path: scenario.text}) as index,
+        indexed({scenario.path: scenario.text}) as build,
     ):
-        reply = outline(index, [scenario.path])
+        reply = outline(build, [scenario.path])
     assert [
         (s.kind.value, s.name, s.scope, s.line_start, s.line_end) for s in reply
     ] == scenario.symbols

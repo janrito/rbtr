@@ -14,8 +14,8 @@ if TYPE_CHECKING:
 
 
 def test_extraction_matches_snapshot(indexed: Indexed, snapshot_json: SnapshotAssertion) -> None:
-    with indexed(Path(__file__).parent / "samples" / "hcl") as index:
-        symbols = outline(index)
+    with indexed(Path(__file__).parent / "samples" / "hcl") as build:
+        symbols = outline(build)
     assert symbols == snapshot_json
 
 
@@ -36,11 +36,11 @@ module "x" {
         ("modules/greeter/versions.tf", "terraform"): {("main.tf", greeter, "imports")},
         ("tf/b/main.tf", "resource null_resource y"): {("tf/a.tf", module_x, "imports")},
     }
-    with indexed(Path(__file__).parent / "samples" / "hcl") as index:
-        assert_reached(index, reached)
+    with indexed(Path(__file__).parent / "samples" / "hcl") as build:
+        assert_reached(build, reached)
 
 
 def test_every_line_is_in_a_chunk(indexed: Indexed) -> None:
     """No line of the sample's code falls outside a chunk."""
-    with indexed(Path(__file__).parent / "samples" / "hcl") as index:
-        assert_every_line_in_a_chunk(index)
+    with indexed(Path(__file__).parent / "samples" / "hcl") as build:
+        assert_every_line_in_a_chunk(build)

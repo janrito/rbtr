@@ -21,22 +21,22 @@ if TYPE_CHECKING:
 
 
 def test_extraction_matches_snapshot(indexed: Indexed, snapshot_json: SnapshotAssertion) -> None:
-    with indexed(Path(__file__).parent / "samples" / "sql") as index:
-        symbols = outline(index)
+    with indexed(Path(__file__).parent / "samples" / "sql") as build:
+        symbols = outline(build)
     assert symbols == snapshot_json
 
 
 def test_every_edge_reaches_what_it_names(indexed: Indexed) -> None:
     """Each target the sample's edges reach is reached by exactly the chunks named, by any edge."""
     reached: dict[Target, set[Referrer]] = {}
-    with indexed(Path(__file__).parent / "samples" / "sql") as index:
-        assert_reached(index, reached)
+    with indexed(Path(__file__).parent / "samples" / "sql") as build:
+        assert_reached(build, reached)
 
 
 def test_every_line_is_in_a_chunk(indexed: Indexed) -> None:
     """No line of the sample's code falls outside a chunk."""
-    with indexed(Path(__file__).parent / "samples" / "sql") as index:
-        assert_every_line_in_a_chunk(index)
+    with indexed(Path(__file__).parent / "samples" / "sql") as build:
+        assert_every_line_in_a_chunk(build)
 
 
 # rbtr ships one generic SQL grammar for all `.sql` files. This pins current
@@ -51,6 +51,6 @@ def test_sql_dialect_extraction_matches_snapshot(
 ) -> None:
     """Current extraction for each SQL dialect under the generic grammar."""
     path = f"{dialect}.sql"
-    with indexed({path: (Path(__file__).parent / "samples" / path).read_text()}) as index:
-        symbols = outline(index)
+    with indexed({path: (Path(__file__).parent / "samples" / path).read_text()}) as build:
+        symbols = outline(build)
     assert symbols == snapshot_json

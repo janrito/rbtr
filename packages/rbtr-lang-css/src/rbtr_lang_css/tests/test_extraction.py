@@ -16,8 +16,8 @@ from rbtr.testing.reads import outline
 @parametrize_with_cases("files, expected", cases=".cases_extraction", has_tag="symbol")
 def test_extracts_expected_symbols(indexed: Indexed, files: dict[str, str], expected: list) -> None:
     """Each expected (kind, name, scope) tuple appears in the outline."""
-    with indexed(files) as index:
-        reply = outline(index)
+    with indexed(files) as build:
+        reply = outline(build)
     symbols = [(s.kind, s.name, s.scope) for s in reply]
     for exp in expected:
         assert exp in symbols, f"expected {exp} not found in {symbols}"
@@ -29,8 +29,8 @@ def test_css_import_produces_import_chunk(indexed: Indexed) -> None:
 @import url("reset.css");
 body { color: #333; }
 """
-    with indexed({"input.css": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.css": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert len(imports) == 1
     assert imports[0].module == "reset.css"

@@ -88,5 +88,5 @@ def test_a_call_reaches_the_member_it_resolves_to(
     reached: dict[Target, set[Referrer]],
 ) -> None:
     """Each target `(path, symbol)` is called by exactly the callers named."""
-    with indexed(Path(__file__).parent / "samples" / "calls" / sample) as index:
-        assert_reached(index, reached, edges={EdgeKind.CALLS})
+    with indexed(Path(__file__).parent / "samples" / "calls" / sample) as build:
+        assert_reached(build, reached, edges={EdgeKind.CALLS})

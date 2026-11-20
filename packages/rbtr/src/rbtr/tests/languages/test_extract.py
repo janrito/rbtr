@@ -93,6 +93,6 @@ def test_a_file_is_extracted_by_the_language_it_is(
     expected: list[tuple[str, ChunkKind, str]],
 ) -> None:
     """With every language installed, a file's path or text picks the language that extracts it."""
-    with indexed({file_path: file_content}) as index:
-        symbols = outline(index, [file_path])
+    with indexed({file_path: file_content}) as build:
+        symbols = outline(build, [file_path])
     assert [(s.language, s.kind, s.name) for s in symbols] == expected

@@ -17,8 +17,8 @@ from rbtr.testing.reads import outline
 @parametrize_with_cases("files, expected", cases=".cases_extraction", has_tag="symbol")
 def test_extracts_expected_symbols(indexed: Indexed, files: dict[str, str], expected: list) -> None:
     """Each expected (kind, name, scope) tuple appears in the outline."""
-    with indexed(files) as index:
-        reply = outline(index)
+    with indexed(files) as build:
+        reply = outline(build)
     symbols = [(s.kind, s.name, s.scope) for s in reply]
     for exp in expected:
         assert exp in symbols, f"expected {exp} not found in {symbols}"
@@ -40,8 +40,8 @@ To create an HTML version of the docs:
 
 * Install Sphinx (using ``python -m pip install Sphinx`` or some other method).
 """
-    with indexed({"input.rst": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.rst": src}) as build:
+        chunks = outline(build)
     spans = [(c.line_start, c.line_end) for c in chunks if c.kind == ChunkKind.FRAGMENT]
     assert spans == [(1, 2), (4, 4), (6, 6), (8, 8)]
 
@@ -66,8 +66,8 @@ An opening paragraph.
 
 .. _ReST: https://docutils.sourceforge.io/rst.html
 """
-    with indexed({"input.rst": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.rst": src}) as build:
+        chunks = outline(build)
     blocks = sorted((c.line_start, c.kind, src.splitlines()[c.line_start - 1]) for c in chunks)
     assert blocks == [
         (1, ChunkKind.FRAGMENT, "An opening paragraph."),
@@ -81,8 +81,8 @@ An opening paragraph.
 def test_rst_headingless_file_still_extracts_references(indexed: Indexed) -> None:
     """A document's references are found whether or not it has a heading."""
     src = "See :doc:`guide` and :func:`do_stuff` for details.\n"
-    with indexed({"input.rst": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.rst": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert [c.module or c.names for c in imports] == ["guide", "do_stuff"]
 
@@ -101,8 +101,8 @@ Deep
 
 Content.
 """
-    with indexed({"input.rst": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.rst": src}) as build:
+        chunks = outline(build)
     deep = next(c for c in chunks if c.name == "Deep")
     # Deep is the final section; scope shows parent chain.
     assert deep.scope == "Top::Mid"
@@ -123,8 +123,8 @@ Subsection
 
 Body.
 """
-    with indexed({"input.rst": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.rst": src}) as build:
+        chunks = outline(build)
     sub = next(c for c in chunks if c.name == "Subsection")
     assert sub.scope == "Title"
 
@@ -137,8 +137,8 @@ Title
 
 See :func:`do_stuff` for details.
 """
-    with indexed({"input.rst": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.rst": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert len(imports) == 1
     assert imports[0].names == "do_stuff"
@@ -153,8 +153,8 @@ Title
 
 See :class:`User` for the model.
 """
-    with indexed({"input.rst": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.rst": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert len(imports) == 1
     assert imports[0].names == "User"
@@ -168,8 +168,8 @@ Title
 
 See :meth:`User.save` for persistence.
 """
-    with indexed({"input.rst": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.rst": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert len(imports) == 1
     assert imports[0].names == "User.save"
@@ -183,8 +183,8 @@ Title
 
 See :func:`~mypackage.utils.do_stuff` for details.
 """
-    with indexed({"input.rst": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.rst": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert len(imports) == 1
     assert imports[0].names == "do_stuff"
@@ -198,8 +198,8 @@ Title
 
 See :doc:`api/module` for the API.
 """
-    with indexed({"input.rst": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.rst": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert len(imports) == 1
     assert imports[0].module == "api/module"
@@ -213,8 +213,8 @@ Title
 
 See :mod:`mypackage.utils` for helpers.
 """
-    with indexed({"input.rst": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.rst": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert len(imports) == 1
     assert imports[0].module == "mypackage.utils"
@@ -232,8 +232,8 @@ Title
    intro
    api/index
 """
-    with indexed({"input.rst": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.rst": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     modules = {c.module for c in imports}
     assert modules == {"intro", "api/index"}
@@ -247,8 +247,8 @@ Title
 
 See `the guide <other.rst>`_ for details.
 """
-    with indexed({"input.rst": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.rst": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert len(imports) == 1
     assert imports[0].module == "other.rst"
@@ -262,8 +262,8 @@ Title
 
 See `the setup <guide.rst#setup>`_ and `the title <#title>`_.
 """
-    with indexed({"docs/index.rst": src}) as index:
-        chunks = outline(index)
+    with indexed({"docs/index.rst": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert [(i.module, i.names) for i in imports] == [
         ("guide.rst", "setup"),
@@ -279,8 +279,8 @@ Title
 
 See :ref:`intro-label` and :ref:`the intro <Other Label>`.
 """
-    with indexed({"input.rst": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.rst": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert [(i.module, i.names, i.language_hint) for i in imports] == [
         ("", "intro-label", "rst"),
@@ -305,8 +305,8 @@ Title
 Text.
 """
     for src, names in ((headed, ["intro", "Other Label", "Title", "docs"]), (plain, ["lone"])):
-        with indexed({"input.rst": src}) as index:
-            chunks = outline(index)
+        with indexed({"input.rst": src}) as build:
+            chunks = outline(build)
         assert [c.name for c in chunks if c.kind == ChunkKind.DOC_SECTION] == names
 
 
@@ -318,8 +318,8 @@ Title
 
 See `example <https://example.com>`_ for details.
 """
-    with indexed({"input.rst": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.rst": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert imports == []
 
@@ -332,7 +332,7 @@ Title
 
 Call do_stuff to process the data.
 """
-    with indexed({"input.rst": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.rst": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert imports == []

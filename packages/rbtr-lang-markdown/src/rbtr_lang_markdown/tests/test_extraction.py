@@ -18,8 +18,8 @@ from rbtr.testing.reads import outline, read
 @parametrize_with_cases("files, expected", cases=".cases_extraction", has_tag="symbol")
 def test_extracts_expected_symbols(indexed: Indexed, files: dict[str, str], expected: list) -> None:
     """Each expected (kind, name, scope) tuple appears in the outline."""
-    with indexed(files) as index:
-        reply = outline(index)
+    with indexed(files) as build:
+        reply = outline(build)
     symbols = [(s.kind, s.name, s.scope) for s in reply]
     for exp in expected:
         assert exp in symbols, f"expected {exp} not found in {symbols}"
@@ -36,8 +36,8 @@ Parent body.
 
 Child body.
 """
-    with indexed({"input.md": src}) as index:
-        [parent] = read(index, "Parent")
+    with indexed({"input.md": src}) as build:
+        [parent] = read(build, "Parent")
     assert "Child body" not in parent.content
     assert "Parent body" in parent.content
 
@@ -49,8 +49,8 @@ First paragraph.
 
 Second paragraph.
 """
-    with indexed({"input.md": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
     assert [(c.kind, c.line_start, c.line_end) for c in chunks] == [(ChunkKind.FRAGMENT, 1, 3)]
 
 
@@ -67,8 +67,8 @@ def test_md_chunker_target_extracted(indexed: Indexed) -> None:
 service: greeter
 ```
 """
-    with indexed({"input.md": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
     yaml_sections = [c for c in chunks if c.language == "yaml"]
     assert [c.name for c in yaml_sections] == ["service"]
     assert yaml_sections[0].line_start == 4
@@ -95,8 +95,8 @@ def test_md_nested_injection_extracts_inner_js(indexed: Indexed) -> None:
 </body>
 ```
 """
-    with indexed({"input.md": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
     assert "html" in {c.language for c in chunks}
     js = [c for c in chunks if c.language == "javascript" and c.kind == ChunkKind.FUNCTION]
     assert [c.name for c in js] == ["boot"]
@@ -112,8 +112,8 @@ def test_md_unknown_fence_left_unparsed(indexed: Indexed) -> None:
 some content here
 ```
 """
-    with indexed({"input.md": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
     assert {c.language for c in chunks} == {"markdown"}
 
 
@@ -124,8 +124,8 @@ def test_md_local_link_produces_import(indexed: Indexed) -> None:
 
 See [other doc](other.md) for details.
 """
-    with indexed({"input.md": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert len(imports) == 1
     assert imports[0].module == "other.md"
@@ -138,8 +138,8 @@ def test_md_link_with_fragment_sets_names(indexed: Indexed) -> None:
 
 See [API section](api.md#my-function) for the API.
 """
-    with indexed({"input.md": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert len(imports) == 1
     assert imports[0].module == "api.md"
@@ -155,8 +155,8 @@ Jump to [usage](#usage).
 
 ## Usage
 """
-    with indexed({"docs/guide.md": src}) as index:
-        chunks = outline(index)
+    with indexed({"docs/guide.md": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert [(i.module, i.names) for i in imports] == [("guide.md", "usage")]
 
@@ -168,8 +168,8 @@ def test_md_relative_link_produces_import(indexed: Indexed) -> None:
 
 See [source](../src/foo.py) for details.
 """
-    with indexed({"input.md": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert len(imports) == 1
     assert imports[0].module == "../src/foo.py"
@@ -182,8 +182,8 @@ def test_md_external_link_skipped(indexed: Indexed) -> None:
 
 See [example](https://example.com) and [mail](mailto:a@b.com).
 """
-    with indexed({"input.md": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert imports == []
 
@@ -195,8 +195,8 @@ def test_md_multiple_links_in_one_section(indexed: Indexed) -> None:
 
 See [a](one.md) and [b](two.py) here.
 """
-    with indexed({"input.md": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     modules = {c.module for c in imports}
     assert modules == {"one.md", "two.py"}
@@ -209,8 +209,8 @@ def test_md_bare_mention_no_import(indexed: Indexed) -> None:
 
 Call do_stuff to process the data.
 """
-    with indexed({"input.md": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
     imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert imports == []
 
@@ -240,8 +240,8 @@ Reference
 
 Reference text.
 """
-    with indexed({"input.md": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
     assert [
         (c.name, c.scope, c.line_start, c.line_end)
         for c in chunks
@@ -263,8 +263,8 @@ def test_md_a_heading_in_a_block_quote_is_a_section_of_its_own(indexed: Indexed)
 >
 > Text.
 """
-    with indexed({"input.md": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
     assert [
         (c.name, c.line_start, c.line_end) for c in chunks if c.kind == ChunkKind.DOC_SECTION
     ] == [
@@ -287,6 +287,6 @@ def test_md_a_nested_heading_is_scoped_under_the_heading_above_it(indexed: Index
 
   Text.
 """
-    with indexed({"input.md": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
     assert ("Item", "Notes") in [(c.name, c.scope) for c in chunks]

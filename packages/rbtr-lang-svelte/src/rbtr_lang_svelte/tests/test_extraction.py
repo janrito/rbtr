@@ -20,8 +20,8 @@ def test_svelte_template_extracted_as_host_chunk(indexed: Indexed) -> None:
 
 <h1 class="greeting">Hello {name}</h1>
 """
-    with indexed({"input.svelte": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.svelte": src}) as build:
+        chunks = outline(build)
     host = [c for c in chunks if c.language == "svelte"]
     # The script's tags are host chunks too (lines 1 and 3); the template is line 5.
     assert [(c.line_start, c.line_end) for c in host] == [(1, 1), (3, 3), (5, 5)]
@@ -40,8 +40,8 @@ def test_svelte_without_template_still_emits_host_chunks(indexed: Indexed) -> No
   export const x = 1;
 </script>
 """
-    with indexed({"input.svelte": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.svelte": src}) as build:
+        chunks = outline(build)
     host = [c.line_start for c in chunks if c.language == "svelte"]
     assert [src.splitlines()[line - 1] for line in host] == ['<script lang="ts">', "</script>"]
 
@@ -63,7 +63,7 @@ def test_sfc_top_level_comment_is_its_own_chunk(indexed: Indexed) -> None:
 
 <h1>{name}</h1>
 """
-    with indexed({"input.svelte": src}) as index:
-        chunks = outline(index)
+    with indexed({"input.svelte": src}) as build:
+        chunks = outline(build)
     comments = [c for c in chunks if c.kind == ChunkKind.COMMENT]
     assert [(c.line_start, c.line_end) for c in comments] == [(1, 3)]

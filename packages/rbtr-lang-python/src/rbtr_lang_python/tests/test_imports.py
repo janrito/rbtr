@@ -112,5 +112,5 @@ def test_an_import_reaches_what_its_form_resolves_to(
     reached: dict[Target, set[Referrer]],
 ) -> None:
     """Each target `(path, symbol)` is reached by exactly the chunks named, by any edge."""
-    with indexed(Path(__file__).parent / "samples" / "imports" / sample) as index:
-        assert_reached(index, reached)
+    with indexed(Path(__file__).parent / "samples" / "imports" / sample) as build:
+        assert_reached(build, reached)

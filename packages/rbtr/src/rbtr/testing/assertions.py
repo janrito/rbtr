@@ -12,7 +12,7 @@ from collections.abc import Collection, Mapping
 from rbtr.daemon.handlers import handle_find_refs
 from rbtr.daemon.messages import FindRefsRequest
 from rbtr.domain.models import EdgeKind
-from rbtr.index.index import Index
+from rbtr.testing import IndexBuild
 from rbtr.testing.reads import committed_files, outline, read, repo_path
 
 type Target = tuple[str, str]
@@ -23,7 +23,7 @@ type Referrer = tuple[str, str, str]
 
 
 def assert_reached(
-    index: Index,
+    build: IndexBuild,
     reached: Mapping[Target, set[Referrer]],
     edges: Collection[EdgeKind] = frozenset(EdgeKind),
 ) -> None:
@@ -34,28 +34,28 @@ def assert_reached(
     nothing.
     """
     __tracebackhide__ = True
-    root = repo_path(index)
+    root = repo_path(build)
     found = {
         (path, symbol): {
             (ref.file_path, ref.name, ref.edge.value)
             for ref in handle_find_refs(
-                FindRefsRequest(repo_path=root, symbol=symbol, file_paths=[path]), index
+                FindRefsRequest(repo_path=root, symbol=symbol, file_paths=[path]), build.index
             ).refs
             if ref.edge in edges
         }
         for path, symbol in reached
-        if read(index, symbol, path)
+        if read(build, symbol, path)
     }
     assert found == reached
 
 
-def assert_every_line_in_a_chunk(index: Index) -> None:
+def assert_every_line_in_a_chunk(build: IndexBuild) -> None:
     """No non-blank line of a committed file falls outside a symbol; each one that does is listed as `path:line: text`."""
     __tracebackhide__ = True
-    files = committed_files(index)
+    files = committed_files(build)
     spanned = {
         (symbol.file_path, line)
-        for symbol in outline(index)
+        for symbol in outline(build)
         for line in range(symbol.line_start, symbol.line_end + 1)
     }
     uncovered = [

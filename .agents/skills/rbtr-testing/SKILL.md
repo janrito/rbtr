@@ -119,7 +119,7 @@ the tests. Work at these levels:
 
 - **Use cases, the bulk.** Input as files or arguments, results read back through
   `Index` reads, or through the daemon's handlers where a reply shape exists. A
-  language test builds its files with `with indexed(files) as index:`, reads them with
+  language test builds its files with `with indexed(files) as build:`, reads them with
   `rbtr.testing.reads` (`outline`, `read`) and checks them with
   `rbtr.testing.assertions` (`assert_reached`, `assert_every_line_in_a_chunk`), so
   every language test reads and checks the same way; an edge case is a set of files and

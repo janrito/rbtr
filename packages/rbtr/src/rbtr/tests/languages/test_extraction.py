@@ -47,9 +47,9 @@ def test_empty_source_yields_host_presence(indexed: Indexed, tmp_path: Path, lan
         path = f"input{min(registration.extensions)}"
     else:
         path = "input"
-    with get_manager().limited_to(registration), indexed({path: ""}) as index:
-        at = resolve_read_ref(index, index.repo(str(tmp_path)), None).at
-        chunks = index.chunks(at=at, file_path=path).rows(named=True)
+    with get_manager().limited_to(registration), indexed({path: ""}) as build:
+        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
+        chunks = build.index.chunks(at=at, file_path=path).rows(named=True)
     assert [(c["content"], c["language"]) for c in chunks] == [("", lang)]
 
 
@@ -69,9 +69,9 @@ def hello():
         extensions=frozenset({".py"}),
         extraction=QueryExtraction(query=query_no_name),
     )
-    with get_manager().limited_to(reg), indexed({"test.py": src}) as index:
-        at = resolve_read_ref(index, index.repo(str(tmp_path)), None).at
-        chunks = index.chunks(at=at, file_path="test.py").rows(named=True)
+    with get_manager().limited_to(reg), indexed({"test.py": src}) as build:
+        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
+        chunks = build.index.chunks(at=at, file_path="test.py").rows(named=True)
     assert len(chunks) >= 1
     assert chunks[0]["name"] == ""
 
@@ -93,9 +93,9 @@ def hello():
         extraction=QueryExtraction(query=query),
     )
     reg.scope_extractor(lambda _resolver, _cap, _node, _caps: ["a", "b"])
-    with get_manager().limited_to(reg), indexed({"test.py": src}) as index:
-        at = resolve_read_ref(index, index.repo(str(tmp_path)), None).at
-        chunks = index.chunks(at=at, file_path="test.py").rows(named=True)
+    with get_manager().limited_to(reg), indexed({"test.py": src}) as build:
+        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
+        chunks = build.index.chunks(at=at, file_path="test.py").rows(named=True)
     assert len(chunks) == 1
     assert chunks[0]["scope"] == "a::b"
 
@@ -128,9 +128,9 @@ pip.
 
 Call it.
 """
-    with get_manager().limited_to(reg), indexed({"doc.md": src}) as index:
-        at = resolve_read_ref(index, index.repo(str(tmp_path)), None).at
-        chunks = index.chunks(at=at, file_path="doc.md").rows(named=True)
+    with get_manager().limited_to(reg), indexed({"doc.md": src}) as build:
+        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
+        chunks = build.index.chunks(at=at, file_path="doc.md").rows(named=True)
     assert [(c["name"], c["scope"]) for c in chunks if c["kind"] == ChunkKind.DOC_SECTION] == [
         ("Title", ""),
         ("Install", "Title"),
@@ -161,9 +161,9 @@ load("page.html#intro")
 load("#usage")
 load("plain.html")
 """
-    with get_manager().limited_to(reg), indexed({"docs/guide.html": src}) as index:
-        at = resolve_read_ref(index, index.repo(str(tmp_path)), None).at
-        chunks = index.chunks(at=at, file_path="docs/guide.html").rows(named=True)
+    with get_manager().limited_to(reg), indexed({"docs/guide.html": src}) as build:
+        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
+        chunks = build.index.chunks(at=at, file_path="docs/guide.html").rows(named=True)
     assert [
         (c["metadata"]["module"], c["metadata"]["names"])
         for c in chunks
@@ -192,9 +192,9 @@ Intro.
 
 Run it.
 """
-    with get_manager().limited_to(reg), indexed({"doc.md": src}) as index:
-        at = resolve_read_ref(index, index.repo(str(tmp_path)), None).at
-        chunks = index.chunks(at=at, file_path="doc.md").rows(named=True)
+    with get_manager().limited_to(reg), indexed({"doc.md": src}) as build:
+        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
+        chunks = build.index.chunks(at=at, file_path="doc.md").rows(named=True)
     assert [(c["name"], c["content"], c["line_start"], c["line_end"]) for c in chunks] == [
         (
             "Title",
@@ -240,9 +240,9 @@ Three.
 
 Four.
 """
-    with get_manager().limited_to(reg), indexed({"doc.md": src}) as index:
-        at = resolve_read_ref(index, index.repo(str(tmp_path)), None).at
-        chunks = index.chunks(at=at, file_path="doc.md").rows(named=True)
+    with get_manager().limited_to(reg), indexed({"doc.md": src}) as build:
+        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
+        chunks = build.index.chunks(at=at, file_path="doc.md").rows(named=True)
     assert [(c["content"], c["line_start"]) for c in chunks if c["kind"] == ChunkKind.FRAGMENT] == [
         ("One.", 1),
         ("Two.", 3),
@@ -270,9 +270,9 @@ def test_strip_directive_strips_a_captured_name(
 def __hidden():
     pass
 """
-    with get_manager().limited_to(reg), indexed({"a.py": src}) as index:
-        at = resolve_read_ref(index, index.repo(str(tmp_path)), None).at
-        chunks = index.chunks(at=at, file_path="a.py").rows(named=True)
+    with get_manager().limited_to(reg), indexed({"a.py": src}) as build:
+        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
+        chunks = build.index.chunks(at=at, file_path="a.py").rows(named=True)
     assert [c["name"] for c in chunks if c["kind"] == ChunkKind.FUNCTION] == ["hidden"]
 
 
@@ -298,9 +298,9 @@ def test_strip_directive_shapes_an_import(
         extraction=QueryExtraction(query=query),
     )
     src = 'ref("pkg:guide", "~intro")\n'
-    with get_manager().limited_to(reg), indexed({"a.py": src}) as index:
-        at = resolve_read_ref(index, index.repo(str(tmp_path)), None).at
-        rows = index.chunks(at=at, file_path="a.py").rows(named=True)
+    with get_manager().limited_to(reg), indexed({"a.py": src}) as build:
+        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
+        rows = build.index.chunks(at=at, file_path="a.py").rows(named=True)
     [meta] = [c["metadata"] for c in rows if c["kind"] == ChunkKind.IMPORT]
     assert (meta["module"], meta["names"]) == ("guide", "intro")
 
@@ -330,9 +330,9 @@ LINKS = [
     "x:api/index",
 ]
 """
-    with get_manager().limited_to(reg), indexed({"a.py": src}) as index:
-        at = resolve_read_ref(index, index.repo(str(tmp_path)), None).at
-        rows = index.chunks(at=at, file_path="a.py").rows(named=True)
+    with get_manager().limited_to(reg), indexed({"a.py": src}) as build:
+        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
+        rows = build.index.chunks(at=at, file_path="a.py").rows(named=True)
     imports = [
         (c["name"], c["metadata"]["module"], c["line_start"], c["line_end"])
         for c in rows
@@ -360,9 +360,9 @@ def test_set_directive_names_where_an_import_finds_its_name(
         extensions=frozenset({".py"}),
         extraction=QueryExtraction(query=query),
     )
-    with get_manager().limited_to(reg), indexed({"a.py": 'ref("intro")\n'}) as index:
-        at = resolve_read_ref(index, index.repo(str(tmp_path)), None).at
-        rows = index.chunks(at=at, file_path="a.py").rows(named=True)
+    with get_manager().limited_to(reg), indexed({"a.py": 'ref("intro")\n'}) as build:
+        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
+        rows = build.index.chunks(at=at, file_path="a.py").rows(named=True)
     [meta] = [c["metadata"] for c in rows if c["kind"] == ChunkKind.IMPORT]
     assert (meta["names"], meta["language_hint"]) == ("intro", "rst")
 
@@ -390,9 +390,9 @@ class C:
         extensions=frozenset({".py"}),
         extraction=QueryExtraction(query=query_unknown),
     )
-    with get_manager().limited_to(reg), indexed({"test.py": src}) as index:
-        at = resolve_read_ref(index, index.repo(str(tmp_path)), None).at
-        chunks = index.chunks(at=at, file_path="test.py").rows(named=True)
+    with get_manager().limited_to(reg), indexed({"test.py": src}) as build:
+        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
+        chunks = build.index.chunks(at=at, file_path="test.py").rows(named=True)
     kinds = {c["kind"] for c in chunks}
     assert "function" in kinds
     assert "class" not in kinds
@@ -479,9 +479,9 @@ def test_comment_blocks_group_in_source_order(
         extensions=frozenset({".py"}),
         extraction=QueryExtraction(query=query),
     )
-    with get_manager().limited_to(reg), indexed({"t.py": src}) as index:
-        at = resolve_read_ref(index, index.repo(str(tmp_path)), None).at
-        chunks = index.chunks(at=at, file_path="t.py").rows(named=True)
+    with get_manager().limited_to(reg), indexed({"t.py": src}) as build:
+        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
+        chunks = build.index.chunks(at=at, file_path="t.py").rows(named=True)
     comment_chunks = [c for c in chunks if c["kind"] == ChunkKind.COMMENT]
     comments = [(c["line_start"], c["line_end"], c["content"]) for c in comment_chunks]
     assert comments == expected
@@ -509,9 +509,9 @@ def test_trailing_comment_does_not_fold_into_next_symbol(
 x = 1  # trailing about x
 y = 2
 """
-    with get_manager().limited_to(reg), indexed({"t.py": src}) as index:
-        at = resolve_read_ref(index, index.repo(str(tmp_path)), None).at
-        chunks = index.chunks(at=at, file_path="t.py").rows(named=True)
+    with get_manager().limited_to(reg), indexed({"t.py": src}) as build:
+        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
+        chunks = build.index.chunks(at=at, file_path="t.py").rows(named=True)
     y = next(c for c in chunks if c["name"] == "y")
     assert "trailing about x" not in y["content"]
     assert any(
@@ -540,9 +540,9 @@ x = 1  # trailing
 def f():
     pass
 """
-    with get_manager().limited_to(reg), indexed({"t.py": src}) as index:
-        at = resolve_read_ref(index, index.repo(str(tmp_path)), None).at
-        rows = index.chunks(at=at, file_path="t.py").rows(named=True)
+    with get_manager().limited_to(reg), indexed({"t.py": src}) as build:
+        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
+        rows = build.index.chunks(at=at, file_path="t.py").rows(named=True)
     f = next(c for c in rows if c["name"] == "f")
     assert "# real doc" in f["content"]
     assert "# trailing" not in f["content"]
@@ -619,9 +619,9 @@ def test_code_no_pattern_names_becomes_fragments(
         extensions=frozenset({".py"}),
         extraction=QueryExtraction(query=query),
     )
-    with get_manager().limited_to(reg), indexed({"t.py": src}) as index:
-        at = resolve_read_ref(index, index.repo(str(tmp_path)), None).at
-        chunks = index.chunks(at=at, file_path="t.py").rows(named=True)
+    with get_manager().limited_to(reg), indexed({"t.py": src}) as build:
+        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
+        chunks = build.index.chunks(at=at, file_path="t.py").rows(named=True)
     fragments = [
         (c["line_start"], c["line_end"], c["content"], tuple(c["metadata"]["node_types"]))
         for c in chunks
@@ -649,9 +649,9 @@ class Config:
         extensions=frozenset({".py"}),
         extraction=QueryExtraction(query=query, scope_types=frozenset({"class_definition"})),
     )
-    with get_manager().limited_to(reg), indexed({"t.py": src}) as index:
-        at = resolve_read_ref(index, index.repo(str(tmp_path)), None).at
-        chunks = index.chunks(at=at, file_path="t.py").rows(named=True)
+    with get_manager().limited_to(reg), indexed({"t.py": src}) as build:
+        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
+        chunks = build.index.chunks(at=at, file_path="t.py").rows(named=True)
     fragments = [(c["content"], c["scope"]) for c in chunks if c["kind"] == ChunkKind.FRAGMENT]
     assert fragments == [("class Config:", "Config"), ("retries = 3", "Config")]
 
@@ -671,9 +671,9 @@ a()
 b()
 c()
 """
-    with get_manager().limited_to(reg), indexed({"t.py": src}) as index:
-        at = resolve_read_ref(index, index.repo(str(tmp_path)), None).at
-        chunks = index.chunks(at=at, file_path="t.py").rows(named=True)
+    with get_manager().limited_to(reg), indexed({"t.py": src}) as build:
+        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
+        chunks = build.index.chunks(at=at, file_path="t.py").rows(named=True)
     assert [(c["line_start"], c["line_end"]) for c in chunks] == [(1, 2), (3, 3)]
 
 
@@ -690,9 +690,9 @@ def test_a_block_left_to_its_injection_is_not_a_fragment(indexed: Indexed, tmp_p
 run();
 </script>
 """
-    with get_manager().limited_to(html, javascript), indexed({"page.html": src}) as index:
-        at = resolve_read_ref(index, index.repo(str(tmp_path)), None).at
-        chunks = index.chunks(at=at, file_path="page.html").rows(named=True)
+    with get_manager().limited_to(html, javascript), indexed({"page.html": src}) as build:
+        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
+        chunks = build.index.chunks(at=at, file_path="page.html").rows(named=True)
     fragments = [
         (c["line_start"], c["line_end"], c["content"])
         for c in chunks
@@ -795,9 +795,9 @@ def test_a_query_states_an_imports_names_and_bindings(
         extensions=frozenset({".py"}),
         extraction=QueryExtraction(query=query),
     )
-    with get_manager().limited_to(reg), indexed({"t.py": src}) as index:
-        at = resolve_read_ref(index, index.repo(str(tmp_path)), None).at
-        rows = index.chunks(at=at, file_path="t.py").rows(named=True)
+    with get_manager().limited_to(reg), indexed({"t.py": src}) as build:
+        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
+        rows = build.index.chunks(at=at, file_path="t.py").rows(named=True)
     imports = [
         {key: c["metadata"][key] for key in ("module", "names", "bindings")}
         for c in rows
@@ -819,9 +819,9 @@ x = """a
 b
 c"""
 '''
-    with get_manager().limited_to(reg), indexed({"t.py": src}) as index:
-        at = resolve_read_ref(index, index.repo(str(tmp_path)), None).at
-        chunks = index.chunks(at=at, file_path="t.py").rows(named=True)
+    with get_manager().limited_to(reg), indexed({"t.py": src}) as build:
+        at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
+        chunks = build.index.chunks(at=at, file_path="t.py").rows(named=True)
     assert [
         (c["line_start"], c["line_end"], tuple(c["metadata"]["node_types"]))
         for c in chunks
