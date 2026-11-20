@@ -38,11 +38,54 @@ def built_index(
     tmp = tmp_path_factory.mktemp("built")
     repo = pygit2.init_repository(str(tmp / "repo"), bare=False, initial_head="main")
     files = {
-        "src/models.py": b'"""Data models."""\n\nclass User:\n    pass\n\nclass Order:\n    pass\n',
-        "src/utils.py": b'"""Utility functions."""\n\ndef helper():\n    return 42\n\ndef format_name(name):\n    return name.strip()\n',
-        "src/main.py": b'"""Main module."""\n\nfrom src.models import User\nfrom src.utils import helper\n\ndef run():\n    u = User()\n    return helper()\n',
-        "tests/test_utils.py": b'"""Tests for utils."""\n\nfrom src.utils import helper, format_name\n\ndef test_helper():\n    assert helper() == 42\n\ndef test_format():\n    assert format_name("  hi  ") == "hi"\n',
-        "README.md": b"# My Project\n\nThis project uses `helper` and `User` for things.\n\n## Setup\n\nRun `format_name` to clean strings.\n",
+        "src/models.py": b'''\
+"""Data models."""
+
+class User:
+    pass
+
+class Order:
+    pass
+''',
+        "src/utils.py": b'''\
+"""Utility functions."""
+
+def helper():
+    return 42
+
+def format_name(name):
+    return name.strip()
+''',
+        "src/main.py": b'''\
+"""Main module."""
+
+from src.models import User
+from src.utils import helper
+
+def run():
+    u = User()
+    return helper()
+''',
+        "tests/test_utils.py": b'''\
+"""Tests for utils."""
+
+from src.utils import helper, format_name
+
+def test_helper():
+    assert helper() == 42
+
+def test_format():
+    assert format_name("  hi  ") == "hi"
+''',
+        "README.md": b"""\
+# My Project
+
+This project uses `helper` and `User` for things.
+
+## Setup
+
+Run `format_name` to clean strings.
+""",
     }
     repo_root = tmp / "repo"
     git_index = repo.index
@@ -310,7 +353,12 @@ def divergent_sha(linked_worktree: pygit2.Repository) -> str:
     `linked_worktree` fixture.
     """
     utils = Path(linked_worktree.workdir) / "src" / "utils.py"
-    utils.write_bytes(b'"""Utility functions."""\n\ndef helper():\n    return 99\n')
+    utils.write_bytes(b'''\
+"""Utility functions."""
+
+def helper():
+    return 99
+''')
     linked_worktree.index.add("src/utils.py")
     linked_worktree.index.write()
     tree_oid = linked_worktree.index.write_tree()
@@ -709,7 +757,11 @@ def test_build_index_serial_gated_reextraction(
     """Bumping `extraction_serial` forces re-extraction."""
     repo = pygit2.init_repository(str(tmp_path / "ver"), bare=False, initial_head="main")
 
-    (tmp_path / "ver" / "doc.md").write_text("# Hello\n\nWorld.\n")
+    (tmp_path / "ver" / "doc.md").write_text("""\
+# Hello
+
+World.
+""")
     git_index = repo.index
     git_index.add("doc.md")
     git_index.write()

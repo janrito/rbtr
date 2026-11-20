@@ -171,8 +171,23 @@ def two_sniffed_languages(monkeypatch: pytest.MonkeyPatch, fresh_manager: None) 
 @pytest.mark.parametrize(
     ("text", "language"),
     [
-        pytest.param("%% one\n&& two\n&& three\n", "beta", id="most-matches-wins"),
-        pytest.param("&& one\n%% two\n", "alpha", id="tie-to-first-id"),
+        pytest.param(
+            """\
+%% one
+&& two
+&& three
+""",
+            "beta",
+            id="most-matches-wins",
+        ),
+        pytest.param(
+            """\
+&& one
+%% two
+""",
+            "alpha",
+            id="tie-to-first-id",
+        ),
         pytest.param("plain text\n", None, id="no-match"),
     ],
 )
@@ -186,7 +201,13 @@ def test_content_past_the_configured_sample_is_not_read(
     two_sniffed_languages: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(config, "content_sniff_chars", 10)
-    assert get_manager().detect_language_by_content("plain text\n%% late\n") is None
+    assert (
+        get_manager().detect_language_by_content("""\
+plain text
+%% late
+""")
+        is None
+    )
 
 
 #
