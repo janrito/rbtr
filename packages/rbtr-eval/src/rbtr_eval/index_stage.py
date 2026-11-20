@@ -80,6 +80,34 @@ class LanguageCountRow(dy.Schema):
     inbound_edges = dy.UInt64(min=0)
 
 
+class FragmentLanguageRow(dy.Schema):
+    """One row of INDEX.md's fragments table: what a language's query leaves.
+
+    `chunk_lines` counts the lines its chunks hold and `fragment_lines`
+    those its fragments hold, each line once per file content; `share`
+    is their ratio.
+    """
+
+    lang = dy.String()
+    fragments = dy.UInt64(min=0)
+    fragment_lines = dy.UInt64(min=0)
+    chunk_lines = dy.UInt64(min=0)
+    share = dy.Float64(min=0, max=1)
+
+
+class FragmentTypeRow(dy.Schema):
+    """One row of INDEX.md's fragment node-types table.
+
+    A fragment holding several node types counts toward each, so a
+    language's rows can sum to more than its fragments.
+    """
+
+    lang = dy.String()
+    node_type = dy.String()
+    fragments = dy.UInt64(min=0)
+    fragment_lines = dy.UInt64(min=0)
+
+
 class EmbeddingRepoRow(dy.Schema):
     """One row of EMBEDDING.md's per-repo table.
 
@@ -92,6 +120,10 @@ class EmbeddingRepoRow(dy.Schema):
     chunks = dy.UInt64(min=0)
     embedded = dy.UInt64(min=0)
     truncated = dy.UInt64(min=0)
+
+
+_TOP_NODE_TYPES = 5
+"""Node types INDEX.md lists per language, the ones holding the most fragment lines."""
 
 
 def _per_ref(corpus: Corpus, frame_of: Callable[[SnapshotRef], pl.DataFrame]) -> pl.DataFrame:
@@ -181,6 +213,76 @@ def language_counts(index: Index, corpus: Corpus) -> dy.DataFrame[LanguageCountR
     )
 
 
+def _fragment_lines(index: Index, ref: SnapshotRef) -> pl.DataFrame:
+    """Per language at *ref*: fragments, the lines they hold, and the lines any chunk holds.
+
+    A line counts once per file content, however many chunks hold it;
+    it is a fragment line when any of them is a fragment.  Only
+    languages with fragments are kept.
+    """
+    held = (
+        index.chunks(at=ref)
+        .filter(pl.col("content") != "")
+        .unique(["id", "blob_sha", "file_language", "language", "kind", "line_start", "line_end"])
+    )
+    lines = (
+        held.with_columns(line=pl.int_ranges("line_start", pl.col("line_end") + 1))
+        .explode("line")
+        .group_by("language", "blob_sha", "file_language", "line")
+        .agg(in_fragment=(pl.col("kind") == ChunkKind.FRAGMENT).any())
+        .group_by("language")
+        .agg(fragment_lines=pl.col("in_fragment").sum(), chunk_lines=pl.len())
+    )
+    fragments = (
+        held.filter(pl.col("kind") == ChunkKind.FRAGMENT)
+        .group_by("language")
+        .agg(fragments=pl.len())
+    )
+    return lines.join(fragments, on="language").rename({"language": "lang"})
+
+
+def fragment_counts(index: Index, corpus: Corpus) -> dy.DataFrame[FragmentLanguageRow]:
+    """Fragments and their share of the lines, per language with any, over *corpus*."""
+    return (
+        _per_ref(corpus, lambda ref: _fragment_lines(index, ref))
+        .group_by("lang")
+        .agg(pl.col("fragments", "fragment_lines", "chunk_lines").sum())
+        .with_columns(share=pl.col("fragment_lines") / pl.col("chunk_lines"))
+        .sort(["fragment_lines", "lang"], descending=[True, False])
+        .pipe(FragmentLanguageRow.validate, cast=True)
+    )
+
+
+def _fragment_node_types(index: Index, ref: SnapshotRef) -> pl.DataFrame:
+    """Per language and node type at *ref*: fragments holding it, and their lines."""
+    return (
+        index.chunks(at=ref)
+        .filter(pl.col("kind") == ChunkKind.FRAGMENT)
+        .unique("id")
+        .select(
+            pl.col("language").alias("lang"),
+            pl.col("metadata").struct.field("node_types").alias("node_type"),
+            (pl.col("line_end") - pl.col("line_start") + 1).alias("lines"),
+        )
+        .explode("node_type")
+        .group_by("lang", "node_type")
+        .agg(fragments=pl.len(), fragment_lines=pl.col("lines").sum())
+    )
+
+
+def fragment_types(index: Index, corpus: Corpus) -> dy.DataFrame[FragmentTypeRow]:
+    """Each language's node types holding the most fragment lines, over *corpus*."""
+    return (
+        _per_ref(corpus, lambda ref: _fragment_node_types(index, ref))
+        .group_by("lang", "node_type")
+        .agg(pl.col("fragments", "fragment_lines").sum())
+        .sort(["lang", "fragment_lines", "node_type"], descending=[False, True, False])
+        .group_by("lang", maintain_order=True)
+        .head(_TOP_NODE_TYPES)
+        .pipe(FragmentTypeRow.validate, cast=True)
+    )
+
+
 def totals(index: Index, corpus: Corpus) -> tuple[int, int, int]:
     """`(chunks, locations, edges)` over *corpus*.
 
@@ -232,6 +334,8 @@ def _index_report(
     repos: dy.DataFrame[RepoCountRow],
     kinds: dy.DataFrame[KindCountRow],
     languages: dy.DataFrame[LanguageCountRow],
+    fragments: dy.DataFrame[FragmentLanguageRow],
+    fragment_types: dy.DataFrame[FragmentTypeRow],
 ) -> str:
     """Render INDEX.md from the counts `totals` and the per-group readers return."""
     total_chunks, total_locations, total_edges = totals
@@ -245,6 +349,12 @@ def _index_report(
         repos_table=md_table(repos),
         kinds_table=md_table(kinds),
         langs_table=md_table(languages),
+        fragments_table=md_table(
+            fragments.with_columns(
+                pl.format("{}%", (pl.col("share") * 100).round(1)).alias("share")
+            )
+        ),
+        fragment_types_table=md_table(fragment_types),
     )
 
 
@@ -339,6 +449,8 @@ class IndexCmd(BaseModel):
                     repo_counts(index, corpus),
                     kind_counts(index, corpus),
                     language_counts(index, corpus),
+                    fragment_counts(index, corpus),
+                    fragment_types(index, corpus),
                 )
             )
             self.report.write_text(report, encoding="utf-8")
