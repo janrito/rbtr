@@ -109,7 +109,7 @@ def test_startup_recovery_runs_the_selected_embed_work(
     ended = [event for event in indexer_outputs if isinstance(event, EmbeddingEnded)]
     assert [event.at.snapshot_sha for event in ended] == ([] if expected is None else [expected])
     if isinstance(job, EmbedJob):
-        assert index.chunk_counts_for_snapshot(at=job.at).is_fully_embedded
+        assert index.chunk_counts_for_snapshot(at=job.at).unembedded == 0
 
 
 def test_startup_backfills_a_head_watch_for_every_repo(

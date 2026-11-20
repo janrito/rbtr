@@ -163,7 +163,7 @@ def test_embedding_leaves_nothing_outstanding(
     embed_index(index, at=repo.at(snapshot_sha), embedder=stubbed_embedder)
 
     counts = index.chunk_counts_for_snapshot(at=repo.at(snapshot_sha))
-    assert counts.is_fully_embedded
+    assert counts.unembedded == 0
 
 
 @pytest.fixture

@@ -391,13 +391,13 @@ def test_the_embed_worker_finishes_the_snapshot(
     """
     deadline = time.monotonic() + 30.0
     while time.monotonic() < deadline:
-        if embeddable_index.chunk_counts_for_snapshot(at=embedded_snapshot).is_fully_embedded:
+        if embeddable_index.chunk_counts_for_snapshot(at=embedded_snapshot).unembedded == 0:
             break
         time.sleep(0.05)
 
     counts = embeddable_index.chunk_counts_for_snapshot(at=embedded_snapshot)
     assert counts.total == 50, "fixture did not seed the chunks it claims to"
-    assert counts.is_fully_embedded, f"{counts.unembedded} of {counts.total} left unembedded"
+    assert counts.unembedded == 0, f"{counts.unembedded} of {counts.total} left unembedded"
 
 
 def test_the_embed_worker_stands_aside_for_a_pending_build(
@@ -474,7 +474,7 @@ def test_the_embed_worker_resumes_where_it_stood_aside(
         time.sleep(0.05)
 
     final = embeddable_index.chunk_counts_for_snapshot(at=embedded_snapshot)
-    assert final.is_fully_embedded, f"{final.unembedded} of {final.total} left unembedded"
+    assert final.unembedded == 0, f"{final.unembedded} of {final.total} left unembedded"
     # The runs for this snapshot must add up to its chunks and no more:
     # more would mean a resumed run re-embedded what was already there.
     assert len(runs) > 1, f"expected the job to take more than one run, got {runs}"
@@ -535,10 +535,10 @@ def test_no_writer_commits_while_the_write_lock_is_held(
     assert response_adapter.validate_json(frames[-1]).kind == "watch_set"
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
-        if embeddable_index.chunk_counts_for_snapshot(at=embedded_snapshot).is_fully_embedded:
+        if embeddable_index.chunk_counts_for_snapshot(at=embedded_snapshot).unembedded == 0:
             break
         time.sleep(0.05)
 
     assert "main" in embeddable_index.watched_refs(repo)
     final = embeddable_index.chunk_counts_for_snapshot(at=embedded_snapshot)
-    assert final.is_fully_embedded, f"{final.unembedded} of {final.total} left unembedded"
+    assert final.unembedded == 0, f"{final.unembedded} of {final.total} left unembedded"

@@ -320,7 +320,6 @@ class Chunk(BaseModel, frozen=True):
     """
     content: str
     span: Span
-    has_embedding: bool = Field(default=False, exclude=True)
 
     @property
     def kind(self) -> ChunkKind:
@@ -453,8 +452,7 @@ class SnapshotCounts:
 
     Counts chunks: content held at several paths counts once, because
     embedding it writes the one content-addressed row every path
-    shares.  A snapshot with no chunks reads as fully embedded, having
-    no work outstanding.  `kw_only` forbids positional / tuple-style
+    shares.  `kw_only` forbids positional / tuple-style
     construction and unpacking.
 
     `SnapshotCountsRow` establishes `embedded <= total` where the counts
@@ -468,11 +466,6 @@ class SnapshotCounts:
     def unembedded(self) -> int:
         """Chunks still awaiting an embedding."""
         return self.total - self.embedded
-
-    @property
-    def is_fully_embedded(self) -> bool:
-        """Whether every chunk carries an embedding."""
-        return self.embedded == self.total
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

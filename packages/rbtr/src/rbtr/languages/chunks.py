@@ -3,17 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
 
 import dataframely as dy
 import polars as pl
 
 from rbtr.domain.models import Chunk, Chunks
 from rbtr.domain.rules import ChunkRow, holds_references, no_references
-
-if TYPE_CHECKING:
-    pass
-
 
 # A dumped chunk's `role`, every role's fields present: chunks without an
 # import would otherwise infer a struct with no `meta`.

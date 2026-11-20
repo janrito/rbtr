@@ -202,23 +202,6 @@ class LanguageManager:
 
         return self._grammar_cache[language_id]
 
-    def missing_grammar(self, language_id: str) -> bool:
-        """Check whether a language *expects* a grammar but it's not installed.
-
-        Returns `True` only when the registration specifies a
-        `grammar_module` but loading it fails.  Languages that
-        intentionally have no grammar, such as plaintext, return `False`.
-
-        Examples:
-
-            `missing_grammar("python")` → `False` (installed)
-            `missing_grammar("plaintext")` → `False` (no grammar needed)
-        """
-        reg = self._registrations.get(language_id)
-        if reg is None or reg.grammar_module is None:
-            return False
-        return self.grammar(language_id) is None
-
     def registrations(self) -> list[LanguageRegistration]:
         """Every installed language's registration."""
         return list(self._registrations.values())
@@ -260,15 +243,6 @@ class LanguageManager:
 def get_manager() -> LanguageManager:
     """Return the cached singleton `LanguageManager`.
 
-    Created on first call and reused thereafter. Call `reset_manager` to force
-    re-creation (testing only).
+    Created on first call and reused thereafter.
     """
     return LanguageManager()
-
-
-def reset_manager() -> None:
-    """Clear the cached singleton so the next `get_manager` creates a fresh
-    `LanguageManager`. For tests that register custom plugins or need a clean
-    slate.
-    """
-    get_manager.cache_clear()

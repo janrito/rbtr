@@ -16,7 +16,7 @@ from tree_sitter import Query
 
 from rbtr.config import config
 from rbtr.errors import MissingLanguagePluginsError, RbtrError
-from rbtr.languages.manager import get_manager, reset_manager
+from rbtr.languages.manager import get_manager
 from rbtr.languages.registration import LanguageRegistration, QueryExtraction
 
 
@@ -103,20 +103,6 @@ def test_every_query_compiles_against_its_grammar() -> None:
         Query(grammar, reg.extraction.query)  # raises QueryError on an unknown node type
 
 
-@pytest.mark.parametrize(
-    "lang_id",
-    ["python", "bash"],
-)
-def test_missing_grammar_false_for_base(lang_id: str) -> None:
-    assert not get_manager().missing_grammar(lang_id)
-
-
-def test_missing_grammar_false_for_chunker_only() -> None:
-    """Languages with a custom chunker but no grammar_module are not 'missing'."""
-    assert not get_manager().missing_grammar("markdown")
-    assert not get_manager().missing_grammar("rst")
-
-
 def test_all_language_ids_not_empty() -> None:
     ids = get_manager().all_language_ids()
     assert len(ids) > 0
@@ -131,9 +117,9 @@ def test_all_language_ids_not_empty() -> None:
 
 @pytest.fixture
 def fresh_manager() -> Iterator[None]:
-    reset_manager()
+    get_manager.cache_clear()
     yield
-    reset_manager()
+    get_manager.cache_clear()
 
 
 def test_entrypoint_registration_is_discovered(
