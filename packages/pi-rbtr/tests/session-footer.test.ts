@@ -196,6 +196,30 @@ test("a migration's progress reaches the footer, and its end restores the index 
   await until(() => pi.ui.statuses.at(-1) === label);
 });
 
+// A subscriber misses what the daemon publishes before it joins, `migration_ended` included.
+test("a migration whose end the session missed ends at the next health check", async ({ fakeDaemon, pi }) => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  try {
+    await pi.start();
+    await until(() => / symbols$/.test(pi.ui.statuses.at(-1) ?? ""));
+    const label = pi.ui.statuses.at(-1);
+    await until(() => {
+      void fakeDaemon.publish({
+        kind: "progress",
+        work: { kind: "migrate" },
+        phase: "migrating",
+        current: 1,
+        total: 2,
+      });
+      return / migrating index files 1\/2…$/.test(pi.ui.statuses.at(-1) ?? "");
+    });
+    vi.advanceTimersByTime(HEALTH_CHECK_MS);
+    await until(() => pi.ui.statuses.at(-1) === label);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 describe("in rpc mode", () => {
   test("/rbtr-settings says it needs the terminal UI, and opens nothing", async ({ pi }) => {
     await pi.start({ mode: "rpc" });
