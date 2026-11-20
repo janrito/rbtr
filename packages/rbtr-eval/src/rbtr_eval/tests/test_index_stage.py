@@ -21,12 +21,12 @@ from rbtr.languages.edges import InferredEdgeRow
 from rbtr.tests.conftest import make_commit
 from rbtr_eval.corpus import Corpus, corpus_refs
 from rbtr_eval.index_stage import (
-    _embedding_counts,
-    _kind_counts,
-    _language_counts,
-    _repo_counts,
-    _sentinel_hash,
-    _totals,
+    embedding_counts,
+    kind_counts,
+    language_counts,
+    repo_counts,
+    sentinel_hash,
+    totals,
 )
 from rbtr_eval.tests.conftest import chunk, snap
 
@@ -117,11 +117,11 @@ def load():
 def test_counts_describe_only_indexed_snapshots(index_with_residue: Index) -> None:
     """A snapshot never marked indexed contributes to no count."""
     corpus = corpus_of(index_with_residue)
-    assert _repo_counts(index_with_residue, corpus).rows(named=True) == [
+    assert repo_counts(index_with_residue, corpus).rows(named=True) == [
         {"repo": "repo", "chunks": 2, "locations": 2, "edges": 1}
     ]
-    assert _totals(index_with_residue, corpus) == (2, 2, 1)
-    assert _embedding_counts(index_with_residue, corpus).rows(named=True) == [
+    assert totals(index_with_residue, corpus) == (2, 2, 1)
+    assert embedding_counts(index_with_residue, corpus).rows(named=True) == [
         {"repo": "repo", "chunks": 2, "embedded": 1, "truncated": 0}
     ]
 
@@ -129,11 +129,11 @@ def test_counts_describe_only_indexed_snapshots(index_with_residue: Index) -> No
 def test_dimension_tables_attribute_each_edge_to_both_endpoints(index_with_residue: Index) -> None:
     """An edge counts outbound for its source kind, inbound for its target."""
     corpus = corpus_of(index_with_residue)
-    assert _kind_counts(index_with_residue, corpus).rows(named=True) == [
+    assert kind_counts(index_with_residue, corpus).rows(named=True) == [
         {"kind": "function", "n": 1, "outbound_edges": 0, "inbound_edges": 1},
         {"kind": "import", "n": 1, "outbound_edges": 1, "inbound_edges": 0},
     ]
-    assert _language_counts(index_with_residue, corpus).rows(named=True) == [
+    assert language_counts(index_with_residue, corpus).rows(named=True) == [
         {"lang": "python", "n": 2, "outbound_edges": 1, "inbound_edges": 1}
     ]
 
@@ -143,10 +143,10 @@ def test_a_vendored_file_counts_once_as_content_and_twice_as_location(
 ) -> None:
     """One chunk reached from two paths is one chunk in two places."""
     corpus = corpus_refs(index_with_copy)
-    assert _repo_counts(index_with_copy, corpus).rows(named=True) == [
+    assert repo_counts(index_with_copy, corpus).rows(named=True) == [
         {"repo": "repo", "chunks": 1, "locations": 2, "edges": 0}
     ]
-    assert _totals(index_with_copy, corpus) == (1, 2, 0)
+    assert totals(index_with_copy, corpus) == (1, 2, 0)
 
 
 @pytest.mark.parametrize(
@@ -167,7 +167,7 @@ def test_the_sentinel_hash_is_fixed_for_a_given_index(
     re-run.  Recomputing the expected value inside the test would agree
     with any implementation and catch that move too late.
     """
-    assert _sentinel_hash(index_with_residue, embed=embed) == expected
+    assert sentinel_hash(index_with_residue, embed=embed) == expected
 
 
 def test_writing_an_embedding_moves_only_the_embed_ready_hash(
@@ -178,8 +178,8 @@ def test_writing_an_embedding_moves_only_the_embed_ready_hash(
     The chunks-ready hash covers which snapshots are indexed, so it
     holds steady while embedding fills vectors in.
     """
-    before_chunks = _sentinel_hash(index_with_residue, embed=False)
-    before_embed = _sentinel_hash(index_with_residue, embed=True)
+    before_chunks = sentinel_hash(index_with_residue, embed=False)
+    before_embed = sentinel_hash(index_with_residue, embed=True)
     [repo] = index_with_residue.repos()
     unembedded = index_with_residue.unembedded_chunk_ids(at=repo.at(INDEXED))
     assert unembedded, "fixture must leave a chunk to embed"
@@ -194,5 +194,5 @@ def test_writing_an_embedding_moves_only_the_embed_ready_hash(
             )
         )
 
-    assert _sentinel_hash(index_with_residue, embed=True) != before_embed
-    assert _sentinel_hash(index_with_residue, embed=False) == before_chunks
+    assert sentinel_hash(index_with_residue, embed=True) != before_embed
+    assert sentinel_hash(index_with_residue, embed=False) == before_chunks

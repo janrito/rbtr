@@ -53,7 +53,7 @@ class DroppedLanguage(dy.Schema):
     n_chunks = dy.UInt32()
 
 
-def _query_counts(queries: dy.DataFrame[QueryRow]) -> dy.DataFrame[QueryCount]:
+def query_counts(queries: dy.DataFrame[QueryRow]) -> dy.DataFrame[QueryCount]:
     """How many queries share each repo, language, kind, provenance and query kind."""
     return (
         queries.with_columns(query_kind())
@@ -64,7 +64,7 @@ def _query_counts(queries: dy.DataFrame[QueryRow]) -> dy.DataFrame[QueryCount]:
     )
 
 
-def _dropped_languages(headers: dy.DataFrame[RepoHeader]) -> dy.DataFrame[DroppedLanguage]:
+def dropped_languages(headers: dy.DataFrame[RepoHeader]) -> dy.DataFrame[DroppedLanguage]:
     """Every language a repo skipped, with its chunk count."""
     return (
         headers.select("slug", "dropped_languages")
@@ -78,7 +78,7 @@ def _dropped_languages(headers: dy.DataFrame[RepoHeader]) -> dy.DataFrame[Droppe
     )
 
 
-def _examples(
+def examples(
     queries: dy.DataFrame[QueryRow], *, per_provenance: int, seed: int
 ) -> dy.DataFrame[ClassifiedQuery]:
     """Up to *per_provenance* sampled queries for each provenance."""
@@ -91,7 +91,7 @@ def _examples(
     )
 
 
-def _render_report(
+def render_report(
     counts: dy.DataFrame[QueryCount],
     dropped: dy.DataFrame[DroppedLanguage],
     examples: dy.DataFrame[ClassifiedQuery],
@@ -219,10 +219,10 @@ class ProfileCmd(BaseModel):
         ).pipe(RepoHeader.validate, cast=True)
         self.report.parent.mkdir(parents=True, exist_ok=True)
         self.report.write_text(
-            _render_report(
-                _query_counts(queries),
-                _dropped_languages(headers),
-                _examples(queries, per_provenance=self.examples_per_provenance, seed=self.seed),
+            render_report(
+                query_counts(queries),
+                dropped_languages(headers),
+                examples(queries, per_provenance=self.examples_per_provenance, seed=self.seed),
                 headers,
             ),
             encoding="utf-8",

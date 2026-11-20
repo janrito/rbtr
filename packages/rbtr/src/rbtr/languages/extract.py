@@ -21,7 +21,7 @@ from rbtr.git import FileEntry
 from rbtr.languages.chunks import chunk_plaintext, host_presence_chunk
 from rbtr.languages.manager import LanguageManager, get_manager
 from rbtr.languages.registration import ChunkExtraction, QueryExtraction
-from rbtr.languages.treesitter import _get_query, extract_symbols
+from rbtr.languages.treesitter import _get_query, extract_doc_spans, extract_symbols
 
 if TYPE_CHECKING:
     from tree_sitter import Node, Range
@@ -214,3 +214,32 @@ def extract_file(entry: FileEntry, language: str) -> list[Chunk]:
         chunks.append(host_presence_chunk(entry.path, entry.blob_sha, language))
 
     return [chunk.model_copy(update={"file_language": language}) for chunk in chunks]
+
+
+def docstring(content: str, language: str) -> str | None:
+    """The documentation of the first documented symbol in *content*, as written.
+
+    *content* is parsed with *language*'s grammar and query: a symbol's
+    documentation is a docstring inside it and the comment block flush
+    above it, joined by newlines.  None when *language* has no query
+    extraction, or no symbol in *content* is documented.
+    """
+    mgr = get_manager()
+    registration = mgr.get_registration(language)
+    extraction = registration.extraction if registration is not None else None
+    grammar = mgr.grammar(language)
+    if not isinstance(extraction, QueryExtraction) or grammar is None:
+        return None
+    source = content.encode("utf-8")
+    spans = extract_doc_spans(
+        source,
+        grammar,
+        extraction.query,
+        scope_types=extraction.scope_types,
+        class_scope_types=extraction.class_scope_types,
+    )
+    for span in spans:
+        return b"\n".join(source[start:end] for start, end in span.ranges).decode(
+            "utf-8", errors="replace"
+        )
+    return None

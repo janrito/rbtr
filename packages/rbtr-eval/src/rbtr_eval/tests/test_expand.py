@@ -17,7 +17,7 @@ from pydantic_ai.messages import TextPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pytest_cases import parametrize_with_cases
 
-from rbtr_eval.expand import _expansion_examples, expand_queries
+from rbtr_eval.expand import expand_queries, expansion_examples
 from rbtr_eval.shared_schemas import ExpansionRow, QueryRow
 
 if TYPE_CHECKING:
@@ -223,7 +223,7 @@ def test_expansion_examples_join_queries_onto_expansions(
     """
     result = expand_queries(concept_query, model=expansion_model, concurrency=1)
 
-    examples = _expansion_examples(result, concept_query, per_kind=5, seed=42)
+    examples = expansion_examples(result, concept_query, per_kind=5, seed=42)
 
     assert examples["text"].to_list() == ["how does configuration loading work"]
 
@@ -232,9 +232,9 @@ def test_expansion_examples_are_the_same_every_time(
     many_expansions: dy.DataFrame[ExpansionRow], many_queries: dy.DataFrame[QueryRow]
 ) -> None:
     """The sampled examples depend only on the data, not on row order."""
-    first = _expansion_examples(many_expansions, many_queries, per_kind=5, seed=42)
+    first = expansion_examples(many_expansions, many_queries, per_kind=5, seed=42)
 
     assert all(
-        _expansion_examples(many_expansions, many_queries, per_kind=5, seed=42).equals(first)
+        expansion_examples(many_expansions, many_queries, per_kind=5, seed=42).equals(first)
         for _ in range(4)
     )

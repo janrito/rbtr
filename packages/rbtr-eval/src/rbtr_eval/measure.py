@@ -38,11 +38,12 @@ from rbtr.cli.output import progress_reporter
 from rbtr.config import config
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import SearchRequest, SearchResponse
-from rbtr.domain.models import ChunkKind, QueryKind
+from rbtr.domain.models import ChunkKind, EmbeddingState, QueryKind
 from rbtr.index.classify import classify_query
 from rbtr.index.index import Index
 from rbtr_eval.agg import Dimension, SearchMetrics, search_metric_aggs
 from rbtr_eval.charts import render_vl_to_png
+from rbtr_eval.corpus import Corpus, corpus_refs
 from rbtr_eval.formatting import md_table
 from rbtr_eval.queries import load_all_queries
 from rbtr_eval.rbtr_cli import daemon_session
@@ -115,7 +116,7 @@ class SearchQuery(dy.Schema):
 
 
 class SearchBatch(SearchQuery):
-    """Raw output of `_run_searches` before `_score_outcomes` runs.
+    """Raw output of `_run_searches` before `score_outcomes` runs.
 
     `hits` carries the top-10 results from the daemon as a
     list-of-struct; ranking turns this into `SearchOutcome` with
@@ -204,34 +205,19 @@ class MetricsFile(BaseModel):
     arms: dict[str, dict[str, dict[str, int | float | None]]]
 
 
-_TRUNCATED_CHUNKS_SQL = (
-    resources.files("rbtr_eval.sql").joinpath("truncated_chunks.sql").read_text()
-)
+def truncated_targets(index: Index, corpus: Corpus) -> dy.DataFrame[TruncatedTarget]:
+    """The chunks at *corpus*'s refs whose embedding input was truncated, keyed like a query's target.
 
-
-def _truncated_targets(db_path: Path) -> dy.DataFrame[TruncatedTarget]:
-    """The chunks whose embedding input was truncated, read from the index at *db_path*.
-
-    Reads each repo's truncated chunks from its project's file; the
-    daemon is stopped by this point.  Empty when no index exists.
+    The measure stage runs after `gc --keep head-only`, so each repo's
+    corpus ref is its only snapshot.
     """
-    if not db_path.exists():
-        return TruncatedTarget.create_empty()
-
-    index = Index(db_path)
-    frames = []
-    for repo in index.repos():
-        with index.reader(repo) as cur:
-            frame = cur.sql(_TRUNCATED_CHUNKS_SQL, params={"repo_id": repo.repo_id}).pl()
-        frames.append(frame.with_columns(pl.lit(repo.repo_path).alias("path")))
-    index.close()
-    trunc = pl.concat(frames) if frames else pl.DataFrame()
-
-    if trunc.is_empty():
-        return TruncatedTarget.create_empty()
-
+    located = pl.concat(
+        index.chunks(at=ref).with_columns(slug=pl.lit(ref.repo.repo_path.rsplit("/", 1)[-1]))
+        for ref in corpus.refs
+    )
     return (
-        trunc.with_columns(pl.col("path").str.split("/").list.last().alias("slug"))
+        located.filter(pl.col("embedding_state") == EmbeddingState.TRUNCATED)
+        .rename({"kind": "symbol_kind"})
         .select("slug", *IDENTITY_COLUMNS)
         .unique()
         .pipe(TruncatedTarget.validate, cast=True)
@@ -292,7 +278,7 @@ def _run_searches(
     Each query is searched once per arm, the arm controlling
     which expansion channels (keywords / variants) are passed
     to the daemon.  Returns an un-scored outcome frame with a
-    `hits: list[struct]` column.  `_score_outcomes` expands
+    `hits: list[struct]` column.  `score_outcomes` expands
     that into typed `SearchOutcome` rows with declarative
     ranking.  Progress is reported via rbtr's shared
     `progress_reporter`; a live rich bar on interactive
@@ -356,7 +342,7 @@ def _run_searches(
     return pl.DataFrame(rows, infer_schema_length=None).pipe(SearchBatch.validate, cast=True)
 
 
-def _score_outcomes(
+def score_outcomes(
     batch: dy.DataFrame[SearchBatch],
     truncated: dy.DataFrame[TruncatedTarget],
 ) -> dy.DataFrame[SearchOutcome]:
@@ -421,7 +407,7 @@ def _score_outcomes(
     )
 
 
-def _arm_metrics(outcomes: dy.DataFrame[SearchOutcome]) -> dy.DataFrame[ArmMetrics]:
+def arm_metrics(outcomes: dy.DataFrame[SearchOutcome]) -> dy.DataFrame[ArmMetrics]:
     """Each arm's figures over every query."""
     return (
         outcomes.group_by("arm")
@@ -435,7 +421,7 @@ def _arm_metrics(outcomes: dy.DataFrame[SearchOutcome]) -> dy.DataFrame[ArmMetri
     )
 
 
-def _breakdowns(outcomes: dy.DataFrame[SearchOutcome]) -> dy.DataFrame[Breakdown]:
+def breakdowns(outcomes: dy.DataFrame[SearchOutcome]) -> dy.DataFrame[Breakdown]:
     """Each arm's figures per value of every `Dimension`."""
     return (
         pl.concat(
@@ -458,7 +444,7 @@ def _breakdowns(outcomes: dy.DataFrame[SearchOutcome]) -> dy.DataFrame[Breakdown
     )
 
 
-def _target_shapes(outcomes: dy.DataFrame[SearchOutcome]) -> dy.DataFrame[TargetShape]:
+def target_shapes(outcomes: dy.DataFrame[SearchOutcome]) -> dy.DataFrame[TargetShape]:
     """Each arm's figures per target kind and request shape."""
     return (
         outcomes.group_by("arm", pl.col("symbol_kind").cast(pl.String), "query_kind")
@@ -483,7 +469,7 @@ def _truncation_impact(
     )
 
 
-def _metrics_file(
+def metrics_file(
     arm_metrics: dy.DataFrame[ArmMetrics],
     breakdowns: dy.DataFrame[Breakdown],
     headers: dy.DataFrame[RepoHeader],
@@ -725,9 +711,12 @@ class MeasureCmd(BaseModel):
             batch = _run_searches(client, queries, self.repos_dir)
         elapsed_seconds = time.monotonic() - t0
 
-        outcomes = _score_outcomes(batch, _truncated_targets(config.db_path))
-        arm_metrics = _arm_metrics(outcomes)
-        breakdowns = _breakdowns(outcomes)
+        index = Index(str(config.db_path))
+        truncated = truncated_targets(index, corpus_refs(index))
+        index.close()
+        outcomes = score_outcomes(batch, truncated)
+        by_arm = arm_metrics(outcomes)
+        by_dimension = breakdowns(outcomes)
 
         self.report.parent.mkdir(parents=True, exist_ok=True)
         self.report.write_text(
@@ -735,19 +724,17 @@ class MeasureCmd(BaseModel):
                 headers=headers,
                 n_queries=queries.height,
                 elapsed_seconds=elapsed_seconds,
-                arm_metrics=arm_metrics,
-                breakdowns=breakdowns,
-                target_shapes=_target_shapes(outcomes),
+                arm_metrics=by_arm,
+                breakdowns=by_dimension,
+                target_shapes=target_shapes(outcomes),
                 truncation=_truncation_impact(outcomes),
             ),
             encoding="utf-8",
         )
-        for name, spec in _charts(breakdowns).items():
+        for name, spec in _charts(by_dimension).items():
             render_vl_to_png(spec, self.report.parent / f"{name}.png")
         self.metrics.parent.mkdir(parents=True, exist_ok=True)
         self.metrics.write_text(
-            _metrics_file(arm_metrics, breakdowns, headers, elapsed_seconds).model_dump_json(
-                indent=2
-            ),
+            metrics_file(by_arm, by_dimension, headers, elapsed_seconds).model_dump_json(indent=2),
             encoding="utf-8",
         )
