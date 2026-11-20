@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pytest_cases import case
 
-type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
+type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
 
 
 @case(tags=["symbol"])
@@ -24,8 +24,7 @@ Body A.
 Body B.
 """
     return (
-        "markdown",
-        src,
+        {"input.md": src},
         [
             ("doc_section", "Title", ""),
             ("doc_section", "Section A", "Title"),
@@ -46,7 +45,7 @@ def case_md_scope_chain() -> SymbolCase:
 
 Content here.
 """
-    return "markdown", src, [("doc_section", "Deep", "Top::Mid")]
+    return {"input.md": src}, [("doc_section", "Deep", "Top::Mid")]
 
 
 @case(tags=["symbol"])
@@ -76,7 +75,6 @@ Beta intro.
 Beta overview.
 """
     return (
-        "markdown",
-        src,
+        {"input.md": src},
         [("doc_section", "Overview", "A"), ("doc_section", "Overview", "B")],
     )

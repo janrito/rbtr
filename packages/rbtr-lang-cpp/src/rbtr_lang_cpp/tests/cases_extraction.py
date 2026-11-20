@@ -4,21 +4,21 @@ from __future__ import annotations
 
 from pytest_cases import case
 
-type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
-type ImportCase = tuple[str, str, dict[str, str | list[dict[str, str]]]]
-type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
+type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
+type ImportCase = tuple[dict[str, str], dict[str, str | list[dict[str, str]]]]
+type MixedCase = tuple[dict[str, str], set[str], list[tuple[str, str]]]
 
 
 @case(tags=["symbol"])
 def case_cpp_free_function_void() -> SymbolCase:
     """void greet()."""
-    return "cpp", "void greet() { }\n", [("function", "greet", "")]
+    return {"input.cpp": "void greet() { }\n"}, [("function", "greet", "")]
 
 
 @case(tags=["symbol"])
 def case_cpp_free_function_returning() -> SymbolCase:
     """int compute(int x)."""
-    return "cpp", "int compute(int x) { return x; }\n", [("function", "compute", "")]
+    return {"input.cpp": "int compute(int x) { return x; }\n"}, [("function", "compute", "")]
 
 
 @case(tags=["symbol"])
@@ -28,25 +28,25 @@ def case_cpp_multiple_functions() -> SymbolCase:
 int foo() { return 0; }
 void bar() { }
 """
-    return "cpp", src, [("function", "foo", ""), ("function", "bar", "")]
+    return {"input.cpp": src}, [("function", "foo", ""), ("function", "bar", "")]
 
 
 @case(tags=["symbol"])
 def case_cpp_class() -> SymbolCase:
     """class Shape."""
-    return "cpp", "class Shape { };\n", [("class", "Shape", "")]
+    return {"input.cpp": "class Shape { };\n"}, [("class", "Shape", "")]
 
 
 @case(tags=["symbol"])
 def case_cpp_struct() -> SymbolCase:
     """struct Point."""
-    return "cpp", "struct Point { double x; double y; };\n", [("class", "Point", "")]
+    return {"input.cpp": "struct Point { double x; double y; };\n"}, [("class", "Point", "")]
 
 
 @case(tags=["symbol"])
 def case_cpp_enum_class() -> SymbolCase:
     """enum class Color."""
-    return "cpp", "enum class Color { Red, Green, Blue };\n", [("class", "Color", "")]
+    return {"input.cpp": "enum class Color { Red, Green, Blue };\n"}, [("class", "Color", "")]
 
 
 @case(tags=["symbol"])
@@ -56,7 +56,7 @@ def case_cpp_class_inheritance() -> SymbolCase:
 class Base { };
 class Derived : public Base { };
 """
-    return "cpp", src, [("class", "Base", ""), ("class", "Derived", "")]
+    return {"input.cpp": src}, [("class", "Base", ""), ("class", "Derived", "")]
 
 
 @case(tags=["symbol"])
@@ -68,13 +68,13 @@ public:
     void bar() { }
 };
 """
-    return "cpp", src, [("method", "bar", "Foo")]
+    return {"input.cpp": src}, [("method", "bar", "Foo")]
 
 
 @case(tags=["symbol"])
 def case_cpp_struct_method() -> SymbolCase:
     """Method scoped to struct."""
-    return "cpp", "struct Vec { void push(int v) { } };\n", [("method", "push", "Vec")]
+    return {"input.cpp": "struct Vec { void push(int v) { } };\n"}, [("method", "push", "Vec")]
 
 
 @case(tags=["symbol"])
@@ -87,7 +87,7 @@ public:
     int sub(int a, int b) { return a - b; }
 };
 """
-    return "cpp", src, [("method", "add", "Calculator"), ("method", "sub", "Calculator")]
+    return {"input.cpp": src}, [("method", "add", "Calculator"), ("method", "sub", "Calculator")]
 
 
 @case(tags=["symbol"])
@@ -101,7 +101,7 @@ namespace ns {
 void f() { }
 }
 """
-    return "cpp", src, [("function", "f", "ns")]
+    return {"input.cpp": src}, [("function", "f", "ns")]
 
 
 @case(tags=["symbol"])
@@ -115,7 +115,7 @@ public:
 };
 }
 """
-    return "cpp", src, [("class", "Widget", "ns"), ("method", "draw", "ns::Widget")]
+    return {"input.cpp": src}, [("class", "Widget", "ns"), ("method", "draw", "ns::Widget")]
 
 
 @case(tags=["symbol"])
@@ -128,7 +128,7 @@ void f() { }
 }
 }
 """
-    return "cpp", src, [("function", "f", "a::b")]
+    return {"input.cpp": src}, [("function", "f", "a::b")]
 
 
 @case(tags=["symbol"])
@@ -148,7 +148,7 @@ public:
 };
 }
 """
-    return "cpp", src, [("method", "deep", "ns::Outer::Inner")]
+    return {"input.cpp": src}, [("method", "deep", "ns::Outer::Inner")]
 
 
 @case(tags=["symbol"])
@@ -158,25 +158,28 @@ def case_cpp_free_function_not_scoped() -> SymbolCase:
 class C { };
 void standalone() { }
 """
-    return "cpp", src, [("function", "standalone", "")]
+    return {"input.cpp": src}, [("function", "standalone", "")]
 
 
 @case(tags=["import"])
 def case_cpp_include_system() -> ImportCase:
     """#include <iostream>."""
-    return "cpp", "#include <iostream>\n", {"module": "iostream", "names": "*"}
+    return {"input.cpp": "#include <iostream>\n"}, {"module": "iostream", "names": "*"}
 
 
 @case(tags=["import"])
 def case_cpp_include_local() -> ImportCase:
     """#include "myheader.h"."""
-    return "cpp", '#include "myheader.h"\n', {"module": "myheader.h", "names": "*"}
+    return {"input.cpp": '#include "myheader.h"\n'}, {"module": "myheader.h", "names": "*"}
 
 
 @case(tags=["import"])
 def case_cpp_include_nested() -> ImportCase:
     """#include <boost/optional.hpp>."""
-    return "cpp", "#include <boost/optional.hpp>\n", {"module": "boost/optional.hpp", "names": "*"}
+    return {"input.cpp": "#include <boost/optional.hpp>\n"}, {
+        "module": "boost/optional.hpp",
+        "names": "*",
+    }
 
 
 @case(tags=["mixed"])
@@ -210,8 +213,7 @@ void run(Engine& e) {
 }
 """
     return (
-        "cpp",
-        src,
+        {"input.cpp": src},
         {"import", "class", "method", "function"},
         [("start", "Engine"), ("stop", "Engine")],
     )
@@ -220,7 +222,7 @@ void run(Engine& e) {
 @case(tags=["symbol"])
 def case_cpp_global() -> SymbolCase:
     """File-scope global with initialiser."""
-    return "cpp", "int g = 5;\n", [("variable", "g", "")]
+    return {"input.cpp": "int g = 5;\n"}, [("variable", "g", "")]
 
 
 type ReferencesCase = tuple[str, str, list[tuple[str, str, list[str], list[str]]]]
@@ -289,8 +291,7 @@ char* K::declared() { return 0; }
 int& K::n() { static int x; return x; }
 """
     return (
-        "cpp",
-        src,
+        {"input.cpp": src},
         [
             ("function", "top", ""),
             ("function", "names", ""),
@@ -333,8 +334,7 @@ class Cart {
 shop::Cart::~Cart() {}
 """
     return (
-        "cpp",
-        src,
+        {"input.cpp": src},
         [
             ("method", "Order", "Order"),
             ("method", "~Order", "Order"),
@@ -358,8 +358,7 @@ double PREFIX(predict)(const model* m) { return 0; }
 const char *PREFIX(check)(int x) { return 0; }
 """
     return (
-        "cpp",
-        src,
+        {"input.cpp": src},
         [("function", "PREFIX(predict)", ""), ("function", "PREFIX(check)", "")],
     )
 
@@ -384,8 +383,7 @@ int count;
 #endif
 """
     return (
-        "cpp",
-        src,
+        {"input.cpp": src},
         [
             ("function", "api_open", ""),
             ("variable", "api_errno", ""),

@@ -9,10 +9,10 @@ from __future__ import annotations
 import pytest
 from pytest_cases import case
 
-type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
-type ImportCase = tuple[str, str, dict[str, str | list[dict[str, str]]]]
-type MultiImportCase = tuple[str, str, int, list[dict[str, str | list[dict[str, str]]]]]
-type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
+type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
+type ImportCase = tuple[dict[str, str], dict[str, str | list[dict[str, str]]]]
+type MultiImportCase = tuple[dict[str, str], int, list[dict[str, str | list[dict[str, str]]]]]
+type MixedCase = tuple[dict[str, str], set[str], list[tuple[str, str]]]
 
 _xfail_nested = pytest.mark.xfail(
     reason="nested/chained destructuring unsupported — no query-only recursion",
@@ -23,13 +23,13 @@ _xfail_nested = pytest.mark.xfail(
 @case(tags=["symbol"])
 def case_js_function_declaration() -> SymbolCase:
     """function greet() {}."""
-    return "javascript", "function greet() {}\n", [("function", "greet", "")]
+    return {"input.js": "function greet() {}\n"}, [("function", "greet", "")]
 
 
 @case(tags=["symbol"])
 def case_js_arrow_function() -> SymbolCase:
     """const add = (a, b) => a + b."""
-    return "javascript", "const add = (a, b) => a + b;\n", [("function", "add", "")]
+    return {"input.js": "const add = (a, b) => a + b;\n"}, [("function", "add", "")]
 
 
 @case(tags=["symbol"])
@@ -40,7 +40,7 @@ const fetch = () => {
   return data;
 };
 """
-    return "javascript", src, [("function", "fetch", "")]
+    return {"input.js": src}, [("function", "fetch", "")]
 
 
 @case(tags=["symbol"])
@@ -52,8 +52,7 @@ function b() {}
 const c = () => {};
 """
     return (
-        "javascript",
-        src,
+        {"input.js": src},
         [
             ("function", "a", ""),
             ("function", "b", ""),
@@ -65,13 +64,13 @@ const c = () => {};
 @case(tags=["symbol"])
 def case_js_class() -> SymbolCase:
     """class User {}."""
-    return "javascript", "class User {}\n", [("class", "User", "")]
+    return {"input.js": "class User {}\n"}, [("class", "User", "")]
 
 
 @case(tags=["symbol"])
 def case_js_class_extends() -> SymbolCase:
     """class Admin extends User {}."""
-    return "javascript", "class Admin extends User {}\n", [("class", "Admin", "")]
+    return {"input.js": "class Admin extends User {}\n"}, [("class", "Admin", "")]
 
 
 @case(tags=["symbol"])
@@ -85,15 +84,14 @@ function outer() {
   return inner;
 }
 """
-    return "javascript", src, [("function", "inner", "outer")]
+    return {"input.js": src}, [("function", "inner", "outer")]
 
 
 @case(tags=["import"])
 def case_js_import_named_single() -> ImportCase:
     """import { foo } from './models'."""
     return (
-        "javascript",
-        "import { foo } from './models';\n",
+        {"input.js": "import { foo } from './models';\n"},
         {"module": "./models", "names": "foo", "bindings": [{"name": "foo", "local": "foo"}]},
     )
 
@@ -102,8 +100,7 @@ def case_js_import_named_single() -> ImportCase:
 def case_js_import_named_multiple() -> ImportCase:
     """import { foo, bar } from './models'."""
     return (
-        "javascript",
-        "import { foo, bar } from './models';\n",
+        {"input.js": "import { foo, bar } from './models';\n"},
         {
             "module": "./models",
             "names": "foo,bar",
@@ -116,8 +113,7 @@ def case_js_import_named_multiple() -> ImportCase:
 def case_js_import_named_parent() -> ImportCase:
     """import from parent directory."""
     return (
-        "javascript",
-        "import { Config } from '../config';\n",
+        {"input.js": "import { Config } from '../config';\n"},
         {
             "module": "../config",
             "names": "Config",
@@ -130,8 +126,7 @@ def case_js_import_named_parent() -> ImportCase:
 def case_js_import_named_grandparent() -> ImportCase:
     """import from grandparent directory."""
     return (
-        "javascript",
-        "import { util } from '../../shared/util';\n",
+        {"input.js": "import { util } from '../../shared/util';\n"},
         {
             "module": "../../shared/util",
             "names": "util",
@@ -144,8 +139,7 @@ def case_js_import_named_grandparent() -> ImportCase:
 def case_js_import_default() -> ImportCase:
     """import React from 'react'."""
     return (
-        "javascript",
-        "import React from 'react';\n",
+        {"input.js": "import React from 'react';\n"},
         {"module": "react", "names": "React", "bindings": [{"name": "React", "local": "React"}]},
     )
 
@@ -154,8 +148,7 @@ def case_js_import_default() -> ImportCase:
 def case_js_import_default_relative() -> ImportCase:
     """import App from './App'."""
     return (
-        "javascript",
-        "import App from './App';\n",
+        {"input.js": "import App from './App';\n"},
         {"module": "./App", "names": "App", "bindings": [{"name": "App", "local": "App"}]},
     )
 
@@ -164,8 +157,7 @@ def case_js_import_default_relative() -> ImportCase:
 def case_js_import_namespace() -> ImportCase:
     """import * as utils from '../utils'."""
     return (
-        "javascript",
-        "import * as utils from '../utils';\n",
+        {"input.js": "import * as utils from '../utils';\n"},
         {"module": "../utils", "bindings": [{"name": "../utils", "local": "utils"}]},
     )
 
@@ -173,21 +165,20 @@ def case_js_import_namespace() -> ImportCase:
 @case(tags=["import"])
 def case_js_import_side_effect() -> ImportCase:
     """import './styles.css' — side-effect only."""
-    return "javascript", "import './styles.css';\n", {"module": "./styles"}
+    return {"input.js": "import './styles.css';\n"}, {"module": "./styles"}
 
 
 @case(tags=["import"])
 def case_js_import_side_effect_no_ext() -> ImportCase:
     """import './polyfills' — no extension."""
-    return "javascript", "import './polyfills';\n", {"module": "./polyfills"}
+    return {"input.js": "import './polyfills';\n"}, {"module": "./polyfills"}
 
 
 @case(tags=["import"])
 def case_js_import_package() -> ImportCase:
     """import express from 'express' — absolute."""
     return (
-        "javascript",
-        "import express from 'express';\n",
+        {"input.js": "import express from 'express';\n"},
         {
             "module": "express",
             "names": "express",
@@ -200,8 +191,7 @@ def case_js_import_package() -> ImportCase:
 def case_js_import_scoped_package() -> ImportCase:
     """import from scoped npm package."""
     return (
-        "javascript",
-        "import { render } from '@testing-library/react';\n",
+        {"input.js": "import { render } from '@testing-library/react';\n"},
         {
             "module": "@testing-library/react",
             "names": "render",
@@ -218,8 +208,7 @@ import React from 'react';
 import { useState } from 'react';
 """
     return (
-        "javascript",
-        src,
+        {"input.js": src},
         2,
         [
             {
@@ -261,21 +250,20 @@ function create() {
 /** Tear it down. */
 const destroy = () => {};
 """
-    return "javascript", src, {"import", "class", "function"}, []
+    return {"input.js": src}, {"import", "class", "function"}, []
 
 
 @case(tags=["symbol"])
 def case_ts_function() -> SymbolCase:
     """function greet(): void {}."""
-    return "typescript", "function greet(): void {}\n", [("function", "greet", "")]
+    return {"input.ts": "function greet(): void {}\n"}, [("function", "greet", "")]
 
 
 @case(tags=["symbol"])
 def case_ts_arrow_function() -> SymbolCase:
     """Arrow function with type annotations."""
     return (
-        "typescript",
-        "const add = (a: number, b: number): number => a + b;\n",
+        {"input.ts": "const add = (a: number, b: number): number => a + b;\n"},
         [("function", "add", "")],
     )
 
@@ -283,13 +271,13 @@ def case_ts_arrow_function() -> SymbolCase:
 @case(tags=["symbol"])
 def case_ts_class() -> SymbolCase:
     """class Service {}."""
-    return "typescript", "class Service {}\n", [("class", "Service", "")]
+    return {"input.ts": "class Service {}\n"}, [("class", "Service", "")]
 
 
 @case(tags=["symbol"])
 def case_ts_class_generics() -> SymbolCase:
     """class Container<T> {}."""
-    return "typescript", "class Container<T> {}\n", [("class", "Container", "")]
+    return {"input.ts": "class Container<T> {}\n"}, [("class", "Container", "")]
 
 
 @case(tags=["symbol"])
@@ -303,7 +291,7 @@ namespace N {
   export function f(): void {}
 }
 """
-    return "typescript", src, [("function", "f", "N")]
+    return {"input.ts": src}, [("function", "f", "N")]
 
 
 @case(tags=["symbol"])
@@ -316,15 +304,14 @@ namespace A {
   }
 }
 """
-    return "typescript", src, [("function", "f", "A::B")]
+    return {"input.ts": src}, [("function", "f", "A::B")]
 
 
 @case(tags=["import"])
 def case_ts_import_named() -> ImportCase:
     """import { User } from './types'."""
     return (
-        "typescript",
-        "import { User } from './types';\n",
+        {"input.ts": "import { User } from './types';\n"},
         {"module": "./types", "names": "User", "bindings": [{"name": "User", "local": "User"}]},
     )
 
@@ -333,8 +320,7 @@ def case_ts_import_named() -> ImportCase:
 def case_ts_import_type() -> ImportCase:
     """import type { Config } from './config'."""
     return (
-        "typescript",
-        "import type { Config } from './config';\n",
+        {"input.ts": "import type { Config } from './config';\n"},
         {
             "module": "./config",
             "names": "Config",
@@ -347,8 +333,7 @@ def case_ts_import_type() -> ImportCase:
 def case_ts_import_default() -> ImportCase:
     """import Express from 'express'."""
     return (
-        "typescript",
-        "import Express from 'express';\n",
+        {"input.ts": "import Express from 'express';\n"},
         {
             "module": "express",
             "names": "Express",
@@ -361,8 +346,7 @@ def case_ts_import_default() -> ImportCase:
 def case_ts_import_namespace() -> ImportCase:
     """import * as path from 'path'."""
     return (
-        "typescript",
-        "import * as path from 'path';\n",
+        {"input.ts": "import * as path from 'path';\n"},
         {"module": "path", "bindings": [{"name": "path", "local": "path"}]},
     )
 
@@ -370,7 +354,7 @@ def case_ts_import_namespace() -> ImportCase:
 @case(tags=["import"])
 def case_ts_import_side_effect() -> ImportCase:
     """import './setup'."""
-    return "typescript", "import './setup';\n", {"module": "./setup"}
+    return {"input.ts": "import './setup';\n"}, {"module": "./setup"}
 
 
 @case(tags=["mixed"])
@@ -392,51 +376,50 @@ class Repository {
 function query(): void {
 }
 """
-    return "typescript", src, {"import", "class", "function"}, []
+    return {"input.ts": src}, {"import", "class", "function"}, []
 
 
 @case(tags=["symbol"])
 def case_js_module_const() -> SymbolCase:
     """Top-level const."""
-    return "javascript", "const MAX = 100;\n", [("variable", "MAX", "")]
+    return {"input.js": "const MAX = 100;\n"}, [("variable", "MAX", "")]
 
 
 @case(tags=["symbol"])
 def case_js_exported_const() -> SymbolCase:
     """Exported top-level const."""
-    return "javascript", "export const TIMEOUT = 30;\n", [("variable", "TIMEOUT", "")]
+    return {"input.js": "export const TIMEOUT = 30;\n"}, [("variable", "TIMEOUT", "")]
 
 
 @case(tags=["symbol"])
 def case_ts_module_const() -> SymbolCase:
     """Top-level annotated const."""
-    return "typescript", "const MAX: number = 100;\n", [("variable", "MAX", "")]
+    return {"input.ts": "const MAX: number = 100;\n"}, [("variable", "MAX", "")]
 
 
 @case(tags=["symbol"])
 def case_js_object_destructure() -> SymbolCase:
     """Object destructuring (shorthand)."""
-    return "javascript", "const {a, b} = o;\n", [("variable", "a", ""), ("variable", "b", "")]
+    return {"input.js": "const {a, b} = o;\n"}, [("variable", "a", ""), ("variable", "b", "")]
 
 
 @case(tags=["symbol"])
 def case_js_object_renamed() -> SymbolCase:
     """Object destructuring with rename binds the renamed target."""
-    return "javascript", "const {a: ra} = o;\n", [("variable", "ra", "")]
+    return {"input.js": "const {a: ra} = o;\n"}, [("variable", "ra", "")]
 
 
 @case(tags=["symbol"])
 def case_js_array_destructure() -> SymbolCase:
     """Array destructuring."""
-    return "javascript", "const [x, y] = arr;\n", [("variable", "x", ""), ("variable", "y", "")]
+    return {"input.js": "const [x, y] = arr;\n"}, [("variable", "x", ""), ("variable", "y", "")]
 
 
 @case(tags=["symbol"])
 def case_js_object_rest() -> SymbolCase:
     """Object rest element."""
     return (
-        "javascript",
-        "const {a, ...rest} = o;\n",
+        {"input.js": "const {a, ...rest} = o;\n"},
         [("variable", "a", ""), ("variable", "rest", "")],
     )
 
@@ -445,8 +428,7 @@ def case_js_object_rest() -> SymbolCase:
 def case_js_exported_destructure() -> SymbolCase:
     """Exported destructuring."""
     return (
-        "javascript",
-        "export const {a, b} = o;\n",
+        {"input.js": "export const {a, b} = o;\n"},
         [("variable", "a", ""), ("variable", "b", "")],
     )
 
@@ -454,15 +436,14 @@ def case_js_exported_destructure() -> SymbolCase:
 @case(tags=["symbol"])
 def case_ts_object_destructure() -> SymbolCase:
     """TS object destructuring."""
-    return "typescript", "const {a, b} = o;\n", [("variable", "a", ""), ("variable", "b", "")]
+    return {"input.ts": "const {a, b} = o;\n"}, [("variable", "a", ""), ("variable", "b", "")]
 
 
 @case(tags=["symbol"], marks=_xfail_nested)
 def case_js_nested_array_xfail() -> SymbolCase:
     """Nested array destructuring — only the outer level captured today."""
     return (
-        "javascript",
-        "const [a, [b, c]] = x;\n",
+        {"input.js": "const [a, [b, c]] = x;\n"},
         [("variable", "a", ""), ("variable", "b", ""), ("variable", "c", "")],
     )
 
@@ -470,7 +451,7 @@ def case_js_nested_array_xfail() -> SymbolCase:
 @case(tags=["symbol"], marks=_xfail_nested)
 def case_js_nested_object_xfail() -> SymbolCase:
     """Nested object destructuring — nothing captured today."""
-    return "javascript", "const {a: {b}} = x;\n", [("variable", "b", "")]
+    return {"input.js": "const {a: {b}} = x;\n"}, [("variable", "b", "")]
 
 
 type ReferencesCase = tuple[str, str, list[tuple[str, str, list[str], list[str]]]]
@@ -588,21 +569,20 @@ export function App() {
 @case(tags=["import"])
 def case_js_import_a_dotfile_keeps_its_name() -> ImportCase:
     """import './.eslintrc': a name starting with its only dot has no extension."""
-    return "javascript", "import './.eslintrc';\n", {"module": "./.eslintrc"}
+    return {"input.js": "import './.eslintrc';\n"}, {"module": "./.eslintrc"}
 
 
 @case(tags=["import"])
 def case_js_import_drops_only_the_last_extension() -> ImportCase:
     """import './vendor/b.min.js' — the last extension goes, `.min` stays."""
-    return "javascript", "import './vendor/b.min.js';\n", {"module": "./vendor/b.min"}
+    return {"input.js": "import './vendor/b.min.js';\n"}, {"module": "./vendor/b.min"}
 
 
 @case(tags=["import"])
 def case_js_import_a_dotted_package_reads_its_last_dot_as_an_extension() -> ImportCase:
     """import d from 'lodash.debounce' — the last dot is read as an extension, as for a file."""
     return (
-        "javascript",
-        "import d from 'lodash.debounce';\n",
+        {"input.js": "import d from 'lodash.debounce';\n"},
         {"module": "lodash", "names": "d", "bindings": [{"name": "d", "local": "d"}]},
     )
 
@@ -610,21 +590,20 @@ def case_js_import_a_dotted_package_reads_its_last_dot_as_an_extension() -> Impo
 @case(tags=["import"])
 def case_js_import_a_parent_directory() -> ImportCase:
     """import '../' — a directory, no extension."""
-    return "javascript", "import '../';\n", {"module": "../"}
+    return {"input.js": "import '../';\n"}, {"module": "../"}
 
 
 @case(tags=["import"])
 def case_js_export_star_reexports_every_name() -> ImportCase:
     """export * from './c' — every name `c` makes available is this file's to offer."""
-    return "javascript", "export * from './c.js';\n", {"module": "./c", "names": "*"}
+    return {"input.js": "export * from './c.js';\n"}, {"module": "./c", "names": "*"}
 
 
 @case(tags=["import"])
 def case_js_export_star_as_binds_the_module() -> ImportCase:
     """export * as ns from './n' — binds the module under `ns`."""
     return (
-        "javascript",
-        "export * as ns from './n';\n",
+        {"input.js": "export * as ns from './n';\n"},
         {"module": "./n", "bindings": [{"name": "./n", "local": "ns"}]},
     )
 
@@ -633,8 +612,7 @@ def case_js_export_star_as_binds_the_module() -> ImportCase:
 def case_js_export_names_from_reexports_them() -> ImportCase:
     """export { a, b as bb } from './b' — lists `a` and `b`, offered as `a` and `bb`."""
     return (
-        "javascript",
-        "export { a, b as bb } from './b';\n",
+        {"input.js": "export { a, b as bb } from './b';\n"},
         {
             "module": "./b",
             "names": "a,b",
@@ -647,8 +625,7 @@ def case_js_export_names_from_reexports_them() -> ImportCase:
 def case_js_require_binds_the_module() -> ImportCase:
     """const x = require('./x.js') — binds the module under `x`."""
     return (
-        "javascript",
-        "const x = require('./x.js');\n",
+        {"input.js": "const x = require('./x.js');\n"},
         {"module": "./x", "bindings": [{"name": "./x", "local": "x"}]},
     )
 
@@ -657,8 +634,7 @@ def case_js_require_binds_the_module() -> ImportCase:
 def case_js_destructured_require_lists_its_names() -> ImportCase:
     """var { y, z: zz } = require('./y') — lists `y` and `z`, bound as `y` and `zz`."""
     return (
-        "javascript",
-        "var { y, z: zz } = require('./y');\n",
+        {"input.js": "var { y, z: zz } = require('./y');\n"},
         {
             "module": "./y",
             "names": "y,z",

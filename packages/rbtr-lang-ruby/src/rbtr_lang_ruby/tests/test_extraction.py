@@ -7,59 +7,69 @@ from pytest_cases import parametrize_with_cases
 from rbtr.domain.models import (
     ChunkKind,
     EdgeKind,
-    Import,
     ImportMeta,
 )
 from rbtr.git import FileEntry
-from rbtr.languages.extract import extract_batch, extract_file, file_rows
+from rbtr.languages.extract import extract_batch, file_rows
+from rbtr.testing import Indexed
+from rbtr.testing.reads import outline
 
 
-@parametrize_with_cases("lang, source, expected", cases=".cases_extraction", has_tag="symbol")
-def test_extracts_expected_symbols(lang: str, source: str, expected: list) -> None:
-    """Each expected (kind, name, scope) tuple appears in the output."""
-    chunks = extract_file(FileEntry("input", "sha1", source.encode()), lang)
-    symbols = [(c.kind, c.name, c.scope) for c in chunks]
+@parametrize_with_cases("files, expected", cases=".cases_extraction", has_tag="symbol")
+def test_extracts_expected_symbols(indexed: Indexed, files: dict[str, str], expected: list) -> None:
+    """Each expected (kind, name, scope) tuple appears in the outline."""
+    with indexed(files) as index:
+        reply = outline(index)
+    symbols = [(s.kind, s.name, s.scope) for s in reply]
     for exp in expected:
         assert exp in symbols, f"expected {exp} not found in {symbols}"
 
 
 @parametrize_with_cases(
-    "lang, source, expected_kinds, expected_methods", cases=".cases_extraction", has_tag="mixed"
+    "files, expected_kinds, expected_methods", cases=".cases_extraction", has_tag="mixed"
 )
 def test_extracts_all_expected_kinds(
-    lang: str, source: str, expected_kinds: set[str], expected_methods: list[tuple[str, str]]
+    indexed: Indexed,
+    files: dict[str, str],
+    expected_kinds: set[str],
+    expected_methods: list[tuple[str, str]],
 ) -> None:
     """Realistic source produces all expected chunk kinds and method scoping."""
-    chunks = extract_file(FileEntry("input", "sha1", source.encode()), lang)
-    kinds = {c.kind for c in chunks}
+    with indexed(files) as index:
+        reply = outline(index)
+    kinds = {s.kind for s in reply}
     for kind in expected_kinds:
         assert kind in kinds, f"expected kind {kind!r} not in {kinds}"
-    methods = [(c.name, c.scope) for c in chunks if c.kind == ChunkKind.METHOD]
+    methods = [(s.name, s.scope) for s in reply if s.kind == ChunkKind.METHOD]
     for name, scope in expected_methods:
         assert (name, scope) in methods, f"expected method ({name}, {scope}) not in {methods}"
 
 
-@parametrize_with_cases("lang, source, expected", cases=".cases_extraction", has_tag="import")
-def test_extracts_import_metadata(lang: str, source: str, expected: dict) -> None:
-    """First import chunk has the expected metadata."""
-    chunks = extract_file(FileEntry("input", "sha1", source.encode()), lang)
-    imports = [c.role for c in chunks if isinstance(c.role, Import)]
-    assert len(imports) >= 1, f"no import chunks extracted from {source!r}"
-    assert imports[0].meta == ImportMeta(**expected)
+@parametrize_with_cases("files, expected", cases=".cases_extraction", has_tag="import")
+def test_extracts_import_metadata(indexed: Indexed, files: dict[str, str], expected: dict) -> None:
+    """The first import has the expected metadata."""
+    with indexed(files) as index:
+        reply = outline(index)
+    imports = [s.metadata for s in reply if s.kind == ChunkKind.IMPORT]
+    assert imports, f"no import extracted from {files!r}"
+    assert imports[0] == ImportMeta(**expected)
 
 
 @parametrize_with_cases(
-    "lang, source, count, metadata_list", cases=".cases_extraction", has_tag="multi_import"
+    "files, count, metadata_list", cases=".cases_extraction", has_tag="multi_import"
 )
 def test_extracts_multi_import(
-    lang: str, source: str, count: int, metadata_list: list[dict]
+    indexed: Indexed,
+    files: dict[str, str],
+    count: int,
+    metadata_list: list[dict],
 ) -> None:
     """Multiple imports have correct count and per-import metadata."""
-    chunks = extract_file(FileEntry("input", "sha1", source.encode()), lang)
-    imports = [c.role for c in chunks if isinstance(c.role, Import)]
+    with indexed(files) as index:
+        reply = outline(index)
+    imports = [s.metadata for s in reply if s.kind == ChunkKind.IMPORT]
     assert len(imports) == count
-    for imp, expected in zip(imports, metadata_list, strict=True):
-        assert imp.meta == ImportMeta(**expected)
+    assert imports == [ImportMeta(**expected) for expected in metadata_list]
 
 
 @parametrize_with_cases("lang, source, expected", cases=".cases_extraction", has_tag="references")
@@ -81,3 +91,10 @@ def test_records_calls_and_bases(lang: str, source: str, expected: list) -> None
                 )
             )
     assert recorded == expected
+
+
+def test_an_empty_require_records_nothing(indexed: Indexed) -> None:
+    """`require ""` names no module: the import is listed, with no metadata."""
+    with indexed({"input.rb": 'require ""\n'}) as index:
+        chunks = outline(index)
+    assert [(c.kind, c.metadata) for c in chunks] == [(ChunkKind.IMPORT, None)]

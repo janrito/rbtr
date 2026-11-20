@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pytest_cases import case
 
-type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
+type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
 
 
 @case(tags=["symbol"])
@@ -27,8 +27,7 @@ Section B
 Body B.
 """
     return (
-        "rst",
-        src,
+        {"input.rst": src},
         [
             ("doc_section", "Title", ""),
             ("doc_section", "Section B", "Title"),
@@ -51,7 +50,7 @@ Deep
 
 Content here.
 """
-    return "rst", src, [("doc_section", "Deep", "Top::Mid")]
+    return {"input.rst": src}, [("doc_section", "Deep", "Top::Mid")]
 
 
 @case(tags=["symbol"])
@@ -83,7 +82,6 @@ Overview
 Beta overview.
 """
     return (
-        "rst",
-        src,
+        {"input.rst": src},
         [("doc_section", "Overview", "A"), ("doc_section", "Overview", "B")],
     )

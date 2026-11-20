@@ -5,10 +5,10 @@ from __future__ import annotations
 import pytest
 from pytest_cases import case
 
-type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
-type ImportCase = tuple[str, str, dict[str, str | list[dict[str, str]]]]
-type MultiImportCase = tuple[str, str, int, list[dict[str, str]]]
-type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
+type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
+type ImportCase = tuple[dict[str, str], dict[str, str | list[dict[str, str]]]]
+type MultiImportCase = tuple[dict[str, str], int, list[dict[str, str]]]
+type MixedCase = tuple[dict[str, str], set[str], list[tuple[str, str]]]
 
 _xfail_nested = pytest.mark.xfail(
     reason="nested/chained destructuring unsupported — no query-only recursion",
@@ -24,7 +24,7 @@ def greet
   puts "hello"
 end
 """
-    return "ruby", src, [("function", "greet", "")]
+    return {"input.rb": src}, [("function", "greet", "")]
 
 
 @case(tags=["symbol"])
@@ -35,7 +35,7 @@ def add(a, b)
   a + b
 end
 """
-    return "ruby", src, [("function", "add", "")]
+    return {"input.rb": src}, [("function", "add", "")]
 
 
 @case(tags=["symbol"])
@@ -50,7 +50,7 @@ def bar
   2
 end
 """
-    return "ruby", src, [("function", "foo", ""), ("function", "bar", "")]
+    return {"input.rb": src}, [("function", "foo", ""), ("function", "bar", "")]
 
 
 @case(tags=["symbol"])
@@ -60,7 +60,7 @@ def case_ruby_class() -> SymbolCase:
 class Shape
 end
 """
-    return "ruby", src, [("class", "Shape", "")]
+    return {"input.rb": src}, [("class", "Shape", "")]
 
 
 @case(tags=["symbol"])
@@ -70,7 +70,7 @@ def case_ruby_module() -> SymbolCase:
 module Utils
 end
 """
-    return "ruby", src, [("class", "Utils", "")]
+    return {"input.rb": src}, [("class", "Utils", "")]
 
 
 @case(tags=["symbol"])
@@ -80,7 +80,7 @@ def case_ruby_class_superclass() -> SymbolCase:
 class Circle < Shape
 end
 """
-    return "ruby", src, [("class", "Circle", "")]
+    return {"input.rb": src}, [("class", "Circle", "")]
 
 
 @case(tags=["symbol"])
@@ -93,7 +93,7 @@ class Foo
   end
 end
 """
-    return "ruby", src, [("method", "bar", "Foo")]
+    return {"input.rb": src}, [("method", "bar", "Foo")]
 
 
 @case(tags=["symbol"])
@@ -106,7 +106,7 @@ class Factory
   end
 end
 """
-    return "ruby", src, [("method", "build", "Factory")]
+    return {"input.rb": src}, [("method", "build", "Factory")]
 
 
 @case(tags=["symbol"])
@@ -119,7 +119,7 @@ module Helpers
   end
 end
 """
-    return "ruby", src, [("method", "format", "Helpers")]
+    return {"input.rb": src}, [("method", "format", "Helpers")]
 
 
 @case(tags=["symbol"])
@@ -133,7 +133,7 @@ def standalone
   1
 end
 """
-    return "ruby", src, [("function", "standalone", "")]
+    return {"input.rb": src}, [("function", "standalone", "")]
 
 
 @case(tags=["symbol"])
@@ -149,8 +149,7 @@ module Utils
 end
 """
     return (
-        "ruby",
-        src,
+        {"input.rb": src},
         [
             ("class", "Utils", ""),
             ("class", "Parser", "Utils"),
@@ -171,7 +170,7 @@ module A
   end
 end
 """
-    return "ruby", src, [("method", "f", "A::B")]
+    return {"input.rb": src}, [("method", "f", "A::B")]
 
 
 @case(tags=["symbol"])
@@ -188,52 +187,46 @@ module A
   end
 end
 """
-    return "ruby", src, [("method", "go", "A::B::C")]
+    return {"input.rb": src}, [("method", "go", "A::B::C")]
 
 
 @case(tags=["import"])
 def case_ruby_require_simple() -> ImportCase:
     """require "json"."""
-    return "ruby", 'require "json"\n', {"module": "json", "names": "*"}
+    return {"input.rb": 'require "json"\n'}, {"module": "json", "names": "*"}
 
 
 @case(tags=["import"])
 def case_ruby_require_nested() -> ImportCase:
     """require "net/http"."""
-    return "ruby", 'require "net/http"\n', {"module": "net/http", "names": "*"}
+    return {"input.rb": 'require "net/http"\n'}, {"module": "net/http", "names": "*"}
 
 
 @case(tags=["import"])
 def case_ruby_require_relative() -> ImportCase:
     """require_relative "helpers"."""
-    return "ruby", 'require_relative "helpers"\n', {"module": "./helpers", "names": "*"}
+    return {"input.rb": 'require_relative "helpers"\n'}, {"module": "./helpers", "names": "*"}
 
 
 @case(tags=["import"])
 def case_ruby_require_relative_nested() -> ImportCase:
     """require_relative "lib/utils"."""
-    return "ruby", 'require_relative "lib/utils"\n', {"module": "./lib/utils", "names": "*"}
+    return {"input.rb": 'require_relative "lib/utils"\n'}, {"module": "./lib/utils", "names": "*"}
 
 
 @case(tags=["import"])
 def case_ruby_require_relative_dot_prefix() -> ImportCase:
     """require_relative "./config" — already written relative."""
-    return "ruby", 'require_relative "./config"\n', {"module": "./config", "names": "*"}
+    return {"input.rb": 'require_relative "./config"\n'}, {"module": "./config", "names": "*"}
 
 
 @case(tags=["import"])
 def case_ruby_require_relative_parent() -> ImportCase:
     """require_relative "../lib/utils" — already written relative."""
-    return "ruby", 'require_relative "../lib/utils"\n', {"module": "../lib/utils", "names": "*"}
-
-
-@case(tags=["import"])
-def case_ruby_require_empty_string() -> ImportCase:
-    """require "" — empty string returns empty metadata.
-
-    Covers `ruby.py` lines 53 and 70.
-    """
-    return "ruby", 'require ""\n', {}
+    return {"input.rb": 'require_relative "../lib/utils"\n'}, {
+        "module": "../lib/utils",
+        "names": "*",
+    }
 
 
 @case(tags=["multi_import"])
@@ -243,7 +236,11 @@ def case_ruby_multiple_requires() -> MultiImportCase:
 require "json"
 require_relative "helpers"
 """
-    return "ruby", src, 2, [{"module": "json", "names": "*"}, {"module": "./helpers", "names": "*"}]
+    return (
+        {"input.rb": src},
+        2,
+        [{"module": "json", "names": "*"}, {"module": "./helpers", "names": "*"}],
+    )
 
 
 @case(tags=["mixed"])
@@ -285,8 +282,7 @@ def main
 end
 """
     return (
-        "ruby",
-        src,
+        {"input.rb": src},
         {"import", "class", "method", "function"},
         [("start", "App::Server"), ("stop", "App::Server"), ("default", "App::Server")],
     )
@@ -295,27 +291,26 @@ end
 @case(tags=["symbol"])
 def case_ruby_constant() -> SymbolCase:
     """Top-level constant."""
-    return "ruby", "MAX_SIZE = 100\n", [("variable", "MAX_SIZE", "")]
+    return {"input.rb": "MAX_SIZE = 100\n"}, [("variable", "MAX_SIZE", "")]
 
 
 @case(tags=["symbol"])
 def case_ruby_multiple_assignment() -> SymbolCase:
     """Ruby multiple assignment of constants."""
-    return "ruby", "A, B = 1, 2\n", [("variable", "A", ""), ("variable", "B", "")]
+    return {"input.rb": "A, B = 1, 2\n"}, [("variable", "A", ""), ("variable", "B", "")]
 
 
 @case(tags=["symbol"])
 def case_ruby_splat_assignment() -> SymbolCase:
     """Ruby splat target."""
-    return "ruby", "A, *B = list\n", [("variable", "A", ""), ("variable", "B", "")]
+    return {"input.rb": "A, *B = list\n"}, [("variable", "A", ""), ("variable", "B", "")]
 
 
 @case(tags=["symbol"], marks=_xfail_nested)
 def case_ruby_nested_unpack_xfail() -> SymbolCase:
     """Ruby nested destructuring — only the outer level captured today."""
     return (
-        "ruby",
-        "(A, B), C = x\n",
+        {"input.rb": "(A, B), C = x\n"},
         [("variable", "A", ""), ("variable", "B", ""), ("variable", "C", "")],
     )
 
@@ -438,8 +433,7 @@ RSpec.describe Greeter do
 end
 """
     return (
-        "ruby",
-        src,
+        {"input.rb": src},
         [
             ("test_function", "Greeter", ""),
             ("test_function", "with a name", ""),

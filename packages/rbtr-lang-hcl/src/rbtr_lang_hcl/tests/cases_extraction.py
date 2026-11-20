@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pytest_cases import case
 
-type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
+type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
 
 
 @case(tags=["symbol"])
@@ -20,8 +20,7 @@ variable "region" {
 }
 """
     return (
-        "hcl",
-        src,
+        {"input.tf": src},
         [
             ("config_key", "resource aws_instance web", ""),
             ("config_key", "variable region", ""),

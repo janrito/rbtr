@@ -11,64 +11,64 @@ from __future__ import annotations
 
 from pytest_cases import case
 
-type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
-type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
+type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
+type MixedCase = tuple[dict[str, str], set[str], list[tuple[str, str]]]
 
 
 @case(tags=["symbol"])
 def case_sql_table() -> SymbolCase:
     """CREATE TABLE — structural definition → class."""
-    return "sql", "CREATE TABLE users (id INT, name TEXT);\n", [("class", "users", "")]
+    return {"input.sql": "CREATE TABLE users (id INT, name TEXT);\n"}, [("class", "users", "")]
 
 
 @case(tags=["symbol"])
 def case_sql_view() -> SymbolCase:
     """CREATE VIEW → class."""
-    return "sql", "CREATE VIEW active AS SELECT * FROM users;\n", [("class", "active", "")]
+    return {"input.sql": "CREATE VIEW active AS SELECT * FROM users;\n"}, [("class", "active", "")]
 
 
 @case(tags=["symbol"])
 def case_sql_materialized_view() -> SymbolCase:
     """CREATE MATERIALIZED VIEW → class."""
     src = "CREATE MATERIALIZED VIEW recent AS SELECT * FROM users;\n"
-    return "sql", src, [("class", "recent", "")]
+    return {"input.sql": src}, [("class", "recent", "")]
 
 
 @case(tags=["symbol"])
 def case_sql_type_enum() -> SymbolCase:
     """CREATE TYPE ... AS ENUM — SQL's enum → class."""
-    return "sql", "CREATE TYPE mood AS ENUM ('sad', 'happy');\n", [("class", "mood", "")]
+    return {"input.sql": "CREATE TYPE mood AS ENUM ('sad', 'happy');\n"}, [("class", "mood", "")]
 
 
 @case(tags=["symbol"])
 def case_sql_type_composite() -> SymbolCase:
     """CREATE TYPE ... AS (...) — composite type → class."""
     src = "CREATE TYPE point AS (x DOUBLE PRECISION, y DOUBLE PRECISION);\n"
-    return "sql", src, [("class", "point", "")]
+    return {"input.sql": src}, [("class", "point", "")]
 
 
 @case(tags=["symbol"])
 def case_sql_index() -> SymbolCase:
     """CREATE INDEX → variable, named by the index (not the ON table)."""
-    return "sql", "CREATE INDEX idx_name ON users (name);\n", [("variable", "idx_name", "")]
+    return {"input.sql": "CREATE INDEX idx_name ON users (name);\n"}, [("variable", "idx_name", "")]
 
 
 @case(tags=["symbol"])
 def case_sql_sequence() -> SymbolCase:
     """CREATE SEQUENCE → variable."""
-    return "sql", "CREATE SEQUENCE order_id START 1;\n", [("variable", "order_id", "")]
+    return {"input.sql": "CREATE SEQUENCE order_id START 1;\n"}, [("variable", "order_id", "")]
 
 
 @case(tags=["symbol"])
 def case_sql_schema() -> SymbolCase:
     """CREATE SCHEMA → variable."""
-    return "sql", "CREATE SCHEMA app;\n", [("variable", "app", "")]
+    return {"input.sql": "CREATE SCHEMA app;\n"}, [("variable", "app", "")]
 
 
 @case(tags=["symbol"])
 def case_sql_extension() -> SymbolCase:
     """CREATE EXTENSION → variable (common in migrations)."""
-    return "sql", "CREATE EXTENSION postgis;\n", [("variable", "postgis", "")]
+    return {"input.sql": "CREATE EXTENSION postgis;\n"}, [("variable", "postgis", "")]
 
 
 @case(tags=["symbol"])
@@ -78,7 +78,7 @@ def case_sql_trigger() -> SymbolCase:
 CREATE TRIGGER audit BEFORE UPDATE ON users
 FOR EACH ROW EXECUTE FUNCTION log_change();
 """
-    return "sql", src, [("variable", "audit", "")]
+    return {"input.sql": src}, [("variable", "audit", "")]
 
 
 @case(tags=["symbol"])
@@ -89,31 +89,31 @@ CREATE FUNCTION add(a INT, b INT) RETURNS INT
 LANGUAGE SQL
 AS $$ SELECT a + b; $$;
 """
-    return "sql", src, [("function", "add", "")]
+    return {"input.sql": src}, [("function", "add", "")]
 
 
 @case(tags=["symbol"])
 def case_sql_select() -> SymbolCase:
     """SELECT → function, named by its primary FROM table."""
-    return "sql", "SELECT id, name FROM users;\n", [("function", "users", "")]
+    return {"input.sql": "SELECT id, name FROM users;\n"}, [("function", "users", "")]
 
 
 @case(tags=["symbol"])
 def case_sql_insert() -> SymbolCase:
     """INSERT → function, named by its target table."""
-    return "sql", "INSERT INTO logs (msg) VALUES ('hi');\n", [("function", "logs", "")]
+    return {"input.sql": "INSERT INTO logs (msg) VALUES ('hi');\n"}, [("function", "logs", "")]
 
 
 @case(tags=["symbol"])
 def case_sql_update() -> SymbolCase:
     """UPDATE → function, named by its target table."""
-    return "sql", "UPDATE users SET name = 'x' WHERE id = 1;\n", [("function", "users", "")]
+    return {"input.sql": "UPDATE users SET name = 'x' WHERE id = 1;\n"}, [("function", "users", "")]
 
 
 @case(tags=["symbol"])
 def case_sql_delete() -> SymbolCase:
     """DELETE → function, named by its target table."""
-    return "sql", "DELETE FROM sessions WHERE id = 1;\n", [("function", "sessions", "")]
+    return {"input.sql": "DELETE FROM sessions WHERE id = 1;\n"}, [("function", "sessions", "")]
 
 
 @case(tags=["symbol"])
@@ -128,76 +128,76 @@ recent AS (
 )
 SELECT id FROM recent;
 """
-    return "sql", src, [("function", "ranked", ""), ("function", "recent", "")]
+    return {"input.sql": src}, [("function", "ranked", ""), ("function", "recent", "")]
 
 
 @case(tags=["symbol"])
 def case_sql_alter_table() -> SymbolCase:
     """ALTER TABLE → function, named by the table."""
-    return "sql", "ALTER TABLE users ADD COLUMN age INT;\n", [("function", "users", "")]
+    return {"input.sql": "ALTER TABLE users ADD COLUMN age INT;\n"}, [("function", "users", "")]
 
 
 @case(tags=["symbol"])
 def case_sql_drop_table() -> SymbolCase:
     """DROP TABLE → function, named by the table."""
-    return "sql", "DROP TABLE legacy;\n", [("function", "legacy", "")]
+    return {"input.sql": "DROP TABLE legacy;\n"}, [("function", "legacy", "")]
 
 
 @case(tags=["symbol"])
 def case_sql_drop_index() -> SymbolCase:
     """DROP INDEX → function, named by the index."""
-    return "sql", "DROP INDEX idx_old;\n", [("function", "idx_old", "")]
+    return {"input.sql": "DROP INDEX idx_old;\n"}, [("function", "idx_old", "")]
 
 
 @case(tags=["symbol"])
 def case_sql_table_if_not_exists() -> SymbolCase:
     """IF NOT EXISTS does not change the table name."""
-    return "sql", "CREATE TABLE IF NOT EXISTS users (id INT);\n", [("class", "users", "")]
+    return {"input.sql": "CREATE TABLE IF NOT EXISTS users (id INT);\n"}, [("class", "users", "")]
 
 
 @case(tags=["symbol"])
 def case_sql_view_or_replace() -> SymbolCase:
     """CREATE OR REPLACE does not change the view name."""
-    return "sql", "CREATE OR REPLACE VIEW v AS SELECT 1;\n", [("class", "v", "")]
+    return {"input.sql": "CREATE OR REPLACE VIEW v AS SELECT 1;\n"}, [("class", "v", "")]
 
 
 @case(tags=["symbol"])
 def case_sql_schema_qualified_table() -> SymbolCase:
     """A schema-qualified table is named by the table, not the schema."""
-    return "sql", "CREATE TABLE app.users (id INT);\n", [("class", "users", "")]
+    return {"input.sql": "CREATE TABLE app.users (id INT);\n"}, [("class", "users", "")]
 
 
 @case(tags=["symbol"])
 def case_sql_select_aliased_table() -> SymbolCase:
     """An aliased FROM is named by the table, not the alias."""
     src = "SELECT c.id FROM chunks AS c JOIN files f ON f.id = c.id;\n"
-    return "sql", src, [("function", "chunks", "")]
+    return {"input.sql": src}, [("function", "chunks", "")]
 
 
 @case(tags=["symbol"])
 def case_sql_create_table_as_select() -> SymbolCase:
     """CREATE TABLE AS SELECT yields only the table, not the nested select."""
-    return "sql", "CREATE TABLE snap AS SELECT * FROM users;\n", [("class", "snap", "")]
+    return {"input.sql": "CREATE TABLE snap AS SELECT * FROM users;\n"}, [("class", "snap", "")]
 
 
 @case(tags=["symbol"])
 def case_sql_insert_select() -> SymbolCase:
     """INSERT ... SELECT is named by the insert target."""
     src = "INSERT INTO archive SELECT * FROM events;\n"
-    return "sql", src, [("function", "archive", "")]
+    return {"input.sql": src}, [("function", "archive", "")]
 
 
 @case(tags=["symbol"])
 def case_sql_select_no_table() -> SymbolCase:
     """A SELECT with no table has no name."""
-    return "sql", "SELECT 1;\n", [("function", "", "")]
+    return {"input.sql": "SELECT 1;\n"}, [("function", "", "")]
 
 
 @case(tags=["symbol"])
 def case_sql_union() -> SymbolCase:
     """A top-level UNION (set_operation) is one unnamed function chunk."""
     src = "SELECT id FROM a UNION SELECT id FROM b;\n"
-    return "sql", src, [("function", "", "")]
+    return {"input.sql": src}, [("function", "", "")]
 
 
 @case(tags=["symbol"])
@@ -208,7 +208,7 @@ def case_sql_param_error_recovery() -> SymbolCase:
     but error recovery keeps the enclosing statement, so the chunk is
     still produced and named by its table.
     """
-    return "sql", "SELECT * FROM users WHERE id = $id;\n", [("function", "users", "")]
+    return {"input.sql": "SELECT * FROM users WHERE id = $id;\n"}, [("function", "users", "")]
 
 
 @case(tags=["mixed"])
@@ -237,8 +237,7 @@ AS $$ SELECT p * 1.2; $$;
 CREATE INDEX idx_products_name ON shop.products (name);
 """
     return (
-        "sql",
-        src,
+        {"input.sql": src},
         {"class", "function", "variable"},
         [],
     )

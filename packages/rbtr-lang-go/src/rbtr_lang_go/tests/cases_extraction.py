@@ -5,10 +5,10 @@ from __future__ import annotations
 import pytest
 from pytest_cases import case
 
-type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
-type ImportCase = tuple[str, str, dict[str, str | list[dict[str, str]]]]
-type MultiImportCase = tuple[str, str, int, list[dict[str, str | list[dict[str, str]]]]]
-type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
+type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
+type ImportCase = tuple[dict[str, str], dict[str, str | list[dict[str, str]]]]
+type MultiImportCase = tuple[dict[str, str], int, list[dict[str, str | list[dict[str, str]]]]]
+type MixedCase = tuple[dict[str, str], set[str], list[tuple[str, str]]]
 
 _xfail_nested = pytest.mark.xfail(
     reason="nested/chained destructuring unsupported — no query-only recursion",
@@ -24,7 +24,7 @@ package main
 
 func hello() {}
 """
-    return "go", src, [("function", "hello", "")]
+    return {"input.go": src}, [("function", "hello", "")]
 
 
 @case(tags=["symbol"])
@@ -35,7 +35,7 @@ package main
 
 func add(a int, b int) int { return a + b }
 """
-    return "go", src, [("function", "add", "")]
+    return {"input.go": src}, [("function", "add", "")]
 
 
 @case(tags=["symbol"])
@@ -49,8 +49,7 @@ func bar() {}
 func baz() {}
 """
     return (
-        "go",
-        src,
+        {"input.go": src},
         [
             ("function", "foo", ""),
             ("function", "bar", ""),
@@ -69,7 +68,7 @@ type User struct{}
 
 func (u User) Name() string { return u.name }
 """
-    return "go", src, [("method", "Name", "User")]
+    return {"input.go": src}, [("method", "Name", "User")]
 
 
 @case(tags=["symbol"])
@@ -82,7 +81,7 @@ type Svc struct{}
 
 func (s *Svc) Start() {}
 """
-    return "go", src, [("method", "Start", "Svc")]
+    return {"input.go": src}, [("method", "Start", "Svc")]
 
 
 @case(tags=["symbol"])
@@ -95,7 +94,7 @@ type User struct {
     Name string
 }
 """
-    return "go", src, [("class", "User", "")]
+    return {"input.go": src}, [("class", "User", "")]
 
 
 @case(tags=["symbol"])
@@ -108,7 +107,7 @@ type Reader interface {
     Read(p []byte) (int, error)
 }
 """
-    return "go", src, [("class", "Reader", "")]
+    return {"input.go": src}, [("class", "Reader", "")]
 
 
 @case(tags=["symbol"])
@@ -119,7 +118,7 @@ package main
 
 type ID string
 """
-    return "go", src, [("class", "ID", "")]
+    return {"input.go": src}, [("class", "ID", "")]
 
 
 @case(tags=["symbol"])
@@ -131,7 +130,7 @@ package main
 type Foo struct{}
 type Bar struct{}
 """
-    return "go", src, [("class", "Foo", ""), ("class", "Bar", "")]
+    return {"input.go": src}, [("class", "Foo", ""), ("class", "Bar", "")]
 
 
 @case(tags=["import"])
@@ -141,7 +140,7 @@ def case_go_import_single() -> ImportCase:
 package main
 import "fmt"
 """
-    return "go", src, {"module": "fmt", "bindings": [{"name": "fmt", "local": "fmt"}]}
+    return {"input.go": src}, {"module": "fmt", "bindings": [{"name": "fmt", "local": "fmt"}]}
 
 
 @case(tags=["import"])
@@ -151,7 +150,10 @@ def case_go_import_nested() -> ImportCase:
 package main
 import "os/exec"
 """
-    return "go", src, {"module": "os/exec", "bindings": [{"name": "os/exec", "local": "exec"}]}
+    return {"input.go": src}, {
+        "module": "os/exec",
+        "bindings": [{"name": "os/exec", "local": "exec"}],
+    }
 
 
 @case(tags=["import"])
@@ -162,8 +164,7 @@ package main
 import "github.com/user/repo"
 """
     return (
-        "go",
-        src,
+        {"input.go": src},
         {
             "module": "github.com/user/repo",
             "bindings": [{"name": "github.com/user/repo", "local": "repo"}],
@@ -178,7 +179,7 @@ def case_go_import_aliased() -> ImportCase:
 package main
 import f "fmt"
 """
-    return "go", src, {"module": "fmt", "bindings": [{"name": "fmt", "local": "f"}]}
+    return {"input.go": src}, {"module": "fmt", "bindings": [{"name": "fmt", "local": "f"}]}
 
 
 @case(tags=["import"])
@@ -188,7 +189,7 @@ def case_go_import_dot() -> ImportCase:
 package main
 import . "strings"
 """
-    return "go", src, {"module": "strings", "names": "*"}
+    return {"input.go": src}, {"module": "strings", "names": "*"}
 
 
 @case(tags=["import"])
@@ -198,7 +199,7 @@ def case_go_import_blank() -> ImportCase:
 package main
 import _ "embed"
 """
-    return "go", src, {"module": "embed"}
+    return {"input.go": src}, {"module": "embed"}
 
 
 @case(tags=["multi_import"])
@@ -212,8 +213,7 @@ import (
 )
 """
     return (
-        "go",
-        src,
+        {"input.go": src},
         2,
         [
             {"module": "fmt", "bindings": [{"name": "fmt", "local": "fmt"}]},
@@ -234,8 +234,7 @@ import (
 )
 """
     return (
-        "go",
-        src,
+        {"input.go": src},
         3,
         [
             {"module": "fmt", "bindings": [{"name": "fmt", "local": "fmt"}]},
@@ -254,7 +253,7 @@ import (
     "fmt"
 )
 """
-    return "go", src, {"module": "fmt", "bindings": [{"name": "fmt", "local": "fmt"}]}
+    return {"input.go": src}, {"module": "fmt", "bindings": [{"name": "fmt", "local": "fmt"}]}
 
 
 @case(tags=["mixed"])
@@ -285,19 +284,27 @@ func main() {
     fmt.Println("hello")
 }
 """
-    return "go", src, {"import", "class", "method", "function"}, [("String", "Config")]
+    return {"input.go": src}, {"import", "class", "method", "function"}, [("String", "Config")]
 
 
 @case(tags=["symbol"])
 def case_go_package_var() -> SymbolCase:
     """Package-level var."""
-    return "go", "package main\nvar MaxSize = 100\n", [("variable", "MaxSize", "")]
+    src = """\
+package main
+var MaxSize = 100
+"""
+    return {"input.go": src}, [("variable", "MaxSize", "")]
 
 
 @case(tags=["symbol"])
 def case_go_package_const() -> SymbolCase:
     """Package-level const."""
-    return "go", "package main\nconst Timeout = 30\n", [("variable", "Timeout", "")]
+    src = """\
+package main
+const Timeout = 30
+"""
+    return {"input.go": src}, [("variable", "Timeout", "")]
 
 
 @case(tags=["symbol"])
@@ -311,7 +318,7 @@ var (
 	Y = 2
 )
 """
-    return "go", src, [("variable", "X", ""), ("variable", "Y", "")]
+    return {"input.go": src}, [("variable", "X", ""), ("variable", "Y", "")]
 
 
 @case(tags=["symbol"])
@@ -325,7 +332,7 @@ const (
 	B = 2
 )
 """
-    return "go", src, [("variable", "A", ""), ("variable", "B", "")]
+    return {"input.go": src}, [("variable", "A", ""), ("variable", "B", "")]
 
 
 type ReferencesCase = tuple[str, str, list[tuple[str, str, list[str], list[str]]]]

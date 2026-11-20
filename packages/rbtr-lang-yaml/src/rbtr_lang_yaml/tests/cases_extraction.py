@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pytest_cases import case
 
-type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
+type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
 
 
 @case(tags=["symbol"])
@@ -18,8 +18,7 @@ jobs:
     runs-on: ubuntu-latest
 """
     return (
-        "yaml",
-        src,
+        {"input.yaml": src},
         [
             ("config_key", "name", ""),
             ("config_key", "on", ""),

@@ -5,10 +5,10 @@ from __future__ import annotations
 import pytest
 from pytest_cases import case
 
-type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
-type ImportCase = tuple[str, str, dict[str, str | list[dict[str, str]]]]
-type MultiImportCase = tuple[str, str, int, list[dict[str, str | list[dict[str, str]]]]]
-type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
+type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
+type ImportCase = tuple[dict[str, str], dict[str, str | list[dict[str, str]]]]
+type MultiImportCase = tuple[dict[str, str], int, list[dict[str, str | list[dict[str, str]]]]]
+type MixedCase = tuple[dict[str, str], set[str], list[tuple[str, str]]]
 
 _xfail_nested = pytest.mark.xfail(
     reason="nested/chained destructuring unsupported — no query-only recursion",
@@ -19,25 +19,27 @@ _xfail_nested = pytest.mark.xfail(
 @case(tags=["symbol"])
 def case_java_class() -> SymbolCase:
     """class User {}."""
-    return "java", "class User {}\n", [("class", "User", "")]
+    return {"input.java": "class User {}\n"}, [("class", "User", "")]
 
 
 @case(tags=["symbol"])
 def case_java_public_class() -> SymbolCase:
     """public class App {}."""
-    return "java", "public class App {}\n", [("class", "App", "")]
+    return {"input.java": "public class App {}\n"}, [("class", "App", "")]
 
 
 @case(tags=["symbol"])
 def case_java_class_extends() -> SymbolCase:
     """class Admin extends User {}."""
-    return "java", "class Admin extends User {}\n", [("class", "Admin", "")]
+    return {"input.java": "class Admin extends User {}\n"}, [("class", "Admin", "")]
 
 
 @case(tags=["symbol"])
 def case_java_class_implements() -> SymbolCase:
     """class UserService implements Service {}."""
-    return "java", "class UserService implements Service {}\n", [("class", "UserService", "")]
+    return {"input.java": "class UserService implements Service {}\n"}, [
+        ("class", "UserService", "")
+    ]
 
 
 @case(tags=["symbol"])
@@ -47,7 +49,7 @@ def case_java_multiple_classes() -> SymbolCase:
 class Foo {}
 class Bar {}
 """
-    return "java", src, [("class", "Foo", ""), ("class", "Bar", "")]
+    return {"input.java": src}, [("class", "Foo", ""), ("class", "Bar", "")]
 
 
 @case(tags=["symbol"])
@@ -58,7 +60,7 @@ class Service {
     void process() {}
 }
 """
-    return "java", src, [("method", "process", "Service")]
+    return {"input.java": src}, [("method", "process", "Service")]
 
 
 @case(tags=["symbol"])
@@ -70,7 +72,7 @@ class Svc {
     void stop() {}
 }
 """
-    return "java", src, [("method", "start", "Svc"), ("method", "stop", "Svc")]
+    return {"input.java": src}, [("method", "start", "Svc"), ("method", "stop", "Svc")]
 
 
 @case(tags=["symbol"])
@@ -81,7 +83,7 @@ class Factory {
     static Object create() { return null; }
 }
 """
-    return "java", src, [("method", "create", "Factory")]
+    return {"input.java": src}, [("method", "create", "Factory")]
 
 
 @case(tags=["symbol"])
@@ -92,7 +94,7 @@ class Calc {
     int add(int a, int b) { return a + b; }
 }
 """
-    return "java", src, [("method", "add", "Calc")]
+    return {"input.java": src}, [("method", "add", "Calc")]
 
 
 @case(tags=["symbol"])
@@ -106,8 +108,7 @@ class Outer {
 }
 """
     return (
-        "java",
-        src,
+        {"input.java": src},
         [("class", "Outer", ""), ("class", "Inner", "Outer"), ("method", "deep", "Outer::Inner")],
     )
 
@@ -124,15 +125,14 @@ class Outer {
     }
 }
 """
-    return "java", src, [("method", "deep", "Outer::Mid::Inner")]
+    return {"input.java": src}, [("method", "deep", "Outer::Mid::Inner")]
 
 
 @case(tags=["import"])
 def case_java_import_class() -> ImportCase:
     """import java.util.HashMap."""
     return (
-        "java",
-        "import java.util.HashMap;\n",
+        {"input.java": "import java.util.HashMap;\n"},
         {
             "module": "java.util.HashMap",
             "names": "HashMap",
@@ -145,8 +145,7 @@ def case_java_import_class() -> ImportCase:
 def case_java_import_deeply_nested() -> ImportCase:
     """import com.example.app.models.User."""
     return (
-        "java",
-        "import com.example.app.models.User;\n",
+        {"input.java": "import com.example.app.models.User;\n"},
         {
             "module": "com.example.app.models.User",
             "names": "User",
@@ -159,8 +158,7 @@ def case_java_import_deeply_nested() -> ImportCase:
 def case_java_import_static() -> ImportCase:
     """import static org.junit.Assert.assertEquals: the member, listed by its path in `Assert`."""
     return (
-        "java",
-        "import static org.junit.Assert.assertEquals;\n",
+        {"input.java": "import static org.junit.Assert.assertEquals;\n"},
         {
             "module": "org.junit.Assert",
             "names": "Assert.assertEquals",
@@ -173,8 +171,7 @@ def case_java_import_static() -> ImportCase:
 def case_java_import_static_method() -> ImportCase:
     """import static java.util.Collections.sort."""
     return (
-        "java",
-        "import static java.util.Collections.sort;\n",
+        {"input.java": "import static java.util.Collections.sort;\n"},
         {
             "module": "java.util.Collections",
             "names": "Collections.sort",
@@ -191,8 +188,7 @@ import java.util.List;
 import java.util.Map;
 """
     return (
-        "java",
-        src,
+        {"input.java": src},
         2,
         [
             {
@@ -236,8 +232,7 @@ public class UserService {
 }
 """
     return (
-        "java",
-        src,
+        {"input.java": src},
         {"import", "class", "method"},
         [("addName", "UserService"), ("getNames", "UserService")],
     )
@@ -246,7 +241,10 @@ public class UserService {
 @case(tags=["import"])
 def case_java_import_wildcard() -> ImportCase:
     """A package's every class, written `*`."""
-    return "java", "import com.example.models.*;\n", {"module": "com.example.models", "names": "*"}
+    return {"input.java": "import com.example.models.*;\n"}, {
+        "module": "com.example.models",
+        "names": "*",
+    }
 
 
 type ReferencesCase = tuple[str, str, list[tuple[str, str, list[str], list[str]]]]

@@ -8,53 +8,56 @@ from __future__ import annotations
 
 from pytest_cases import parametrize_with_cases
 
-from rbtr.domain.models import ChunkKind, Import
-from rbtr.git import FileEntry
-from rbtr.languages.extract import extract_file
+from rbtr.domain.models import ChunkKind
+from rbtr.testing import Indexed
+from rbtr.testing.reads import outline
 
 
-@parametrize_with_cases("lang, source, expected", cases=".cases_extraction", has_tag="symbol")
-def test_extracts_expected_symbols(lang: str, source: str, expected: list) -> None:
-    """Each expected (kind, name, scope) tuple appears in the output."""
-    chunks = extract_file(FileEntry("input", "sha1", source.encode()), lang)
-    symbols = [(c.kind, c.name, c.scope) for c in chunks]
+@parametrize_with_cases("files, expected", cases=".cases_extraction", has_tag="symbol")
+def test_extracts_expected_symbols(indexed: Indexed, files: dict[str, str], expected: list) -> None:
+    """Each expected (kind, name, scope) tuple appears in the outline."""
+    with indexed(files) as index:
+        reply = outline(index)
+    symbols = [(s.kind, s.name, s.scope) for s in reply]
     for exp in expected:
         assert exp in symbols, f"expected {exp} not found in {symbols}"
 
 
 @parametrize_with_cases(
-    "lang, source, expected_kinds, expected_methods", cases=".cases_extraction", has_tag="mixed"
+    "files, expected_kinds, expected_methods", cases=".cases_extraction", has_tag="mixed"
 )
 def test_extracts_all_expected_kinds(
-    lang: str,
-    source: str,
+    indexed: Indexed,
+    files: dict[str, str],
     expected_kinds: set[str],
     expected_methods: list[tuple[str, str]],
 ) -> None:
     """Realistic source produces all expected chunk kinds and method scoping."""
-    chunks = extract_file(FileEntry("input", "sha1", source.encode()), lang)
-    kinds = {c.kind for c in chunks}
+    with indexed(files) as index:
+        reply = outline(index)
+    kinds = {s.kind for s in reply}
     for kind in expected_kinds:
         assert kind in kinds, f"expected kind {kind!r} not in {kinds}"
-    methods = [(c.name, c.scope) for c in chunks if c.kind == ChunkKind.METHOD]
+    methods = [(s.name, s.scope) for s in reply if s.kind == ChunkKind.METHOD]
     for name, scope in expected_methods:
         assert (name, scope) in methods, f"expected method ({name}, {scope}) not in {methods}"
 
 
-def test_bash_source_and_dot_extracted_as_imports() -> None:
+def test_bash_source_and_dot_extracted_as_imports(indexed: Indexed) -> None:
     """source/. commands are captured as imports."""
     src = """\
 source ./env.sh
 . /etc/profile
 """
-    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "bash")
-    imports = [c.role for c in chunks if isinstance(c.role, Import)]
+    with indexed({"input.sh": src}) as index:
+        chunks = outline(index)
+    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert len(imports) == 2
-    modules = {c.meta.module for c in imports}
+    modules = {c.module for c in imports}
     assert modules == {"./env.sh", "/etc/profile"}
 
 
-def test_bash_top_level_commands_are_searchable() -> None:
+def test_bash_top_level_commands_are_searchable(indexed: Indexed) -> None:
     """A script's commands are what it does, so none is left out.
 
     A deploy script may define nothing at all, and before this its every
@@ -71,7 +74,8 @@ if [ -d "$DEST" ]; then
   systemctl restart app
 fi
 """
-    chunks = list(extract_file(FileEntry("deploy.sh", "sha1", src.encode()), "bash"))
+    with indexed({"deploy.sh": src}) as index:
+        chunks = outline(index)
     covered = {line for c in chunks for line in range(c.line_start, c.line_end + 1)}
     lines = src.splitlines()
     uncovered = [

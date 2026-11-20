@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pytest_cases import case
 
-type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
+type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
 
 
 @case(tags=["symbol"])
@@ -24,8 +24,7 @@ body {
 }
 """
     return (
-        "css",
-        src,
+        {"input.css": src},
         [
             ("class", "body", ""),
             ("class", ".header", ""),

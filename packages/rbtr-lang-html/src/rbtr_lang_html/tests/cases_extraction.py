@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pytest_cases import case
 
-type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
+type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
 
 
 @case(tags=["symbol"])
@@ -20,8 +20,7 @@ def case_html_semantic_elements() -> SymbolCase:
 </html>
 """
     return (
-        "html",
-        src,
+        {"input.html": src},
         [
             ("doc_section", "body", ""),
             ("doc_section", "content", ""),

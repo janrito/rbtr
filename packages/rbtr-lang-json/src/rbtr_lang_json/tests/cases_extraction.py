@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pytest_cases import case
 
-type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
+type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
 
 
 @case(tags=["symbol"])
@@ -20,8 +20,7 @@ def case_json_top_level_keys() -> SymbolCase:
 }
 """
     return (
-        "json",
-        src,
+        {"input.json": src},
         [
             ("config_key", "name", ""),
             ("config_key", "version", ""),
