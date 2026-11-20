@@ -10,10 +10,13 @@ import pytest
 from pytest_mock import MockerFixture, MockType
 
 from rbtr.config import config
+from rbtr.domain.models import SnapshotRef
 from rbtr.index.build import build_index
 from rbtr.index.embed import embed_index
-from rbtr.index.embeddings import EmbedResult
+from rbtr.index.embeddings import Embedder, EmbedResult
 from rbtr.index.index import Index
+
+from ..conftest import make_commit
 
 
 @pytest.fixture
@@ -176,22 +179,39 @@ def test_embedding_leaves_nothing_outstanding(
     assert counts.is_fully_embedded
 
 
+@pytest.fixture
+def partly_embedded_ref(
+    index: Index, git_repo: pygit2.Repository, repo_path: str, stubbed_embedder: Embedder
+) -> SnapshotRef:
+    """A snapshot half embedded: it shares `a.py` with an embedded commit, and adds `b.py`.
+
+    The first commit holds `a.py` and is built and embedded; the second
+    holds `a.py` and `b.py` and is only built, so its `a.py` chunk
+    already carries a vector and its `b.py` chunk does not.
+    """
+    a = b"""\
+def first():
+    pass
+"""
+    b = b"""\
+def second():
+    pass
+"""
+    first = str(make_commit(git_repo, {"a.py": a}, ref="refs/heads/first"))
+    build_index(repo_path, first, index)
+    embed_index(index, at=index.register(repo_path).at(first), embedder=stubbed_embedder)
+    second = str(make_commit(git_repo, {"a.py": a, "b.py": b}, ref="refs/heads/second"))
+    build_index(repo_path, second, index)
+    return index.register(repo_path).at(second)
+
+
 def test_the_work_list_names_only_chunks_without_vectors(
-    git_repo: pygit2.Repository, index: Index, snapshot_sha: str
+    index: Index, partly_embedded_ref: SnapshotRef
 ) -> None:
     """The one pass over the embedding column decides what is outstanding."""
-    build_index(git_repo.workdir, snapshot_sha, index)
-    [repo] = index.repos()
-    ref = repo.at(snapshot_sha)
-
-    chunks = index.chunks(at=repo.at(snapshot_sha))
-    first_id = chunks["id"][0]
-    with index.session(repo) as ws:
-        ws.update_embeddings([first_id], [[0.1, 0.2, 0.3]])
-
-    outstanding = index.unembedded_chunk_ids(at=ref)
-    assert len(outstanding) == len(chunks) - 1
-    assert first_id not in outstanding
+    chunks = index.chunks(at=partly_embedded_ref)
+    unembedded = chunks.filter(pl.col("file_path") == "b.py")["id"].to_list()
+    assert sorted(index.unembedded_chunk_ids(at=partly_embedded_ref)) == sorted(unembedded)
 
 
 def test_a_page_of_chunks_is_fetched_by_id(

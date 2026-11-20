@@ -13,28 +13,31 @@ from pytest_cases import case
 
 
 @dataclass(frozen=True)
-class SeededSnapshot:
-    """One snapshot to seed, and how far its build and embed got.
+class BuiltSnapshot:
+    """One snapshot to build, and how far its build and embed got.
 
-    Seeded in list order, each in its own transaction, so `indexed_at`
-    increases down the list — which is how a scenario expresses "this
-    one was indexed more recently".
+    Built in list order, so `indexed_at` increases down the list — which
+    is how a scenario expresses "this one was indexed more recently".
+    *repo* names one of two repositories, `"a"` or `"b"`; *label* names
+    the commit, so `expected_ref` can point at it.  A snapshot not
+    `indexed` is a build stopped after writing its chunks, before
+    marking the snapshot indexed.
     """
 
-    repo_path: str
-    snapshot_sha: str
+    repo: str
+    label: str
     indexed: bool = True
     embedded: bool = False
 
 
 @dataclass(frozen=True)
 class NextJobScenario:
-    """Snapshots to seed, and the ref the embed job should name.
+    """Snapshots to build, and the label of the one the embed job should name.
 
     `expected_ref` of `None` means no job at all is due.
     """
 
-    snapshots: list[SeededSnapshot]
+    snapshots: list[BuiltSnapshot]
     expected_ref: str | None
 
 
@@ -42,7 +45,7 @@ class NextJobScenario:
 def case_an_unembedded_snapshot_yields_an_embed_job() -> NextJobScenario:
     """Indexed, chunks written, no vectors yet — the plain case."""
     return NextJobScenario(
-        snapshots=[SeededSnapshot("/repo/a", "sha1")],
+        snapshots=[BuiltSnapshot("a", "sha1")],
         expected_ref="sha1",
     )
 
@@ -56,7 +59,7 @@ def case_an_unfinished_build_yields_no_job() -> NextJobScenario:
     clears them; the embedder leaves them alone.
     """
     return NextJobScenario(
-        snapshots=[SeededSnapshot("/repo/a", "sha1", indexed=False)],
+        snapshots=[BuiltSnapshot("a", "sha1", indexed=False)],
         expected_ref=None,
     )
 
@@ -65,7 +68,7 @@ def case_an_unfinished_build_yields_no_job() -> NextJobScenario:
 def case_a_fully_embedded_snapshot_yields_no_job() -> NextJobScenario:
     """Every chunk already carries a vector."""
     return NextJobScenario(
-        snapshots=[SeededSnapshot("/repo/a", "sha1", embedded=True)],
+        snapshots=[BuiltSnapshot("a", "sha1", embedded=True)],
         expected_ref=None,
     )
 
@@ -79,8 +82,8 @@ def case_the_most_recently_indexed_wins_across_repos() -> NextJobScenario:
     """
     return NextJobScenario(
         snapshots=[
-            SeededSnapshot("/repo/a", "older"),
-            SeededSnapshot("/repo/b", "newer"),
+            BuiltSnapshot("a", "older"),
+            BuiltSnapshot("b", "newer"),
         ],
         expected_ref="newer",
     )

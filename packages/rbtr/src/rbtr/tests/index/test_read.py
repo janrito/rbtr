@@ -14,7 +14,6 @@ import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.domain.models import (
-    Edge,
     EdgeKind,
     Import,
     ImportMeta,
@@ -22,7 +21,10 @@ from rbtr.domain.models import (
     Span,
 )
 from rbtr.domain.tokenise import tokenise_code
+from rbtr.git import normalise_repo_path
 from rbtr.index.build import build_index
+from rbtr.index.embed import embed_index
+from rbtr.index.embeddings import Embedder
 from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
 
@@ -199,41 +201,72 @@ def test_inbound_refs_empty_targets(index: Index, head_ref: SnapshotRef) -> None
 
 
 @pytest.fixture
-def checkouts(project_index: Index) -> Index:
-    """`project_index` with different content in each checkout at `head`.
+def stub_vectors() -> dict[str, list[float]]:
+    """Chosen vectors for `checkouts`' functions, so a `[1, 0, 0, 0]` query reaches them."""
+    return {"alpha_fn": [1.0, 0.0, 0.0, 0.0], "beta_fn": [1.0, 0.0, 0.0, 0.0]}
 
-    The main checkout holds `alpha.py` and the linked worktree `beta.py`,
-    each with an embedded chunk and an edge from it.  Both checkouts
-    write one project file, so only a read's repo filter keeps them
-    apart.
+
+@pytest.fixture
+def alpha_sha(git_repo: pygit2.Repository) -> str:
+    """A commit holding `alpha/fn.py`, defining `alpha_fn`, and `alpha/main.py`, importing it."""
+    fn = b"""\
+def alpha_fn():
+    return "shared_term"
+"""
+    main = b"""\
+from alpha.fn import alpha_fn
+"""
+    files = {"alpha/fn.py": fn, "alpha/main.py": main}
+    return str(make_commit(git_repo, files, ref="refs/heads/alpha"))
+
+
+@pytest.fixture
+def beta_sha(git_repo: pygit2.Repository) -> str:
+    """A commit holding `beta/fn.py`, defining `beta_fn`, and `beta/main.py`, importing it."""
+    fn = b"""\
+def beta_fn():
+    return "shared_term"
+"""
+    main = b"""\
+from beta.fn import beta_fn
+"""
+    files = {"beta/fn.py": fn, "beta/main.py": main}
+    return str(make_commit(git_repo, files, ref="refs/heads/beta"))
+
+
+@pytest.fixture
+def checkouts(
+    index: Index,
+    repo_path: str,
+    linked_worktree: pygit2.Repository,
+    alpha_sha: str,
+    beta_sha: str,
+    stubbed_embedder: Embedder,
+) -> Index:
+    """Two checkouts of one project, built and embedded with different content.
+
+    The main checkout (repo 1) is built at `alpha_sha` and the linked
+    worktree (repo 2) at `beta_sha`; each holds a function, an import
+    of it (an edge) and embeddings. Both checkouts write one project
+    file, so only a read's repo filter keeps them apart.
     """
-    for repo, handle in zip(project_index.repos(), ("alpha", "beta"), strict=True):
-        chunk = make_chunk(
-            handle,
-            name=f"{handle}_fn",
-            content=f"def {handle}_fn(): shared_term",
-            path=f"{handle}.py",
-        )
-        seed_index(project_index, [chunk], repo.at("head"))
-        edge = Edge(
-            source_id=chunk.id,
-            target_id=chunk.id,
-            kind=EdgeKind.IMPORTS,
-            source_path=chunk.file_path,
-            target_path=chunk.file_path,
-        )
-        with project_index.session(repo) as ws:
-            ws.insert_edges([edge], snapshot_sha="head")
-            ws.update_embeddings([chunk.id], [[1.0, 0.0, 0.0, 0.0]])
-    return project_index
+    main_ref = index.register(repo_path).at(alpha_sha)
+    worktree_path = normalise_repo_path(linked_worktree.workdir)
+    build_index(repo_path, alpha_sha, index)
+    build_index(worktree_path, beta_sha, index)
+    embed_index(index, at=main_ref, embedder=stubbed_embedder)
+    embed_index(index, at=index.register(worktree_path).at(beta_sha), embedder=stubbed_embedder)
+    return index
 
 
 @parametrize_with_cases("read", cases=".cases_read", has_tag="isolation")
-def test_a_read_sees_only_its_own_checkout(read: PathsRead, checkouts: Index) -> None:
+def test_a_read_sees_only_its_own_checkout(
+    read: PathsRead, checkouts: Index, alpha_sha: str, beta_sha: str
+) -> None:
     """Two checkouts share a project file; a read at one sees none of the other's rows."""
     main, worktree = checkouts.repos()
-    assert read(checkouts, main.at("head")) == {"alpha.py"}
-    assert read(checkouts, worktree.at("head")) == {"beta.py"}
+    assert {path.split("/")[0] for path in read(checkouts, main.at(alpha_sha))} == {"alpha"}
+    assert {path.split("/")[0] for path in read(checkouts, worktree.at(beta_sha))} == {"beta"}
 
 
 def test_shared_content_is_one_row_visible_to_both_repos(
@@ -252,9 +285,7 @@ def test_shared_content_is_one_row_visible_to_both_repos(
 
 
 def test_shared_chunk_embedded_once_across_repos(
-    shared_chunk_index: Index,
-    shared_sha: str,
-    shared_chunk_id: str,
+    shared_chunk_index: Index, shared_sha: str, stubbed_embedder: Embedder
 ) -> None:
     """Embedding the shared chunk once leaves no repo with work to do."""
     index = shared_chunk_index
@@ -264,8 +295,7 @@ def test_shared_chunk_embedded_once_across_repos(
     assert index.chunk_counts_for_snapshot(at=in_repo1).unembedded == 1
     assert index.chunk_counts_for_snapshot(at=in_repo2).unembedded == 1
 
-    with index.session(repo1) as ws:
-        ws.update_embeddings([shared_chunk_id], [[0.1, 0.2, 0.3]])
+    embed_index(index, at=in_repo1, embedder=stubbed_embedder)
 
     assert index.chunk_counts_for_snapshot(at=in_repo1).is_fully_embedded
     assert index.chunk_counts_for_snapshot(at=in_repo2).is_fully_embedded

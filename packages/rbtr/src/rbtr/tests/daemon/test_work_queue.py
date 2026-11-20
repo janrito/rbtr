@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import threading
 import time
 from pathlib import Path
@@ -19,67 +20,97 @@ from rbtr.daemon.messages import (
     notification_adapter,
 )
 from rbtr.daemon.server import Daemon
-from rbtr.domain.models import FileSnapshot
+from rbtr.errors import BuildStopped
+from rbtr.index.build import build_index
+from rbtr.index.embed import embed_index
+from rbtr.index.embeddings import Embedder
 from rbtr.index.index import Index
 from rbtr.index.indexer import BuildJob, EmbeddingEnded, EmbedJob, Indexer, IndexerOutput
 
 from ..conftest import make_commit
-from ..index.conftest import make_chunk
 from .cases_work_queue import NextJobScenario
 from .conftest import serving, subscribed
 
 
+def _stop_at_edges(stop: threading.Event, phase: str, _done: int, _total: int) -> None:
+    """Stop a build once its chunks are written, before it marks the snapshot indexed."""
+    if phase == "edges":
+        stop.set()
+
+
 @fixture
 @parametrize_with_cases("scenario", cases=".cases_work_queue", has_tag="next_job")
-def next_job_index(scenario: NextJobScenario, index: Index) -> tuple[Index, NextJobScenario]:
-    for n, snap in enumerate(scenario.snapshots):
-        repo = index.register(snap.repo_path)
-        with index.session(repo) as ws:
-            chunk = make_chunk(f"c{n}", name=f"fn{n}", path=f"f{n}.py", blob=f"blob{n}")
-            ws.add_chunk(chunk)
-            ws.insert_snapshots(
-                [
-                    FileSnapshot(
-                        snapshot_sha=snap.snapshot_sha,
-                        file_path=f"f{n}.py",
-                        blob_sha=f"blob{n}",
-                    )
-                ],
-            )
-            if snap.embedded:
-                ws.update_embeddings([chunk.id], [[0.1, 0.2, 0.3]])
-            if snap.indexed:
-                ws.mark_indexed(snapshot_sha=snap.snapshot_sha)
-    return index, scenario
+def next_job(scenario: NextJobScenario) -> NextJobScenario:
+    return scenario
 
 
 @pytest.fixture
-def index_for_indexer(next_job_index: tuple[Index, NextJobScenario]) -> Index:
-    return next_job_index[0]
+def next_job_shas(
+    next_job: NextJobScenario,
+    index: Index,
+    fake_repo: str,
+    second_repo: str,
+    stubbed_embedder: Embedder,
+) -> dict[str, str]:
+    """Each of the scenario's snapshots built, and embedded where it says, in list order.
+
+    Returns each snapshot's label mapped to its commit.
+    """
+    repos = {"a": fake_repo, "b": second_repo}
+    shas: dict[str, str] = {}
+    for n, snap in enumerate(next_job.snapshots):
+        path = repos[snap.repo]
+        source = f"""\
+def fn{n}():
+    pass
+""".encode()
+        files = {f"f{n}.py": source}
+        sha = str(make_commit(pygit2.Repository(path), files, ref=f"refs/heads/{snap.label}"))
+        if snap.indexed:
+            build_index(path, sha, index)
+        else:
+            stop = threading.Event()
+            with pytest.raises(BuildStopped):
+                build_index(
+                    path,
+                    sha,
+                    index,
+                    stop=stop,
+                    on_progress=functools.partial(_stop_at_edges, stop),
+                )
+        if snap.embedded:
+            embed_index(index, at=index.register(path).at(sha), embedder=stubbed_embedder)
+        shas[snap.label] = sha
+    return shas
+
+
+@pytest.fixture
+def index_for_indexer(next_job_shas: dict[str, str], index: Index) -> Index:
+    return index
 
 
 def test_startup_recovery_runs_the_selected_embed_work(
-    next_job_index: tuple[Index, NextJobScenario],
+    next_job: NextJobScenario,
+    next_job_shas: dict[str, str],
+    index: Index,
     indexer: Indexer,
     indexer_outputs: list[IndexerOutput],
     indexer_loop: asyncio.AbstractEventLoop,
 ) -> None:
     """Recovery selects the newest eligible snapshot and embeds it without a wake."""
-    index, scenario = next_job_index
+    expected = None if next_job.expected_ref is None else next_job_shas[next_job.expected_ref]
     job = indexer.next_job()
-    assert (job.at.snapshot_sha if isinstance(job, EmbedJob) else job) == scenario.expected_ref
+    assert (job.at.snapshot_sha if isinstance(job, EmbedJob) else job) == expected
 
     async def run() -> None:
-        if scenario.expected_ref is None:
+        if expected is None:
             indexer.request_shutdown()
         async with asyncio.timeout(20):
             await indexer.run()
 
     asyncio.run_coroutine_threadsafe(run(), indexer_loop).result()
     ended = [event for event in indexer_outputs if isinstance(event, EmbeddingEnded)]
-    assert [event.at.snapshot_sha for event in ended] == (
-        [] if scenario.expected_ref is None else [scenario.expected_ref]
-    )
+    assert [event.at.snapshot_sha for event in ended] == ([] if expected is None else [expected])
     if isinstance(job, EmbedJob):
         assert index.chunk_counts_for_snapshot(at=job.at).is_fully_embedded
 
