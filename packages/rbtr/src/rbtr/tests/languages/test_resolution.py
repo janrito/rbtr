@@ -138,6 +138,40 @@ def test_language_hint_directs_resolution(
 
 
 @pytest.mark.parametrize(
+    ("module", "dots", "expected"),
+    [
+        ("models", "1", "pkg/sub/models.py"),
+        ("models", "2", "pkg/models.py"),
+        ("models", "4", None),
+        ("", "1", "pkg/sub/__init__.py"),
+    ],
+    ids=["sibling", "parent", "past-the-root", "package-itself"],
+)
+def test_relative_depth_climbs_from_the_importer(
+    module: str, dots: str, expected: str | None
+) -> None:
+    """An import's depth climbs from its file's directory; a depth past the root reaches nothing."""
+    # A root `models.py` that a climb stopping at the root would reach.
+    files = {
+        "models.py",
+        "pkg/models.py",
+        "pkg/sub/models.py",
+        "pkg/sub/__init__.py",
+        "pkg/sub/app.py",
+    }
+    resolution = ImportResolution(
+        extensions=(".py",),
+        index_files=("__init__.py",),
+        source_roots=("",),
+        path_substitutions=(),
+        module_style=ModuleStyle.DOTTED,
+    )
+    meta = ImportMeta(module=module, dots=dots)
+    found = import_files(meta, "pkg/sub/app.py", "lang", files, {"lang": resolution})
+    assert found == ([] if expected is None else [expected])
+
+
+@pytest.mark.parametrize(
     ("module", "files", "resolution", "expected"),
     [
         (
