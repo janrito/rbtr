@@ -42,6 +42,9 @@ from rbtr.languages.registration import LanguageRegistration
 
 log = structlog.get_logger(__name__)
 
+# How much of a file `detect_language_by_content` reads.
+_CONTENT_SAMPLE = 2048
+
 
 class LanguageManager:
     """Central registry for language plugins.
@@ -113,6 +116,20 @@ class LanguageManager:
         if p.name in self._filename_map:
             return self._filename_map[p.name]
         return self._ext_map.get(p.suffix)
+
+    def detect_language_by_content(self, text: str) -> str | None:
+        """The language whose `content_signals` match *text*'s first 2 KiB most often.
+
+        For a file whose path names no language.  A tie is won by the
+        language id first in sort order; `None` when no signal matches.
+        """
+        sample = text[:_CONTENT_SAMPLE]
+        counts = {
+            language_id: sum(len(signal.findall(sample)) for signal in reg.content_signals)
+            for language_id, reg in sorted(self._registrations.items())
+        }
+        best = max(counts, key=counts.__getitem__, default=None)
+        return best if best is not None and counts[best] > 0 else None
 
     def get_registration(self, language_id: str) -> LanguageRegistration | None:
         """Return the registration for *language_id*, or `None`."""

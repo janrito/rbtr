@@ -191,9 +191,9 @@ re-extracts it, and an unchanged file is skipped.
 Language is resolved once per file before the dedup check, in order:
 file extension → the `detected_language` recorded on an earlier
 `file_snapshots` row for that path (`get_snapshot_language`) →
-a prose content-sniff for never-seen files. Persisting the
-detected language on the snapshot is what lets prose
-(Markdown/RST) identified by content heuristics skip the sniff —
+a content sniff for never-seen files. Persisting the
+detected language on the snapshot is what lets a file
+identified by its content skip the sniff —
 and the needless re-extraction — on every subsequent build.
 
 ### Write path
@@ -360,10 +360,12 @@ order:
    (step 1), not instead of it.
 3. **Plaintext fallback** - only if neither of the above
    applied. If no language was detected (unknown
-   extension), `detect_prose_format` sniffs the first 2 KiB:
-   RST by underline headings (`Title\n=====`) or directives
-   (`.. note::`), Markdown by ATX headings (`# Title`); a
-   detected format uses its registered chunker. Otherwise,
+   extension), `LanguageManager.detect_language_by_content`
+   counts each registration's `content_signals` in the first
+   2 KiB and takes the language with the most, a tie won by
+   the first id in sort order: Markdown declares ATX headings
+   and code fences, rST title underlines, directives and roles.
+   Core names no language here. Otherwise,
    line-based raw chunks (`RAW_CHUNK`, fixed-size
    overlapping windows).
 4. **Host-language trace** - if no chunk so far carried the

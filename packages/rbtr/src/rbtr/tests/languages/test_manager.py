@@ -7,6 +7,7 @@ retrieval, and import extraction delegation.
 from __future__ import annotations
 
 import importlib.metadata
+import re
 from collections.abc import Iterator
 from types import SimpleNamespace
 
@@ -163,6 +164,36 @@ def test_broken_plugin_is_skipped(monkeypatch: pytest.MonkeyPatch, fresh_manager
     eps = [SimpleNamespace(name="broken", load=boom), SimpleNamespace(name="ok", load=lambda: good)]
     monkeypatch.setattr(importlib.metadata, "entry_points", lambda *, group: eps)
     assert get_manager().all_language_ids() == ["oklang"]
+
+
+@pytest.fixture
+def two_sniffed_languages(monkeypatch: pytest.MonkeyPatch, fresh_manager: None) -> None:
+    """A manager that loaded `alpha`, signalled by `%%` lines, and `beta`, by `&&` lines."""
+    alpha = LanguageRegistration(id="alpha", content_signals=(re.compile(r"^%%", re.MULTILINE),))
+    beta = LanguageRegistration(id="beta", content_signals=(re.compile(r"^&&", re.MULTILINE),))
+    monkeypatch.setattr(
+        importlib.metadata,
+        "entry_points",
+        lambda *, group: [
+            SimpleNamespace(name="beta", load=lambda: beta),
+            SimpleNamespace(name="alpha", load=lambda: alpha),
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    ("text", "language"),
+    [
+        pytest.param("%% one\n&& two\n&& three\n", "beta", id="most-matches-wins"),
+        pytest.param("&& one\n%% two\n", "alpha", id="tie-to-first-id"),
+        pytest.param("plain text\n", None, id="no-match"),
+        pytest.param(" " * 2048 + "\n%% late\n", None, id="past-first-2-kib"),
+    ],
+)
+def test_a_file_named_by_no_path_takes_the_language_its_content_signals_most(
+    two_sniffed_languages: None, text: str, language: str | None
+) -> None:
+    assert get_manager().detect_language_by_content(text) == language
 
 
 #

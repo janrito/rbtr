@@ -854,6 +854,19 @@ consumes its trailing newline ends at column 0 of a row it does
 not occupy, so adding one to the end row overshoots such a node
 by a line.
 
+A file whose name claims no language, such as `notes.txt`, can still
+be read as yours by its content. List patterns that mark your
+language in `content_signals`; the language whose signals match most
+often in the file's first 2 KiB is chosen:
+
+```python
+example = LanguageRegistration(
+    id="example",
+    extensions=frozenset({".ex"}),
+    content_signals=(re.compile(r"^@@ ", re.MULTILINE),),
+)
+```
+
 ### Testing the plugin
 
 Tests exercise the **real** pipeline, so there is no test-only code

@@ -18,6 +18,7 @@ Extracted chunks::
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
@@ -330,6 +331,12 @@ rst = LanguageRegistration(
     extensions=frozenset({".rst"}),
     grammar_module="tree_sitter_rst",
     prose=True,
+    # Title underlines, directives and roles.
+    content_signals=(
+        re.compile(r"^[=\-~^\"'+#*]{3,}$", re.MULTILINE),
+        re.compile(r"^\.\.\s+\w+::", re.MULTILINE),
+        re.compile(r":\w+:`[^`]+`"),
+    ),
     extraction_serial=4,
 )
 

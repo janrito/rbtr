@@ -1,0 +1,9 @@
+# Release notes
+
+A `.txt` file whose content is Markdown, read as Markdown.
+
+## Upgrading
+
+```sh
+uv tool upgrade rbtr
+```

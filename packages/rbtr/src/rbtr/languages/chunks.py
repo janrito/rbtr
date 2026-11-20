@@ -1,8 +1,8 @@
 """Chunking helpers and fallback for unsupported content.
 
-Provides the span arithmetic every chunker shares, the prose-format
-detection heuristic, the host-presence sentinel, and the line-based
-fallback chunker used when no language plugin matches.
+Provides the span arithmetic every chunker shares, the host-presence
+sentinel, and the line-based fallback chunker used when no language
+plugin matches.
 
 Actual chunker implementations live in their language plugin
 files under `rbtr/languages/`.
@@ -10,7 +10,6 @@ files under `rbtr/languages/`.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
@@ -38,33 +37,6 @@ def last_line(node: Node) -> int:
     if end_column == 0 and end_row > node.start_point[0]:
         return end_row
     return end_row + 1
-
-
-_RST_UNDERLINE = re.compile(r"^[=\-~^\"'+#*]{3,}$", re.MULTILINE)
-_RST_DIRECTIVE = re.compile(r"^\.\.\s+\w+::", re.MULTILINE)
-_RST_ROLE = re.compile(r":\w+:`[^`]+`")
-_MD_ATX_HEADING = re.compile(r"^#{1,6}\s+", re.MULTILINE)
-_MD_FENCED = re.compile(r"^```", re.MULTILINE)
-
-
-def detect_prose_format(content: str) -> str | None:
-    """Detect RST or Markdown from content heuristics.
-
-    Checks the first 2 KiB for distinctive signals. Returns
-    `"rst"`, `"markdown"`, or `None` (neither detected).
-    """
-    sample = content[:2048]
-    rst_signals = (
-        len(_RST_UNDERLINE.findall(sample))
-        + len(_RST_DIRECTIVE.findall(sample))
-        + len(_RST_ROLE.findall(sample))
-    )
-    md_signals = len(_MD_ATX_HEADING.findall(sample)) + len(_MD_FENCED.findall(sample))
-    if rst_signals == 0 and md_signals == 0:
-        return None
-    if rst_signals > md_signals:
-        return "rst"
-    return "markdown"
 
 
 def _raw_chunks(file_path: str, blob_sha: str, content: str) -> Iterator[Chunk]:
