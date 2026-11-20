@@ -17,6 +17,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import duckdb
+import polars as pl
 import pygit2
 import pytest
 import structlog
@@ -24,7 +25,7 @@ from pytest_cases import filters as ft, fixture, parametrize_with_cases
 from pytest_mock import MockerFixture
 
 from rbtr.config import config, index_dir_of
-from rbtr.domain.models import FileSnapshot
+from rbtr.domain.models import ChunkKind, FileSnapshot, ImportMeta
 from rbtr.errors import (
     IndexLockedError,
     IndexMigratingError,
@@ -540,6 +541,60 @@ at {migrations[0].start}"
             for con in (migrated, fresh)
         )
         assert migrated_ddl == fresh_ddl
+
+
+def test_a_project_file_from_2026_10_0_keeps_its_import_metadata(tmp_path: Path) -> None:
+    """A file holding metadata as JSON text opens with each import's metadata as it was.
+
+    The file is written now and forged back to 2026.10.0's shape: every
+    chunk's `metadata` as JSON text, an import's without `language_hint`,
+    as files written then hold it.
+    """
+    path = tmp_path / "index.duckdb"
+    imp = TokenisedChunk(
+        blob_sha="blob_app",
+        file_path="app.py",
+        kind=ChunkKind.IMPORT,
+        name="import os",
+        content="import os",
+        line_start=1,
+        line_end=1,
+        metadata=ImportMeta(module="os"),
+    )
+    fn = make_chunk("load", path="app.py", blob="blob_app")
+    seed = Index(path, writable=True)
+    repo = seed.register("/repo")
+    with seed.session(repo) as ws:
+        ws.add_chunk(imp)
+        ws.add_chunk(fn)
+        ws.insert_snapshots([make_snap("head", "app.py", "blob_app")])
+    seed.close()
+    (project_file,) = (tmp_path / "index").glob("*.duckdb")
+    with duckdb.connect(str(project_file)) as con:
+        con.execute("""\
+DROP INDEX idx_chunks_blob;
+ALTER TABLE chunks ALTER metadata TYPE TEXT USING CASE
+  WHEN kind = 'import' THEN '{"module": "os", "names": "", "dots": ""}'
+  ELSE '{"module": "", "names": "", "dots": ""}'
+END;
+ALTER TABLE chunks ALTER metadata SET DEFAULT '{}';
+ALTER TABLE chunks ALTER metadata SET NOT NULL;
+CREATE INDEX idx_chunks_blob ON chunks (blob_sha, file_language);
+UPDATE meta SET value = '2026.10.0' WHERE key = 'schema_version';
+""")
+    with duckdb.connect(str(path)) as con:
+        con.execute("UPDATE meta SET value = '2026.10.0' WHERE key = 'schema_version'")
+
+    index = Index(path, writable=True)
+    try:
+        [repo] = index.repos()
+        read = index.chunks(at=repo.at("head"))
+    finally:
+        index.close()
+    assert read.select(pl.col("kind").cast(pl.String), "metadata").sort("kind").rows() == [
+        ("function", None),
+        ("import", {"module": "os", "names": "", "dots": "", "language_hint": ""}),
+    ]
 
 
 @pytest.mark.parametrize("kind", list(FileKind))

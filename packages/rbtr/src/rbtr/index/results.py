@@ -23,7 +23,6 @@ from rbtr.domain.models import (
     ChunkKind,
     Chunks,
     EdgeKind,
-    ImportMeta,
     Repo,
     SnapshotCounts,
     SnapshotRef,
@@ -129,6 +128,7 @@ class _ChunkIdentity(dy.Schema):
     content = dy.String(nullable=False)
     line_start = dy.Int32(nullable=False)
     line_end = dy.Int32(nullable=False)
+    # An import's metadata; null on every other chunk.
     metadata = dy.Struct(
         {
             "module": dy.String(nullable=False),
@@ -136,7 +136,7 @@ class _ChunkIdentity(dy.Schema):
             "dots": dy.String(nullable=False),
             "language_hint": dy.String(nullable=False),
         },
-        nullable=False,
+        nullable=True,
     )
 
 
@@ -336,29 +336,15 @@ def chunk_ids_view(chunk_ids: list[str]) -> dy.DataFrame[ChunkIdRow]:
     return ChunkIdRow.validate(frame, cast=True)
 
 
-# Polars Struct dtype matching ImportMeta's fields.  Derived from
-# the model so it stays in sync when fields are added.
-_IMPORT_META_DTYPE = pl.Struct(dict.fromkeys(ImportMeta.model_fields, pl.String))
-
-
-def _decode_metadata(frame: pl.DataFrame) -> pl.DataFrame:
-    """Decode the `metadata` TEXT column from DuckDB to a Struct.
-
-    Returns plain `pl.DataFrame`: in-place dtype coercion on an
-    intermediate frame, not a data boundary.
-    """
-    if "metadata" not in frame.columns:
-        return frame
-    if frame["metadata"].dtype == pl.String:
-        return frame.with_columns(
-            pl.col("metadata").fill_null("{}").str.json_decode(_IMPORT_META_DTYPE)
-        )
-    return frame
-
-
 def frame_to_chunks(frame: dy.DataFrame[ChunkResultRow]) -> list[Chunk]:
-    """Convert a validated chunk-result frame to `Chunk` models."""
-    return Chunks.validate_python(frame.to_dicts())
+    """Convert a validated chunk-result frame to `Chunk` models.
+
+    A chunk with no import metadata stores a null struct; its `Chunk`
+    gets the empty `ImportMeta`.
+    """
+    empty = pl.struct(pl.lit("").alias(name) for name in frame["metadata"].struct.fields)
+    filled = frame.with_columns(pl.col("metadata").fill_null(empty))
+    return Chunks.validate_python(filled.to_dicts())
 
 
 _IMPORT_FIELDS = ("module", "names", "dots", "language_hint")

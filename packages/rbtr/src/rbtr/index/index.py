@@ -51,7 +51,6 @@ from rbtr.index.results import (
     ScoredChunkResultRow,
     SnapshotCountsRow,
     SnapshotFileRow,
-    _decode_metadata,
     chunk_ids_view,
     file_paths_view,
     frame_to_snapshot_counts,
@@ -433,7 +432,6 @@ class Index:
             return (
                 cur.sql(_GET_CHUNKS_BY_ID_SQL, params=params)
                 .pl()
-                .pipe(_decode_metadata)
                 .pipe(ChunkResultRow.validate, cast=True)
             )
 
@@ -468,7 +466,6 @@ class Index:
             self._store.data(at.repo)
             .sql(_GET_CHUNKS_SQL, params=params)
             .pl()
-            .pipe(_decode_metadata)
             .pipe(ChunkResultRow.validate, cast=True)
         )
 
@@ -594,7 +591,6 @@ class Index:
             return (
                 cur.sql(_CHANGED_SYMBOLS_SQL, params=params)
                 .pl()
-                .pipe(_decode_metadata)
                 .pipe(ChangedSymbolRow.validate, cast=True)
             )
 
@@ -622,7 +618,7 @@ class Index:
         frames = self._within(within, _SEARCH_BY_NAME_SQL, params, _qualifiers=qualifiers)
         if not frames:
             return ChunkResultRow.create_empty()
-        matches = pl.concat(frames).pipe(_decode_metadata).pipe(NameMatchRow.validate, cast=True)
+        matches = pl.concat(frames).pipe(NameMatchRow.validate, cast=True)
         return (
             matches.filter(pl.col("match_tier") == pl.col("match_tier").min())
             .drop("match_tier")
@@ -768,6 +764,5 @@ def _best(frames: list[pl.DataFrame], top_k: int) -> dy.DataFrame[ScoredChunkRes
         pl.concat(frames)
         .sort("score", descending=True)
         .head(top_k)
-        .pipe(_decode_metadata)
         .pipe(ScoredChunkResultRow.validate, cast=True)
     )

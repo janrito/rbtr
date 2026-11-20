@@ -2255,6 +2255,13 @@ from the version it records. Replacing the index on every breaking
 change does not work here: it re-extracts every checkout and
 re-embeds every chunk to change a column.
 
+**Import metadata is a struct column.** `chunks.metadata` holds an
+import's metadata as a `STRUCT` of its fields, and `NULL` on every
+other chunk; a frame carries it as a polars struct both ways. JSON
+text in that column does not work here: it moves encoding and parsing
+into per-row Python, where a struct passes between DuckDB and polars
+as Arrow.
+
 **Opening the index migrates it.** Migration belongs to the `index`
 layer and reports through the log; the CLI just opens the index, and
 the daemon only chooses when the copies run. Migrating in each command
