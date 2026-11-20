@@ -14,7 +14,7 @@ from rbtr.languages.edges import InferredEdgeRow, infer_import_edges
 from rbtr.languages.extract import extract_file
 from rbtr.languages.manager import get_manager
 from rbtr.languages.resolution import build_resolution_map
-from rbtr.testing import assert_document_fully_chunked, edge_rows, render_edges
+from rbtr.testing import assert_fully_chunked, edge_rows, render_edges
 
 if TYPE_CHECKING:
     import dataframely as dy
@@ -83,6 +83,4 @@ def test_every_block_of_every_document_is_chunked(
     for path, text in project:
         if manager.detect_language(path) != "svelte":
             continue
-        grammar = manager.grammar("svelte")
-        assert grammar is not None
-        assert_document_fully_chunked(path, text, chunks, grammar)
+        assert_fully_chunked(path, text, chunks, "svelte")

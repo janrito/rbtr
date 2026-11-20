@@ -14,7 +14,7 @@ from rbtr.languages.edges import InferredEdgeRow, infer_import_edges
 from rbtr.languages.extract import extract_file
 from rbtr.languages.manager import get_manager
 from rbtr.languages.resolution import build_resolution_map
-from rbtr.testing import edge_rows, render_edges
+from rbtr.testing import assert_fully_chunked, edge_rows, render_edges
 
 if TYPE_CHECKING:
     import dataframely as dy
@@ -58,6 +58,15 @@ def test_parses_cleanly(project: list[tuple[str, str]]) -> None:
         grammar = manager.grammar(manager.detect_language(path) or "tree_sitter_query")
         assert grammar is not None
         assert not Parser(grammar).parse(text.encode()).root_node.has_error, path
+
+
+def test_every_line_reaches_a_chunk(project: list[tuple[str, str]], chunks: list[Chunk]) -> None:
+    """No code in a sample file is left outside a chunk."""
+    manager = get_manager()
+    for path, text in project:
+        assert_fully_chunked(
+            path, text, chunks, manager.detect_language(path) or "tree_sitter_query"
+        )
 
 
 def test_extraction_matches_snapshot(chunks: list[Chunk], snapshot_json: SnapshotAssertion) -> None:

@@ -135,6 +135,8 @@ def _kind_boost_expr() -> pl.Expr:
         .then(0.5)
         .when(kind == ChunkKind.RAW_CHUNK)
         .then(0.5)
+        .when(kind == ChunkKind.FRAGMENT)
+        .then(0.5)
         .when(kind == ChunkKind.MIGRATION)
         .then(0.4)
         .when(kind == ChunkKind.IMPORT)

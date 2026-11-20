@@ -41,7 +41,7 @@ def fused(scenario: FuseScenario) -> tuple[FuseScenario, list[ScoredChunk]]:
             "name_tokens": [""] * n,
             "line_start": [1] * n,
             "line_end": [1] * n,
-            # An import is stored with its metadata; other kinds with none.
+            # An import is stored with its payload; other kinds with none.
             "metadata": [
                 s.metadata.model_dump() if s.kind == ChunkKind.IMPORT else None
                 for s in scenario.chunks

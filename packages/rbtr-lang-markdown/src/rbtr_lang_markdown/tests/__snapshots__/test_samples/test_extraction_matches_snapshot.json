@@ -304,6 +304,27 @@
     "blob_sha": "sha1",
     "file_path": "embedding.md",
     "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "export_statement"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "typescript",
+    "file_language": "markdown",
+    "content": "export let name: string;",
+    "span": {
+      "start": 45,
+      "end": 45
+    },
+    "id": "c57e082ac1793e7c"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "embedding.md",
+    "role": {
       "kind": "class",
       "name": "h1"
     },

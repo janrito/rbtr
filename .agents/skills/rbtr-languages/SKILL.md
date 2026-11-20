@@ -239,6 +239,31 @@ emits everything else as a standalone `COMMENT` chunk. You only declare the
 node types. A comment trailing code on its line documents that statement and
 never folds forward. The routing rules and their rationale live in ARCHITECTURE.
 
+## Fragments: code no pattern names
+
+The engine gives every line of a file a chunk. After the query's chunks, it
+emits what they leave as `FRAGMENT` chunks: unnamed, each recording the types
+of the named syntax nodes it holds (`role.meta.node_types`). You declare
+nothing for this; the grouping rules live in ARCHITECTURE ("Fragments for code
+no query names").
+
+A fragment is a gap report, not a target. Read the gaps two ways:
+
+- **A sample's snapshot.** Each `test_samples.py` runs
+  `test_every_line_reaches_a_chunk`, and the snapshot shows every fragment the
+  sample leaves. A fragment holding a definition is a missing capture: a C
+  prototype inside an `#ifndef` guard, a Python decorator left outside its
+  function's chunk.
+- **rbtr-eval's `INDEX.md`.** Its fragments table counts, per language, the
+  lines left to fragments and the node types holding the most of them, over
+  the eval corpus.
+
+To turn a frequent node type into a capture: put the shape in the language's
+sample, add the pattern to its `.scm`, regenerate the snapshots (the fragment
+becomes a named chunk), and bump `extraction_serial`. A node type with no
+searchable identity (a Go `package` clause, `#pragma once`, a parse error)
+stays a fragment: that is what fragments are for.
+
 ## Scope & promotion (engine layers — already generic)
 
 Set on the language's `QueryExtraction` (the `extraction` field);

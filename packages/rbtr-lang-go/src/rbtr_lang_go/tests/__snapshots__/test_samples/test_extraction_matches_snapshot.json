@@ -247,6 +247,27 @@
   },
   {
     "blob_sha": "sha1",
+    "file_path": "go.go",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "package_clause"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "go",
+    "file_language": "go",
+    "content": "package greet",
+    "span": {
+      "start": 6,
+      "end": 6
+    },
+    "id": "13d9cab3f66618dc"
+  },
+  {
+    "blob_sha": "sha1",
     "file_path": "greeter/text.go",
     "role": {
       "kind": "comment"
@@ -300,5 +321,26 @@
       "end": 13
     },
     "id": "b6fe62153764afa0"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "greeter/text.go",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "package_clause"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "go",
+    "file_language": "go",
+    "content": "package util",
+    "span": {
+      "start": 6,
+      "end": 6
+    },
+    "id": "13d9cab3f66618dc"
   }
 ]

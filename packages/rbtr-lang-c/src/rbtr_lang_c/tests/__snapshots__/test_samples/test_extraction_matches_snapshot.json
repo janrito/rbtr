@@ -432,6 +432,69 @@
   },
   {
     "blob_sha": "sha1",
+    "file_path": "greeter.h",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "identifier"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "c",
+    "file_language": "c",
+    "content": "#ifndef GREETER_H",
+    "span": {
+      "start": 5,
+      "end": 5
+    },
+    "id": "a99adce695ad4948"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "greeter.h",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "declaration"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "c",
+    "file_language": "c",
+    "content": "Greeter greeter_default(void);",
+    "span": {
+      "start": 18,
+      "end": 18
+    },
+    "id": "e3f8473ab0e466d9"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "greeter.h",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "declaration"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "c",
+    "file_language": "c",
+    "content": "int format_greeting(const Greeter *g, const char *name, char *buf, int n);",
+    "span": {
+      "start": 21,
+      "end": 21
+    },
+    "id": "efab07d10a89957a"
+  },
+  {
+    "blob_sha": "sha1",
     "file_path": "util/text.c",
     "role": {
       "kind": "comment"
@@ -518,5 +581,47 @@
       "end": 4
     },
     "id": "46c2713ca66abfa3"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "util/text.h",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "identifier"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "c",
+    "file_language": "c",
+    "content": "#ifndef GREETER_UTIL_TEXT_H",
+    "span": {
+      "start": 3,
+      "end": 3
+    },
+    "id": "6acdc8d6c3de3dc3"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "util/text.h",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "declaration"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "c",
+    "file_language": "c",
+    "content": "int text_length(const char *s);",
+    "span": {
+      "start": 6,
+      "end": 6
+    },
+    "id": "9b7e96b54851ad5f"
   }
 ]

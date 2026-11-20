@@ -472,6 +472,27 @@
   },
   {
     "blob_sha": "sha1",
+    "file_path": "greeter.hpp",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "preproc_call"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "cpp",
+    "file_language": "cpp",
+    "content": "#pragma once",
+    "span": {
+      "start": 6,
+      "end": 6
+    },
+    "id": "6b96fc240187ac4a"
+  },
+  {
+    "blob_sha": "sha1",
     "file_path": "util/text.cpp",
     "role": {
       "kind": "comment"
@@ -608,5 +629,26 @@
       "end": 6
     },
     "id": "553c654c74ae85d5"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "util/text.hpp",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "preproc_call"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "cpp",
+    "file_language": "cpp",
+    "content": "#pragma once",
+    "span": {
+      "start": 3,
+      "end": 3
+    },
+    "id": "5b3fdefa516378a1"
   }
 ]
