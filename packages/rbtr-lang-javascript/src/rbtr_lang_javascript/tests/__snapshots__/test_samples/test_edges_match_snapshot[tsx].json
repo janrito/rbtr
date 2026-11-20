@@ -1,3 +1,4 @@
 [
+  "src/a.tsx::import { Helper } from './b'; -> src/b.tsx::Helper [imports]",
   "tsx.tsx::import { INITIAL_LABEL } from \"./labels\"; -> labels.ts::INITIAL_LABEL [imports]"
 ]

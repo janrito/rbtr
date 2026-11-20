@@ -20,6 +20,32 @@
     "line_end": 4
   },
   {
+    "name": "require_relative 'b'",
+    "kind": "import",
+    "file_path": "lib/a.rb",
+    "scope": "",
+    "language": "ruby",
+    "content": "require_relative 'b'",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "b",
+      "names": "",
+      "dots": "1",
+      "language_hint": ""
+    }
+  },
+  {
+    "name": "helper",
+    "kind": "function",
+    "file_path": "lib/b.rb",
+    "scope": "",
+    "language": "ruby",
+    "content": "def helper\n  1\nend",
+    "line_start": 1,
+    "line_end": 3
+  },
+  {
     "name": "",
     "kind": "comment",
     "file_path": "ruby.rb",

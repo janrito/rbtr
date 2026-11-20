@@ -1,4 +1,5 @@
 [
   "javascript.js::import \"./styles.css\"; -> styles.css::.greeter [imports]",
-  "javascript.js::import { LOCALE } from \"./config.js\"; -> config.js::LOCALE [imports]"
+  "javascript.js::import { LOCALE } from \"./config.js\"; -> config.js::LOCALE [imports]",
+  "src/a.js::import { helper } from './b.js'; -> src/b.js::helper [imports]"
 ]
