@@ -444,11 +444,6 @@ def test_result_table_reports_every_kind_against_its_error(
     assert "withhold" in result_section
 
 
-def toml_block(rendered: str) -> str:
-    """The TOML snippet TUNING.md holds, as the operator copies it."""
-    return rendered.split("```toml\n", 1)[1].split("```", 1)[0]
-
-
 @pytest.fixture
 def recommended_report() -> dy.DataFrame[TuneReport]:
     """Two kinds, both recommended."""
@@ -493,7 +488,8 @@ def test_the_reports_toml_snippet_parses_and_round_trips_the_weights(
         pl.DataFrame({"slug": ["r"], "n_queries": [50]}),
     )
 
-    weights = tomllib.loads(toml_block(rendered))["search_weights"]
+    snippet = rendered.split("```toml\n", 1)[1].split("```", 1)[0]
+    weights = tomllib.loads(snippet)["search_weights"]
     assert weights["concept"] == {"alpha": 0.5, "beta": 0.3, "gamma": 0.2}
     assert weights["identifier"] == {"alpha": 0.05, "beta": 0.2, "gamma": 0.75}
 
@@ -517,7 +513,7 @@ def test_the_reports_toml_snippet_comments_out_a_withheld_kind(
         pl.DataFrame({"slug": ["r"], "n_queries": [50]}),
     )
 
-    snippet = toml_block(rendered)
+    snippet = rendered.split("```toml\n", 1)[1].split("```", 1)[0]
     assert tomllib.loads(snippet)["search_weights"] == {
         "concept": {"alpha": 0.5, "beta": 0.3, "gamma": 0.2}
     }
