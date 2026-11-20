@@ -346,6 +346,7 @@ rst = LanguageRegistration(
     id="rst",
     extensions=frozenset({".rst"}),
     grammar_module="tree_sitter_rst",
+    prose=True,
     extraction_serial=4,
 )
 

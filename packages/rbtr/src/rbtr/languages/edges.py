@@ -54,6 +54,9 @@ class ImportResolution:
     target `extensions`). Used to break same-path ties in the suffix tier."""
     package_directory: bool = False
     """Whether a reference may name a directory whose every file it reaches."""
+    prose: bool = False
+    """Whether the language's references document what they name (see
+    `LanguageRegistration.prose`)."""
 
 
 def build_resolution_map(
@@ -94,6 +97,7 @@ def build_resolution_map(
             module_style=reg.module_style,
             own_extensions=reg.extensions,
             package_directory=reg.package_directory,
+            prose=reg.prose,
         )
     return result
 
@@ -433,6 +437,8 @@ def _structural_import_edges(
     file_chunks_index: dict[str, list[Chunk]],
     repo_files: set[str],
     resolution: ImportResolution | None = None,
+    *,
+    prose: bool = False,
 ) -> list[Edge]:
     """Resolve import edges using tree-sitter metadata (exact).
 
@@ -445,7 +451,7 @@ def _structural_import_edges(
     what importing a Go package or a Terraform module does.
     """
     # Prose documents what it references; code imports it.
-    edge_kind = EdgeKind.DOCUMENTS if imp.language in _PROSE_LANGUAGES else EdgeKind.IMPORTS
+    edge_kind = EdgeKind.DOCUMENTS if prose else EdgeKind.IMPORTS
 
     target_files = [
         f
@@ -471,23 +477,24 @@ def _structural_import_edges(
     return [_edge(imp, target, edge_kind) for target in named if target is not None]
 
 
-def _build_stem_index(
-    repo_files: set[str],
-) -> dict[str, list[str]]:
-    """Map file stems → file paths, excluding `__init__` and short stems."""
+def _build_stem_index(repo_files: set[str], index_stems: set[str]) -> dict[str, list[str]]:
+    """Map a file stem a word of an import may name to the files with that stem.
+
+    Left out: the stems of *index_stems*, the files languages declare as
+    a directory's stand-in (`__init__`, `index`, `mod`), which name their
+    directory rather than a module; and stems shorter than three
+    characters (`a`, `io`), which too many words would match.
+    """
     stem_to_files: dict[str, list[str]] = {}
     for f in repo_files:
         stem = PurePosixPath(f).stem
-        if stem != "__init__" and len(stem) >= 3:
+        if stem not in index_stems and len(stem) >= 3:
             stem_to_files.setdefault(stem, []).append(f)
     return stem_to_files
 
 
 # Pre-compiled word tokeniser — splits on non-alphanumeric/underscore.
 _WORD_RE = re.compile(r"[A-Za-z_]\w*")
-
-# Languages whose imports produce DOCUMENTS edges instead of IMPORTS.
-_PROSE_LANGUAGES = frozenset({"markdown", "rst"})
 
 
 def _build_file_symbol_index(
@@ -575,7 +582,10 @@ def infer_import_edges(
     imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
     symbol_index = _build_symbol_index(chunks)
     file_chunks_index = _build_file_chunks_index(chunks)
-    stem_index = _build_stem_index(repo_files)
+    rules = resolution_map or {}
+    prose = {language for language, r in rules.items() if r.prose}
+    index_stems = {PurePosixPath(f).stem for r in rules.values() for f in r.index_files}
+    stem_index = _build_stem_index(repo_files, index_stems)
     file_symbols = _build_file_symbol_index(symbol_index)
     edges: list[Edge] = []
 
@@ -589,9 +599,10 @@ def infer_import_edges(
                     file_chunks_index,
                     repo_files,
                     _resolution_for(imp, resolution_map),
+                    prose=imp.language in prose,
                 )
             )
-        elif imp.metadata.names and imp.language in _PROSE_LANGUAGES:
+        elif imp.metadata.names and imp.language in prose:
             edges.extend(_name_search_import_edges(imp, symbol_index))
         else:
             edges.extend(_text_search_import_edges(imp, file_symbols, stem_index))

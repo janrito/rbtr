@@ -527,12 +527,14 @@ _DOC_RESOLUTION: dict[str, ImportResolution] = {
         index_files=(),
         source_roots=("",),
         path_substitutions=(),
+        prose=True,
     ),
     "rst": ImportResolution(
         extensions=(".rst", ".md", ".py"),
         index_files=(),
         source_roots=("",),
         path_substitutions=(),
+        prose=True,
     ),
 }
 
