@@ -1,14 +1,14 @@
-"""Scope-address composition.
+"""Scope addresses and chunk ids.
 
-A pure, dependency-light helper in a leaf module, so the `Chunk` model
-can use it in a validator without importing `chunks.py` (which imports
-the model) — avoiding a circular import. Chunk identity itself is the
-`Chunk.id` property: it hashes fields of the model, so it has no
-caller that does not already hold a chunk.
+Pure, dependency-light helpers in a leaf module, so the `Chunk` model can
+use them without importing `chunks.py` (which imports the model) —
+avoiding a circular import — and the store can compute ids over columns
+of rows the same way.
 """
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterable
 
 # Separator joining enclosing-scope names into an address path.
@@ -25,3 +25,19 @@ def compose_scope(names: Iterable[str]) -> str:
     anonymous or unnamed scope contributes no segment.
     """
     return SCOPE_SEPARATOR.join(n for n in names if n)
+
+
+def chunk_id(
+    blob_sha: str, file_language: str, kind: str, name: str, line_start: int, line_end: int
+) -> str:
+    """A hash of what a chunk is: its blob, the language its file was read as, its role, its span.
+
+    Byte-identical files share every chunk, so a copy of an indexed file
+    resolves to the row already there. `file_language` is part of it
+    because the same bytes read as two languages are two extractions;
+    `kind` and `line_end` because a chunk is a span with a role, and an
+    rst `doc_section` and a `:mod:` reference can share a name and a
+    starting line while spanning different lines.
+    """
+    raw = f"{blob_sha}:{file_language}:{kind}:{name}:{line_start}:{line_end}"
+    return hashlib.blake2b(raw.encode(), digest_size=8).hexdigest()
