@@ -883,10 +883,10 @@ def test_build_index_reextracts_on_contributor_bump(
 def test_a_file_whose_language_is_no_longer_installed_is_extracted_again(
     fake_repo: str, index: Index
 ) -> None:
-    """A Python file built while Python was installed is extracted again once it is not.
+    """A Python file built while Python was installed is extracted again, as plaintext, once it is not.
 
-    Its stored extraction is at Python's serial, which no installed
-    language states any more, so the blob has no current extraction.
+    Its stored language names no installed plugin, so the file is read as
+    no language claims it, and the blob has no current extraction so read.
     """
     repo = pygit2.Repository(fake_repo)
     sha = str(
@@ -902,6 +902,8 @@ def test_a_file_whose_language_is_no_longer_installed_is_extracted_again(
         rebuild = build_index(fake_repo, sha, index)
 
     assert rebuild.stats.outcomes == Counter({FileOutcome.PARSED: 1})
+    chunks = index.chunks(at=index.repo(fake_repo).at(sha))
+    assert chunks.select("kind", "file_language").rows() == [("raw_chunk", "plaintext")]
 
 
 def test_a_plaintext_file_is_reused_on_rebuild(fake_repo: str, index: Index) -> None:

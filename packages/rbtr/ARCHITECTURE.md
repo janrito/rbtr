@@ -125,7 +125,9 @@ without one, embeds them in batches and stores each batch](docs/diagrams/embed.p
 Each git entry carries its path, blob SHA and bytes. The language
 manager first matches a registered filename or extension. If neither
 claims the file, the build uses the language recorded for that path in
-an earlier snapshot. For a new or changed file still unclaimed, it
+an earlier snapshot, while that language is still installed: a file
+whose plugin was removed is read as no language claims it. For a new
+or changed file still unclaimed, it
 checks the content signals plugins declare, within
 `content_sniff_chars`. The fallback language is `plaintext`.
 
