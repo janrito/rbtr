@@ -27,6 +27,7 @@ from rbtr.domain.rules import (
     levelled,
     line_windows,
     with_metadata,
+    without_trailing_whitespace,
 )
 from rbtr.errors import QueryCaptureError
 from rbtr.git import FileEntry
@@ -95,7 +96,8 @@ def extract_batch(files: dy.DataFrame[FileRow]) -> Extraction:
     # Each rule is one lazy plan, its result checked within it, collected
     # before the next rule reads it: a plan copies a frame it reads twice into
     # each use, and `with_metadata` reads its inputs many times.
-    settled = levelled(captures.lazy(), files).collect()
+    trimmed = without_trailing_whitespace(captures.lazy(), files).collect()
+    settled = levelled(trimmed.lazy(), files).collect()
     described = with_metadata(settled.lazy(), metadata_captures.lazy()).collect()
     # Read by both of `assemble`'s plans, so collected once here.
     placed = capture_chunks(files, described.lazy()).collect()

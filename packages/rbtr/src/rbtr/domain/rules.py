@@ -573,13 +573,29 @@ def next_levelled_start() -> pl.Expr:
     return pl.coalesce(pl.col("start_byte").shift(-1).over("file", "source"), "source_end")
 
 
-def end_before_trailing_whitespace() -> pl.Expr:
-    """The end of the text from `start_byte` to `stop`, less the whitespace it ends with."""
+def end_before_trailing_whitespace(stop: pl.Expr) -> pl.Expr:
+    """The end of the text from `start_byte` to *stop*, less the whitespace it ends with."""
     return (
         pl.col("start_byte")
-        + text(pl.col("start_byte"), pl.col("stop"))
-        .str.strip_chars_end(ASCII_WHITESPACE)
-        .str.len_bytes()
+        + text(pl.col("start_byte"), stop).str.strip_chars_end(ASCII_WHITESPACE).str.len_bytes()
+    )
+
+
+def without_trailing_whitespace(
+    captures: dy.LazyFrame[CaptureRow], files: dy.DataFrame[FileRow]
+) -> dy.LazyFrame[CaptureRow]:
+    """*captures* each ended before the whitespace it ends with, and its last line the line of its new last byte.
+
+    Grammars fold the line break after a node into it (a Markdown
+    paragraph, a C `#include`), so two captures of one span would
+    otherwise differ by a newline, and a chunk would end on a blank line.
+    """
+    return (
+        captures.join(files.select("file", "content").lazy(), on="file")
+        .with_columns(end_byte=end_before_trailing_whitespace(pl.col("end_byte")))
+        .with_columns(line_end=last_line_of_span())
+        .drop("content")
+        .pipe(CaptureRow.validate, cast=True)
     )
 
 
@@ -658,7 +674,7 @@ def levelled(
     )
     spans = (
         rows.join(files.select("file", "content").rechunk().lazy(), on="file")
-        .with_columns(end_byte=end_before_trailing_whitespace())
+        .with_columns(end_byte=end_before_trailing_whitespace(pl.col("stop")))
         .with_columns(line_end=last_line_of_span())
         .join(scopes, on=[*key, "order"], how="left")
         .select(

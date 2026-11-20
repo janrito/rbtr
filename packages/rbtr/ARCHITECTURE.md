@@ -226,17 +226,17 @@ while its source is read; the rows retain the facts later rules need.
 A custom chunker returns `Chunk` values, which the adapter converts to
 the same chunk columns.
 
-The domain rules (`rbtr.domain.rules`) work over the batch's values.
-They fold comments into definitions, slice source text by byte offset,
-promote functions whose nearest scope is class-like to methods, and
-build plaintext windows. Assembly combines the results, adds any required
-[host-presence chunks](#content-addressed-chunks-and-blob-dedup), and
-orders each file's chunks. `PlacedChunkRow` adds file and order to the
-shared `ChunkRow` columns; those placement fields last only as long as
-assembly and grouping need them. The input bytes preserve offsets even
-when invalid UTF-8 bytes must be replaced. Each rule is one lazy plan,
-its schema checks part of the plan, collected before the next rule reads
-it ([why](#git-and-extraction)).
+The domain rules (`rbtr.domain.rules`) work over the batch's values. They end each
+capture before the whitespace its grammar folds into it (a Markdown paragraph's line
+break), fold comments into definitions, slice source text by byte offset, promote
+functions whose nearest scope is class-like to methods, and build plaintext windows.
+Assembly combines the results, adds any required
+[host-presence chunks](#content-addressed-chunks-and-blob-dedup), and orders each file's
+chunks. `PlacedChunkRow` adds file and order to the shared `ChunkRow` columns; those
+placement fields last only as long as assembly and grouping need them. The input bytes
+preserve offsets even when invalid UTF-8 bytes must be replaced. Each rule is one lazy
+plan, its schema checks part of the plan, collected before the next rule reads it
+([why](#git-and-extraction)).
 
 For example, this `client.py`:
 
