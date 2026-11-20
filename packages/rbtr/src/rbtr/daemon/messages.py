@@ -540,6 +540,9 @@ class ChangedSymbol(BaseModel):
     change: ChangeKind
 
 
+ChangedSymbols = TypeAdapter(list[ChangedSymbol])
+
+
 class ChangedSymbolsResponse(BaseModel):
     """The symbol-level diff, with the commits compared and the paths scoped to.
 

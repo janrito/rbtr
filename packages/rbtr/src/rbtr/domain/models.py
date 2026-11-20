@@ -231,7 +231,8 @@ class ScoredChunk(BaseModel, frozen=True):
     content: str
     line_start: int
     line_end: int
-    metadata: ImportMeta = Field(default_factory=ImportMeta)
+    metadata: ImportMeta | None = None
+    """An import's metadata when it records any; `None` for every other result."""
     has_embedding: bool = Field(default=False, exclude=True)
     score: float
     lexical: float

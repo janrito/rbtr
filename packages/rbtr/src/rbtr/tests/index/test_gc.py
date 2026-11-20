@@ -261,7 +261,7 @@ def test_search_works_after_gc(gc: GcFixture) -> None:
     assert len(chunks) > 0
 
     # Dropped commits return nothing.
-    assert gc.index.chunks(at=gc.registered.at(gc.c1)) == []
+    assert gc.index.chunks(at=gc.registered.at(gc.c1)).is_empty()
 
 
 def test_gc_preserves_current_worktree_tree_sha(gc: GcFixture) -> None:

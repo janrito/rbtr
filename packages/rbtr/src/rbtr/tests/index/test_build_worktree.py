@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import polars as pl
 import pygit2
 import pytest
 
@@ -95,9 +96,9 @@ def test_build_worktree_modified_visible(
 
     [registered] = index.repos()
     chunks = index.chunks(at=registered.at(wt_sha))
-    helper_chunks = [c for c in chunks if c.name == "helper"]
+    helper_chunks = chunks.filter(pl.col("name") == "helper")
     assert len(helper_chunks) == 1
-    assert "99" in helper_chunks[0].content
+    assert "99" in helper_chunks["content"][0]
 
 
 def test_build_worktree_added_file(
@@ -109,7 +110,7 @@ def test_build_worktree_added_file(
 
     [registered] = index.repos()
     chunks = index.chunks(at=registered.at(wt_sha))
-    service_chunks = [c for c in chunks if c.file_path == "src/service.py"]
+    service_chunks = chunks.filter(pl.col("file_path") == "src/service.py")
     assert len(service_chunks) > 0
 
 
@@ -122,8 +123,8 @@ def test_build_worktree_deleted_file(
 
     [registered] = index.repos()
     chunks = index.chunks(at=registered.at(wt_sha))
-    test_chunks = [c for c in chunks if c.file_path == "tests/test_utils.py"]
-    assert test_chunks == []
+    test_chunks = chunks.filter(pl.col("file_path") == "tests/test_utils.py")
+    assert test_chunks.is_empty()
 
 
 def test_build_worktree_edges(
@@ -172,12 +173,12 @@ def test_head_still_visible_after_worktree_build(
     # HEAD still has the original helper() returning 42.
     [registered] = index.repos()
     head_chunks = index.chunks(at=registered.at(head_sha))
-    helpers = [c for c in head_chunks if c.name == "helper"]
+    helpers = head_chunks.filter(pl.col("name") == "helper")
     assert len(helpers) == 1
-    assert "42" in helpers[0].content
+    assert "42" in helpers["content"][0]
 
     # HEAD still has the deleted test file.
-    test_chunks = [c for c in head_chunks if c.file_path == "tests/test_utils.py"]
+    test_chunks = head_chunks.filter(pl.col("file_path") == "tests/test_utils.py")
     assert len(test_chunks) > 0
 
 
@@ -194,12 +195,12 @@ def test_build_worktree_clean_matches_head(git_repo: pygit2.Repository, index: I
     head_chunks = index.chunks(at=repo.at(head_sha))
     wt_chunks = index.chunks(at=repo.at(head_tree_sha))
 
-    head_names = sorted(c.name for c in head_chunks)
-    wt_names = sorted(c.name for c in wt_chunks)
+    head_names = sorted(head_chunks["name"])
+    wt_names = sorted(wt_chunks["name"])
     assert head_names == wt_names
 
-    head_content = sorted(c.content for c in head_chunks)
-    wt_content = sorted(c.content for c in wt_chunks)
+    head_content = sorted(head_chunks["content"])
+    wt_content = sorted(wt_chunks["content"])
     assert head_content == wt_content
 
 
@@ -213,8 +214,8 @@ def test_rebuild_worktree_reflects_new_edits(
     build_index(repo.workdir, wt_sha, index)
     [registered] = index.repos()
     chunks_v1 = index.chunks(at=registered.at(wt_sha))
-    helpers_v1 = [c for c in chunks_v1 if c.name == "helper"]
-    assert "99" in helpers_v1[0].content
+    helpers_v1 = chunks_v1.filter(pl.col("name") == "helper")
+    assert "99" in helpers_v1["content"][0]
 
     # Edit again: helper() returns 200.
     (tmp_path / "src" / "utils.py").write_bytes(b"""\
@@ -235,10 +236,10 @@ def format_name(name):
     # Rebuild picks up the new content.
     build_index(repo.workdir, tree_sha_v2, index)
     chunks_v2 = index.chunks(at=registered.at(tree_sha_v2))
-    helpers_v2 = [c for c in chunks_v2 if c.name == "helper"]
+    helpers_v2 = chunks_v2.filter(pl.col("name") == "helper")
     assert len(helpers_v2) == 1
-    assert "200" in helpers_v2[0].content
-    assert "99" not in helpers_v2[0].content
+    assert "200" in helpers_v2["content"][0]
+    assert "99" not in helpers_v2["content"][0]
 
 
 def test_build_worktree_file_unreadable_mid_walk(
@@ -267,7 +268,7 @@ def test_build_worktree_file_unreadable_mid_walk(
     # store by add_all() before we broke the symlink.
     [registered] = index.repos()
     chunks = index.chunks(at=registered.at(wt_sha))
-    utils_chunks = [c for c in chunks if c.file_path == "src/utils.py"]
+    utils_chunks = chunks.filter(pl.col("file_path") == "src/utils.py")
     assert len(utils_chunks) > 0
 
 

@@ -39,6 +39,7 @@ from rbtr.errors import BuildStopped
 from rbtr.git import changed_files, list_files, non_commit_shas, normalise_repo_path
 from rbtr.index.index import Index
 from rbtr.index.progress import ProgressCallback, _noop_progress
+from rbtr.index.results import frame_to_chunks
 from rbtr.index.staging import TokenisedChunk
 from rbtr.languages.chunks import detect_prose_format, host_presence_chunk
 from rbtr.languages.edges import build_resolution_map, infer_import_edges
@@ -353,7 +354,8 @@ def build_index(
     # Fetch committed chunks for edge inference.
     # Lightweight: skips content_tokens/name_tokens (~37% smaller).
     result = extracted.result
-    all_chunks = index.chunks(at=repo.at(snapshot_sha))
+    # Edge inference reads chunk models; the build turns its read into them.
+    all_chunks = frame_to_chunks(index.chunks(at=repo.at(snapshot_sha)))
 
     # Phase 2: infer cross-file edges.
     result.stats.total_edges = _infer_and_store_edges(

@@ -112,75 +112,72 @@ def _body_sentence(body_text: str) -> str | None:
     return candidate
 
 
-def queries_for_symbol(
-    *,
-    slug: str,
-    file_path: str,
-    scope: str,
-    name: str,
-    symbol_kind: str,
-    line_start: int,
-    line_end: int,
-    language: str,
-    content: str,
-) -> list[dict[str, str | int]]:
-    """Generate query-row dicts for one symbol.
+def _doc_sentence(chunk: dict[str, str]) -> str | None:
+    """The first sentence of the doc comment *chunk*'s `content` holds, or None.
 
-    Always yields a `name` query.  Yields `body` if
-    `first_sentence` produces a usable string from the
-    content.  Yields `docstring` if `extract_doc_spans`
-    finds a doc comment in the content.
+    Reads the content with the query of *chunk*'s `language`; a language
+    with no query has no docstrings to find.
     """
-    queries: list[dict[str, str | int]] = []
-
-    def _row(provenance: str, text: str) -> dict[str, str | int]:
-        return {
-            "slug": slug,
-            "file_path": file_path,
-            "scope": scope,
-            "name": name,
-            "symbol_kind": symbol_kind,
-            "line_start": line_start,
-            "line_end": line_end,
-            "language": language,
-            "provenance": provenance,
-            "text": text,
-        }
-
-    # Name query for chunks with a real name; unnamed chunks
-    # (comments, raw chunks) and heading-less paragraphs yield
-    # body / docstring only.
-    if name:
-        name_text = f"{scope}{SCOPE_SEPARATOR}{name}" if scope else name
-        queries.append(_row("name", name_text))
-
-    # Body query: first sentence of the full content.
-    body_text = _body_sentence(content)
-    if body_text is not None:
-        queries.append(_row("body", body_text))
-
-    # Docstring query: parse with tree-sitter to find doc spans.
     mgr = get_manager()
-    reg = mgr.get_registration(language)
+    reg = mgr.get_registration(chunk["language"])
     extraction = reg.extraction if reg is not None else None
-    if isinstance(extraction, QueryExtraction):
-        grammar = mgr.grammar(language)
-        if grammar is not None:
-            content_bytes = content.encode("utf-8")
-            for span in extract_doc_spans(
-                content_bytes,
-                grammar,
-                extraction.query,
-                scope_types=extraction.scope_types,
-                class_scope_types=extraction.class_scope_types,
-            ):
-                doc_bytes = b"\n".join(content_bytes[s:e] for s, e in span.ranges)
-                doc_text = first_sentence(doc_bytes.decode("utf-8", errors="replace"))
-                if doc_text is not None:
-                    queries.append(_row("docstring", doc_text))
-                break  # one docstring per symbol
+    grammar = mgr.grammar(chunk["language"])
+    if not isinstance(extraction, QueryExtraction) or grammar is None:
+        return None
+    content = chunk["content"].encode("utf-8")
+    for span in extract_doc_spans(
+        content,
+        grammar,
+        extraction.query,
+        scope_types=extraction.scope_types,
+        class_scope_types=extraction.class_scope_types,
+    ):
+        # One docstring per symbol: the first.
+        doc = b"\n".join(content[s:e] for s, e in span.ranges)
+        return first_sentence(doc.decode("utf-8", errors="replace"))
+    return None
 
-    return queries
+
+def symbol_queries(symbols: pl.DataFrame, slug: str) -> dy.DataFrame[QueryRow]:
+    """The queries each of *symbols* yields: by its name, its body and its docstring.
+
+    *symbols* holds chunk rows (`file_path`, `scope`, `name`, `kind`,
+    `line_start`, `line_end`, `language`, `content`). A symbol with a
+    name yields a `name` query, its scope-qualified name; one whose
+    content opens with a usable sentence a `body` query; one with a doc
+    comment a `docstring` query. Unnamed chunks (comments, raw slices,
+    heading-less paragraphs) yield body and docstring queries only.
+    """
+    targets = symbols.select(
+        pl.lit(slug).alias("slug"),
+        "file_path",
+        "scope",
+        "name",
+        pl.col("kind").alias("symbol_kind"),
+        "line_start",
+        "line_end",
+        "language",
+        "content",
+    )
+    by_name = targets.filter(pl.col("name") != "").with_columns(
+        provenance=pl.lit("name"),
+        text=pl.when(pl.col("scope") != "")
+        .then(pl.concat_str("scope", pl.lit(SCOPE_SEPARATOR), "name"))
+        .otherwise("name"),
+    )
+    by_body = targets.with_columns(
+        provenance=pl.lit("body"),
+        text=pl.col("content").map_elements(_body_sentence, return_dtype=pl.String),
+    )
+    by_docstring = targets.with_columns(
+        provenance=pl.lit("docstring"),
+        text=pl.struct("content", "language").map_elements(_doc_sentence, return_dtype=pl.String),
+    )
+    return (
+        pl.concat([by_name, by_body, by_docstring])
+        .drop_nulls("text")
+        .pipe(QueryRow.validate, cast=True)
+    )
 
 
 def extract_queries(
@@ -203,15 +200,9 @@ def extract_queries(
     where `dropped_languages` lists the skipped languages and their
     chunk counts.
     """
-    chunks = index.chunks(at=at)
-    symbols = [c for c in chunks if c.kind not in EXCLUDED_KINDS]
+    symbols = index.chunks(at=at).filter(~pl.col("kind").is_in(list(EXCLUDED_KINDS)))
 
-    lang_counts = (
-        pl.DataFrame({"language": [c.language for c in symbols]}).group_by("language").len()
-    )
-    keep_langs = set(
-        lang_counts.filter(pl.col("len") >= min_per_language).get_column("language").to_list()
-    )
+    lang_counts = symbols.group_by("language").len()
     dropped = (
         lang_counts.filter(pl.col("len") < min_per_language)
         .rename({"len": "n_chunks"})
@@ -219,25 +210,10 @@ def extract_queries(
         .to_dicts()
     )
 
-    rows: list[dict[str, str | int]] = []
-    for c in symbols:
-        if c.language not in keep_langs:
-            continue
-        rows.extend(
-            queries_for_symbol(
-                slug=slug,
-                file_path=c.file_path,
-                scope=c.scope,
-                name=c.name,
-                symbol_kind=c.kind.value,
-                line_start=c.line_start,
-                line_end=c.line_end,
-                language=c.language,
-                content=c.content,
-            )
-        )
-
-    return pl.DataFrame(rows).pipe(QueryRow.validate, cast=True), len(symbols), dropped
+    measured = symbols.join(
+        lang_counts.filter(pl.col("len") >= min_per_language), on="language", how="semi"
+    )
+    return symbol_queries(measured, slug), symbols.height, dropped
 
 
 class ExtractCmd(BaseModel):

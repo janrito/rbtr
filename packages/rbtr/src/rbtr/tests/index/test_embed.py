@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import polars as pl
 import pygit2
 import pytest
 from pytest_mock import MockerFixture, MockType
@@ -60,8 +61,8 @@ def test_embed_batch_failure_skips_batch(
     embed_index(index, at=registered.at(sha), embedder=embedder)
 
     chunks = index.chunks(at=registered.at(sha))
-    embedded = [c for c in chunks if c.has_embedding]
-    unembedded = [c for c in chunks if not c.has_embedding]
+    embedded = chunks.filter(pl.col("has_embedding"))
+    unembedded = chunks.filter(~pl.col("has_embedding"))
     assert len(embedded) > 0, "Successful batch should have embeddings"
     assert len(unembedded) > 0, "Failed batch should lack embeddings"
 
@@ -80,7 +81,7 @@ def test_embed_index_total_failure_is_nonfatal(
     assert result == 0
     chunks = index.chunks(at=repo.at(snapshot_sha))
     assert len(chunks) > 0
-    assert all(not c.has_embedding for c in chunks)
+    assert not chunks["has_embedding"].any()
 
 
 def test_build_index_without_embedder_leaves_embeddings_null(
@@ -99,7 +100,7 @@ def test_build_index_without_embedder_leaves_embeddings_null(
 
     # All embeddings are NULL (no embedder was provided).
     chunks = index.chunks(at=repo.at(snapshot_sha))
-    assert all(not c.has_embedding for c in chunks)
+    assert not chunks["has_embedding"].any()
 
 
 @pytest.mark.parametrize("page_size", [1000, 2], ids=["one page", "several pages"])
@@ -124,13 +125,13 @@ def test_embed_index_populates_embeddings(
     # All NULL before embed.
     [repo] = index.repos()
     chunks_before = index.chunks(at=repo.at(snapshot_sha))
-    assert all(not c.has_embedding for c in chunks_before)
+    assert not chunks_before["has_embedding"].any()
 
     embedded = embed_index(index, at=repo.at(snapshot_sha), embedder=stub_embedder)
 
     assert embedded == len(chunks_before)
     chunks_after = index.chunks(at=repo.at(snapshot_sha))
-    assert all(c.has_embedding for c in chunks_after)
+    assert chunks_after["has_embedding"].all()
 
 
 def test_embed_index_is_incremental(
@@ -184,13 +185,13 @@ def test_the_work_list_names_only_chunks_without_vectors(
     ref = repo.at(snapshot_sha)
 
     chunks = index.chunks(at=repo.at(snapshot_sha))
-    first_chunk = chunks[0]
+    first_id = chunks["id"][0]
     with index.session(repo) as ws:
-        ws.update_embeddings([first_chunk.id], [[0.1, 0.2, 0.3]])
+        ws.update_embeddings([first_id], [[0.1, 0.2, 0.3]])
 
     outstanding = index.unembedded_chunk_ids(at=ref)
     assert len(outstanding) == len(chunks) - 1
-    assert first_chunk.id not in outstanding
+    assert first_id not in outstanding
 
 
 def test_a_page_of_chunks_is_fetched_by_id(
@@ -209,9 +210,9 @@ def test_a_page_of_chunks_is_fetched_by_id(
     assert len(outstanding) > 2, "fixture must hold enough chunks to page"
 
     page = index.chunks_by_id(outstanding[:2], at=ref)
-    assert [c.id for c in page] == outstanding[:2]
+    assert page["id"].to_list() == outstanding[:2]
 
-    assert index.chunks_by_id(["gone", *outstanding[:1]], at=ref) == page[:1]
+    assert index.chunks_by_id(["gone", *outstanding[:1]], at=ref).equals(page[:1])
 
 
 def test_build_then_embed_full_idempotency(
@@ -223,10 +224,8 @@ def test_build_then_embed_full_idempotency(
     [repo] = index.repos()
     embed_index(index, at=repo.at(snapshot_sha), embedder=stub_embedder)
 
-    chunks_1 = index.chunks(at=repo.at(snapshot_sha))
-    ids_1 = {c.id for c in chunks_1}
+    embeddings_1 = index.chunks(at=repo.at(snapshot_sha)).select("id", "has_embedding")
     edges_1 = index.edges(within=[repo.at(snapshot_sha)])
-    embeddings_1 = {c.id: c.has_embedding for c in chunks_1}
 
     # Second pass: build + embed.
     r2 = build_index(git_repo.workdir, snapshot_sha, index)
@@ -239,14 +238,11 @@ def test_build_then_embed_full_idempotency(
     stub_embedder.embed.assert_not_called()
 
     # State is identical.
-    chunks_2 = index.chunks(at=repo.at(snapshot_sha))
-    ids_2 = {c.id for c in chunks_2}
+    embeddings_2 = index.chunks(at=repo.at(snapshot_sha)).select("id", "has_embedding")
     edges_2 = index.edges(within=[repo.at(snapshot_sha)])
-    embeddings_2 = {c.id: c.has_embedding for c in chunks_2}
 
-    assert ids_1 == ids_2
+    assert embeddings_1.equals(embeddings_2)
     assert len(edges_1) == len(edges_2)
-    assert embeddings_1 == embeddings_2
 
 
 def test_build_without_embed_then_build_with_embed(
@@ -258,7 +254,7 @@ def test_build_without_embed_then_build_with_embed(
     [repo] = index.repos()
     chunks_no_embed = index.chunks(at=repo.at(snapshot_sha))
     assert len(chunks_no_embed) > 0
-    assert all(not c.has_embedding for c in chunks_no_embed), "All embeddings should be NULL"
+    assert not chunks_no_embed["has_embedding"].any(), "All embeddings should be NULL"
     assert len(index.edges(within=[repo.at(snapshot_sha)])) > 0, "Edges should exist"
 
     # Second build — chunking is idempotent (all files skipped).
@@ -270,7 +266,7 @@ def test_build_without_embed_then_build_with_embed(
     assert embedded > 0
 
     chunks_after_embed = index.chunks(at=repo.at(snapshot_sha))
-    assert all(c.has_embedding for c in chunks_after_embed), "All should be embedded"
+    assert chunks_after_embed["has_embedding"].all(), "All should be embedded"
 
     # Third pass: build + embed are both no-ops.
     r3 = build_index(git_repo.workdir, snapshot_sha, index)

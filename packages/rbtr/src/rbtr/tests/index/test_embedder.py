@@ -12,6 +12,7 @@ import math
 import threading
 from collections.abc import Iterator
 
+import polars as pl
 import pytest
 from pytest_mock import MockerFixture
 
@@ -111,7 +112,8 @@ def test_embedding_text_prepends_name_to_content() -> None:
 def save_draft(pr: int) -> None:
     \"\"\"Persist draft to disk.\"\"\"
     pass"""
-    assert embedding_text("save_draft", content) == f"save_draft\n{content}"
+    row = pl.DataFrame({"name": ["save_draft"], "content": [content]})
+    assert row.select(embedding_text()).item() == f"save_draft\n{content}"
 
 
 def test_query_embedding_prepends_instruction(mocker: MockerFixture) -> None:

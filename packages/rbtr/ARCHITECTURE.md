@@ -1035,8 +1035,12 @@ win (7–32× for 3 vectors).
 
 The schemas behind these frames are split by direction:
 write/staging schemas live in `index/staging.py`, read-result
-schemas and the row→model transforms in `index/results.py`,
-kept independent by import-linter (a physical CQRS seam).
+schemas in `index/results.py`, kept independent by import-linter
+(a physical CQRS seam). `Chunk` is the write model: extraction
+builds it and `staged_chunks` writes it. Reads return frames: the
+handlers validate rows straight into the reply DTOs, search into
+`ScoredChunk`, and the embedder works on the frame. The build alone
+turns its read into `Chunk` models, for edge inference.
 
 Registration is cursor-scoped, and the store uses one
 thread-local cursor per thread (see
@@ -1648,12 +1652,11 @@ Revisit if the extension supports upserts and stops maintaining
 ## Storage models vs API DTOs
 
 The read commands (`search`, `read-symbol`, `list-symbols`,
-`find-refs`, `changed-symbols`) do not return the storage
-models (`Chunk`, `ScoredChunk`, `Edge`). Those carry
-persistence detail — identity hashes (`id`, `blob_sha`), the
-embedding, the full ranking-signal breakdown, an
-always-present `metadata` bag — that no caller needs and that
-adds noise and tokens to an agent's context. Handlers instead
+`find-refs`, `changed-symbols`) do not return the index's rows or
+`ScoredChunk`. Those carry persistence detail — identity hashes
+(`id`, `blob_sha`), the embedding flag, the full ranking-signal
+breakdown, import metadata on every chunk — that no caller needs
+and that adds noise and tokens to an agent's context. Handlers instead
 project to output DTOs in `rbtr.daemon.dto` (`SymbolRefOut`,
 `SymbolOut`, `SearchHitOut`, `RefOut`): a curated, low-noise
 public contract. The boundary is also a vocabulary shift: the
@@ -1672,7 +1675,8 @@ opposite of what it is asked for. Each shape is its own type
 rather than one type with an optional body, so the wrong
 payload cannot be assembled by accident.
 
-Empty `metadata` and null `repo_path` are omitted,
+`metadata` appears only on an import that records something, and
+null `repo_path` is omitted,
 as is the preview anchor (`match_line_offset`, `matched_terms`)
 when the hit has no literal match; the nine search signals
 collapse to a single `score` unless
