@@ -7,6 +7,7 @@ from pytest_cases import case
 
 type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
 type ImportCase = tuple[str, str, dict[str, str | list[dict[str, str]]]]
+type ReferencesCase = tuple[str, str, list[tuple[str, str, list[str], list[str]]]]
 type MultiImportCase = tuple[str, str, int, list[dict[str, str | list[dict[str, str]]]]]
 type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
 
@@ -628,3 +629,134 @@ def case_py_nested_unpack_xfail() -> SymbolCase:
 def case_py_chained_assignment_xfail() -> SymbolCase:
     """Chained assignment — only the first target is captured today."""
     return "python", "a = b = f()\n", [("variable", "a", ""), ("variable", "b", "")]
+
+
+@case(tags=["references"])
+def case_py_calls_and_bases() -> ReferencesCase:
+    """Each call shape, a class's bases, a decorator's call and a nested function's."""
+    src = """\
+class Order(Model, mixins.Logged, metaclass=Meta):
+    def save(self):
+        self.validate()
+        super().save()
+        models.CharField(max_length=3)
+        write_row(self)
+        obj.save()
+        x[0].m()
+
+    @classmethod
+    def make(cls):
+        return cls.build()
+
+
+@register("orders")
+def build():
+    def inner():
+        helper()
+
+    inner()
+"""
+    return (
+        "python",
+        src,
+        [
+            ("class", "Order", [], ["unqualified:Model", "unqualified:mixins.Logged"]),
+            (
+                "method",
+                "save",
+                [
+                    "member:validate",
+                    "base:save",
+                    "unqualified:models.CharField",
+                    "unqualified:write_row",
+                    "unqualified:obj.save",
+                ],
+                [],
+            ),
+            ("method", "make", ["member:build"], []),
+            ("function", "build", ["unqualified:register", "unqualified:inner"], []),
+            ("function", "inner", ["unqualified:helper"], []),
+        ],
+    )
+
+
+@case(tags=["references"])
+def case_py_a_decorators_call_is_the_decorated_methods() -> ReferencesCase:
+    """`@override_settings(...)` on a method is a call the method makes."""
+    src = """\
+class Tests:
+    @override_settings(DEBUG=True)
+    def test_debug(self):
+        pass
+"""
+    return "python", src, [("method", "test_debug", ["unqualified:override_settings"], [])]
+
+
+@case(tags=["references"])
+def case_py_a_call_through_a_local_is_on_a_value() -> ReferencesCase:
+    """Parameters, assignment, loop, `with` and `except` targets are locals; a call through one is on a value.
+
+    An annotation or the constructor assigned gives its written type, shown `<T>`.
+    """
+    src = """\
+def run(order: Order, f, *args, n=1, **kw):
+    total = Total()
+    a, b = f()
+    with open(path) as fh:
+        fh.read()
+    for k, v in pairs:
+        k()
+    try:
+        pass
+    except ValueError as err:
+        err.log()
+    order.save()
+    total.add(n())
+    args()
+    kw.get()
+    helper()
+"""
+    return (
+        "python",
+        src,
+        [
+            (
+                "function",
+                "run",
+                [
+                    "unqualified:Total",
+                    "type:f",
+                    "unqualified:open",
+                    "type:fh.read",
+                    "type:k",
+                    "type:err.log",
+                    "type:order.save<Order>",
+                    "type:total.add<Total>",
+                    "type:n",
+                    "type:args",
+                    "type:kw.get",
+                    "unqualified:helper",
+                ],
+                [],
+            )
+        ],
+    )
+
+
+@case(
+    tags=["references"],
+    marks=pytest.mark.xfail(
+        strict=True,
+        reason="`global helper` makes the assignment rebind the module's `helper`, "
+        "but the query reads every assigned name as a local",
+    ),
+)
+def case_py_a_name_declared_global_is_no_local() -> ReferencesCase:
+    """`global helper` then `helper = make()`: `helper()` calls the module's `helper`."""
+    src = """\
+def run():
+    global helper
+    helper = make()
+    helper()
+"""
+    return "python", src, [("function", "run", ["unqualified:make", "unqualified:helper"], [])]

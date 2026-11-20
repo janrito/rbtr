@@ -258,9 +258,10 @@ class EdgeResultRow(dy.Schema):
 
 
 class InboundDegreeResultRow(dy.Schema):
-    """Columns projected by `inbound_degree.sql`."""
+    """Columns projected by `inbound_degree.sql`: a target's referrers of one edge kind."""
 
     chunk_id = dy.String(nullable=False)
+    kind = dy.Enum(k.value for k in EdgeKind)
     degree = dy.Int64(nullable=False)
 
 

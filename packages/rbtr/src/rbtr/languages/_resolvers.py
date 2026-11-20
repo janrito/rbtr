@@ -55,22 +55,24 @@ class DefaultName:
 
 
 class DefaultScope:
-    """Built-in scope resolver: the `@_scope` capture as a scope segment.
+    """Built-in scope resolver: the `@_scope` captures as scope segments.
 
-    Returns the text of an `@_scope` node clipped to *node*'s span as a
-    one-element list, else `[]`. `@_scope` supplies a non-lexical scope tree
-    ancestry cannot reach (a Go method's receiver type). Most languages carry
-    none, so this is usually a no-op `[]`; the engine appends it to the
-    tree-ancestry scope. An ancestry-based override delegates to this.
+    Returns the text of each `@_scope` node within *node*'s span, in source
+    order (`shop::Order::close` captured as `shop` and `Order` gives both),
+    else `[]`. `@_scope` supplies a non-lexical scope tree ancestry cannot
+    reach (a Go method's receiver type). Most languages carry none, so this
+    is usually a no-op `[]`; the engine appends it to the tree-ancestry
+    scope. An ancestry-based override delegates to this.
     """
 
     def __call__(
         self, _capture_name: str, node: Node, captures: dict[str, list[Node]]
     ) -> list[str]:
-        for s in captures.get("_scope", []):
-            if node.start_byte <= s.start_byte and s.end_byte <= node.end_byte and s.text:
-                return [s.text.decode()]
-        return []
+        return [
+            s.text.decode()
+            for s in sorted(captures.get("_scope", []), key=lambda s: s.start_byte)
+            if node.start_byte <= s.start_byte and s.end_byte <= node.end_byte and s.text
+        ]
 
 
 def read_import(captures: dict[str, list[Node]]) -> ImportMeta:

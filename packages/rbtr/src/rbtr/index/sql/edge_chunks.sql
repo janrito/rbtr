@@ -7,10 +7,13 @@ SELECT
   c.line_start,
   c.kind,
   c.name,
+  c.scope,
   c.language,
   c.metadata.module,
   c.metadata.names,
-  c.metadata.language_hint
+  c.metadata.language_hint,
+  c.metadata.bindings,
+  c.metadata.refs
 FROM file_snapshots AS fs
 INNER JOIN chunks AS c
   ON fs.blob_sha = c.blob_sha AND fs.detected_language = c.file_language

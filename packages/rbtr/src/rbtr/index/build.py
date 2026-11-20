@@ -267,7 +267,7 @@ def _infer_and_store_edges(
     resolutions = language_resolutions(get_manager().registrations(), manifests=manifests)
     with index.session(repo) as session:
         chunks = session.edge_chunks(snapshot_sha)
-        edges = infer_edges(chunks, repo_files, resolutions)
+        edges = infer_edges(chunks, repo_files, resolutions, steps=config.follow_steps)
         session.replace_edges(edges, snapshot_sha=snapshot_sha)
     log.info("inferred_edges", edges=len(edges))
     return len(edges), len(chunks)

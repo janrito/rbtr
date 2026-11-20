@@ -210,6 +210,19 @@ def _file_category_penalty_expr() -> pl.Expr:
     )
 
 
+def edge_weight() -> pl.Expr:
+    """The configured weight of each row's edge `kind` (`config.edge_weights`); 1 when unlisted."""
+    return (
+        pl.col("kind")
+        .cast(pl.String)
+        .replace_strict(
+            {kind.value: weight for kind, weight in config.edge_weights.items()},
+            default=1.0,
+            return_dtype=pl.Float64,
+        )
+    )
+
+
 def _importance_expr() -> pl.Expr:
     """Ranking boost from inbound edge count.
 
@@ -242,9 +255,10 @@ def compute_proximity(
     adding one column to an ad-hoc scored frame.
 
     Candidates in a changed file get 1.5.  Candidates with an
-    edge (import, call, etc.) to a chunk in a changed file get
-    1.2.  Candidates in the same directory as a changed file
-    get 1.1.  All others get 1.0 (neutral).
+    edge to a chunk in a changed file get 1 + 0.2 times the
+    largest such edge's kind weight (`edge_weight`): 1.2 at the
+    default weight.  Candidates in the same directory as a
+    changed file get 1.1.  All others get 1.0 (neutral).
 
     Args:
         scored:        Candidate frame with at least `id` and
@@ -258,42 +272,46 @@ def compute_proximity(
     """
     candidate_id_list = scored["id"].to_list()
 
-    has_edge_list: list[str] = []
+    lifts = pl.DataFrame(schema={"id": pl.String, "lift": pl.Float64})
     if not edges.is_empty():
         pairs = pl.concat(
             [
                 edges.select(
-                    candidate_id=pl.col("source_id"), neighbour_id=pl.col("target_id")
+                    "kind", candidate_id=pl.col("source_id"), neighbour_id=pl.col("target_id")
                 ).filter(pl.col("candidate_id").is_in(candidate_id_list)),
                 edges.select(
-                    candidate_id=pl.col("target_id"), neighbour_id=pl.col("source_id")
+                    "kind", candidate_id=pl.col("target_id"), neighbour_id=pl.col("source_id")
                 ).filter(pl.col("candidate_id").is_in(candidate_id_list)),
             ]
         )
-        has_edge_list = (
+        lifts = (
             pairs.join(
                 chunk_paths.rename({"file_path": "nb_path"}),
                 left_on="neighbour_id",
                 right_on="id",
             )
             .filter(pl.col("nb_path").is_in(list(changed_files)))
-            .select("candidate_id")
-            .unique()
-            .to_series()
-            .to_list()
+            .group_by("candidate_id")
+            .agg(lift=(0.2 * edge_weight()).max())
+            .filter(pl.col("lift") > 0)
+            .select(id="candidate_id", lift="lift")
         )
 
     changed_dirs = sorted(cf.rsplit("/", 1)[0] for cf in changed_files if "/" in cf)
 
-    return scored.with_columns(
-        pl.when(pl.col("file_path").is_in(list(changed_files)))
-        .then(1.5)
-        .when(pl.col("id").is_in(has_edge_list))
-        .then(1.2)
-        .when(pl.col("file_path").str.replace(r"/[^/]+$", "").is_in(changed_dirs))
-        .then(1.1)
-        .otherwise(1.0)
-        .alias("proximity"),
+    return (
+        scored.join(lifts, on="id", how="left")
+        .with_columns(
+            pl.when(pl.col("file_path").is_in(list(changed_files)))
+            .then(1.5)
+            .when(pl.col("lift").is_not_null())
+            .then(1.0 + pl.col("lift"))
+            .when(pl.col("file_path").str.replace(r"/[^/]+$", "").is_in(changed_dirs))
+            .then(1.1)
+            .otherwise(1.0)
+            .alias("proximity"),
+        )
+        .drop("lift")
     )
 
 
@@ -603,13 +621,16 @@ def _retrieve(
         )
     )
 
-    # Importance (inbound-degree)
+    # Importance (inbound-degree, each edge weighted by its kind)
     candidate_ids = scored["id"].to_list()
     degree_frame = index.inbound_degrees(candidate_ids, within=refs)
     if not degree_frame.is_empty():
-        imp = degree_frame.with_columns(
-            _importance_expr().alias("importance"),
-        ).select(pl.col("chunk_id").alias("id"), "importance")
+        imp = (
+            degree_frame.group_by("chunk_id")
+            .agg((pl.col("degree") * edge_weight()).sum())
+            .with_columns(_importance_expr().alias("importance"))
+            .select(pl.col("chunk_id").alias("id"), "importance")
+        )
         scored = scored.join(imp, on="id", how="left").with_columns(
             pl.col("importance").fill_null(1.0),
         )

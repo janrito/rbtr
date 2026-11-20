@@ -67,6 +67,10 @@ def language_resolutions(
             "package_directory": [registration.package_directory for registration in ordered],
             "prose": [registration.prose for registration in ordered],
             "section_names": [registration.section_names.value for registration in ordered],
+            "members_in_scope": [registration.members_in_scope for registration in ordered],
+            "directory_scope": [registration.directory_scope for registration in ordered],
+            "linked_functions": [registration.linked_functions for registration in ordered],
+            "member_order": [registration.member_order.value for registration in ordered],
             "parent_module": [registration.parent_module for registration in ordered],
             "current_module": [registration.current_module for registration in ordered],
             "directory_module_files": [

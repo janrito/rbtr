@@ -7,6 +7,10 @@ ranking as expected.
 
 from __future__ import annotations
 
+import pytest
+
+from rbtr.config import config
+from rbtr.domain.models import EdgeKind
 from rbtr.index.index import Index
 from rbtr.index.search import search
 
@@ -205,3 +209,33 @@ def test_proximity_changes_ranking(ranking_index: Index, ranking_commit: str) ->
     assert imp in names_with_diff, "the import is missing with diff context"
     # Import should rank better (lower index) with diff context.
     assert names_with_diff.index(imp) <= names_no_diff.index(imp)
+
+
+def test_an_edge_kind_counts_as_much_as_its_weight(
+    ranking_index: Index, ranking_commit: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Weighting calls 0 leaves load_config its import and doc edges: AppConfig's two."""
+    monkeypatch.setattr(config, "edge_weights", {EdgeKind.CALLS: 0.0})
+    [repo] = ranking_index.repos()
+    results = search(ranking_index, "config", within=[repo.at(ranking_commit)], top_k=10)
+
+    r_class = assert_in_results(results, "AppConfig")
+    r_fn = assert_in_results(results, "load_config")
+    assert r_fn.importance == r_class.importance
+
+
+def test_an_edge_lifts_proximity_by_its_kinds_weight(
+    ranking_index: Index, ranking_commit: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """test_load_config calls into src/config.py: with calls weighted 0.5, it is lifted by 0.1."""
+    monkeypatch.setattr(config, "edge_weights", {EdgeKind.CALLS: 0.5})
+    [repo] = ranking_index.repos()
+    results = search(
+        ranking_index,
+        "test_load_config",
+        within=[repo.at(ranking_commit)],
+        top_k=10,
+        changed_files={"src/config.py"},
+    )
+
+    assert assert_in_results(results, "test_load_config").proximity == pytest.approx(1.1)

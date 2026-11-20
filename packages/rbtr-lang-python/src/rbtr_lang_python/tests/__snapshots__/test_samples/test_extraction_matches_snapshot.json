@@ -132,6 +132,184 @@
     "line_end": 3
   },
   {
+    "name": "",
+    "kind": "comment",
+    "file_path": "orders.py",
+    "scope": "",
+    "language": "python",
+    "content": "\"\"\"Orders — calls of each shape the call graph resolves, and two it leaves.\"\"\"",
+    "line_start": 1,
+    "line_end": 1
+  },
+  {
+    "name": "from . import python as greetings",
+    "kind": "import",
+    "file_path": "orders.py",
+    "scope": "",
+    "language": "python",
+    "content": "from . import python as greetings",
+    "line_start": 3,
+    "line_end": 3,
+    "metadata": {
+      "module": ".",
+      "names": "python",
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "python",
+          "local": "greetings"
+        }
+      ]
+    }
+  },
+  {
+    "name": "from .config import LOCALE as locale_name",
+    "kind": "import",
+    "file_path": "orders.py",
+    "scope": "",
+    "language": "python",
+    "content": "from .config import LOCALE as locale_name",
+    "line_start": 4,
+    "line_end": 4,
+    "metadata": {
+      "module": ".config",
+      "names": "LOCALE",
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "LOCALE",
+          "local": "locale_name"
+        }
+      ]
+    }
+  },
+  {
+    "name": "from .python import *",
+    "kind": "import",
+    "file_path": "orders.py",
+    "scope": "",
+    "language": "python",
+    "content": "from .python import *",
+    "line_start": 5,
+    "line_end": 5,
+    "metadata": {
+      "module": ".python",
+      "names": "*",
+      "language_hint": "",
+      "bindings": []
+    }
+  },
+  {
+    "name": "Model",
+    "kind": "class",
+    "file_path": "orders.py",
+    "scope": "",
+    "language": "python",
+    "content": "class Model:\n    \"\"\"A base whose members a subclass reaches through ``self`` and ``super()``.\"\"\"\n\n    def save(self) -> bool:\n        return self.check()\n\n    def check(self) -> bool:\n        return True",
+    "line_start": 8,
+    "line_end": 15
+  },
+  {
+    "name": "save",
+    "kind": "method",
+    "file_path": "orders.py",
+    "scope": "Model",
+    "language": "python",
+    "content": "def save(self) -> bool:\n        return self.check()",
+    "line_start": 11,
+    "line_end": 12
+  },
+  {
+    "name": "check",
+    "kind": "method",
+    "file_path": "orders.py",
+    "scope": "Model",
+    "language": "python",
+    "content": "def check(self) -> bool:\n        return True",
+    "line_start": 14,
+    "line_end": 15
+  },
+  {
+    "name": "Order",
+    "kind": "class",
+    "file_path": "orders.py",
+    "scope": "",
+    "language": "python",
+    "content": "class Order(Model):\n    \"\"\"A subclass calling its own members, its base's, and other modules'.\"\"\"\n\n    def save(self) -> bool:\n        super().save()\n        return bool(greetings.Greeter().greet(locale_name))\n\n    def total(self, items: list[int]) -> int:\n        # `sum` is defined nowhere here, and `items[0]` is a value: no edge.\n        return sum(items) + int(self.check()) + items[0].bit_length()",
+    "line_start": 18,
+    "line_end": 27
+  },
+  {
+    "name": "save",
+    "kind": "method",
+    "file_path": "orders.py",
+    "scope": "Order",
+    "language": "python",
+    "content": "def save(self) -> bool:\n        super().save()\n        return bool(greetings.Greeter().greet(locale_name))",
+    "line_start": 21,
+    "line_end": 23
+  },
+  {
+    "name": "total",
+    "kind": "method",
+    "file_path": "orders.py",
+    "scope": "Order",
+    "language": "python",
+    "content": "def total(self, items: list[int]) -> int:\n        # `sum` is defined nowhere here, and `items[0]` is a value: no edge.\n        return sum(items) + int(self.check()) + items[0].bit_length()",
+    "line_start": 25,
+    "line_end": 27
+  },
+  {
+    "name": "register",
+    "kind": "function",
+    "file_path": "orders.py",
+    "scope": "",
+    "language": "python",
+    "content": "def register(name: str):\n    def wrap(fn):\n        return fn\n\n    return wrap",
+    "line_start": 30,
+    "line_end": 34
+  },
+  {
+    "name": "wrap",
+    "kind": "function",
+    "file_path": "orders.py",
+    "scope": "register",
+    "language": "python",
+    "content": "def wrap(fn):\n        return fn",
+    "line_start": 31,
+    "line_end": 32
+  },
+  {
+    "name": "build",
+    "kind": "function",
+    "file_path": "orders.py",
+    "scope": "",
+    "language": "python",
+    "content": "@register(\"orders\")\ndef build() -> Order:\n    def inner() -> Order:\n        return Order()\n\n    return inner()",
+    "line_start": 37,
+    "line_end": 42
+  },
+  {
+    "name": "inner",
+    "kind": "function",
+    "file_path": "orders.py",
+    "scope": "build",
+    "language": "python",
+    "content": "def inner() -> Order:\n        return Order()",
+    "line_start": 39,
+    "line_end": 40
+  },
+  {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "orders.py",
+    "scope": "",
+    "language": "python",
+    "content": "format_greeting(\"order\")",
+    "line_start": 45,
+    "line_end": 45
+  },
+  {
     "name": "from pkg.b import helper",
     "kind": "import",
     "file_path": "pkg/a.py",
@@ -409,23 +587,13 @@
     "line_end": 46
   },
   {
-    "name": "",
-    "kind": "fragment",
-    "file_path": "python.py",
-    "scope": "",
-    "language": "python",
-    "content": "@lru_cache",
-    "line_start": 49,
-    "line_end": 49
-  },
-  {
     "name": "cached_default",
     "kind": "function",
     "file_path": "python.py",
     "scope": "",
     "language": "python",
-    "content": "def cached_default() -> str:\n    \"\"\"Cache and return the default greeting prefix.\"\"\"\n    return DEFAULT_GREETING",
-    "line_start": 50,
+    "content": "@lru_cache\ndef cached_default() -> str:\n    \"\"\"Cache and return the default greeting prefix.\"\"\"\n    return DEFAULT_GREETING",
+    "line_start": 49,
     "line_end": 52
   },
   {
@@ -464,8 +632,8 @@
     "file_path": "python.py",
     "scope": "Greeter",
     "language": "python",
-    "content": "def seen(self) -> list[str]:\n        \"\"\"Recipients greeted so far.\"\"\"\n        return list(self._seen)",
-    "line_start": 68,
+    "content": "@property\n    def seen(self) -> list[str]:\n        \"\"\"Recipients greeted so far.\"\"\"\n        return list(self._seen)",
+    "line_start": 67,
     "line_end": 70
   },
   {
@@ -474,8 +642,8 @@
     "file_path": "python.py",
     "scope": "Greeter",
     "language": "python",
-    "content": "def shout(message: str) -> str:\n        \"\"\"Upper-case a message.\"\"\"\n        return message.upper()",
-    "line_start": 73,
+    "content": "@staticmethod\n    def shout(message: str) -> str:\n        \"\"\"Upper-case a message.\"\"\"\n        return message.upper()",
+    "line_start": 72,
     "line_end": 75
   },
   {
@@ -484,8 +652,8 @@
     "file_path": "python.py",
     "scope": "Greeter",
     "language": "python",
-    "content": "def default(cls) -> Greeter:\n        \"\"\"Build a greeter with the default prefix.\"\"\"\n        return cls(DEFAULT_GREETING)",
-    "line_start": 78,
+    "content": "@classmethod\n    def default(cls) -> Greeter:\n        \"\"\"Build a greeter with the default prefix.\"\"\"\n        return cls(DEFAULT_GREETING)",
+    "line_start": 77,
     "line_end": 80
   },
   {

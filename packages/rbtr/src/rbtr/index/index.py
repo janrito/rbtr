@@ -77,6 +77,7 @@ _SEARCH_FULLTEXT_SQL = load_sql("search_fulltext.sql")
 _COUNT_ORPHAN_CHUNKS_SQL = load_sql("count_orphan_chunks.sql")
 _COUNT_GC_CHUNK_SPLIT_SQL = load_sql("count_gc_chunk_split.sql")
 _INBOUND_DEGREE_SQL = load_sql("inbound_degree.sql")
+_QUALIFIER_BASES_SQL = load_sql("qualifier_bases.sql")
 _GET_CHUNK_PATHS_SQL = load_sql("get_chunk_paths.sql")
 _CHUNK_COUNTS_BY_SNAPSHOT_SQL = load_sql("chunk_counts_by_snapshot.sql")
 _DISTINCT_CHUNK_LANGUAGES_SQL = load_sql("distinct_chunk_languages.sql")
@@ -546,7 +547,7 @@ class Index:
     def inbound_degrees(
         self, chunk_ids: list[str], *, within: list[SnapshotRef]
     ) -> dy.DataFrame[InboundDegreeResultRow]:
-        """Return inbound edge counts for the given chunk IDs.
+        """Return inbound edge counts for the given chunk IDs, per edge kind.
 
         A chunk two projects share has edges in each file; its degree is
         their sum.
@@ -558,7 +559,7 @@ class Index:
             return InboundDegreeResultRow.create_empty()
         return (
             pl.concat(frames)
-            .group_by("chunk_id")
+            .group_by("chunk_id", "kind")
             .agg(pl.col("degree").sum())
             .pipe(InboundDegreeResultRow.validate, cast=True)
         )
@@ -642,6 +643,11 @@ class Index:
         resolves them as an import would (`module_files`, for each
         language in the snapshot) and asks the symbol to be in a file
         they name, with the remaining parts as its exact scope.
+        A class it places also places the scope of each of its bases,
+        followed through `inherits` edges (`qualifier_bases.sql`), so
+        `Order.check` reaches a `check` only a base defines. Every matching
+        member up the chain is admitted: names alone cannot say which one
+        an override hides.
         An empty *qualifier* (a bare name) places nothing.
         """
         if not qualifier:
@@ -693,8 +699,16 @@ class Index:
             .select("repo_id", file_path="target_path", scope="scope")
         )
         anywhere = pl.DataFrame({"scope": [SCOPE_SEPARATOR.join(qualifier)]})
-        return (
+        places = (
             pl.concat([anywhere, in_modules], how="diagonal_relaxed")
+            .unique()
+            .pipe(QualifierRow.validate, cast=True)
+        )
+        bases = self._within(
+            within, _QUALIFIER_BASES_SQL, {"steps": config.follow_steps}, _qualifiers=places
+        )
+        return (
+            pl.concat([places, *bases], how="diagonal_relaxed")
             .unique()
             .pipe(QualifierRow.validate, cast=True)
         )

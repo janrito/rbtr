@@ -6,7 +6,9 @@ Plugins declare how each language's imports name files and sections;
 `EdgeChunkRow` and stores `InferredEdgeRow`. Between
 them, `domain.edges` and `domain.resolution` exchange `ImportRow`,
 `FileMatchRow`, and the module lookups `ModulePathRow` and
-`ModuleFileRow`.
+`ModuleFileRow`, which qualified-name lookup also uses. `domain.calls`
+resolves calls and bases from `ExportRow` (what each file makes available)
+and `PathRow` (what each chunk calls or extends).
 """
 
 from __future__ import annotations
@@ -14,8 +16,10 @@ from __future__ import annotations
 from enum import StrEnum
 
 import dataframely as dy
+import polars as pl
 
-from rbtr.domain.models import ChunkKind, EdgeKind
+from rbtr.domain.models import ChunkKind, EdgeKind, Lookup
+from rbtr.domain.rules import ChunkRow
 
 
 class ModuleStyle(StrEnum):
@@ -24,6 +28,22 @@ class ModuleStyle(StrEnum):
     PATH = "path"
     DOTTED = "dotted"
     SCOPED = "scoped"
+
+
+class MemberOrder(StrEnum):
+    """The order a language searches a class's bases for a member it does not define.
+
+    `LISTED` and `REVERSED` walk the bases depth first, keeping each
+    ancestor's last visit, so a base shared by two comes after both:
+    `LISTED` takes them as written (Python, Java, C++, JavaScript, Rust),
+    `REVERSED` last written first (Ruby, whose latest `include` precedes
+    earlier ones and its superclass). `NEAREST` takes the shallowest, ties
+    alike (Go's embedding).
+    """
+
+    LISTED = "listed"
+    REVERSED = "reversed"
+    NEAREST = "nearest"
 
 
 class SectionNames(StrEnum):
@@ -78,6 +98,10 @@ class LanguageResolutionRow(dy.Schema):
     package_directory = dy.Bool(nullable=False)
     prose = dy.Bool(nullable=False)
     section_names = dy.Enum(s.value for s in SectionNames)
+    members_in_scope = dy.Bool(nullable=False)
+    directory_scope = dy.Bool(nullable=False)
+    linked_functions = dy.Bool(nullable=False)
+    member_order = dy.Enum(o.value for o in MemberOrder)
     parent_module = dy.String(nullable=True)
     current_module = dy.String(nullable=True)
     directory_module_files = dy.List(dy.String(nullable=False), nullable=False)
@@ -95,20 +119,25 @@ class EdgeChunkRow(dy.Schema):
     line_start = dy.Int32(nullable=False)
     kind = dy.Enum(k.value for k in ChunkKind)
     name = dy.String(nullable=False)
+    scope = dy.String(nullable=False)
     language = dy.String(nullable=False)
     module = dy.String(nullable=True)
     names = dy.String(nullable=True)
     language_hint = dy.String(nullable=True)
+    bindings = ChunkRow.metadata.inner["bindings"]
+    refs = ChunkRow.metadata.inner["refs"]
 
 
 class ImportRow(dy.Schema):
     """An import at its source location, normalised, before any file is resolved.
 
     `text` is the import chunk's own text, which `TEXT` imports match
-    against file stems. Its module is read once, by its writing language's
-    style: its relative prefix (`./`, `..`, `super::`) is `depth`, the
-    levels it climbs from the importing file, 0 when it climbs none, and
-    `module` is the rest.
+    against file stems. `written` is its module as written, read once by
+    its writing language's style: its relative prefix (`./`, `..`,
+    `super::`) is `depth`, the levels it climbs from the importing file, 0
+    when it climbs none, and `module` is the rest. `names` lists what it
+    names, `*` for every name; `bindings` are the names it binds, a
+    module binding named as `written`.
     """
 
     source_id = dy.String(nullable=False)
@@ -117,9 +146,15 @@ class ImportRow(dy.Schema):
     text = dy.String(nullable=False)
     way = dy.Enum(w.value for w in ImportWay)
     kind = dy.Enum(k.value for k in EdgeKind)
+    line_start = dy.Int32(nullable=False)
+    written = dy.String(nullable=False)
     depth = dy.Int64(nullable=False, min=0)
     module = dy.String(nullable=False)
     names = dy.List(dy.String(nullable=False), nullable=False)
+    bindings = dy.List(
+        dy.Struct({"name": dy.String(nullable=False), "local": dy.String(nullable=False)}),
+        nullable=False,
+    )
     language_hint = dy.String(nullable=False)
 
 
@@ -161,4 +196,58 @@ class InferredEdgeRow(dy.Schema):
     target_id = dy.String(nullable=False)
     kind = dy.Enum(k.value for k in EdgeKind)
     source_path = dy.String(nullable=False)
+    target_path = dy.String(nullable=False)
+
+
+class ExportRow(dy.Schema):
+    """A name a file makes available at a `::` scope, and what it reaches: a definition at a location, or a module's file.
+
+    One of `def_id` (with `def_path`) and `module_path` is set.
+    """
+
+    file_path = dy.String(nullable=False)
+    scope = dy.String(nullable=False)
+    name = dy.String(nullable=False)
+    def_id = dy.String(nullable=True)
+    def_path = dy.String(nullable=True)
+    module_path = dy.String(nullable=True)
+
+    @dy.rule()
+    def reaches_one_definition_or_module(cls) -> pl.Expr:
+        return (cls.def_id.col.is_null() == cls.def_path.col.is_null()) & (
+            cls.def_id.col.is_null() != cls.module_path.col.is_null()
+        )
+
+
+class PathRow(dy.Schema):
+    """A call or base to resolve, at its source location: the edge it makes, its lookup, path and chain.
+
+    `caller_chain` is the `::` scope its head is looked up from;
+    `position` its place among its chunk's calls or bases, from 0.
+    """
+
+    source_id = dy.String(nullable=False)
+    source_path = dy.String(nullable=False)
+    language = dy.String(nullable=False)
+    kind = dy.Enum(k.value for k in EdgeKind)
+    lookup = dy.Enum(r.value for r in Lookup)
+    path = dy.List(dy.String(nullable=False), nullable=False)
+    caller_chain = dy.String(nullable=False)
+    position = dy.Int32(nullable=False)
+
+    @dy.rule()
+    def bases_are_unqualified_paths(cls) -> pl.Expr:
+        return (cls.kind.col != EdgeKind.INHERITS.value) | (
+            cls.lookup.col == Lookup.UNQUALIFIED.value
+        )
+
+
+class ResolvedPathRow(PathRow):
+    """A path and a definition it reaches, at that definition's location.
+
+    Its edge is its source, target and kind; a base's `position` orders
+    the class's bases for the member order.
+    """
+
+    target_id = dy.String(nullable=False)
     target_path = dy.String(nullable=False)

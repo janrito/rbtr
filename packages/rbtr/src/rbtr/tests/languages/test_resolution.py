@@ -27,6 +27,9 @@ def test_an_import_reaches_the_files_its_language_resolves(scenario: ImportScena
             "module": [scenario.module],
             "names": [scenario.names],
             "language_hint": [scenario.language_hint],
+            "scope": [""],
+            "bindings": [None],
+            "refs": [None] * 1,
         }
     ).pipe(EdgeChunkRow.validate, cast=True)
     imports = requested_imports(rows, resolutions)

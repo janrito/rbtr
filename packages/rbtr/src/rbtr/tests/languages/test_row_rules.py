@@ -6,6 +6,7 @@ import dataframely as dy
 import polars as pl
 import pytest
 
+from rbtr.domain.edge_frames import ExportRow, PathRow
 from rbtr.domain.rules import CaptureRow, ChunkRow
 
 
@@ -420,3 +421,61 @@ def test_a_chunk_whose_fields_disagree_is_refused(row: dict, rule: str) -> None:
 def test_only_a_fragment_has_no_query_match(row: dict) -> None:
     with pytest.raises(dy.exc.ValidationError, match="a_match_except_on_fragments"):
         CaptureRow.validate(pl.DataFrame([row]), cast=True)
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        pytest.param(
+            {
+                "file_path": "a",
+                "scope": "",
+                "name": "f",
+                "def_id": "d",
+                "def_path": None,
+                "module_path": None,
+            },
+            id="an-id-without-its-path",
+        ),
+        pytest.param(
+            {
+                "file_path": "a",
+                "scope": "",
+                "name": "f",
+                "def_id": "d",
+                "def_path": "b",
+                "module_path": "c",
+            },
+            id="a-definition-and-a-module",
+        ),
+        pytest.param(
+            {
+                "file_path": "a",
+                "scope": "",
+                "name": "f",
+                "def_id": None,
+                "def_path": None,
+                "module_path": None,
+            },
+            id="nothing",
+        ),
+    ],
+)
+def test_a_name_reaches_exactly_one_definition_or_module(row: dict) -> None:
+    with pytest.raises(dy.exc.ValidationError, match="reaches_one_definition_or_module"):
+        ExportRow.validate(pl.DataFrame([row]), cast=True)
+
+
+def test_a_base_is_only_a_name_path() -> None:
+    row = {
+        "source_id": "c",
+        "source_path": "a",
+        "language": "python",
+        "kind": "inherits",
+        "lookup": "member",
+        "path": ["Base"],
+        "caller_chain": "",
+        "position": 0,
+    }
+    with pytest.raises(dy.exc.ValidationError, match="bases_are_unqualified_paths"):
+        PathRow.validate(pl.DataFrame([row]), cast=True)

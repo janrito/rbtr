@@ -1055,8 +1055,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     namespace: NAMESPACE,
     annotations: READS,
     description:
-      "Find what imports or documents a symbol, from the index's dependency graph: the files and symbols that depend on it. Use it instead of grepping for a name when you need to know what a change would affect. Returns edges (source, target, kind `imports` or `documents`), not text matches; grep finds occurrences inside strings and comments.",
-    promptSnippet: "Find what imports or documents a symbol, to see what a change would affect",
+      "Find what calls, extends, imports or documents a symbol, from the index's dependency graph: the code that depends on it. Use it instead of grepping for a name when you need to know what a change would affect. Returns edges (source, target, kind `calls`, `inherits`, `imports` or `documents`), not text matches; grep finds occurrences inside strings and comments. Calls are resolved by name: a call on a value (`obj.save()`) has no edge. A class-qualified name finds a member the class inherits. A reply lists at most 50 references, grouped by kind, and counts the rest.",
+    promptSnippet: "Find what calls, extends, imports or documents a symbol, to see what a change would affect",
     promptGuidelines: [
       "Use rbtr_find_refs instead of grep before changing a function or class, to find the code that depends on it.",
     ],

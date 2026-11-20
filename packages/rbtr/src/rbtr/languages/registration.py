@@ -42,7 +42,7 @@ from dataclasses import dataclass, field
 from importlib.resources import files
 from typing import TYPE_CHECKING
 
-from rbtr.domain.edge_frames import ModuleStyle, SectionNames
+from rbtr.domain.edge_frames import MemberOrder, ModuleStyle, SectionNames
 from rbtr.domain.models import Chunk
 from rbtr.languages._resolvers import DefaultName, DefaultScope
 
@@ -298,6 +298,27 @@ class LanguageRegistration:
     directory, its child modules in the directory named by its stem
     (`order.rs`'s in `order/`). Read only with `parent_module` or
     `current_module`."""
+    members_in_scope: bool = False
+    """Whether a method's unqualified names reach its class's members, as if
+    called through the instance: Java's, Ruby's and C++'s implicit `this`. A
+    name a method's scopes and file do not define is looked up in its class,
+    then its bases. Python and JavaScript, which write `self.` or `this.`,
+    leave it `False`."""
+    directory_scope: bool = False
+    """Whether the files of one directory see each other's top-level names
+    without importing them: Java's and Go's package. A name a file neither
+    defines nor imports is looked up in its directory's other files of the
+    same language."""
+    linked_functions: bool = False
+    """Whether a function is one across files by its scope and name, as C's
+    and C++'s: a prototype in a header and the definition in a source file
+    are the same function, and so are definitions of one name in separate
+    programs, which names alone cannot tell apart. A call reaching one
+    reaches each, in every language declaring this."""
+    member_order: MemberOrder = MemberOrder.LISTED
+    """The order a class's bases are searched for a member it does not
+    define (`MemberOrder`): as written, last written first, or shallowest
+    first."""
     package_directory: bool = False
     """Whether a directory is itself a unit of this language, so a reference
     naming one reaches every file inside it: a Go package is its directory and

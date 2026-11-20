@@ -18,6 +18,9 @@ Extracted chunks::
     from ..core import engine
                             → import, metadata {module: "../core", names: "engine"}
 
+A chunk records what it calls and a class its bases (`references.scm`):
+`self.save()` and `cls.make()` start from the enclosing class, `super().save()`
+from its bases.
 """
 
 from __future__ import annotations
@@ -36,12 +39,12 @@ python = LanguageRegistration(
     extensions=frozenset({".py", ".pyi"}),
     grammar_module="tree_sitter_python",
     extraction=QueryExtraction(
-        query=load_query(__package__, "python"),
+        query=load_query(__package__, "python") + load_query(__package__, "references"),
         scope_types=frozenset({"class_definition", "function_definition"}),
         class_scope_types=frozenset({"class_definition"}),
     ),
     index_files=frozenset({"__init__.py"}),
     source_roots=("", "src"),
     module_style=ModuleStyle.DOTTED,
-    extraction_serial=10,
+    extraction_serial=11,
 )

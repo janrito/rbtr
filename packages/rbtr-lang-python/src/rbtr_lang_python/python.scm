@@ -5,15 +5,44 @@
 (comment) @comment
 (module (expression_statement (string) @comment))
 
-(function_definition
-  name: (identifier) @_fn_name
-  body: (block
-    . (expression_statement (string) @_docstring)?)) @function
+; A decorated definition's chunk is the definition with its decorators, so
+; a decorator's call is the definition's; an undecorated one sits directly
+; in a module or a block.
+(decorated_definition
+  definition: (function_definition
+    name: (identifier) @_fn_name
+    body: (block
+      . (expression_statement (string) @_docstring)?))) @function
 
-(class_definition
-  name: (identifier) @_cls_name
-  body: (block
-    . (expression_statement (string) @_docstring)?)) @class
+(module
+  (function_definition
+    name: (identifier) @_fn_name
+    body: (block
+      . (expression_statement (string) @_docstring)?)) @function)
+
+(block
+  (function_definition
+    name: (identifier) @_fn_name
+    body: (block
+      . (expression_statement (string) @_docstring)?)) @function)
+
+(decorated_definition
+  definition: (class_definition
+    name: (identifier) @_cls_name
+    body: (block
+      . (expression_statement (string) @_docstring)?))) @class
+
+(module
+  (class_definition
+    name: (identifier) @_cls_name
+    body: (block
+      . (expression_statement (string) @_docstring)?)) @class)
+
+(block
+  (class_definition
+    name: (identifier) @_cls_name
+    body: (block
+      . (expression_statement (string) @_docstring)?)) @class)
 
 (type_alias_statement
   . (type (identifier) @_cls_name)) @class
