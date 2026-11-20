@@ -28,9 +28,9 @@ is the `LanguageRegistration`, named by its language id::
     kotlin = "rbtr_lang_kotlin.plugin:kotlin"
 
 This module provides language registrations, resolver type aliases, query
-loading and tree-derived capture helpers. Policy enums live in
-`domain.edge_frames`; path-relative parsing lives in `domain.resolution`.
-The engine's built-in resolvers live in the private `_resolvers` module.
+loading and tree-derived helpers (`last_line`). Policy enums live in
+`domain.models`; path-relative parsing lives in `domain.resolution`.
+The engine's built-in resolvers live in `rbtr.languages.resolvers`.
 """
 
 from __future__ import annotations
@@ -42,9 +42,8 @@ from dataclasses import dataclass, field
 from importlib.resources import files
 from typing import TYPE_CHECKING
 
-from rbtr.domain.edge_frames import MemberOrder, ModuleStyle, SectionNames
-from rbtr.domain.models import Chunk
-from rbtr.languages._resolvers import DefaultName, DefaultScope
+from rbtr.domain.models import Chunk, MemberOrder, ModuleStyle, SectionNames
+from rbtr.languages.resolvers import DefaultName, DefaultScope
 
 if TYPE_CHECKING:
     from tree_sitter import Language, Node, Range
@@ -141,7 +140,7 @@ class ChunkExtraction:
 
 
 # Language ID must be lowercase ascii, digits, or underscores.
-_VALID_ID = re.compile(r"[a-z][a-z0-9_]*")
+VALID_ID = re.compile(r"[a-z][a-z0-9_]*")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -372,7 +371,7 @@ class LanguageRegistration:
     )
 
     def __post_init__(self) -> None:
-        if not _VALID_ID.fullmatch(self.id):
+        if not VALID_ID.fullmatch(self.id):
             msg = (
                 f"invalid language id {self.id!r} — must be lowercase ascii, digits, or underscores"
             )
@@ -427,6 +426,24 @@ class LanguageRegistration:
 
 
 @functools.cache
+def last_line(node: Node) -> int:
+    """The 1-based number of the last line *node* occupies.
+
+    Tree-sitter points are 0-based, and a node that consumes its
+    trailing newline ends at column 0 of the following row, which it
+    does not occupy. Adding one to the end row is therefore right for a
+    node ending mid-line and one too many for a node ending at a line
+    break.
+
+    Every chunker and the query engine share this, so a span means the
+    same thing in every language.
+    """
+    end_row, end_column = node.end_point
+    if end_column == 0 and end_row > node.start_point[0]:
+        return end_row
+    return end_row + 1
+
+
 def load_query(package: str, name: str) -> str:
     """Return the text of a `<name>.scm` query file in *package*.
 

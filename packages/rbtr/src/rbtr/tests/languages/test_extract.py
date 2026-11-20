@@ -1,23 +1,16 @@
-"""Tests for per-file extraction routing (`extract_file`)."""
+"""Tests for routing a file to its language, through the engine."""
 
 from __future__ import annotations
 
 import pytest
 
 from rbtr.domain.models import ChunkKind
-from rbtr.git import FileEntry
-from rbtr.languages.extract import extract_file
+from rbtr.testing import Indexed
+from rbtr.testing.reads import outline
 
 
 @pytest.mark.parametrize(
-    (
-        "file_path",
-        "file_content",
-        "expected_language",
-        "expected_kind",
-        "expected_name",
-        "min_chunks",
-    ),
+    ("file_path", "file_content", "expected"),
     [
         pytest.param(
             "mod.py",
@@ -25,10 +18,7 @@ from rbtr.languages.extract import extract_file
 def greet():
     return 1
 """,
-            "python",
-            ChunkKind.FUNCTION,
-            "greet",
-            1,
+            [("python", ChunkKind.FUNCTION, "greet")],
             id="python",
         ),
         pytest.param(
@@ -38,10 +28,7 @@ def greet():
 
 Body text.
 """,
-            "markdown",
-            None,
-            "Title",
-            1,
+            [("markdown", ChunkKind.DOC_SECTION, "Title")],
             id="markdown",
         ),
         pytest.param(
@@ -52,10 +39,7 @@ Title
 
 Body text.
 """,
-            "rst",
-            None,
-            "Title",
-            1,
+            [("rst", ChunkKind.DOC_SECTION, "Title")],
             id="rst",
         ),
         pytest.param(
@@ -66,10 +50,7 @@ Title
 
 Body text.
 """,
-            "rst",
-            None,
-            None,
-            1,
+            [("rst", ChunkKind.DOC_SECTION, "Title")],
             id="unknown-ext-rst",
         ),
         pytest.param(
@@ -79,28 +60,19 @@ Body text.
 
 Body text.
 """,
-            "markdown",
-            None,
-            None,
-            1,
+            [("markdown", ChunkKind.DOC_SECTION, "Title")],
             id="unknown-ext-md",
         ),
         pytest.param(
             "empty.txt",
             "",
-            "",
-            None,
-            None,
-            0,
+            [("plaintext", ChunkKind.RAW_CHUNK, "")],
             id="empty-file",
         ),
         pytest.param(
             "blank.txt",
             "   \n\n  \n",
-            "",
-            None,
-            None,
-            0,
+            [("plaintext", ChunkKind.RAW_CHUNK, "")],
             id="whitespace-only",
         ),
         pytest.param(
@@ -109,30 +81,18 @@ Body text.
 Just some plain text.
 Nothing special.
 """,
-            "plaintext",
-            ChunkKind.RAW_CHUNK,
-            "",
-            1,
+            [("plaintext", ChunkKind.RAW_CHUNK, "")],
             id="unknown-ext-plain",
         ),
     ],
 )
-def test_extract_file_routes_correctly(
+def test_a_file_is_extracted_by_the_language_it_is(
+    indexed: Indexed,
     file_path: str,
     file_content: str,
-    expected_language: str,
-    expected_kind: ChunkKind | None,
-    expected_name: str | None,
-    min_chunks: int,
+    expected: list[tuple[str, ChunkKind, str]],
 ) -> None:
-    """extract_file routes each file type to the correct chunker."""
-    entry = FileEntry(path=file_path, blob_sha="sha1", content=file_content.encode())
-    chunks = list(extract_file(entry, expected_language))
-    assert len(chunks) >= min_chunks
-    if not chunks:
-        return
-    assert chunks[0].language == expected_language
-    if expected_kind is not None:
-        assert all(c.kind == expected_kind for c in chunks)
-    if expected_name is not None:
-        assert chunks[0].name == expected_name
+    """With every language installed, a file's path or text picks the language that extracts it."""
+    with indexed({file_path: file_content}) as build:
+        symbols = outline(build, [file_path])
+    assert [(s.language, s.kind, s.name) for s in symbols] == expected

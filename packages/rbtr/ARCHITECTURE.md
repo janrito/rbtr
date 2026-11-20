@@ -351,25 +351,26 @@ on a small, stable surface of core symbols. This is the
 contract that survives packaging each language as its own
 distribution:
 
-- `rbtr.domain.edge_frames` — `ModuleStyle`, `SectionNames` and
-  `MemberOrder`, the declared resolution policies, and the frames edge
-  inference exchanges.
 - `rbtr.languages.registration` — `LanguageRegistration`, the wrap-override resolver
   type aliases (`NameResolver` / `ScopeResolver`), and the capture
-  helpers `enclosing_nodes_of_type` and `load_query` (loads a plugin's co-located `.scm`
-  query as package data). (Overrides receive the built-in resolver as their wrap
+  helpers `enclosing_nodes_of_type`, `load_query` (loads a plugin's co-located `.scm`
+  query as package data) and `last_line`, which turns a tree-sitter end
+  point into the 1-based last line a node occupies; the query engine and
+  every chunker share it, so a span means the same thing in every
+  language. (Overrides receive the built-in resolver as their wrap
   `resolver` argument and delegate to it, so plugins never import the built-ins; those
-  built-ins live in the private `rbtr.languages._resolvers`.)
+  built-ins live in `rbtr.languages.resolvers`.)
 - `rbtr.domain.models` — `Chunk`, its roles (`Definition`, `Section`,
   `Import`, `Comment`, `RawSlice`, `Fragment`), `Span`, `ChunkKind`,
-  `ImportMeta`, and `Lookup`, where a reference's path is looked up. A
-  chunk's references are read from its row, in `metadata.refs`.
+  `ImportMeta`, `Lookup`, where a reference's path is looked up, and
+  the declared resolution policies `ModuleStyle`, `SectionNames` and
+  `MemberOrder`. A chunk's references are read from its row, in
+  `metadata.refs`.
+
+None of these modules loads polars or dataframely, and a plugin imports
+nothing else from core: the frames, rows and rules are core's own.
   A chunk's `id` is a property over its own fields, so a plugin yields
   chunks and never computes an identity.
-- `rbtr.languages.chunks` — `last_line`, which turns a
-  tree-sitter end point into the 1-based last line a node occupies.
-  The query engine and every chunker share it, so a span means the
-  same thing in every language.
 
 One dependency crosses *between* plugins rather than to core:
 scss and less import `css_nesting_scope` from the css plugin
@@ -383,19 +384,30 @@ Each plugin owns its samples, beside its code:
 exercising the constructs that plugin extracts. They are both
 worked examples of extraction and golden-tested fixtures.
 
-A plugin's `test_samples.py` builds the sample tree with
-`build_index`, as rbtr builds a repository, and compares what the
-index then holds against committed snapshots under `__snapshots__/`.
-Core's pytest plugin (`rbtr.testing`) commits and builds the sample and
-hands the tests plain values, so a plugin's tests reach neither the
-index nor its frames. The fixtures and what each snapshot shows are
-described for plugin authors in the README's
+A plugin's `test_samples.py` commits the sample and builds it as rbtr
+builds a repository (`indexed`, from core's pytest plugin
+`rbtr.testing`), then reads it as an agent does (`rbtr.testing.reads`,
+over the daemon's handlers): its outline is compared against committed
+snapshots under `__snapshots__/`, and its edges are checked as what
+reaches each target (`rbtr.testing.assertions`), the same checks every
+language test makes. A plugin's tests import from rbtr only
+`rbtr.testing` and its `reads` and `assertions`, and the models, held by
+an import-linter allow-list, so they reach neither the
+index, its frames nor the daemon's messages.
+
+`rbtr.testing.assertions` is registered for pytest's assertion
+rewriting in `rbtr.testing`'s `__init__`, so a failing check reports
+pytest's diff at the test's line: pytest finds an entry-point plugin's
+modules through its installed files, and an editable install lists
+none. How to write them is described for
+plugin authors in the README's
 [Testing the plugin](README.md#testing-the-plugin).
 
 A language's behaviour is tested in its plugin, and core's rules are
-tested without one: core pins how imports resolve and reach their
-targets on literal rows in neutral languages, and its other tests build
-only languages `rbtr` installs by default. So core's suite passes with
+tested without one: core pins module resolution's steps on literal
+rows, builds its call cases in neutral test languages over a default
+plugin's grammar, and builds its other tests in languages `rbtr`
+installs by default. So core's suite passes with
 any set of optional plugins installed, and a change to a plugin fails a
 test in that plugin.
 
@@ -408,8 +420,12 @@ do the build and the tests share a pure files-to-chunks-and-edges
 function: the build is incremental, extracting only blobs the store
 lacks and inferring edges from everything the store holds for the
 snapshot, so such a function would be a path production never takes.
-Revisit that if building a sample becomes too slow to run once per
-test module.
+Each sample test builds the sample itself with `indexed`, so a plugin
+builds its sample three times (for the snapshot, the edges and every
+line): the 80 sample tests take 33.6 s in one process, the slowest
+1.57 s. Revisit that if the builds grow too slow; one build per module
+needs a module-scoped fixture that builds files, which `indexed`, a
+factory a test calls, does not give.
 
 The samples are exempt from the repo's linters and
 type-checker — they are fixtures, validated by their own

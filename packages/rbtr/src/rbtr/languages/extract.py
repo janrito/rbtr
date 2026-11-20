@@ -4,21 +4,18 @@
 through tree-sitter and the language plugins (`rbtr.languages.treesitter`),
 then folds comments and assembles chunks over all of them at once
 (`rbtr.domain.rules`). The indexer extracts its files `BATCH_FILES` at
-a time through `extract_files`; `extract_file` runs one file the same
-way, for plugin tests and third-party language packages.
+a time through `extract_files`.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
 
 import dataframely as dy
 import polars as pl
 import structlog
 
 from rbtr.config import config
-from rbtr.domain.models import Chunk
 from rbtr.domain.rules import (
     FileRow,
     PlacedChunkRow,
@@ -29,14 +26,8 @@ from rbtr.domain.rules import (
     with_metadata,
 )
 from rbtr.git import FileEntry
-from rbtr.languages.chunks import chunk_models
 from rbtr.languages.plaintext import PLAINTEXT
-from rbtr.languages.treesitter import Languages, read, registered
-
-if TYPE_CHECKING:
-    from tree_sitter import Language
-
-    from rbtr.languages.registration import LanguageRegistration
+from rbtr.languages.treesitter import read
 
 log = structlog.get_logger(__name__)
 
@@ -65,9 +56,7 @@ def file_rows(files: Sequence[tuple[FileEntry, str]]) -> dy.DataFrame[FileRow]:
     ).pipe(FileRow.validate, cast=True)
 
 
-def extract_batch(
-    files: dy.DataFrame[FileRow], languages: Languages = registered
-) -> dy.DataFrame[PlacedChunkRow]:
+def extract_batch(files: dy.DataFrame[FileRow]) -> dy.DataFrame[PlacedChunkRow]:
     """*files*' chunks, each file's in order, every chunk stamped with its file's language.
 
     The adapter reads each file and every block it embeds (`read`); the
@@ -75,7 +64,7 @@ def extract_batch(
     `PLAINTEXT` windows of lines, and assemble each file's, over all the
     files at once.
     """
-    captures, metadata_captures, chunked, plain = read(files, languages)
+    captures, metadata_captures, chunked, plain = read(files)
     # Each rule is one lazy plan, its result checked within it, collected
     # before the next rule reads it: a plan copies a frame it reads twice into
     # each use, and `with_metadata` reads its inputs many times.
@@ -110,43 +99,6 @@ def extract_files(
         head, head_failed = extract_files(files.head(middle).pipe(FileRow.validate))
         tail, tail_failed = extract_files(files.slice(middle).pipe(FileRow.validate))
         return pl.concat([head, tail]).pipe(PlacedChunkRow.validate), [*head_failed, *tail_failed]
-
-
-def extract_file(entry: FileEntry, language: str) -> list[Chunk]:
-    """Extract a file's chunks, always including one in its own language.
-
-    Public so plugin tests (and third-party language packages) drive the
-    *real* pipeline rather than a copy. Given a file's
-    content and language it reads the file as its language's chunker,
-    tree-sitter query, or plaintext line chunks, and any embedded-language
-    injections (an SFC's `<script>`/`<style>`) on top. If none of that
-    produced a chunk in the file's own *language*, a content-less
-    host-presence chunk is appended so the dedup gate can skip the file on
-    later builds instead of re-parsing it. The caller handles blob dedup
-    and deletes stale chunks first.
-
-    Every chunk leaves here stamped with *language* as its
-    `file_language`. It is part of a chunk's identity, so the id follows
-    from the stamp.
-    """
-    return chunk_models(extract_batch(file_rows([(entry, language)])), entry.path)
-
-
-def extract_symbols(
-    registered_language: LanguageRegistration,
-    file_path: str,
-    blob_sha: str,
-    content: bytes,
-    grammar: Language,
-) -> list[Chunk]:
-    """*content*'s chunks, read as *registered_language* with *grammar* and no other language.
-
-    For a registration no plugin installs: a block it hands another
-    language is left unread.
-    """
-    files = file_rows([(FileEntry(file_path, blob_sha, content), registered_language.id)])
-    languages = {registered_language.id: (registered_language, grammar)}.get
-    return chunk_models(extract_batch(files, languages), file_path)
 
 
 def docstrings(chunks: Sequence[tuple[str, str]]) -> list[str | None]:

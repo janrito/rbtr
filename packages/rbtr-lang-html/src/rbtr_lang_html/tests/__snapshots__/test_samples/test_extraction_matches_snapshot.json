@@ -5,7 +5,6 @@
     "file_path": "greeter.js",
     "scope": "",
     "language": "javascript",
-    "content": "// Client-side greeter.",
     "line_start": 1,
     "line_end": 1
   },
@@ -15,7 +14,6 @@
     "file_path": "greeter.js",
     "scope": "",
     "language": "javascript",
-    "content": "function greet(name) {\n  return `Hello, ${name}`;\n}",
     "line_start": 2,
     "line_end": 4
   },
@@ -25,7 +23,6 @@
     "file_path": "html.html",
     "scope": "",
     "language": "html",
-    "content": "<!DOCTYPE html>",
     "line_start": 1,
     "line_end": 1
   },
@@ -35,7 +32,6 @@
     "file_path": "html.html",
     "scope": "",
     "language": "html",
-    "content": "<!-- Greeter page. The HTML plugin extracts <script src>/<link href>\n     as imports (with a language hint) and major <body> elements as\n     doc sections. -->",
     "line_start": 2,
     "line_end": 4
   },
@@ -45,7 +41,6 @@
     "file_path": "html.html",
     "scope": "",
     "language": "html",
-    "content": "<html lang=\"en\">",
     "line_start": 5,
     "line_end": 5
   },
@@ -55,7 +50,6 @@
     "file_path": "html.html",
     "scope": "",
     "language": "html",
-    "content": "<head>\n    <title>Greeter</title>\n    <link rel=\"stylesheet\" href=\"styles.css\">\n    <script src=\"greeter.js\"></script>\n    <style>\n      .greeter {\n        font-family: system-ui;\n      }\n    </style>\n  </head>",
     "line_start": 6,
     "line_end": 15
   },
@@ -65,7 +59,6 @@
     "file_path": "html.html",
     "scope": "",
     "language": "html",
-    "content": "<link rel=\"stylesheet\" href=\"styles.css\">\n    ",
     "line_start": 8,
     "line_end": 9,
     "metadata": {
@@ -81,7 +74,6 @@
     "file_path": "html.html",
     "scope": "",
     "language": "html",
-    "content": "<script src=\"greeter.js\"></script>",
     "line_start": 9,
     "line_end": 9,
     "metadata": {
@@ -97,7 +89,6 @@
     "file_path": "html.html",
     "scope": "",
     "language": "css",
-    "content": ".greeter {\n        font-family: system-ui;\n      }",
     "line_start": 11,
     "line_end": 13
   },
@@ -107,7 +98,6 @@
     "file_path": "html.html",
     "scope": "",
     "language": "html",
-    "content": "<body>\n    <header class=\"page-header\">\n      <h1>Greeter</h1>\n    </header>\n    <main id=\"content\">\n      <section id=\"intro\">\n        <p>Format greetings for named recipients.</p>\n        <p>Meet <a href=\"pages/about.html#team\">the team</a>, its\n          <a href=\"pages/about.html#contributors\">contributors</a>, its\n          <a href=\"pages/about.html#schedule\">schedule</a> and its\n          <a href=\"pages/about.html#history\">history</a>.</p>\n      </section>\n    </main>\n    <footer>\n      <small>Greeter &mdash; a greetings library.</small>\n    </footer>\n    <script>\n      function init() {\n        return greet(\"world\");\n      }\n    </script>\n  </body>",
     "line_start": 16,
     "line_end": 37
   },
@@ -117,7 +107,6 @@
     "file_path": "html.html",
     "scope": "",
     "language": "html",
-    "content": "<header class=\"page-header\">\n      <h1>Greeter</h1>\n    </header>",
     "line_start": 17,
     "line_end": 19
   },
@@ -127,7 +116,6 @@
     "file_path": "html.html",
     "scope": "",
     "language": "html",
-    "content": "<main id=\"content\">\n      <section id=\"intro\">\n        <p>Format greetings for named recipients.</p>\n        <p>Meet <a href=\"pages/about.html#team\">the team</a>, its\n          <a href=\"pages/about.html#contributors\">contributors</a>, its\n          <a href=\"pages/about.html#schedule\">schedule</a> and its\n          <a href=\"pages/about.html#history\">history</a>.</p>\n      </section>\n    </main>",
     "line_start": 20,
     "line_end": 28
   },
@@ -137,7 +125,6 @@
     "file_path": "html.html",
     "scope": "",
     "language": "html",
-    "content": "<section id=\"intro\">\n        <p>Format greetings for named recipients.</p>\n        <p>Meet <a href=\"pages/about.html#team\">the team</a>, its\n          <a href=\"pages/about.html#contributors\">contributors</a>, its\n          <a href=\"pages/about.html#schedule\">schedule</a> and its\n          <a href=\"pages/about.html#history\">history</a>.</p>\n      </section>",
     "line_start": 21,
     "line_end": 27
   },
@@ -147,7 +134,6 @@
     "file_path": "html.html",
     "scope": "",
     "language": "html",
-    "content": "<a href=\"pages/about.html#team\">the team</a>",
     "line_start": 23,
     "line_end": 23,
     "metadata": {
@@ -163,7 +149,6 @@
     "file_path": "html.html",
     "scope": "",
     "language": "html",
-    "content": "<a href=\"pages/about.html#contributors\">contributors</a>",
     "line_start": 24,
     "line_end": 24,
     "metadata": {
@@ -179,7 +164,6 @@
     "file_path": "html.html",
     "scope": "",
     "language": "html",
-    "content": "<a href=\"pages/about.html#schedule\">schedule</a>",
     "line_start": 25,
     "line_end": 25,
     "metadata": {
@@ -195,7 +179,6 @@
     "file_path": "html.html",
     "scope": "",
     "language": "html",
-    "content": "<a href=\"pages/about.html#history\">history</a>",
     "line_start": 26,
     "line_end": 26,
     "metadata": {
@@ -211,7 +194,6 @@
     "file_path": "html.html",
     "scope": "",
     "language": "html",
-    "content": "<footer>\n      <small>Greeter &mdash; a greetings library.</small>\n    </footer>",
     "line_start": 29,
     "line_end": 31
   },
@@ -221,7 +203,6 @@
     "file_path": "html.html",
     "scope": "",
     "language": "javascript",
-    "content": "function init() {\n        return greet(\"world\");\n      }",
     "line_start": 33,
     "line_end": 35
   },
@@ -231,7 +212,6 @@
     "file_path": "html.html",
     "scope": "",
     "language": "html",
-    "content": "</html>",
     "line_start": 38,
     "line_end": 38
   },
@@ -241,7 +221,6 @@
     "file_path": "pages/about.html",
     "scope": "",
     "language": "html",
-    "content": "<!-- Linked from html.html. Its script src is a bare sibling, which only\n     resolves relative to this directory. -->",
     "line_start": 1,
     "line_end": 2
   },
@@ -251,7 +230,6 @@
     "file_path": "pages/about.html",
     "scope": "",
     "language": "html",
-    "content": "<html>",
     "line_start": 3,
     "line_end": 3
   },
@@ -261,7 +239,6 @@
     "file_path": "pages/about.html",
     "scope": "",
     "language": "html",
-    "content": "<head>\n    <script src=\"about.js\"></script>\n  </head>",
     "line_start": 4,
     "line_end": 6
   },
@@ -271,7 +248,6 @@
     "file_path": "pages/about.html",
     "scope": "",
     "language": "html",
-    "content": "<script src=\"about.js\"></script>",
     "line_start": 5,
     "line_end": 5,
     "metadata": {
@@ -287,7 +263,6 @@
     "file_path": "pages/about.html",
     "scope": "",
     "language": "html",
-    "content": "<body>\n    <h1>About</h1>\n    <section id=\"team\">\n      <p>Who writes the greeter.</p>\n      <h2 id=\"contributors\">Contributors</h2>\n      <div class=\"note\" id=\"schedule\">\n        <p>Releases follow the calendar.</p>\n      </div>\n      <p><a name=\"history\"></a>The greeter began as a script.</p>\n      <p>Back to <a href=\"../html.html#intro\">the introduction</a>.</p>\n    </section>\n  </body>",
     "line_start": 7,
     "line_end": 18
   },
@@ -297,7 +272,6 @@
     "file_path": "pages/about.html",
     "scope": "",
     "language": "html",
-    "content": "<section id=\"team\">\n      <p>Who writes the greeter.</p>\n      <h2 id=\"contributors\">Contributors</h2>\n      <div class=\"note\" id=\"schedule\">\n        <p>Releases follow the calendar.</p>\n      </div>\n      <p><a name=\"history\"></a>The greeter began as a script.</p>\n      <p>Back to <a href=\"../html.html#intro\">the introduction</a>.</p>\n    </section>",
     "line_start": 9,
     "line_end": 17
   },
@@ -307,7 +281,6 @@
     "file_path": "pages/about.html",
     "scope": "",
     "language": "html",
-    "content": "<h2 id=\"contributors\">Contributors</h2>",
     "line_start": 11,
     "line_end": 11
   },
@@ -317,7 +290,6 @@
     "file_path": "pages/about.html",
     "scope": "",
     "language": "html",
-    "content": "<div class=\"note\" id=\"schedule\">\n        <p>Releases follow the calendar.</p>\n      </div>",
     "line_start": 12,
     "line_end": 14
   },
@@ -327,7 +299,6 @@
     "file_path": "pages/about.html",
     "scope": "",
     "language": "html",
-    "content": "<a name=\"history\"></a>",
     "line_start": 15,
     "line_end": 15
   },
@@ -337,7 +308,6 @@
     "file_path": "pages/about.html",
     "scope": "",
     "language": "html",
-    "content": "<a href=\"../html.html#intro\">the introduction</a>",
     "line_start": 16,
     "line_end": 16,
     "metadata": {
@@ -353,7 +323,6 @@
     "file_path": "pages/about.html",
     "scope": "",
     "language": "html",
-    "content": "</html>",
     "line_start": 19,
     "line_end": 19
   },
@@ -363,7 +332,6 @@
     "file_path": "pages/about.js",
     "scope": "",
     "language": "javascript",
-    "content": "// Referenced from pages/about.html as a bare sibling.",
     "line_start": 1,
     "line_end": 1
   },
@@ -373,7 +341,6 @@
     "file_path": "pages/about.js",
     "scope": "",
     "language": "javascript",
-    "content": "function describe() {\n  return \"about\";\n}",
     "line_start": 2,
     "line_end": 4
   },
@@ -383,7 +350,6 @@
     "file_path": "partial.html",
     "scope": "",
     "language": "html",
-    "content": "{% extends \"base.html\" %}\n<p>A loose paragraph outside any section.</p>",
     "line_start": 1,
     "line_end": 2
   },
@@ -393,7 +359,6 @@
     "file_path": "styles.css",
     "scope": "",
     "language": "css",
-    "content": ".greeter {\n  color: #333;\n}",
     "line_start": 1,
     "line_end": 3
   }

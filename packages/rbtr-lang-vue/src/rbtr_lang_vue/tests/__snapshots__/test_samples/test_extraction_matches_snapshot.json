@@ -5,7 +5,6 @@
     "file_path": "Counter.vue",
     "scope": "",
     "language": "vue",
-    "content": "<!--\n  Vue single-file component.\n\n  The SFC plugin delegates <script> to TypeScript and <style> to SCSS.\n  This comment is itself a chunk, so a component's own explanation of\n  what it is for stays searchable.\n-->",
     "line_start": 1,
     "line_end": 7
   },
@@ -15,7 +14,6 @@
     "file_path": "Counter.vue",
     "scope": "",
     "language": "vue",
-    "content": "<script setup lang=\"ts\">",
     "line_start": 9,
     "line_end": 9
   },
@@ -25,7 +23,6 @@
     "file_path": "Counter.vue",
     "scope": "",
     "language": "typescript",
-    "content": "// Vue single-file component.\n//\n// The SFC plugin delegates the <script setup> block to TypeScript and\n// the <style> block to SCSS, reusing the same chunker as Svelte. The\n// template is not extracted.",
     "line_start": 10,
     "line_end": 14
   },
@@ -35,7 +32,6 @@
     "file_path": "Counter.vue",
     "scope": "",
     "language": "typescript",
-    "content": "import { makeStore } from \"./store\";",
     "line_start": 15,
     "line_end": 15,
     "metadata": {
@@ -56,7 +52,6 @@
     "file_path": "Counter.vue",
     "scope": "",
     "language": "typescript",
-    "content": "store = makeStore()",
     "line_start": 17,
     "line_end": 17
   },
@@ -66,7 +61,6 @@
     "file_path": "Counter.vue",
     "scope": "",
     "language": "typescript",
-    "content": "function increment(): void {\n  store.count += 1;\n}",
     "line_start": 19,
     "line_end": 21
   },
@@ -76,7 +70,6 @@
     "file_path": "Counter.vue",
     "scope": "",
     "language": "vue",
-    "content": "</script>",
     "line_start": 22,
     "line_end": 22
   },
@@ -86,7 +79,6 @@
     "file_path": "Counter.vue",
     "scope": "",
     "language": "vue",
-    "content": "<style lang=\"scss\">",
     "line_start": 24,
     "line_end": 24
   },
@@ -96,7 +88,6 @@
     "file_path": "Counter.vue",
     "scope": "",
     "language": "scss",
-    "content": "$accent: #00aa77;",
     "line_start": 25,
     "line_end": 25
   },
@@ -106,7 +97,6 @@
     "file_path": "Counter.vue",
     "scope": "",
     "language": "scss",
-    "content": ".counter {\n    color: $accent;\n    font-weight: bold;\n  }",
     "line_start": 27,
     "line_end": 30
   },
@@ -116,7 +106,6 @@
     "file_path": "Counter.vue",
     "scope": "",
     "language": "vue",
-    "content": "</style>",
     "line_start": 31,
     "line_end": 31
   },
@@ -126,7 +115,6 @@
     "file_path": "Counter.vue",
     "scope": "",
     "language": "vue",
-    "content": "<template>\n  <button class=\"counter\" @click=\"increment\">{{ store.count }}</button>\n</template>",
     "line_start": 33,
     "line_end": 35
   },
@@ -136,7 +124,6 @@
     "file_path": "src/A.vue",
     "scope": "",
     "language": "vue",
-    "content": "<script>",
     "line_start": 1,
     "line_end": 1
   },
@@ -146,7 +133,6 @@
     "file_path": "src/A.vue",
     "scope": "",
     "language": "javascript",
-    "content": "import { helper } from './b.js';",
     "line_start": 2,
     "line_end": 2,
     "metadata": {
@@ -167,7 +153,6 @@
     "file_path": "src/A.vue",
     "scope": "",
     "language": "vue",
-    "content": "</script>",
     "line_start": 3,
     "line_end": 3
   },
@@ -177,7 +162,6 @@
     "file_path": "src/b.js",
     "scope": "",
     "language": "javascript",
-    "content": "function helper() {}",
     "line_start": 1,
     "line_end": 1
   },
@@ -187,7 +171,6 @@
     "file_path": "store.ts",
     "scope": "",
     "language": "typescript",
-    "content": "// Imported by Counter.vue's <script setup> block.",
     "line_start": 1,
     "line_end": 1
   },
@@ -197,7 +180,6 @@
     "file_path": "store.ts",
     "scope": "",
     "language": "typescript",
-    "content": "function makeStore(): { count: number } {\n  return { count: 0 };\n}",
     "line_start": 3,
     "line_end": 5
   }

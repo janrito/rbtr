@@ -5,7 +5,6 @@
     "file_path": "api.md",
     "scope": "",
     "language": "markdown",
-    "content": "# API",
     "line_start": 1,
     "line_end": 1
   },
@@ -15,7 +14,6 @@
     "file_path": "api.md",
     "scope": "API",
     "language": "markdown",
-    "content": "## Format a greeting — the helper\n\nFormats a greeting for a name.\n\nCall it from Python:\n\n```python\nfrom greeter import format_greeting\n\n\ndef demo() -> str:\n    return format_greeting(\"Ada\")\n```\n\nOr wrap it in a shell helper:\n\n```sh\ngreet() {\n  format-greeting \"$1\"\n}\n```",
     "line_start": 3,
     "line_end": 23
   },
@@ -25,7 +23,6 @@
     "file_path": "api.md",
     "scope": "",
     "language": "python",
-    "content": "from greeter import format_greeting",
     "line_start": 10,
     "line_end": 10,
     "metadata": {
@@ -46,7 +43,6 @@
     "file_path": "api.md",
     "scope": "",
     "language": "python",
-    "content": "def demo() -> str:\n    return format_greeting(\"Ada\")",
     "line_start": 13,
     "line_end": 14
   },
@@ -56,7 +52,6 @@
     "file_path": "api.md",
     "scope": "",
     "language": "bash",
-    "content": "greet() {\n  format-greeting \"$1\"\n}",
     "line_start": 20,
     "line_end": 22
   },
@@ -66,7 +61,6 @@
     "file_path": "config.md",
     "scope": "",
     "language": "markdown",
-    "content": "# Configuration\n\nGreeter configuration options.",
     "line_start": 1,
     "line_end": 3
   },
@@ -76,7 +70,6 @@
     "file_path": "config.md",
     "scope": "Configuration",
     "language": "markdown",
-    "content": "## Locale options {#locale}\n\nThe default locale, and the fallback when a name has none.\n\n<a id=\"install-notes\"></a>Install it before configuring it.\n\n<div id=\"legacy-options\">\n\nOptions older releases read.\n\n</div>",
     "line_start": 5,
     "line_end": 15
   },
@@ -86,7 +79,6 @@
     "file_path": "config.md",
     "scope": "",
     "language": "html",
-    "content": "<a id=\"install-notes\">",
     "line_start": 9,
     "line_end": 9
   },
@@ -96,7 +88,6 @@
     "file_path": "config.md",
     "scope": "",
     "language": "html",
-    "content": "</a>",
     "line_start": 9,
     "line_end": 9
   },
@@ -106,7 +97,6 @@
     "file_path": "config.md",
     "scope": "",
     "language": "html",
-    "content": "<div id=\"legacy-options\">",
     "line_start": 11,
     "line_end": 11
   },
@@ -116,7 +106,6 @@
     "file_path": "config.md",
     "scope": "",
     "language": "html",
-    "content": "</div>",
     "line_start": 15,
     "line_end": 15
   },
@@ -126,7 +115,6 @@
     "file_path": "embedding.md",
     "scope": "",
     "language": "markdown",
-    "content": "# Embedding\n\nExamples embedded in the docs, each extracted in its own language —\nincluding code nested two levels deep.\n\nThe greeter config, in YAML:\n\n```yaml\nservice: greeter\nlocales:\n  - en\n  - fr\n```\n\nThe same in TOML:\n\n```toml\n[service]\nname = \"greeter\"\n```\n\nEmbedded in a page — the stylesheet is an import and the inline script is\nextracted as JavaScript:\n\n```html\n<head>\n  <link rel=\"stylesheet\" href=\"greeter.css\">\n</head>\n<body>\n  <main>\n    <script>\n      function mount() {\n        return greet(\"Ada\");\n      }\n    </script>\n  </main>\n</body>\n```\n\nAnd a component — Markdown delegates to the Svelte chunker, which in turn\ndelegates its `<script>` to TypeScript and its `<style>` to SCSS:\n\n```svelte\n<script lang=\"ts\">\n  export let name: string;\n\n  function shout(): string {\n    return name.toUpperCase();\n  }\n</script>\n\n<h1>Hello {name}</h1>\n\n<style lang=\"scss\">\n  h1 {\n    color: $brand;\n  }\n</style>\n```",
     "line_start": 1,
     "line_end": 59
   },
@@ -136,7 +124,6 @@
     "file_path": "embedding.md",
     "scope": "",
     "language": "yaml",
-    "content": "service: greeter",
     "line_start": 9,
     "line_end": 9
   },
@@ -146,7 +133,6 @@
     "file_path": "embedding.md",
     "scope": "",
     "language": "yaml",
-    "content": "locales:\n  - en\n  - fr\n",
     "line_start": 10,
     "line_end": 12
   },
@@ -156,7 +142,6 @@
     "file_path": "embedding.md",
     "scope": "",
     "language": "toml",
-    "content": "[service]\nname = \"greeter\"\n",
     "line_start": 18,
     "line_end": 19
   },
@@ -166,7 +151,6 @@
     "file_path": "embedding.md",
     "scope": "",
     "language": "html",
-    "content": "<head>\n  <link rel=\"stylesheet\" href=\"greeter.css\">\n</head>",
     "line_start": 26,
     "line_end": 28
   },
@@ -176,7 +160,6 @@
     "file_path": "embedding.md",
     "scope": "",
     "language": "html",
-    "content": "<link rel=\"stylesheet\" href=\"greeter.css\">\n",
     "line_start": 27,
     "line_end": 27,
     "metadata": {
@@ -192,7 +175,6 @@
     "file_path": "embedding.md",
     "scope": "",
     "language": "html",
-    "content": "<body>\n  <main>\n    <script>\n      function mount() {\n        return greet(\"Ada\");\n      }\n    </script>\n  </main>\n</body>",
     "line_start": 29,
     "line_end": 37
   },
@@ -202,7 +184,6 @@
     "file_path": "embedding.md",
     "scope": "",
     "language": "html",
-    "content": "<main>\n    <script>\n      function mount() {\n        return greet(\"Ada\");\n      }\n    </script>\n  </main>",
     "line_start": 30,
     "line_end": 36
   },
@@ -212,7 +193,6 @@
     "file_path": "embedding.md",
     "scope": "",
     "language": "javascript",
-    "content": "function mount() {\n        return greet(\"Ada\");\n      }",
     "line_start": 32,
     "line_end": 34
   },
@@ -222,7 +202,6 @@
     "file_path": "embedding.md",
     "scope": "",
     "language": "svelte",
-    "content": "<script lang=\"ts\">",
     "line_start": 44,
     "line_end": 44
   },
@@ -232,7 +211,6 @@
     "file_path": "embedding.md",
     "scope": "",
     "language": "typescript",
-    "content": "export let name: string;",
     "line_start": 45,
     "line_end": 45
   },
@@ -242,7 +220,6 @@
     "file_path": "embedding.md",
     "scope": "",
     "language": "typescript",
-    "content": "function shout(): string {\n    return name.toUpperCase();\n  }",
     "line_start": 47,
     "line_end": 49
   },
@@ -252,7 +229,6 @@
     "file_path": "embedding.md",
     "scope": "",
     "language": "svelte",
-    "content": "</script>",
     "line_start": 50,
     "line_end": 50
   },
@@ -262,7 +238,6 @@
     "file_path": "embedding.md",
     "scope": "",
     "language": "svelte",
-    "content": "<h1>Hello {name}</h1>",
     "line_start": 52,
     "line_end": 52
   },
@@ -272,7 +247,6 @@
     "file_path": "embedding.md",
     "scope": "",
     "language": "svelte",
-    "content": "<style lang=\"scss\">",
     "line_start": 54,
     "line_end": 54
   },
@@ -282,7 +256,6 @@
     "file_path": "embedding.md",
     "scope": "",
     "language": "scss",
-    "content": "h1 {\n    color: $brand;\n  }",
     "line_start": 55,
     "line_end": 57
   },
@@ -292,7 +265,6 @@
     "file_path": "embedding.md",
     "scope": "",
     "language": "svelte",
-    "content": "</style>",
     "line_start": 58,
     "line_end": 58
   },
@@ -302,7 +274,6 @@
     "file_path": "guides/setup.md",
     "scope": "",
     "language": "markdown",
-    "content": "# Setup\n\nLinked from `markdown.md`. Links its own sibling by bare name, which only\nresolves relative to this directory.\n\nSee [the troubleshooting notes](troubleshooting.md) when a step fails.",
     "line_start": 1,
     "line_end": 6
   },
@@ -312,7 +283,6 @@
     "file_path": "guides/setup.md",
     "scope": "",
     "language": "markdown_inline",
-    "content": "troubleshooting.md",
     "line_start": 6,
     "line_end": 6,
     "metadata": {
@@ -328,7 +298,6 @@
     "file_path": "guides/troubleshooting.md",
     "scope": "",
     "language": "markdown",
-    "content": "# Troubleshooting\n\nLinked from `guides/setup.md` as a bare sibling.",
     "line_start": 1,
     "line_end": 3
   },
@@ -338,7 +307,6 @@
     "file_path": "guides/troubleshooting.md",
     "scope": "Troubleshooting",
     "language": "markdown",
-    "content": "## A step failed\n\nRe-run it.",
     "line_start": 5,
     "line_end": 7
   },
@@ -348,7 +316,6 @@
     "file_path": "headings.md",
     "scope": "",
     "language": "markdown",
-    "content": "Underlined headings\n===================\n\nThis section uses an equals-sign underline.",
     "line_start": 1,
     "line_end": 4
   },
@@ -358,7 +325,6 @@
     "file_path": "headings.md",
     "scope": "Underlined headings",
     "language": "markdown",
-    "content": "Details\n-------\n\nThis subsection uses a dash underline.",
     "line_start": 6,
     "line_end": 9
   },
@@ -368,7 +334,6 @@
     "file_path": "locales.md",
     "scope": "",
     "language": "markdown",
-    "content": "# Locales\n\nSupported locales: en, fr.",
     "line_start": 1,
     "line_end": 3
   },
@@ -378,7 +343,6 @@
     "file_path": "markdown.md",
     "scope": "",
     "language": "markdown",
-    "content": "# Greeter\n\nA small library for formatting greetings for named recipients.",
     "line_start": 1,
     "line_end": 3
   },
@@ -388,7 +352,6 @@
     "file_path": "markdown.md",
     "scope": "Greeter",
     "language": "markdown",
-    "content": "## Usage\n\nConfigure it via [the config file](config.md), then call the\n[format helper](api.md#format-a-greeting-the-helper),\nwith [locale options](config.md#locale), after the\n[install notes](config.md#install-notes); older releases read the\n[legacy options](config.md#legacy-options).\n\nFor background, see [an external guide](https://example.com), which is\nnot treated as a cross-reference.",
     "line_start": 5,
     "line_end": 14
   },
@@ -398,7 +361,6 @@
     "file_path": "markdown.md",
     "scope": "",
     "language": "markdown_inline",
-    "content": "config.md",
     "line_start": 7,
     "line_end": 7,
     "metadata": {
@@ -414,7 +376,6 @@
     "file_path": "markdown.md",
     "scope": "",
     "language": "markdown_inline",
-    "content": "api.md#format-a-greeting-the-helper",
     "line_start": 8,
     "line_end": 8,
     "metadata": {
@@ -430,7 +391,6 @@
     "file_path": "markdown.md",
     "scope": "",
     "language": "markdown_inline",
-    "content": "config.md#locale",
     "line_start": 9,
     "line_end": 9,
     "metadata": {
@@ -446,7 +406,6 @@
     "file_path": "markdown.md",
     "scope": "",
     "language": "markdown_inline",
-    "content": "config.md#install-notes",
     "line_start": 10,
     "line_end": 10,
     "metadata": {
@@ -462,7 +421,6 @@
     "file_path": "markdown.md",
     "scope": "",
     "language": "markdown_inline",
-    "content": "config.md#legacy-options",
     "line_start": 11,
     "line_end": 11,
     "metadata": {
@@ -478,7 +436,6 @@
     "file_path": "markdown.md",
     "scope": "Greeter::Usage",
     "language": "markdown",
-    "content": "### Locales\n\nSupported locales are documented in [the locales table](locales.md).\nJump to [the usage section](#usage) for examples.\n\nStart with [the setup guide](guides/setup.md).",
     "line_start": 16,
     "line_end": 21
   },
@@ -488,7 +445,6 @@
     "file_path": "markdown.md",
     "scope": "",
     "language": "markdown_inline",
-    "content": "locales.md",
     "line_start": 18,
     "line_end": 18,
     "metadata": {
@@ -504,7 +460,6 @@
     "file_path": "markdown.md",
     "scope": "",
     "language": "markdown_inline",
-    "content": "#usage",
     "line_start": 19,
     "line_end": 19,
     "metadata": {
@@ -520,7 +475,6 @@
     "file_path": "markdown.md",
     "scope": "",
     "language": "markdown_inline",
-    "content": "guides/setup.md",
     "line_start": 21,
     "line_end": 21,
     "metadata": {
@@ -536,7 +490,6 @@
     "file_path": "notes.txt",
     "scope": "",
     "language": "markdown",
-    "content": "# Release notes\n\nA `.txt` file whose content is Markdown, read as Markdown.",
     "line_start": 1,
     "line_end": 3
   },
@@ -546,7 +499,6 @@
     "file_path": "notes.txt",
     "scope": "Release notes",
     "language": "markdown",
-    "content": "## Upgrading\n\n```sh\nuv tool upgrade rbtr\n```",
     "line_start": 5,
     "line_end": 9
   },
@@ -556,7 +508,6 @@
     "file_path": "notes.txt",
     "scope": "",
     "language": "bash",
-    "content": "uv tool upgrade rbtr",
     "line_start": 8,
     "line_end": 8
   }

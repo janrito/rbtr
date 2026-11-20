@@ -1,8 +1,0 @@
-[
-  "go.go::\"example.com/greeter/greeter\" -> greeter/text.go::Trim [imports]",
-  "go.go::FormatGreeting -> go.go::Greet [calls]",
-  "go.go::Greet -> greeter/text.go::Trim [calls]",
-  "shop/model.go::Check -> shop/model.go::valid [calls]",
-  "shop/order.go::NewOrder -> shop/model.go::valid [calls]",
-  "shop/order.go::Order -> shop/model.go::Model [inherits]"
-]

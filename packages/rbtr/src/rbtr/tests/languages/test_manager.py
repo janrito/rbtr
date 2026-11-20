@@ -16,7 +16,7 @@ from tree_sitter import Query
 
 from rbtr.config import config
 from rbtr.errors import MissingLanguagePluginsError, RbtrError
-from rbtr.languages.manager import get_manager, reset_manager
+from rbtr.languages.manager import get_manager
 from rbtr.languages.registration import LanguageRegistration, QueryExtraction
 
 
@@ -103,20 +103,6 @@ def test_every_query_compiles_against_its_grammar() -> None:
         Query(grammar, reg.extraction.query)  # raises QueryError on an unknown node type
 
 
-@pytest.mark.parametrize(
-    "lang_id",
-    ["python", "bash"],
-)
-def test_missing_grammar_false_for_base(lang_id: str) -> None:
-    assert not get_manager().missing_grammar(lang_id)
-
-
-def test_missing_grammar_false_for_chunker_only() -> None:
-    """Languages with a custom chunker but no grammar_module are not 'missing'."""
-    assert not get_manager().missing_grammar("markdown")
-    assert not get_manager().missing_grammar("rst")
-
-
 def test_all_language_ids_not_empty() -> None:
     ids = get_manager().all_language_ids()
     assert len(ids) > 0
@@ -131,9 +117,9 @@ def test_all_language_ids_not_empty() -> None:
 
 @pytest.fixture
 def fresh_manager() -> Iterator[None]:
-    reset_manager()
+    get_manager.cache_clear()
     yield
-    reset_manager()
+    get_manager.cache_clear()
 
 
 def test_entrypoint_registration_is_discovered(
@@ -185,8 +171,23 @@ def two_sniffed_languages(monkeypatch: pytest.MonkeyPatch, fresh_manager: None) 
 @pytest.mark.parametrize(
     ("text", "language"),
     [
-        pytest.param("%% one\n&& two\n&& three\n", "beta", id="most-matches-wins"),
-        pytest.param("&& one\n%% two\n", "alpha", id="tie-to-first-id"),
+        pytest.param(
+            """\
+%% one
+&& two
+&& three
+""",
+            "beta",
+            id="most-matches-wins",
+        ),
+        pytest.param(
+            """\
+&& one
+%% two
+""",
+            "alpha",
+            id="tie-to-first-id",
+        ),
         pytest.param("plain text\n", None, id="no-match"),
     ],
 )
@@ -200,7 +201,13 @@ def test_content_past_the_configured_sample_is_not_read(
     two_sniffed_languages: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(config, "content_sniff_chars", 10)
-    assert get_manager().detect_language_by_content("plain text\n%% late\n") is None
+    assert (
+        get_manager().detect_language_by_content("""\
+plain text
+%% late
+""")
+        is None
+    )
 
 
 #
@@ -247,3 +254,17 @@ def test_distribution_reports_providing_package() -> None:
 
 def test_distribution_unknown_language_is_none() -> None:
     assert get_manager().distribution("nonesuch") is None
+
+
+def test_a_block_limited_to_some_languages_holds_those_alone() -> None:
+    """Inside the block only the named language is held, Python's `.py` included; after it, the installed languages are back."""
+    manager = get_manager()
+    named = LanguageRegistration(id="named", extensions=frozenset({".named", ".py"}))
+    with manager.limited_to(named):
+        assert manager.all_language_ids() == ["named"]
+        assert (manager.detect_language("a.named"), manager.detect_language("a.py")) == (
+            "named",
+            "named",
+        )
+    assert manager.get_registration("named") is None
+    assert (manager.detect_language("a.named"), manager.detect_language("a.py")) == (None, "python")

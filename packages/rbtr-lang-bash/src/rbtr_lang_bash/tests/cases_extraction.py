@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from pytest_cases import case
 
-type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
-type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
+type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
+type MixedCase = tuple[dict[str, str], set[str], list[tuple[str, str]]]
 
 
 @case(tags=["symbol"])
@@ -20,7 +20,7 @@ function deploy {
     echo deploying
 }
 """
-    return "bash", src, [("function", "deploy", "")]
+    return {"input.sh": src}, [("function", "deploy", "")]
 
 
 @case(tags=["symbol"])
@@ -31,7 +31,7 @@ function deploy() {
     echo deploying
 }
 """
-    return "bash", src, [("function", "deploy", "")]
+    return {"input.sh": src}, [("function", "deploy", "")]
 
 
 @case(tags=["symbol"])
@@ -42,7 +42,7 @@ deploy() {
     echo deploying
 }
 """
-    return "bash", src, [("function", "deploy", "")]
+    return {"input.sh": src}, [("function", "deploy", "")]
 
 
 @case(tags=["symbol"])
@@ -62,8 +62,7 @@ run() {
 }
 """
     return (
-        "bash",
-        src,
+        {"input.sh": src},
         [
             ("function", "setup", ""),
             ("function", "teardown", ""),
@@ -78,7 +77,7 @@ def case_bash_alias() -> SymbolCase:
     src = """\
 alias ll="ls -l"
 """
-    return "bash", src, [("variable", "ll", "")]
+    return {"input.sh": src}, [("variable", "ll", "")]
 
 
 @case(tags=["symbol"])
@@ -90,7 +89,7 @@ setup() {
     mkdir -p "$dir"
 }
 """
-    return "bash", src, [("function", "setup", "")]
+    return {"input.sh": src}, [("function", "setup", "")]
 
 
 @case(tags=["symbol"])
@@ -103,13 +102,13 @@ check() {
     fi
 }
 """
-    return "bash", src, [("function", "check", "")]
+    return {"input.sh": src}, [("function", "check", "")]
 
 
 @case(tags=["symbol"])
 def case_bash_assignment() -> SymbolCase:
     """Top-level variable assignment."""
-    return "bash", "MAX=100\n", [("variable", "MAX", "")]
+    return {"input.sh": "MAX=100\n"}, [("variable", "MAX", "")]
 
 
 @case(tags=["mixed"])
@@ -132,4 +131,4 @@ rollback() {
     echo "rolling back"
 }
 """
-    return "bash", src, {"function"}, []
+    return {"input.sh": src}, {"function"}, []

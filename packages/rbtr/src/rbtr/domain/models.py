@@ -93,6 +93,42 @@ class EdgeKind(StrEnum):
     CONFIGURES = "configures"
 
 
+class ModuleStyle(StrEnum):
+    """How a language writes a module: as a path (`./b`, `b.css`), dotted (`pkg.b`) or scoped (`pkg::b`)."""
+
+    PATH = "path"
+    DOTTED = "dotted"
+    SCOPED = "scoped"
+
+
+class MemberOrder(StrEnum):
+    """The order a language searches a class's bases for a member it does not define.
+
+    `LISTED` and `REVERSED` walk the bases depth first, keeping each
+    ancestor's last visit, so a base shared by two comes after both:
+    `LISTED` takes them as written (Python, Java, C++, JavaScript, Rust),
+    `REVERSED` last written first (Ruby, whose latest `include` precedes
+    earlier ones and its superclass). `NEAREST` takes the shallowest, ties
+    alike (Go's embedding).
+    """
+
+    LISTED = "listed"
+    REVERSED = "reversed"
+    NEAREST = "nearest"
+
+
+class SectionNames(StrEnum):
+    """How an import compares with a section's name.
+
+    `EXACT` compares the name as written (an HTML `id`). `FOLDED` ignores
+    case, accents, punctuation and leading digits, as renderers do when
+    they make a heading's anchor (`Getting Started` → `#getting-started`).
+    """
+
+    EXACT = "exact"
+    FOLDED = "folded"
+
+
 class EmbeddingState(StrEnum):
     """Whether a chunk has an embedding, and whether its text was cut to make it.
 
@@ -242,7 +278,7 @@ class Span(BaseModel, frozen=True):
     end: int
 
     @model_validator(mode="after")
-    def _ends_after_it_starts(self) -> Span:
+    def ends_after_it_starts(self) -> Span:
         if self.end < self.start:
             msg = f"a span cannot end (line {self.end}) before it starts (line {self.start})"
             raise ValueError(msg)
@@ -250,17 +286,17 @@ class Span(BaseModel, frozen=True):
 
 
 class Chunk(BaseModel, frozen=True):
-    """A single indexed unit of code, documentation, or configuration.
+    """A single indexed unit of code, documentation, or configuration, as a chunker yields it.
 
     The model owns its identity: `scope` is composed from enclosing-scope
     segments (a list is joined into a `::` address; a string passes
-    through), and `id` is *computed* from the fields it hashes, so a
-    chunk cannot carry an id that disagrees with its own content. Every one of those fields is a stored column, so a chunk
-    read back from storage recomputes the id it was stored under.
+    through), and `id` is *computed* from the fields it hashes, the ones
+    staging hashes for its row, so a chunk cannot carry an id that
+    disagrees with the one it is stored under.
 
-    `file_path` is where this chunk was found, and is *not* part of its
-    identity: it comes from `file_snapshots` on read, and one chunk can
-    be reached at several paths.
+    `file_path` is where the chunker read it, and is *not* part of its
+    identity: one chunk can be reached at several paths, which
+    `file_snapshots` records.
 
     Frozen, because a chunk *is* its content: two with the same content
     are the same chunk, and changing one of the fields that says so makes
@@ -278,13 +314,12 @@ class Chunk(BaseModel, frozen=True):
 
     Distinct from `language`, which is the chunk's own: a python fence in
     a markdown document has `language="python"` and
-    `file_language="markdown"`. Stamped by `extract_file`, the only place
-    that knows it — a chunker is passed the language it is extracting,
+    `file_language="markdown"`. Stamped from the file's row by the
+    extraction rules (`rbtr.domain.rules`), the only place that knows it — a chunker is passed the language it is extracting,
     which for an embedded block is the block's, not the file's.
     """
     content: str
     span: Span
-    has_embedding: bool = Field(default=False, exclude=True)
 
     @property
     def kind(self) -> ChunkKind:
@@ -304,7 +339,7 @@ class Chunk(BaseModel, frozen=True):
 
     @field_validator("scope", mode="before")
     @classmethod
-    def _compose_scope(cls, value: str | Sequence[str]) -> str:
+    def composed_scope(cls, value: str | Sequence[str]) -> str:
         """Join enclosing-scope segments into the `::` address.
 
         A plain string (storage read, scope-less chunk) passes through;
@@ -417,8 +452,7 @@ class SnapshotCounts:
 
     Counts chunks: content held at several paths counts once, because
     embedding it writes the one content-addressed row every path
-    shares.  A snapshot with no chunks reads as fully embedded, having
-    no work outstanding.  `kw_only` forbids positional / tuple-style
+    shares.  `kw_only` forbids positional / tuple-style
     construction and unpacking.
 
     `SnapshotCountsRow` establishes `embedded <= total` where the counts
@@ -432,11 +466,6 @@ class SnapshotCounts:
     def unembedded(self) -> int:
         """Chunks still awaiting an embedding."""
         return self.total - self.embedded
-
-    @property
-    def is_fully_embedded(self) -> bool:
-        """Whether every chunk carries an embedding."""
-        return self.embedded == self.total
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

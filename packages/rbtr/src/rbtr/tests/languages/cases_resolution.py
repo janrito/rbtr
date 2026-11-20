@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from pytest_cases import parametrize
 
-from rbtr.domain.edge_frames import ModuleStyle
+from rbtr.domain.models import ModuleStyle
 from rbtr.languages.registration import LanguageRegistration
 
 

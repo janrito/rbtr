@@ -1,5 +1,0 @@
-[
-  "Counter.vue::import { makeStore } from \"./store\"; -> store.ts::makeStore [imports]",
-  "Counter.vue::store -> store.ts::makeStore [calls]",
-  "src/A.vue::import { helper } from './b.js'; -> src/b.js::helper [imports]"
-]

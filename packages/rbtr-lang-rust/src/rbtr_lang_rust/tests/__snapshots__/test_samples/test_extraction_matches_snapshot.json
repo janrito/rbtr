@@ -5,7 +5,6 @@
     "file_path": "rust.rs",
     "scope": "",
     "language": "rust",
-    "content": "//! Greeter — format greetings for named recipients.\n//!\n//! The Rust plugin extracts functions, structs/enums/unions/type\n//! aliases/traits/modules/impl blocks (all as classes), methods inside\n//! impl and trait blocks, `macro_rules!` (as functions), const/static (as\n//! variables), and `use` imports. A struct and its impl both yield a\n//! class chunk.",
     "line_start": 1,
     "line_end": 7
   },
@@ -15,7 +14,6 @@
     "file_path": "rust.rs",
     "scope": "",
     "language": "rust",
-    "content": "#![allow(dead_code)]",
     "line_start": 9,
     "line_end": 9
   },
@@ -25,7 +23,6 @@
     "file_path": "rust.rs",
     "scope": "",
     "language": "rust",
-    "content": "use std::collections::HashMap;",
     "line_start": 11,
     "line_end": 11,
     "metadata": {
@@ -46,7 +43,6 @@
     "file_path": "rust.rs",
     "scope": "",
     "language": "rust",
-    "content": "use crate::config::LOCALE;",
     "line_start": 13,
     "line_end": 13,
     "metadata": {
@@ -67,7 +63,6 @@
     "file_path": "rust.rs",
     "scope": "",
     "language": "rust",
-    "content": "use super::util;",
     "line_start": 14,
     "line_end": 14,
     "metadata": {
@@ -88,7 +83,6 @@
     "file_path": "rust.rs",
     "scope": "",
     "language": "rust",
-    "content": "/// The default greeting prefix.\nconst DEFAULT_GREETING: &str = \"Hello\";",
     "line_start": 16,
     "line_end": 17
   },
@@ -98,7 +92,6 @@
     "file_path": "rust.rs",
     "scope": "",
     "language": "rust",
-    "content": "// trailing comment: its own chunk",
     "line_start": 19,
     "line_end": 19
   },
@@ -108,7 +101,6 @@
     "file_path": "rust.rs",
     "scope": "",
     "language": "rust",
-    "content": "static FALLBACK_LOCALE: &str = \"en\";",
     "line_start": 19,
     "line_end": 19
   },
@@ -118,7 +110,6 @@
     "file_path": "rust.rs",
     "scope": "",
     "language": "rust",
-    "content": "// Standalone note, separated by blank lines from any definition.\n// Second line of the same block.",
     "line_start": 21,
     "line_end": 22
   },
@@ -128,7 +119,6 @@
     "file_path": "rust.rs",
     "scope": "",
     "language": "rust",
-    "content": "/// A greeter holding a prefix.\n#[derive(Debug, Clone, PartialEq)]\npub struct Greeter {\n    prefix: String,\n    seen: HashMap<String, u32>,\n}",
     "line_start": 24,
     "line_end": 29
   },
@@ -138,7 +128,6 @@
     "file_path": "rust.rs",
     "scope": "",
     "language": "rust",
-    "content": "/// Supported locales.\npub enum Locale {\n    En,\n    Fr,\n}",
     "line_start": 31,
     "line_end": 35
   },
@@ -148,7 +137,6 @@
     "file_path": "rust.rs",
     "scope": "Locale",
     "language": "rust",
-    "content": "En",
     "line_start": 33,
     "line_end": 33
   },
@@ -158,7 +146,6 @@
     "file_path": "rust.rs",
     "scope": "Locale",
     "language": "rust",
-    "content": "Fr",
     "line_start": 34,
     "line_end": 34
   },
@@ -168,7 +155,6 @@
     "file_path": "rust.rs",
     "scope": "",
     "language": "rust",
-    "content": "impl Greeter {\n    /// Build a greeter with the default prefix.\n    pub fn new() -> Self {\n        Greeter { prefix: DEFAULT_GREETING.to_string(), seen: HashMap::new() }\n    }\n\n    /// Greet a single recipient.\n    pub fn greet(&self, name: &str) -> String {\n        format!(\"{}, {} ({})\", self.prefix, name, LOCALE)\n    }\n}",
     "line_start": 37,
     "line_end": 47
   },
@@ -178,7 +164,6 @@
     "file_path": "rust.rs",
     "scope": "Greeter",
     "language": "rust",
-    "content": "/// Build a greeter with the default prefix.\n    pub fn new() -> Self {\n        Greeter { prefix: DEFAULT_GREETING.to_string(), seen: HashMap::new() }\n    }",
     "line_start": 38,
     "line_end": 41
   },
@@ -188,7 +173,6 @@
     "file_path": "rust.rs",
     "scope": "Greeter",
     "language": "rust",
-    "content": "/// Greet a single recipient.\n    pub fn greet(&self, name: &str) -> String {\n        format!(\"{}, {} ({})\", self.prefix, name, LOCALE)\n    }",
     "line_start": 43,
     "line_end": 46
   },
@@ -198,7 +182,6 @@
     "file_path": "rust.rs",
     "scope": "",
     "language": "rust",
-    "content": "/// Format a greeting via a greeter.\npub fn format_greeting(g: &Greeter, name: &str) -> String {\n    g.greet(name)\n}",
     "line_start": 49,
     "line_end": 52
   },
@@ -208,7 +191,6 @@
     "file_path": "rust.rs",
     "scope": "",
     "language": "rust",
-    "content": "/// A short alias for a list of recipient names.\npub type NameList = Vec<String>;",
     "line_start": 54,
     "line_end": 55
   },
@@ -218,7 +200,6 @@
     "file_path": "rust.rs",
     "scope": "",
     "language": "rust",
-    "content": "/// Raw bytes of a locale tag, either packed or split.\npub union LocaleBytes {\n    packed: u32,\n    parts: [u8; 4],\n}",
     "line_start": 57,
     "line_end": 61
   },
@@ -228,7 +209,6 @@
     "file_path": "rust.rs",
     "scope": "",
     "language": "rust",
-    "content": "/// Behaviour shared by anything that can greet.\npub trait Greet {\n    /// Greet a recipient by name (required).\n    fn greet(&self, name: &str) -> String;\n\n    /// Greet the world, with a default implementation.\n    fn greet_world(&self) -> String {\n        self.greet(\"world\")\n    }\n}",
     "line_start": 63,
     "line_end": 72
   },
@@ -238,7 +218,6 @@
     "file_path": "rust.rs",
     "scope": "Greet",
     "language": "rust",
-    "content": "/// Greet a recipient by name (required).\n    fn greet(&self, name: &str) -> String;",
     "line_start": 65,
     "line_end": 66
   },
@@ -248,7 +227,6 @@
     "file_path": "rust.rs",
     "scope": "Greet",
     "language": "rust",
-    "content": "/// Greet the world, with a default implementation.\n    fn greet_world(&self) -> String {\n        self.greet(\"world\")\n    }",
     "line_start": 68,
     "line_end": 71
   },
@@ -258,7 +236,6 @@
     "file_path": "rust.rs",
     "scope": "",
     "language": "rust",
-    "content": "/// Build the standard exclamatory greeting.\nmacro_rules! shout {\n    ($name:expr) => {\n        format!(\"Hello, {}!\", $name)\n    };\n}",
     "line_start": 74,
     "line_end": 79
   },
@@ -268,7 +245,6 @@
     "file_path": "rust.rs",
     "scope": "",
     "language": "rust",
-    "content": "/// Locale helpers.\npub mod util {\n    /// Strip surrounding whitespace from a locale tag.\n    pub fn trim(tag: &str) -> &str {\n        tag.trim()\n    }\n}",
     "line_start": 81,
     "line_end": 87
   },
@@ -278,7 +254,6 @@
     "file_path": "rust.rs",
     "scope": "util",
     "language": "rust",
-    "content": "/// Strip surrounding whitespace from a locale tag.\n    pub fn trim(tag: &str) -> &str {\n        tag.trim()\n    }",
     "line_start": 83,
     "line_end": 86
   },
@@ -288,7 +263,6 @@
     "file_path": "src/config.rs",
     "scope": "",
     "language": "rust",
-    "content": "//! Locale configuration.\npub const LOCALE: &str = \"en\";",
     "line_start": 1,
     "line_end": 2
   },
@@ -298,7 +272,6 @@
     "file_path": "src/orders.rs",
     "scope": "",
     "language": "rust",
-    "content": "//! Orders — calls through `Self`, `self`, a type, and a `use` binding.",
     "line_start": 1,
     "line_end": 1
   },
@@ -308,7 +281,6 @@
     "file_path": "src/orders.rs",
     "scope": "",
     "language": "rust",
-    "content": "use crate::config::LOCALE as locale;",
     "line_start": 3,
     "line_end": 3,
     "metadata": {
@@ -329,7 +301,6 @@
     "file_path": "src/orders.rs",
     "scope": "",
     "language": "rust",
-    "content": "pub struct Order {\n    name: String,\n}",
     "line_start": 5,
     "line_end": 7
   },
@@ -339,7 +310,6 @@
     "file_path": "src/orders.rs",
     "scope": "",
     "language": "rust",
-    "content": "impl Order {\n    pub fn new(name: &str) -> Self {\n        Self { name: name.to_string() }\n    }\n\n    pub fn build() -> Order {\n        let order = Self::new(locale);\n        order.check();\n        Order::new(\"x\")\n    }\n\n    fn check(&self) -> bool {\n        self.valid()\n    }\n\n    fn valid(&self) -> bool {\n        true\n    }\n}",
     "line_start": 9,
     "line_end": 27
   },
@@ -349,7 +319,6 @@
     "file_path": "src/orders.rs",
     "scope": "Order",
     "language": "rust",
-    "content": "pub fn new(name: &str) -> Self {\n        Self { name: name.to_string() }\n    }",
     "line_start": 10,
     "line_end": 12
   },
@@ -359,7 +328,6 @@
     "file_path": "src/orders.rs",
     "scope": "Order",
     "language": "rust",
-    "content": "pub fn build() -> Order {\n        let order = Self::new(locale);\n        order.check();\n        Order::new(\"x\")\n    }",
     "line_start": 14,
     "line_end": 18
   },
@@ -369,7 +337,6 @@
     "file_path": "src/orders.rs",
     "scope": "Order",
     "language": "rust",
-    "content": "fn check(&self) -> bool {\n        self.valid()\n    }",
     "line_start": 20,
     "line_end": 22
   },
@@ -379,7 +346,6 @@
     "file_path": "src/orders.rs",
     "scope": "Order",
     "language": "rust",
-    "content": "fn valid(&self) -> bool {\n        true\n    }",
     "line_start": 24,
     "line_end": 26
   }

@@ -13,47 +13,68 @@ from pathlib import Path
 
 import pytest
 
-
-@pytest.fixture(scope="module")
-def sample_dir(request: pytest.FixtureRequest) -> Path:
-    return Path(__file__).parent / "samples" / "calls" / str(request.param)
+from rbtr.testing import Indexed
+from rbtr.testing.assertions import Referrer, Target, assert_reached
 
 
-@pytest.mark.parametrize("sample_dir", ["static-import"], indirect=True)
-def test_a_static_import_reaches_the_member_it_names(sample_edges: list[str]) -> None:
-    """`import static util.Strings.shout` then `shout("hi")` calls `Strings.shout`."""
-    assert "App.java::run -> util/Strings.java::shout [calls]" in sample_edges
-
-
-@pytest.mark.parametrize("sample_dir", ["member-order"], indirect=True)
-def test_an_override_hides_its_bases_member(sample_edges: list[str]) -> None:
-    """`Special extends Order extends Base`, `Order.save` overriding: `save()` is `Order.save`."""
-    assert [e for e in sample_edges if e.startswith("override/Special.java::run ->")] == [
-        "override/Special.java::run -> override/Base.java::check [calls]",
-        "override/Special.java::run -> override/Order.java::save [calls]",
-    ]
-    assert "override/Order.java::save -> override/Base.java::save [calls]" in sample_edges
-
-
-@pytest.mark.parametrize("sample_dir", ["member-order"], indirect=True)
-def test_a_classs_method_wins_over_an_interfaces_default(sample_edges: list[str]) -> None:
-    """`C extends B implements I`, both defining `m`: `m()` is `B.m`."""
-    assert [e for e in sample_edges if e.startswith("classwins/C.java::run ->")] == [
-        "classwins/C.java::run -> classwins/B.java::m [calls]"
-    ]
-
-
-@pytest.mark.parametrize("sample_dir", ["member-order"], indirect=True)
-def test_the_most_specific_interface_default_wins(sample_edges: list[str]) -> None:
-    """`K implements I, J`, `J extends I`, both defining `m`: `m()` is `J.m`."""
-    assert [e for e in sample_edges if e.startswith("specific/K.java::run ->")] == [
-        "specific/K.java::run -> specific/J.java::m [calls]"
-    ]
-
-
-@pytest.mark.parametrize("sample_dir", ["member-order"], indirect=True)
-def test_a_diamonds_overriding_interface_wins(sample_edges: list[str]) -> None:
-    """`Bottom implements Left, Right`, both extending `Top`, `Right.m` overriding: `m()` is `Right.m`."""
-    assert [e for e in sample_edges if e.startswith("diamond/Bottom.java::run ->")] == [
-        "diamond/Bottom.java::run -> diamond/Right.java::m [calls]"
-    ]
+@pytest.mark.parametrize(
+    ("sample", "reached"),
+    [
+        # `import static util.Strings.shout` then `shout("hi")` calls `Strings.shout`.
+        pytest.param(
+            "static-import",
+            {
+                ("util/Strings.java", "shout"): {("App.java", "run", "calls")},
+            },
+            id="a-static-import-reaches-the-member-it-names",
+        ),
+        # `Special extends Order extends Base`, `Order.save` overriding: `save()` is `Order.save`.
+        pytest.param(
+            "member-order",
+            {
+                ("override/Base.java", "check"): {
+                    ("override/Base.java", "save", "calls"),
+                    ("override/Special.java", "run", "calls"),
+                },
+                ("override/Base.java", "save"): {("override/Order.java", "save", "calls")},
+                ("override/Order.java", "save"): {("override/Special.java", "run", "calls")},
+            },
+            id="an-override-hides-its-bases-member",
+        ),
+        # `C extends B implements I`, both defining `m`: `m()` is `B.m`.
+        pytest.param(
+            "member-order",
+            {
+                ("classwins/B.java", "m"): {("classwins/C.java", "run", "calls")},
+                ("classwins/I.java", "m"): set(),
+            },
+            id="a-classs-method-wins-over-an-interfaces-default",
+        ),
+        # `K implements I, J`, `J extends I`, both defining `m`: `m()` is `J.m`.
+        pytest.param(
+            "member-order",
+            {
+                ("specific/I.java", "m"): set(),
+                ("specific/J.java", "m"): {("specific/K.java", "run", "calls")},
+            },
+            id="the-most-specific-interface-default-wins",
+        ),
+        # `Bottom implements Left, Right`, both extending `Top`, `Right.m` overriding: `m()` is `Right.m`.
+        pytest.param(
+            "member-order",
+            {
+                ("diamond/Right.java", "m"): {("diamond/Bottom.java", "run", "calls")},
+                ("diamond/Top.java", "m"): set(),
+            },
+            id="a-diamonds-overriding-interface-wins",
+        ),
+    ],
+)
+def test_each_target_is_reached_by_exactly_the_chunks_named(
+    indexed: Indexed,
+    sample: str,
+    reached: dict[Target, set[Referrer]],
+) -> None:
+    """Each target `(path, symbol)` of the sample under `samples/calls/` is reached by exactly the chunks named, by any edge."""
+    with indexed(Path(__file__).parent / "samples" / "calls" / sample) as build:
+        assert_reached(build, reached)

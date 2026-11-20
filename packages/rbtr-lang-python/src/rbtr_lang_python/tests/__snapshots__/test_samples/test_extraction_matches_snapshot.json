@@ -5,7 +5,6 @@
     "file_path": "cli.py",
     "scope": "",
     "language": "python",
-    "content": "\"\"\"Run the greeter from the command line.\"\"\"",
     "line_start": 1,
     "line_end": 1
   },
@@ -15,7 +14,6 @@
     "file_path": "cli.py",
     "scope": "",
     "language": "python",
-    "content": "import sys",
     "line_start": 3,
     "line_end": 3,
     "metadata": {
@@ -36,7 +34,6 @@
     "file_path": "cli.py",
     "scope": "",
     "language": "python",
-    "content": "sys.path.insert(0, \".\")\nOPTIONS[\"verbose\"] = True",
     "line_start": 5,
     "line_end": 6
   },
@@ -46,7 +43,6 @@
     "file_path": "cli.py",
     "scope": "",
     "language": "python",
-    "content": "try:",
     "line_start": 8,
     "line_end": 8
   },
@@ -56,7 +52,6 @@
     "file_path": "cli.py",
     "scope": "",
     "language": "python",
-    "content": "import readline",
     "line_start": 9,
     "line_end": 9,
     "metadata": {
@@ -77,7 +72,6 @@
     "file_path": "cli.py",
     "scope": "",
     "language": "python",
-    "content": "except ImportError:\n    readline = None",
     "line_start": 10,
     "line_end": 11
   },
@@ -87,7 +81,6 @@
     "file_path": "cli.py",
     "scope": "",
     "language": "python",
-    "content": "for name in sys.argv[1:]:\n    print(name)",
     "line_start": 13,
     "line_end": 14
   },
@@ -97,7 +90,6 @@
     "file_path": "cli.py",
     "scope": "",
     "language": "python",
-    "content": "with open(\"greeting.log\", \"a\") as log:\n    log.write(\"ran\\n\")",
     "line_start": 16,
     "line_end": 17
   },
@@ -107,7 +99,6 @@
     "file_path": "cli.py",
     "scope": "",
     "language": "python",
-    "content": "del readline\nassert sys.argv",
     "line_start": 19,
     "line_end": 20
   },
@@ -117,7 +108,6 @@
     "file_path": "cli.py",
     "scope": "",
     "language": "python",
-    "content": "if __name__ == \"__main__\":\n    print(\"greeter\")",
     "line_start": 22,
     "line_end": 23
   },
@@ -127,7 +117,6 @@
     "file_path": "config.py",
     "scope": "",
     "language": "python",
-    "content": "\"\"\"Configuration values for the greeter.\"\"\"",
     "line_start": 1,
     "line_end": 1
   },
@@ -137,7 +126,6 @@
     "file_path": "config.py",
     "scope": "",
     "language": "python",
-    "content": "LOCALE = \"en\"",
     "line_start": 3,
     "line_end": 3
   },
@@ -147,7 +135,6 @@
     "file_path": "orders.py",
     "scope": "",
     "language": "python",
-    "content": "\"\"\"Orders — calls of each shape the call graph resolves, and two it leaves.\"\"\"",
     "line_start": 1,
     "line_end": 1
   },
@@ -157,7 +144,6 @@
     "file_path": "orders.py",
     "scope": "",
     "language": "python",
-    "content": "from . import python as greetings",
     "line_start": 3,
     "line_end": 3,
     "metadata": {
@@ -178,7 +164,6 @@
     "file_path": "orders.py",
     "scope": "",
     "language": "python",
-    "content": "from .config import LOCALE as locale_name",
     "line_start": 4,
     "line_end": 4,
     "metadata": {
@@ -199,7 +184,6 @@
     "file_path": "orders.py",
     "scope": "",
     "language": "python",
-    "content": "from .python import *",
     "line_start": 5,
     "line_end": 5,
     "metadata": {
@@ -215,7 +199,6 @@
     "file_path": "orders.py",
     "scope": "",
     "language": "python",
-    "content": "class Model:\n    \"\"\"A base whose members a subclass reaches through ``self`` and ``super()``.\"\"\"\n\n    def save(self) -> bool:\n        return self.check()\n\n    def check(self) -> bool:\n        return True",
     "line_start": 8,
     "line_end": 15
   },
@@ -225,7 +208,6 @@
     "file_path": "orders.py",
     "scope": "Model",
     "language": "python",
-    "content": "def save(self) -> bool:\n        return self.check()",
     "line_start": 11,
     "line_end": 12
   },
@@ -235,7 +217,6 @@
     "file_path": "orders.py",
     "scope": "Model",
     "language": "python",
-    "content": "def check(self) -> bool:\n        return True",
     "line_start": 14,
     "line_end": 15
   },
@@ -245,7 +226,6 @@
     "file_path": "orders.py",
     "scope": "",
     "language": "python",
-    "content": "class Order(Model):\n    \"\"\"A subclass calling its own members, its base's, and other modules'.\"\"\"\n\n    def save(self) -> bool:\n        super().save()\n        return bool(greetings.Greeter().greet(locale_name))\n\n    def total(self, items: list[int]) -> int:\n        # `sum` is defined nowhere here, and `items[0]` is a value: no edge.\n        return sum(items) + int(self.check()) + items[0].bit_length()",
     "line_start": 18,
     "line_end": 27
   },
@@ -255,7 +235,6 @@
     "file_path": "orders.py",
     "scope": "Order",
     "language": "python",
-    "content": "def save(self) -> bool:\n        super().save()\n        return bool(greetings.Greeter().greet(locale_name))",
     "line_start": 21,
     "line_end": 23
   },
@@ -265,7 +244,6 @@
     "file_path": "orders.py",
     "scope": "Order",
     "language": "python",
-    "content": "def total(self, items: list[int]) -> int:\n        # `sum` is defined nowhere here, and `items[0]` is a value: no edge.\n        return sum(items) + int(self.check()) + items[0].bit_length()",
     "line_start": 25,
     "line_end": 27
   },
@@ -275,7 +253,6 @@
     "file_path": "orders.py",
     "scope": "",
     "language": "python",
-    "content": "def register(name: str):\n    def wrap(fn):\n        return fn\n\n    return wrap",
     "line_start": 30,
     "line_end": 34
   },
@@ -285,7 +262,6 @@
     "file_path": "orders.py",
     "scope": "register",
     "language": "python",
-    "content": "def wrap(fn):\n        return fn",
     "line_start": 31,
     "line_end": 32
   },
@@ -295,7 +271,6 @@
     "file_path": "orders.py",
     "scope": "",
     "language": "python",
-    "content": "@register(\"orders\")\ndef build() -> Order:\n    def inner() -> Order:\n        return Order()\n\n    return inner()",
     "line_start": 37,
     "line_end": 42
   },
@@ -305,7 +280,6 @@
     "file_path": "orders.py",
     "scope": "build",
     "language": "python",
-    "content": "def inner() -> Order:\n        return Order()",
     "line_start": 39,
     "line_end": 40
   },
@@ -315,7 +289,6 @@
     "file_path": "orders.py",
     "scope": "",
     "language": "python",
-    "content": "format_greeting(\"order\")",
     "line_start": 45,
     "line_end": 45
   },
@@ -325,7 +298,6 @@
     "file_path": "pkg/a.py",
     "scope": "",
     "language": "python",
-    "content": "from pkg.b import helper",
     "line_start": 1,
     "line_end": 1,
     "metadata": {
@@ -346,7 +318,6 @@
     "file_path": "pkg/b.py",
     "scope": "",
     "language": "python",
-    "content": "def helper():\n    return 1",
     "line_start": 1,
     "line_end": 2
   },
@@ -356,7 +327,6 @@
     "file_path": "python.py",
     "scope": "",
     "language": "python",
-    "content": "# Top-of-file banner comment, attached to nothing.\n# Second banner line, same block.",
     "line_start": 1,
     "line_end": 2
   },
@@ -366,7 +336,6 @@
     "file_path": "python.py",
     "scope": "",
     "language": "python",
-    "content": "\"\"\"Greeter — formats greetings for named recipients.\n\nA sample module exercising the constructs the python plugin extracts:\nfunctions (sync, async, decorated), classes, methods (instance, property,\nstatic, class), module-level variables (including tuple unpacking and\nannotated assignments), nested functions (scoped to their parent), PEP 695\n`type` aliases (as classes), the import styles that carry distinct\nmetadata, and standalone / leading comments.\n\"\"\"",
     "line_start": 4,
     "line_end": 12
   },
@@ -376,7 +345,6 @@
     "file_path": "python.py",
     "scope": "",
     "language": "python",
-    "content": "from __future__ import annotations",
     "line_start": 14,
     "line_end": 14,
     "metadata": {
@@ -397,7 +365,6 @@
     "file_path": "python.py",
     "scope": "",
     "language": "python",
-    "content": "import os",
     "line_start": 16,
     "line_end": 16,
     "metadata": {
@@ -418,7 +385,6 @@
     "file_path": "python.py",
     "scope": "",
     "language": "python",
-    "content": "import os.path as osp",
     "line_start": 17,
     "line_end": 17,
     "metadata": {
@@ -439,7 +405,6 @@
     "file_path": "python.py",
     "scope": "",
     "language": "python",
-    "content": "from functools import lru_cache",
     "line_start": 18,
     "line_end": 18,
     "metadata": {
@@ -460,7 +425,6 @@
     "file_path": "python.py",
     "scope": "",
     "language": "python",
-    "content": "from pathlib import Path as P",
     "line_start": 19,
     "line_end": 19,
     "metadata": {
@@ -481,7 +445,6 @@
     "file_path": "python.py",
     "scope": "",
     "language": "python",
-    "content": "from .config import LOCALE",
     "line_start": 21,
     "line_end": 21,
     "metadata": {
@@ -502,7 +465,6 @@
     "file_path": "python.py",
     "scope": "",
     "language": "python",
-    "content": "type GreetingList = list[str]",
     "line_start": 23,
     "line_end": 23
   },
@@ -512,7 +474,6 @@
     "file_path": "python.py",
     "scope": "",
     "language": "python",
-    "content": "DEFAULT_GREETING = \"Hello\"",
     "line_start": 25,
     "line_end": 25
   },
@@ -522,7 +483,6 @@
     "file_path": "python.py",
     "scope": "",
     "language": "python",
-    "content": "LOCALES, FALLBACK = (\"en\", \"fr\"), \"en\"",
     "line_start": 26,
     "line_end": 26
   },
@@ -532,7 +492,6 @@
     "file_path": "python.py",
     "scope": "",
     "language": "python",
-    "content": "LOCALES, FALLBACK = (\"en\", \"fr\"), \"en\"",
     "line_start": 26,
     "line_end": 26
   },
@@ -542,7 +501,6 @@
     "file_path": "python.py",
     "scope": "",
     "language": "python",
-    "content": "# trailing comment: not folded, its own chunk",
     "line_start": 27,
     "line_end": 27
   },
@@ -552,7 +510,6 @@
     "file_path": "python.py",
     "scope": "",
     "language": "python",
-    "content": "MAX_RECIPIENTS: int = 100",
     "line_start": 27,
     "line_end": 27
   },
@@ -562,7 +519,6 @@
     "file_path": "python.py",
     "scope": "",
     "language": "python",
-    "content": "# Section: greeting helpers.\n# A standalone block between definitions.",
     "line_start": 29,
     "line_end": 30
   },
@@ -572,7 +528,6 @@
     "file_path": "python.py",
     "scope": "",
     "language": "python",
-    "content": "# Leading doc comment folded into format_greeting.\ndef format_greeting(name: str) -> str:\n    \"\"\"Return a greeting for ``name`` in the configured locale.\"\"\"\n\n    def normalise(raw: str) -> str:\n        \"\"\"Trim and title-case a raw recipient name.\"\"\"\n        return raw.strip().title()\n\n    return f\"{DEFAULT_GREETING}, {normalise(name)} ({LOCALE})\"",
     "line_start": 33,
     "line_end": 41
   },
@@ -582,7 +537,6 @@
     "file_path": "python.py",
     "scope": "format_greeting",
     "language": "python",
-    "content": "def normalise(raw: str) -> str:\n        \"\"\"Trim and title-case a raw recipient name.\"\"\"\n        return raw.strip().title()",
     "line_start": 37,
     "line_end": 39
   },
@@ -592,7 +546,6 @@
     "file_path": "python.py",
     "scope": "",
     "language": "python",
-    "content": "async def fetch_remote_greeting(url: str) -> str:\n    \"\"\"Fetch a greeting template from a remote source.\"\"\"\n    return os.environ.get(\"GREETING\", DEFAULT_GREETING)",
     "line_start": 44,
     "line_end": 46
   },
@@ -602,7 +555,6 @@
     "file_path": "python.py",
     "scope": "",
     "language": "python",
-    "content": "@lru_cache\ndef cached_default() -> str:\n    \"\"\"Cache and return the default greeting prefix.\"\"\"\n    return DEFAULT_GREETING",
     "line_start": 49,
     "line_end": 52
   },
@@ -612,7 +564,6 @@
     "file_path": "python.py",
     "scope": "",
     "language": "python",
-    "content": "class Greeter:\n    \"\"\"Stateful greeter holding a prefix and recipient log.\"\"\"\n\n    def __init__(self, prefix: str = DEFAULT_GREETING) -> None:\n        self.prefix = prefix\n        self._seen: list[str] = []\n\n    def greet(self, name: str) -> str:\n        \"\"\"Greet ``name`` and record the recipient.\"\"\"\n        self._seen.append(name)\n        return format_greeting(name)\n\n    @property\n    def seen(self) -> list[str]:\n        \"\"\"Recipients greeted so far.\"\"\"\n        return list(self._seen)\n\n    @staticmethod\n    def shout(message: str) -> str:\n        \"\"\"Upper-case a message.\"\"\"\n        return message.upper()\n\n    @classmethod\n    def default(cls) -> Greeter:\n        \"\"\"Build a greeter with the default prefix.\"\"\"\n        return cls(DEFAULT_GREETING)",
     "line_start": 55,
     "line_end": 80
   },
@@ -622,7 +573,6 @@
     "file_path": "python.py",
     "scope": "Greeter",
     "language": "python",
-    "content": "def __init__(self, prefix: str = DEFAULT_GREETING) -> None:\n        self.prefix = prefix\n        self._seen: list[str] = []",
     "line_start": 58,
     "line_end": 60
   },
@@ -632,7 +582,6 @@
     "file_path": "python.py",
     "scope": "Greeter",
     "language": "python",
-    "content": "def greet(self, name: str) -> str:\n        \"\"\"Greet ``name`` and record the recipient.\"\"\"\n        self._seen.append(name)\n        return format_greeting(name)",
     "line_start": 62,
     "line_end": 65
   },
@@ -642,7 +591,6 @@
     "file_path": "python.py",
     "scope": "Greeter",
     "language": "python",
-    "content": "@property\n    def seen(self) -> list[str]:\n        \"\"\"Recipients greeted so far.\"\"\"\n        return list(self._seen)",
     "line_start": 67,
     "line_end": 70
   },
@@ -652,7 +600,6 @@
     "file_path": "python.py",
     "scope": "Greeter",
     "language": "python",
-    "content": "@staticmethod\n    def shout(message: str) -> str:\n        \"\"\"Upper-case a message.\"\"\"\n        return message.upper()",
     "line_start": 72,
     "line_end": 75
   },
@@ -662,7 +609,6 @@
     "file_path": "python.py",
     "scope": "Greeter",
     "language": "python",
-    "content": "@classmethod\n    def default(cls) -> Greeter:\n        \"\"\"Build a greeter with the default prefix.\"\"\"\n        return cls(DEFAULT_GREETING)",
     "line_start": 77,
     "line_end": 80
   },
@@ -672,7 +618,6 @@
     "file_path": "python.py",
     "scope": "",
     "language": "python",
-    "content": "def config_path() -> P:\n    \"\"\"Return the path to the greeter config file.\"\"\"\n    return P.home() / \".greeter\"",
     "line_start": 83,
     "line_end": 85
   }

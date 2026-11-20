@@ -1,4 +1,4 @@
-"""Bash sample extraction: the `samples/bash/` project, built as rbtr builds a repository.
+"""Bash sample extraction: the `samples/bash/` project, built as rbtr builds a repository and read as an agent reads it.
 
 The snapshots are the golden record of what bash extraction produces;
 regenerate with `pytest --snapshot-update` after an intended change.
@@ -11,47 +11,32 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import pytest
-
-from rbtr.domain.models import ChunkKind
+from rbtr.testing import Indexed
+from rbtr.testing.assertions import assert_every_line_in_a_chunk, assert_reached
+from rbtr.testing.reads import outline
 
 if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
 
-    from rbtr.daemon.dto import SymbolOut
+
+def test_extraction_matches_snapshot(indexed: Indexed, snapshot_json: SnapshotAssertion) -> None:
+    with indexed(Path(__file__).parent / "samples" / "bash") as build:
+        symbols = outline(build)
+    assert symbols == snapshot_json
 
 
-@pytest.fixture(scope="module")
-def sample_dir() -> Path:
-    """The `samples/bash/` project."""
-    return Path(__file__).parent / "samples" / "bash"
+def test_every_edge_reaches_what_it_names(indexed: Indexed) -> None:
+    """Each target the sample's edges reach is reached by exactly the chunks named, by any edge."""
+    reached = {
+        ("bin/b.sh", "helper"): {("bin/a.sh", "source ./b.sh", "imports")},
+        ("lib/colours.sh", "RED"): {("bash.sh", "source ./lib/colours.sh", "imports")},
+        ("lib/colours.sh", "RESET"): {("bash.sh", "source ./lib/colours.sh", "imports")},
+    }
+    with indexed(Path(__file__).parent / "samples" / "bash") as build:
+        assert_reached(build, reached)
 
 
-def test_emits_expected_kinds(sample_symbols: list[SymbolOut]) -> None:
-    """The sample exercises bash's function, variable, and import chunks."""
-    assert {
-        ChunkKind.FUNCTION,
-        ChunkKind.VARIABLE,
-        ChunkKind.IMPORT,
-        ChunkKind.COMMENT,
-    } <= {s.kind for s in sample_symbols}
-
-
-def test_parses_cleanly(sample_parse_errors: list[str]) -> None:
-    """Every source file is valid in the language the build read it as."""
-    assert sample_parse_errors == []
-
-
-def test_extraction_matches_snapshot(
-    sample_symbols: list[SymbolOut], snapshot_json: SnapshotAssertion
-) -> None:
-    assert sample_symbols == snapshot_json
-
-
-def test_edges_match_snapshot(sample_edges: list[str], snapshot_json: SnapshotAssertion) -> None:
-    assert sample_edges == snapshot_json
-
-
-def test_every_line_is_in_a_chunk(sample_uncovered_lines: list[str]) -> None:
+def test_every_line_is_in_a_chunk(indexed: Indexed) -> None:
     """No line of the sample's code falls outside a chunk."""
-    assert sample_uncovered_lines == []
+    with indexed(Path(__file__).parent / "samples" / "bash") as build:
+        assert_every_line_in_a_chunk(build)

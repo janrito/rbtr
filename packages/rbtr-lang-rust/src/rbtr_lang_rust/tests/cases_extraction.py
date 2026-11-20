@@ -5,9 +5,11 @@ from __future__ import annotations
 import pytest
 from pytest_cases import case
 
-type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
-type ImportCase = tuple[str, str, dict[str, str | list[dict[str, str]]]]
-type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
+from rbtr.testing.assertions import Referrer, Target
+
+type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
+type ImportCase = tuple[dict[str, str], dict[str, str | list[dict[str, str]]]]
+type MixedCase = tuple[dict[str, str], set[str], list[tuple[str, str]]]
 
 _xfail_nested = pytest.mark.xfail(
     reason="nested/chained destructuring unsupported — no query-only recursion",
@@ -18,25 +20,25 @@ _xfail_nested = pytest.mark.xfail(
 @case(tags=["symbol"])
 def case_rust_function() -> SymbolCase:
     """fn hello() {}."""
-    return "rust", "fn hello() {}\n", [("function", "hello", "")]
+    return {"input.rs": "fn hello() {}\n"}, [("function", "hello", "")]
 
 
 @case(tags=["symbol"])
 def case_rust_function_params() -> SymbolCase:
     """fn add(a: i32, b: i32) -> i32."""
-    return "rust", "fn add(a: i32, b: i32) -> i32 { a + b }\n", [("function", "add", "")]
+    return {"input.rs": "fn add(a: i32, b: i32) -> i32 { a + b }\n"}, [("function", "add", "")]
 
 
 @case(tags=["symbol"])
 def case_rust_pub_function() -> SymbolCase:
     """pub fn visible() {}."""
-    return "rust", "pub fn visible() {}\n", [("function", "visible", "")]
+    return {"input.rs": "pub fn visible() {}\n"}, [("function", "visible", "")]
 
 
 @case(tags=["symbol"])
 def case_rust_async_function() -> SymbolCase:
     """async fn fetch() {}."""
-    return "rust", "async fn fetch() {}\n", [("function", "fetch", "")]
+    return {"input.rs": "async fn fetch() {}\n"}, [("function", "fetch", "")]
 
 
 @case(tags=["symbol"])
@@ -47,7 +49,7 @@ fn a() {}
 fn b() {}
 fn c() {}
 """
-    return "rust", src, [("function", "a", ""), ("function", "b", ""), ("function", "c", "")]
+    return {"input.rs": src}, [("function", "a", ""), ("function", "b", ""), ("function", "c", "")]
 
 
 @case(tags=["symbol"])
@@ -58,19 +60,19 @@ struct User {
     name: String,
 }
 """
-    return "rust", src, [("class", "User", "")]
+    return {"input.rs": src}, [("class", "User", "")]
 
 
 @case(tags=["symbol"])
 def case_rust_unit_struct() -> SymbolCase:
     """struct Marker;"""
-    return "rust", "struct Marker;\n", [("class", "Marker", "")]
+    return {"input.rs": "struct Marker;\n"}, [("class", "Marker", "")]
 
 
 @case(tags=["symbol"])
 def case_rust_tuple_struct() -> SymbolCase:
     """struct Point(f64, f64);"""
-    return "rust", "struct Point(f64, f64);\n", [("class", "Point", "")]
+    return {"input.rs": "struct Point(f64, f64);\n"}, [("class", "Point", "")]
 
 
 @case(tags=["symbol"])
@@ -83,7 +85,7 @@ enum Color {
     Blue,
 }
 """
-    return "rust", src, [("class", "Color", "")]
+    return {"input.rs": src}, [("class", "Color", "")]
 
 
 @case(tags=["symbol"])
@@ -96,7 +98,7 @@ impl Svc {
     fn stop(&self) {}
 }
 """
-    return "rust", src, [("method", "start", "Svc"), ("method", "stop", "Svc")]
+    return {"input.rs": src}, [("method", "start", "Svc"), ("method", "stop", "Svc")]
 
 
 @case(tags=["symbol"])
@@ -108,7 +110,7 @@ impl Node {
     fn Node(&self) {}
 }
 """
-    return "rust", src, [("method", "Node", "Node")]
+    return {"input.rs": src}, [("method", "Node", "Node")]
 
 
 @case(tags=["symbol"])
@@ -122,7 +124,7 @@ mod outer {
     fn bar() {}
 }
 """
-    return "rust", src, [("function", "bar", "outer")]
+    return {"input.rs": src}, [("function", "bar", "outer")]
 
 
 @case(tags=["symbol"])
@@ -136,7 +138,7 @@ mod m {
     }
 }
 """
-    return "rust", src, [("method", "go", "m::S")]
+    return {"input.rs": src}, [("method", "go", "m::S")]
 
 
 @case(tags=["symbol"])
@@ -149,7 +151,7 @@ mod a {
     }
 }
 """
-    return "rust", src, [("function", "f", "a::b")]
+    return {"input.rs": src}, [("function", "f", "a::b")]
 
 
 @case(tags=["symbol"])
@@ -165,15 +167,14 @@ mod a {
     }
 }
 """
-    return "rust", src, [("method", "go", "a::b::S")]
+    return {"input.rs": src}, [("method", "go", "a::b::S")]
 
 
 @case(tags=["import"])
 def case_rust_import_scoped() -> ImportCase:
     """use std::collections::HashMap."""
     return (
-        "rust",
-        "use std::collections::HashMap;\n",
+        {"input.rs": "use std::collections::HashMap;\n"},
         {
             "module": "std::collections",
             "names": "HashMap",
@@ -186,8 +187,7 @@ def case_rust_import_scoped() -> ImportCase:
 def case_rust_import_deeply_nested() -> ImportCase:
     """use a::b::c::d::Item."""
     return (
-        "rust",
-        "use a::b::c::d::Item;\n",
+        {"input.rs": "use a::b::c::d::Item;\n"},
         {"module": "a::b::c::d", "names": "Item", "bindings": [{"name": "Item", "local": "Item"}]},
     )
 
@@ -196,8 +196,7 @@ def case_rust_import_deeply_nested() -> ImportCase:
 def case_rust_import_crate() -> ImportCase:
     """use crate::models::Chunk."""
     return (
-        "rust",
-        "use crate::models::Chunk;\n",
+        {"input.rs": "use crate::models::Chunk;\n"},
         {
             "module": "crate::models",
             "names": "Chunk",
@@ -210,8 +209,7 @@ def case_rust_import_crate() -> ImportCase:
 def case_rust_import_crate_braces() -> ImportCase:
     """use crate::models::{Chunk, Edge}."""
     return (
-        "rust",
-        "use crate::models::{Chunk, Edge};\n",
+        {"input.rs": "use crate::models::{Chunk, Edge};\n"},
         {
             "module": "crate::models",
             "names": "Chunk,Edge",
@@ -224,8 +222,7 @@ def case_rust_import_crate_braces() -> ImportCase:
 def case_rust_mod_declaration() -> ImportCase:
     """mod util; — a child of this module, bound under its name."""
     return (
-        "rust",
-        "mod util;\n",
+        {"input.rs": "mod util;\n"},
         {
             "module": "self::util",
             "names": "",
@@ -238,8 +235,7 @@ def case_rust_mod_declaration() -> ImportCase:
 def case_rust_import_super_single() -> ImportCase:
     """use super::utils."""
     return (
-        "rust",
-        "use super::utils;\n",
+        {"input.rs": "use super::utils;\n"},
         {"module": "super", "names": "utils", "bindings": [{"name": "utils", "local": "utils"}]},
     )
 
@@ -248,8 +244,7 @@ def case_rust_import_super_single() -> ImportCase:
 def case_rust_import_super_nested() -> ImportCase:
     """use super::helpers::run."""
     return (
-        "rust",
-        "use super::helpers::run;\n",
+        {"input.rs": "use super::helpers::run;\n"},
         {"module": "super::helpers", "names": "run", "bindings": [{"name": "run", "local": "run"}]},
     )
 
@@ -258,8 +253,7 @@ def case_rust_import_super_nested() -> ImportCase:
 def case_rust_import_super_super() -> ImportCase:
     """use super::super::common::Config — double super."""
     return (
-        "rust",
-        "use super::super::common::Config;\n",
+        {"input.rs": "use super::super::common::Config;\n"},
         {
             "module": "super::super::common",
             "names": "Config",
@@ -272,8 +266,7 @@ def case_rust_import_super_super() -> ImportCase:
 def case_rust_import_use_list() -> ImportCase:
     """use std::io::{Read, Write}."""
     return (
-        "rust",
-        "use std::io::{Read, Write};\n",
+        {"input.rs": "use std::io::{Read, Write};\n"},
         {
             "module": "std::io",
             "names": "Read,Write",
@@ -286,8 +279,7 @@ def case_rust_import_use_list() -> ImportCase:
 def case_rust_import_use_list_self() -> ImportCase:
     """use std::io::{self, Read}."""
     return (
-        "rust",
-        "use std::io::{self, Read};\n",
+        {"input.rs": "use std::io::{self, Read};\n"},
         {
             "module": "std::io",
             "names": "self,Read",
@@ -300,8 +292,7 @@ def case_rust_import_use_list_self() -> ImportCase:
 def case_rust_import_bare() -> ImportCase:
     """use serde;"""
     return (
-        "rust",
-        "use serde;\n",
+        {"input.rs": "use serde;\n"},
         {"module": "serde", "bindings": [{"name": "serde", "local": "serde"}]},
     )
 
@@ -341,27 +332,30 @@ impl App {
 /// Entry point.
 fn main() {}
 """
-    return "rust", src, {"import", "class", "method", "function"}, [("new", "App"), ("run", "App")]
+    return (
+        {"input.rs": src},
+        {"import", "class", "method", "function"},
+        [("new", "App"), ("run", "App")],
+    )
 
 
 @case(tags=["symbol"])
 def case_rust_const() -> SymbolCase:
     """Crate-level const."""
-    return "rust", "const MAX: i32 = 100;\n", [("variable", "MAX", "")]
+    return {"input.rs": "const MAX: i32 = 100;\n"}, [("variable", "MAX", "")]
 
 
 @case(tags=["symbol"])
 def case_rust_static() -> SymbolCase:
     """Crate-level static."""
-    return "rust", 'static NAME: &str = "x";\n', [("variable", "NAME", "")]
+    return {"input.rs": 'static NAME: &str = "x";\n'}, [("variable", "NAME", "")]
 
 
 @case(tags=["import"])
 def case_rust_import_aliased() -> ImportCase:
     """use a::b as c; — `b` bound under `c`."""
     return (
-        "rust",
-        "use a::b as c;\n",
+        {"input.rs": "use a::b as c;\n"},
         {"module": "a", "names": "b", "bindings": [{"name": "b", "local": "c"}]},
     )
 
@@ -370,8 +364,7 @@ def case_rust_import_aliased() -> ImportCase:
 def case_rust_import_aliased_in_list() -> ImportCase:
     """use std::io::{Read as R}; — `Read` bound under `R`."""
     return (
-        "rust",
-        "use std::io::{Read as R};\n",
+        {"input.rs": "use std::io::{Read as R};\n"},
         {"module": "std::io", "names": "Read", "bindings": [{"name": "Read", "local": "R"}]},
     )
 
@@ -379,17 +372,39 @@ def case_rust_import_aliased_in_list() -> ImportCase:
 @case(tags=["import"])
 def case_rust_import_glob() -> ImportCase:
     """use crate::models::*; — every public name, written `*`."""
-    return "rust", "use crate::models::*;\n", {"module": "crate::models", "names": "*"}
+    return {"input.rs": "use crate::models::*;\n"}, {"module": "crate::models", "names": "*"}
 
 
-type ReferencesCase = tuple[str, str, list[tuple[str, str, list[str], list[str]]]]
+type ReferencesCase = tuple[dict[str, str], dict[Target, set[Referrer]]]
 
 
 @case(tags=["references"])
 def case_rust_calls() -> ReferencesCase:
-    """Each call shape; `self` and `Self` reach the impl's type, a macro is no call."""
-    src = """\
+    """Each call shape; `self` and `Self` reach the impl's type, a macro is no call.
+
+    `z` is a function of its own, which `x.y().z()`, a call through a value,
+    does not reach, and `println` one which `println!` does not.
+    """
+    order = """\
+use crate::models;
+
+pub struct Order;
+
+fn helper() {}
+
+fn foo<T>() {}
+
+fn z() {}
+
+fn println() {}
+
 impl Order {
+    fn new() -> Self {
+        Order
+    }
+
+    fn check(&self) {}
+
     fn save(&self) {
         self.check();
         helper();
@@ -402,23 +417,28 @@ impl Order {
     }
 }
 """
+    manifest = """\
+[package]
+name = "shop"
+"""
+    lib = """\
+mod models;
+mod order;
+"""
     return (
-        "rust",
-        src,
-        [
-            (
-                "method",
-                "save",
-                [
-                    "member:check",
-                    "unqualified:helper",
-                    "member:new",
-                    "unqualified:Order.new",
-                    "unqualified:models.make",
-                    "unqualified:foo",
-                    "unqualified:x.y",
-                ],
-                [],
-            ),
-        ],
+        {
+            "Cargo.toml": manifest,
+            "src/lib.rs": lib,
+            "src/models.rs": "pub fn make() {}\n",
+            "src/order.rs": order,
+        },
+        {
+            ("src/order.rs", "check"): {("src/order.rs", "save", "calls")},
+            ("src/order.rs", "helper"): {("src/order.rs", "save", "calls")},
+            ("src/order.rs", "new"): {("src/order.rs", "save", "calls")},
+            ("src/models.rs", "make"): {("src/order.rs", "save", "calls")},
+            ("src/order.rs", "foo"): {("src/order.rs", "save", "calls")},
+            ("src/order.rs", "z"): set(),
+            ("src/order.rs", "println"): set(),
+        },
     )

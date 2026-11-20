@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pytest_cases import case
 
-type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
+type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
 
 
 @case(tags=["symbol"])
@@ -18,8 +18,7 @@ name = "rbtr"
 line-length = 99
 """
     return (
-        "toml",
-        src,
+        {"input.toml": src},
         [
             ("config_key", "project", ""),
             ("config_key", "ruff", "tool"),

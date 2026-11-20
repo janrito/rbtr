@@ -1,4 +1,4 @@
-"""Less sample extraction: the `samples/less/` project, built as rbtr builds a repository.
+"""Less sample extraction: the `samples/less/` project, built as rbtr builds a repository and read as an agent reads it.
 
 The snapshots are the golden record of what Less extraction produces.
 Engine-wide invariants are covered once in core.
@@ -9,48 +9,36 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import pytest
-
-from rbtr.domain.models import ChunkKind
+from rbtr.testing import Indexed
+from rbtr.testing.assertions import assert_every_line_in_a_chunk, assert_reached
+from rbtr.testing.reads import outline
 
 if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
 
-    from rbtr.daemon.dto import SymbolOut
+
+def test_extraction_matches_snapshot(indexed: Indexed, snapshot_json: SnapshotAssertion) -> None:
+    with indexed(Path(__file__).parent / "samples" / "less") as build:
+        symbols = outline(build)
+    assert symbols == snapshot_json
 
 
-@pytest.fixture(scope="module")
-def sample_dir() -> Path:
-    """The `samples/less/` project."""
-    return Path(__file__).parent / "samples" / "less"
+def test_every_edge_reaches_what_it_names(indexed: Indexed) -> None:
+    """Each target the sample's edges reach is reached by exactly the chunks named, by any edge."""
+    reached = {
+        ("base.less", "@bg"): {("less.less", '@import "base";', "imports")},
+        ("partials/dark.less", ".greeting--dark"): {
+            ("less.less", '@import "partials/dark.less";', "imports")
+        },
+        ("partials/tokens.less", "@ink"): {
+            ("partials/dark.less", '@import "tokens.less";', "imports")
+        },
+    }
+    with indexed(Path(__file__).parent / "samples" / "less") as build:
+        assert_reached(build, reached)
 
 
-def test_emits_expected_kinds(sample_symbols: list[SymbolOut]) -> None:
-    """The sample exercises Less's class, variable, function, and import chunks."""
-    assert {
-        ChunkKind.CLASS,
-        ChunkKind.VARIABLE,
-        ChunkKind.FUNCTION,
-        ChunkKind.IMPORT,
-        ChunkKind.COMMENT,
-    } <= {s.kind for s in sample_symbols}
-
-
-def test_parses_cleanly(sample_parse_errors: list[str]) -> None:
-    """Every source file is valid in the language the build read it as."""
-    assert sample_parse_errors == []
-
-
-def test_extraction_matches_snapshot(
-    sample_symbols: list[SymbolOut], snapshot_json: SnapshotAssertion
-) -> None:
-    assert sample_symbols == snapshot_json
-
-
-def test_edges_match_snapshot(sample_edges: list[str], snapshot_json: SnapshotAssertion) -> None:
-    assert sample_edges == snapshot_json
-
-
-def test_every_line_is_in_a_chunk(sample_uncovered_lines: list[str]) -> None:
+def test_every_line_is_in_a_chunk(indexed: Indexed) -> None:
     """No line of the sample's code falls outside a chunk."""
-    assert sample_uncovered_lines == []
+    with indexed(Path(__file__).parent / "samples" / "less") as build:
+        assert_every_line_in_a_chunk(build)

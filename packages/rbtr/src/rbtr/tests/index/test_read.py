@@ -337,8 +337,8 @@ def test_shared_chunk_embedded_once_across_repos(
 
     embed_index(index, at=in_repo1, embedder=stubbed_embedder)
 
-    assert index.chunk_counts_for_snapshot(at=in_repo1).is_fully_embedded
-    assert index.chunk_counts_for_snapshot(at=in_repo2).is_fully_embedded
+    assert index.chunk_counts_for_snapshot(at=in_repo1).unembedded == 0
+    assert index.chunk_counts_for_snapshot(at=in_repo2).unembedded == 0
 
 
 def test_cleanup_keeps_chunk_referenced_by_another_repo(
@@ -616,7 +616,7 @@ def test_an_indexed_snapshot_with_no_chunks_counts_zero(
     """
     counts = index.chunk_counts_for_snapshot(at=nothing_to_index_ref)
     assert counts.total == 0
-    assert counts.is_fully_embedded, "nothing outstanding means no embed work"
+    assert counts.unembedded == 0, "nothing outstanding means no embed work"
     snapshots = index.chunk_counts_by_snapshot(repo=nothing_to_index_ref.repo)
     assert [ref.snapshot_sha for ref in snapshots] == [nothing_to_index_ref.snapshot_sha]
 

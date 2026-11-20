@@ -5,7 +5,6 @@
     "file_path": "config.rst",
     "scope": "",
     "language": "rst",
-    "content": "Config\n======\n\nGreeter configuration.",
     "line_start": 1,
     "line_end": 4
   },
@@ -15,7 +14,6 @@
     "file_path": "guide.rst",
     "scope": "",
     "language": "rst",
-    "content": "Guide\n=====\n\nUsage guide.\n\n.. _greeting-options:",
     "line_start": 1,
     "line_end": 6
   },
@@ -25,7 +23,6 @@
     "file_path": "guide.rst",
     "scope": "",
     "language": "rst",
-    "content": ".. _greeting-options:",
     "line_start": 6,
     "line_end": 6
   },
@@ -35,7 +32,6 @@
     "file_path": "guide.rst",
     "scope": "Guide",
     "language": "rst",
-    "content": "Greeting options\n----------------\n\nChoose a salutation and a locale.\n\n.. _salutations:\n.. _Greetings Table:",
     "line_start": 8,
     "line_end": 14
   },
@@ -45,7 +41,6 @@
     "file_path": "guide.rst",
     "scope": "",
     "language": "rst",
-    "content": ".. _salutations:",
     "line_start": 13,
     "line_end": 13
   },
@@ -55,7 +50,6 @@
     "file_path": "guide.rst",
     "scope": "",
     "language": "rst",
-    "content": ".. _Greetings Table:",
     "line_start": 14,
     "line_end": 14
   },
@@ -65,7 +59,6 @@
     "file_path": "guide.rst",
     "scope": "Guide",
     "language": "rst",
-    "content": "Salutations\n-----------\n\nHello and goodbye.\n\n.. _format_greeting:\n\nThe helper formats a greeting from a name.",
     "line_start": 16,
     "line_end": 23
   },
@@ -75,7 +68,6 @@
     "file_path": "guide.rst",
     "scope": "",
     "language": "rst",
-    "content": ".. _format_greeting:",
     "line_start": 21,
     "line_end": 21
   },
@@ -85,7 +77,6 @@
     "file_path": "helpers.py",
     "scope": "",
     "language": "python",
-    "content": "\"\"\"Helpers referenced by the documentation.\"\"\"",
     "line_start": 1,
     "line_end": 1
   },
@@ -95,7 +86,6 @@
     "file_path": "helpers.py",
     "scope": "",
     "language": "python",
-    "content": "def format_greeting(name):\n    \"\"\"Format a greeting.\"\"\"\n    return f\"Hello, {name}\"",
     "line_start": 4,
     "line_end": 6
   },
@@ -105,7 +95,6 @@
     "file_path": "helpers.py",
     "scope": "",
     "language": "python",
-    "content": "class Greeter:\n    \"\"\"A greeter.\"\"\"",
     "line_start": 9,
     "line_end": 10
   },
@@ -115,7 +104,6 @@
     "file_path": "notes.txt",
     "scope": "",
     "language": "rst",
-    "content": "Release notes\n=============\n\nA ``.txt`` file whose content is reStructuredText, read as reStructuredText.",
     "line_start": 1,
     "line_end": 4
   },
@@ -125,7 +113,6 @@
     "file_path": "notes.txt",
     "scope": "Release notes",
     "language": "rst",
-    "content": "Upgrading\n---------\n\n.. note::\n\n   Run ``uv tool upgrade rbtr``.",
     "line_start": 6,
     "line_end": 11
   },
@@ -135,7 +122,6 @@
     "file_path": "readme.rst",
     "scope": "",
     "language": "rst",
-    "content": "The documentation in this tree is in plain text files and can be viewed\nusing any text file viewer.",
     "line_start": 1,
     "line_end": 2
   },
@@ -145,7 +131,6 @@
     "file_path": "readme.rst",
     "scope": "",
     "language": "rst",
-    "content": "It uses `ReST`_ (reStructuredText), and the `Sphinx`_ documentation system.",
     "line_start": 4,
     "line_end": 4
   },
@@ -155,7 +140,6 @@
     "file_path": "readme.rst",
     "scope": "",
     "language": "rst",
-    "content": "To build an HTML version of the docs:",
     "line_start": 6,
     "line_end": 6
   },
@@ -165,7 +149,6 @@
     "file_path": "readme.rst",
     "scope": "",
     "language": "rst",
-    "content": "* Install Sphinx (using ``python -m pip install Sphinx`` or another method).",
     "line_start": 8,
     "line_end": 8
   },
@@ -175,7 +158,6 @@
     "file_path": "readme.rst",
     "scope": "",
     "language": "rst",
-    "content": "* In this directory, type ``make html`` at a shell prompt.",
     "line_start": 10,
     "line_end": 10
   },
@@ -185,7 +167,6 @@
     "file_path": "readme.rst",
     "scope": "",
     "language": "rst",
-    "content": "The built documentation in ``_build/html/index.html`` can then be read in a\nweb browser.",
     "line_start": 12,
     "line_end": 13
   },
@@ -195,7 +176,6 @@
     "file_path": "readme.rst",
     "scope": "",
     "language": "rst",
-    "content": ".. _ReST: https://docutils.sourceforge.io/rst.html",
     "line_start": 15,
     "line_end": 15
   },
@@ -205,7 +185,6 @@
     "file_path": "readme.rst",
     "scope": "",
     "language": "rst",
-    "content": ".. _Sphinx: https://www.sphinx-doc.org/",
     "line_start": 16,
     "line_end": 16
   },
@@ -215,7 +194,6 @@
     "file_path": "rst.rst",
     "scope": "",
     "language": "rst",
-    "content": "Greeter\n=======\n\nA small library for formatting greetings for named recipients.",
     "line_start": 1,
     "line_end": 4
   },
@@ -225,7 +203,6 @@
     "file_path": "rst.rst",
     "scope": "Greeter",
     "language": "rst",
-    "content": "Usage\n-----\n\nConfigure via :doc:`config` and call :func:`format_greeting`.\nSee the :class:`Greeter` class and `the guide <guide.rst>`_ for more,\nor `an external page <https://example.com>`_ (not a cross-reference).\n\n.. toctree::\n   :maxdepth: 2\n\n   intro\n   api/index",
     "line_start": 6,
     "line_end": 17
   },
@@ -235,7 +212,6 @@
     "file_path": "rst.rst",
     "scope": "",
     "language": "rst",
-    "content": ":doc:`config`",
     "line_start": 9,
     "line_end": 9,
     "metadata": {
@@ -251,7 +227,6 @@
     "file_path": "rst.rst",
     "scope": "",
     "language": "rst",
-    "content": ":func:`format_greeting`",
     "line_start": 9,
     "line_end": 9,
     "metadata": {
@@ -267,7 +242,6 @@
     "file_path": "rst.rst",
     "scope": "",
     "language": "rst",
-    "content": ":class:`Greeter`",
     "line_start": 10,
     "line_end": 10,
     "metadata": {
@@ -283,7 +257,6 @@
     "file_path": "rst.rst",
     "scope": "",
     "language": "rst",
-    "content": "`the guide <guide.rst>`_",
     "line_start": 10,
     "line_end": 10,
     "metadata": {
@@ -299,7 +272,6 @@
     "file_path": "rst.rst",
     "scope": "",
     "language": "rst",
-    "content": "intro",
     "line_start": 16,
     "line_end": 16,
     "metadata": {
@@ -315,7 +287,6 @@
     "file_path": "rst.rst",
     "scope": "",
     "language": "rst",
-    "content": "api/index",
     "line_start": 17,
     "line_end": 17,
     "metadata": {
@@ -331,7 +302,6 @@
     "file_path": "rst.rst",
     "scope": "Greeter::Usage",
     "language": "rst",
-    "content": "Locales\n~~~~~~~\n\nSupported locales live in :mod:`greeter.locales`.\n\nSee :doc:`topics/intro` to begin, :ref:`the options <greeting-options>`,\n:ref:`salutations`, :ref:`the greetings table <greetings table>`, :ref:`format_greeting`,\n`the guide's options <guide.rst#greeting-options>`_, and `usage <#usage>`_.",
     "line_start": 19,
     "line_end": 26
   },
@@ -341,7 +311,6 @@
     "file_path": "rst.rst",
     "scope": "",
     "language": "rst",
-    "content": ":mod:`greeter.locales`",
     "line_start": 22,
     "line_end": 22,
     "metadata": {
@@ -357,7 +326,6 @@
     "file_path": "rst.rst",
     "scope": "",
     "language": "rst",
-    "content": ":doc:`topics/intro`",
     "line_start": 24,
     "line_end": 24,
     "metadata": {
@@ -373,7 +341,6 @@
     "file_path": "rst.rst",
     "scope": "",
     "language": "rst",
-    "content": ":ref:`the options <greeting-options>`",
     "line_start": 24,
     "line_end": 24,
     "metadata": {
@@ -389,7 +356,6 @@
     "file_path": "rst.rst",
     "scope": "",
     "language": "rst",
-    "content": ":ref:`format_greeting`",
     "line_start": 25,
     "line_end": 25,
     "metadata": {
@@ -405,7 +371,6 @@
     "file_path": "rst.rst",
     "scope": "",
     "language": "rst",
-    "content": ":ref:`salutations`",
     "line_start": 25,
     "line_end": 25,
     "metadata": {
@@ -421,7 +386,6 @@
     "file_path": "rst.rst",
     "scope": "",
     "language": "rst",
-    "content": ":ref:`the greetings table <greetings table>`",
     "line_start": 25,
     "line_end": 25,
     "metadata": {
@@ -437,7 +401,6 @@
     "file_path": "rst.rst",
     "scope": "",
     "language": "rst",
-    "content": "`the guide's options <guide.rst#greeting-options>`_",
     "line_start": 26,
     "line_end": 26,
     "metadata": {
@@ -453,7 +416,6 @@
     "file_path": "rst.rst",
     "scope": "",
     "language": "rst",
-    "content": "`usage <#usage>`_",
     "line_start": 26,
     "line_end": 26,
     "metadata": {
@@ -469,7 +431,6 @@
     "file_path": "topics/detail.rst",
     "scope": "",
     "language": "rst",
-    "content": "Detail\n======\n\nReferenced from ``topics/intro.rst`` as a bare sibling.",
     "line_start": 1,
     "line_end": 4
   },
@@ -479,7 +440,6 @@
     "file_path": "topics/intro.rst",
     "scope": "",
     "language": "rst",
-    "content": "Intro\n=====\n\nReferenced from ``rst.rst``. The role below names a bare sibling, which\nonly resolves relative to this directory.\n\nSee :doc:`detail` for the long version.",
     "line_start": 1,
     "line_end": 7
   },
@@ -489,7 +449,6 @@
     "file_path": "topics/intro.rst",
     "scope": "",
     "language": "rst",
-    "content": ":doc:`detail`",
     "line_start": 7,
     "line_end": 7,
     "metadata": {

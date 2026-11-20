@@ -5,11 +5,13 @@ from __future__ import annotations
 import pytest
 from pytest_cases import case
 
-type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
-type ImportCase = tuple[str, str, dict[str, str | list[dict[str, str]]]]
-type ReferencesCase = tuple[str, str, list[tuple[str, str, list[str], list[str]]]]
-type MultiImportCase = tuple[str, str, int, list[dict[str, str | list[dict[str, str]]]]]
-type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
+from rbtr.testing.assertions import Referrer, Target
+
+type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
+type ImportCase = tuple[dict[str, str], dict[str, str | list[dict[str, str]]]]
+type ReferencesCase = tuple[dict[str, str], dict[Target, set[Referrer]]]
+type MultiImportCase = tuple[dict[str, str], int, list[dict[str, str | list[dict[str, str]]]]]
+type MixedCase = tuple[dict[str, str], set[str], list[tuple[str, str]]]
 
 _xfail_nested = pytest.mark.xfail(
     reason="nested/chained destructuring unsupported — no query-only recursion",
@@ -24,7 +26,7 @@ def case_py_simple_function() -> SymbolCase:
 def hello():
     pass
 """
-    return "python", src, [("function", "hello", "")]
+    return {"input.py": src}, [("function", "hello", "")]
 
 
 @case(tags=["symbol"])
@@ -34,7 +36,7 @@ def case_py_function_with_args() -> SymbolCase:
 def add(a, b):
     return a + b
 """
-    return "python", src, [("function", "add", "")]
+    return {"input.py": src}, [("function", "add", "")]
 
 
 @case(tags=["symbol"])
@@ -44,7 +46,7 @@ def case_py_async_function() -> SymbolCase:
 async def fetch():
     pass
 """
-    return "python", src, [("function", "fetch", "")]
+    return {"input.py": src}, [("function", "fetch", "")]
 
 
 @case(tags=["symbol"])
@@ -61,8 +63,7 @@ def baz():
     pass
 """
     return (
-        "python",
-        src,
+        {"input.py": src},
         [
             ("function", "foo", ""),
             ("function", "bar", ""),
@@ -79,7 +80,7 @@ def case_py_decorated_function() -> SymbolCase:
 def wrapped():
     pass
 """
-    return "python", src, [("function", "wrapped", "")]
+    return {"input.py": src}, [("function", "wrapped", "")]
 
 
 @case(tags=["symbol"])
@@ -89,7 +90,7 @@ def case_py_simple_class() -> SymbolCase:
 class Foo:
     pass
 """
-    return "python", src, [("class", "Foo", "")]
+    return {"input.py": src}, [("class", "Foo", "")]
 
 
 @case(tags=["symbol"])
@@ -99,7 +100,7 @@ def case_py_class_with_bases() -> SymbolCase:
 class Bar(Foo, Mixin):
     pass
 """
-    return "python", src, [("class", "Bar", "")]
+    return {"input.py": src}, [("class", "Bar", "")]
 
 
 @case(tags=["symbol"])
@@ -110,7 +111,7 @@ def case_py_decorated_class() -> SymbolCase:
 class Config:
     name: str
 """
-    return "python", src, [("class", "Config", "")]
+    return {"input.py": src}, [("class", "Config", "")]
 
 
 @case(tags=["symbol"])
@@ -123,7 +124,7 @@ class A:
 class B:
     pass
 """
-    return "python", src, [("class", "A", ""), ("class", "B", "")]
+    return {"input.py": src}, [("class", "A", ""), ("class", "B", "")]
 
 
 @case(tags=["symbol"])
@@ -134,7 +135,7 @@ class Foo:
     def bar(self):
         pass
 """
-    return "python", src, [("method", "bar", "Foo")]
+    return {"input.py": src}, [("method", "bar", "Foo")]
 
 
 @case(tags=["symbol"])
@@ -147,7 +148,7 @@ class Svc:
     def stop(self):
         pass
 """
-    return "python", src, [("method", "start", "Svc"), ("method", "stop", "Svc")]
+    return {"input.py": src}, [("method", "start", "Svc"), ("method", "stop", "Svc")]
 
 
 @case(tags=["symbol"])
@@ -159,7 +160,7 @@ class Outer:
         def deep(self):
             pass
 """
-    return "python", src, [("method", "deep", "Outer::Inner")]
+    return {"input.py": src}, [("method", "deep", "Outer::Inner")]
 
 
 @case(tags=["symbol"])
@@ -172,7 +173,7 @@ class Foo:
 def standalone():
     pass
 """
-    return "python", src, [("function", "standalone", "")]
+    return {"input.py": src}, [("function", "standalone", "")]
 
 
 @case(tags=["symbol"])
@@ -184,7 +185,7 @@ class Svc:
     def create():
         pass
 """
-    return "python", src, [("method", "create", "Svc")]
+    return {"input.py": src}, [("method", "create", "Svc")]
 
 
 @case(tags=["symbol"])
@@ -201,7 +202,7 @@ def make_adder(n):
         return n + 1
     return handler
 """
-    return "python", src, [("function", "handler", "make_adder")]
+    return {"input.py": src}, [("function", "handler", "make_adder")]
 
 
 @case(tags=["symbol"])
@@ -219,7 +220,7 @@ class Svc:
             return 1
         return cb
 """
-    return "python", src, [("function", "cb", "Svc::start")]
+    return {"input.py": src}, [("function", "cb", "Svc::start")]
 
 
 @case(tags=["symbol"])
@@ -236,7 +237,7 @@ class Node:
             def visit(self):
                 pass
 """
-    return "python", src, [("method", "visit", "Node::Node::Node")]
+    return {"input.py": src}, [("method", "visit", "Node::Node::Node")]
 
 
 @case(tags=["symbol"])
@@ -253,7 +254,7 @@ def process():
         return 1
     return process
 """
-    return "python", src, [("function", "process", "process"), ("function", "process", "")]
+    return {"input.py": src}, [("function", "process", "process"), ("function", "process", "")]
 
 
 @case(tags=["symbol"])
@@ -276,8 +277,7 @@ class Outer:
         return helper
 """
     return (
-        "python",
-        src,
+        {"input.py": src},
         [
             ("method", "run", "Outer"),
             ("function", "helper", "Outer::run"),
@@ -300,7 +300,7 @@ class Node:
     def Node(self):
         return 1
 """
-    return "python", src, [("class", "Node", ""), ("method", "Node", "Node")]
+    return {"input.py": src}, [("class", "Node", ""), ("method", "Node", "Node")]
 
 
 @case(tags=["symbol"])
@@ -317,7 +317,7 @@ class Node:
         def Node(self):
             return 1
 """
-    return "python", src, [("class", "Node", "Node"), ("method", "Node", "Node::Node")]
+    return {"input.py": src}, [("class", "Node", "Node"), ("method", "Node", "Node::Node")]
 
 
 @case(tags=["symbol"])
@@ -336,7 +336,7 @@ def Cache():
 class Cache:
     pass
 """
-    return "python", src, [("function", "Cache", ""), ("class", "Cache", "")]
+    return {"input.py": src}, [("function", "Cache", ""), ("class", "Cache", "")]
 
 
 @case(tags=["symbol"])
@@ -345,7 +345,7 @@ def case_py_module_constant() -> SymbolCase:
     src = """\
 MAX_SIZE = 100
 """
-    return "python", src, [("variable", "MAX_SIZE", "")]
+    return {"input.py": src}, [("variable", "MAX_SIZE", "")]
 
 
 @case(tags=["symbol"])
@@ -354,7 +354,7 @@ def case_py_module_singleton() -> SymbolCase:
     src = """\
 config = Config()
 """
-    return "python", src, [("variable", "config", "")]
+    return {"input.py": src}, [("variable", "config", "")]
 
 
 @case(tags=["symbol"])
@@ -363,21 +363,23 @@ def case_py_annotated_module_var() -> SymbolCase:
     src = """\
 TIMEOUT: int = 30
 """
-    return "python", src, [("variable", "TIMEOUT", "")]
+    return {"input.py": src}, [("variable", "TIMEOUT", "")]
 
 
 @case(tags=["import"])
 def case_py_import_bare() -> ImportCase:
     """import os."""
-    return "python", "import os\n", {"module": "os", "bindings": [{"name": "os", "local": "os"}]}
+    return {"input.py": "import os\n"}, {
+        "module": "os",
+        "bindings": [{"name": "os", "local": "os"}],
+    }
 
 
 @case(tags=["import"])
 def case_py_import_dotted() -> ImportCase:
     """import os.path."""
     return (
-        "python",
-        "import os.path\n",
+        {"input.py": "import os.path\n"},
         {"module": "os.path", "bindings": [{"name": "os", "local": "os"}]},
     )
 
@@ -386,8 +388,7 @@ def case_py_import_dotted() -> ImportCase:
 def case_py_import_deeply_nested() -> ImportCase:
     """import a.b.c.d."""
     return (
-        "python",
-        "import a.b.c.d\n",
+        {"input.py": "import a.b.c.d\n"},
         {"module": "a.b.c.d", "bindings": [{"name": "a", "local": "a"}]},
     )
 
@@ -396,8 +397,7 @@ def case_py_import_deeply_nested() -> ImportCase:
 def case_py_from_import_single() -> ImportCase:
     """from pathlib import Path."""
     return (
-        "python",
-        "from pathlib import Path\n",
+        {"input.py": "from pathlib import Path\n"},
         {"module": "pathlib", "names": "Path", "bindings": [{"name": "Path", "local": "Path"}]},
     )
 
@@ -406,8 +406,7 @@ def case_py_from_import_single() -> ImportCase:
 def case_py_from_import_multiple() -> ImportCase:
     """from module import multiple names."""
     return (
-        "python",
-        "from rbtr.index.models import Chunk, Edge\n",
+        {"input.py": "from rbtr.index.models import Chunk, Edge\n"},
         {
             "module": "rbtr.index.models",
             "names": "Chunk,Edge",
@@ -420,8 +419,7 @@ def case_py_from_import_multiple() -> ImportCase:
 def case_py_from_import_aliased() -> ImportCase:
     """Aliased import extracts original name."""
     return (
-        "python",
-        "from .models import Chunk as C\n",
+        {"input.py": "from .models import Chunk as C\n"},
         {"module": ".models", "names": "Chunk", "bindings": [{"name": "Chunk", "local": "C"}]},
     )
 
@@ -430,8 +428,7 @@ def case_py_from_import_aliased() -> ImportCase:
 def case_py_from_import_multiple_aliased() -> ImportCase:
     """Multiple aliased imports."""
     return (
-        "python",
-        "from models import Foo as F, Bar as B\n",
+        {"input.py": "from models import Foo as F, Bar as B\n"},
         {
             "module": "models",
             "names": "Foo,Bar",
@@ -444,8 +441,7 @@ def case_py_from_import_multiple_aliased() -> ImportCase:
 def case_py_relative_dot_with_module() -> ImportCase:
     """from .models import Chunk."""
     return (
-        "python",
-        "from .models import Chunk\n",
+        {"input.py": "from .models import Chunk\n"},
         {"module": ".models", "names": "Chunk", "bindings": [{"name": "Chunk", "local": "Chunk"}]},
     )
 
@@ -454,8 +450,7 @@ def case_py_relative_dot_with_module() -> ImportCase:
 def case_py_relative_dotdot() -> ImportCase:
     """from ..core import engine."""
     return (
-        "python",
-        "from ..core import engine\n",
+        {"input.py": "from ..core import engine\n"},
         {
             "module": "..core",
             "names": "engine",
@@ -468,8 +463,7 @@ def case_py_relative_dotdot() -> ImportCase:
 def case_py_relative_dot_only() -> ImportCase:
     """from . import utils — the package itself."""
     return (
-        "python",
-        "from . import utils\n",
+        {"input.py": "from . import utils\n"},
         {"module": ".", "names": "utils", "bindings": [{"name": "utils", "local": "utils"}]},
     )
 
@@ -478,8 +472,7 @@ def case_py_relative_dot_only() -> ImportCase:
 def case_py_relative_three_dots() -> ImportCase:
     """from ...lib import helper."""
     return (
-        "python",
-        "from ...lib import helper\n",
+        {"input.py": "from ...lib import helper\n"},
         {
             "module": "...lib",
             "names": "helper",
@@ -491,15 +484,14 @@ def case_py_relative_three_dots() -> ImportCase:
 @case(tags=["import"])
 def case_py_import_star() -> ImportCase:
     """from os.path import * — every name, written `*`."""
-    return "python", "from os.path import *\n", {"module": "os.path", "names": "*"}
+    return {"input.py": "from os.path import *\n"}, {"module": "os.path", "names": "*"}
 
 
 @case(tags=["import"])
 def case_py_import_aliased_module() -> ImportCase:
     """import numpy as np — the module under a local name."""
     return (
-        "python",
-        "import numpy as np\n",
+        {"input.py": "import numpy as np\n"},
         {"module": "numpy", "bindings": [{"name": "numpy", "local": "np"}]},
     )
 
@@ -511,7 +503,7 @@ def case_py_import_inside_function() -> ImportCase:
 def f():
     import json
 """
-    return "python", src, {"module": "json", "bindings": [{"name": "json", "local": "json"}]}
+    return {"input.py": src}, {"module": "json", "bindings": [{"name": "json", "local": "json"}]}
 
 
 @case(tags=["import"])
@@ -522,8 +514,7 @@ class C:
     from collections import OrderedDict
 """
     return (
-        "python",
-        src,
+        {"input.py": src},
         {
             "module": "collections",
             "names": "OrderedDict",
@@ -540,8 +531,7 @@ import os
 import sys
 """
     return (
-        "python",
-        src,
+        {"input.py": src},
         2,
         [
             {"module": "os", "bindings": [{"name": "os", "local": "os"}]},
@@ -584,8 +574,7 @@ def main():
     pass
 '''
     return (
-        "python",
-        src,
+        {"input.py": src},
         {"import", "class", "method", "function"},
         [("__init__", "Config"), ("load", "Config")],
     )
@@ -594,33 +583,32 @@ def main():
 @case(tags=["symbol"])
 def case_py_tuple_unpack() -> SymbolCase:
     """Flat tuple unpacking."""
-    return "python", "a, b = compute()\n", [("variable", "a", ""), ("variable", "b", "")]
+    return {"input.py": "a, b = compute()\n"}, [("variable", "a", ""), ("variable", "b", "")]
 
 
 @case(tags=["symbol"])
 def case_py_paren_tuple_unpack() -> SymbolCase:
     """Parenthesised tuple target."""
-    return "python", "(a, b) = compute()\n", [("variable", "a", ""), ("variable", "b", "")]
+    return {"input.py": "(a, b) = compute()\n"}, [("variable", "a", ""), ("variable", "b", "")]
 
 
 @case(tags=["symbol"])
 def case_py_list_unpack() -> SymbolCase:
     """List-pattern target."""
-    return "python", "[a, b] = compute()\n", [("variable", "a", ""), ("variable", "b", "")]
+    return {"input.py": "[a, b] = compute()\n"}, [("variable", "a", ""), ("variable", "b", "")]
 
 
 @case(tags=["symbol"])
 def case_py_star_unpack() -> SymbolCase:
     """Starred target."""
-    return "python", "a, *rest = compute()\n", [("variable", "a", ""), ("variable", "rest", "")]
+    return {"input.py": "a, *rest = compute()\n"}, [("variable", "a", ""), ("variable", "rest", "")]
 
 
 @case(tags=["symbol"], marks=_xfail_nested)
 def case_py_nested_unpack_xfail() -> SymbolCase:
     """Nested tuple unpacking — only the outer level is captured today."""
     return (
-        "python",
-        "(a, b), c = f()\n",
+        {"input.py": "(a, b), c = f()\n"},
         [("variable", "a", ""), ("variable", "b", ""), ("variable", "c", "")],
     )
 
@@ -628,20 +616,69 @@ def case_py_nested_unpack_xfail() -> SymbolCase:
 @case(tags=["symbol"], marks=_xfail_nested)
 def case_py_chained_assignment_xfail() -> SymbolCase:
     """Chained assignment — only the first target is captured today."""
-    return "python", "a = b = f()\n", [("variable", "a", ""), ("variable", "b", "")]
+    return {"input.py": "a = b = f()\n"}, [("variable", "a", ""), ("variable", "b", "")]
 
 
 @case(tags=["references"])
 def case_py_calls_and_bases() -> ReferencesCase:
-    """Each call shape, a class's bases, a decorator's call and a nested function's."""
-    src = """\
+    """Each call shape, a class's bases, a decorator's call and a nested function's.
+
+    `Meta` is a metaclass, not a base; `x[0].m()` is a call through a value;
+    `cls.build()` is a member of the class, not the module's `build`.
+    """
+    models = """\
+class Model:
+    def save(self):
+        pass
+
+    def m(self):
+        pass
+
+    @classmethod
+    def build(cls):
+        pass
+
+
+class CharField:
+    pass
+"""
+    mixins = """\
+class Logged:
+    pass
+"""
+    meta = """\
+class Meta(type):
+    pass
+"""
+    helpers = """\
+def write_row(row):
+    pass
+
+
+def register(name):
+    pass
+
+
+def helper():
+    pass
+"""
+    orders = """\
+import mixins
+import models
+from helpers import helper, register, write_row
+from meta import Meta
+from models import Model
+
+
 class Order(Model, mixins.Logged, metaclass=Meta):
+    def validate(self):
+        pass
+
     def save(self):
         self.validate()
         super().save()
         models.CharField(max_length=3)
         write_row(self)
-        obj.save()
         x[0].m()
 
     @classmethod
@@ -657,89 +694,127 @@ def build():
     inner()
 """
     return (
-        "python",
-        src,
-        [
-            ("class", "Order", [], ["unqualified:Model", "unqualified:mixins.Logged"]),
-            (
-                "method",
-                "save",
-                [
-                    "member:validate",
-                    "base:save",
-                    "unqualified:models.CharField",
-                    "unqualified:write_row",
-                    "unqualified:obj.save",
-                ],
-                [],
-            ),
-            ("method", "make", ["member:build"], []),
-            ("function", "build", ["unqualified:register", "unqualified:inner"], []),
-            ("function", "inner", ["unqualified:helper"], []),
-        ],
+        {
+            "models.py": models,
+            "mixins.py": mixins,
+            "meta.py": meta,
+            "helpers.py": helpers,
+            "orders.py": orders,
+        },
+        {
+            ("models.py", "Model"): {("orders.py", "Order", "inherits")},
+            ("mixins.py", "Logged"): {("orders.py", "Order", "inherits")},
+            ("meta.py", "Meta"): set(),
+            ("orders.py", "validate"): {("orders.py", "save", "calls")},
+            ("models.py", "save"): {("orders.py", "save", "calls")},
+            ("models.py", "CharField"): {("orders.py", "save", "calls")},
+            ("helpers.py", "write_row"): {("orders.py", "save", "calls")},
+            ("models.py", "m"): set(),
+            ("models.py", "build"): {("orders.py", "make", "calls")},
+            ("orders.py", "build"): set(),
+            ("helpers.py", "register"): {("orders.py", "build", "calls")},
+            ("orders.py", "inner"): {("orders.py", "build", "calls")},
+            ("helpers.py", "helper"): {("orders.py", "inner", "calls")},
+        },
     )
 
 
 @case(tags=["references"])
 def case_py_a_decorators_call_is_the_decorated_methods() -> ReferencesCase:
     """`@override_settings(...)` on a method is a call the method makes."""
-    src = """\
+    helpers = """\
+def override_settings(**kwargs):
+    pass
+"""
+    tests = """\
+from helpers import override_settings
+
+
 class Tests:
     @override_settings(DEBUG=True)
     def test_debug(self):
         pass
 """
-    return "python", src, [("method", "test_debug", ["unqualified:override_settings"], [])]
+    return (
+        {"helpers.py": helpers, "tests.py": tests},
+        {("helpers.py", "override_settings"): {("tests.py", "test_debug", "calls")}},
+    )
 
 
 @case(tags=["references"])
 def case_py_a_call_through_a_local_is_on_a_value() -> ReferencesCase:
-    """Parameters, assignment, loop, `with` and `except` targets are locals; a call through one is on a value.
+    """Parameters, assignment, loop and `except` targets are locals; a call through one is on a value.
 
-    An annotation or the constructor assigned gives its written type, shown `<T>`.
+    Each local shadows an imported function of its name, which it does not
+    reach. An annotation or the constructor assigned gives its written type,
+    so `order.save()` and `total.add()` reach their class's methods.
     """
-    src = """\
+    lib = """\
+class Order:
+    def save(self):
+        pass
+
+
+class Total:
+    def add(self, n):
+        pass
+"""
+    names = """\
+def f():
+    pass
+
+
+def k():
+    pass
+
+
+def n():
+    pass
+
+
+def args():
+    pass
+
+
+def log():
+    pass
+
+
+def helper():
+    pass
+"""
+    run = """\
+from lib import Order, Total
+from names import args, f, helper, k, log, n
+
+
 def run(order: Order, f, *args, n=1, **kw):
     total = Total()
     a, b = f()
-    with open(path) as fh:
-        fh.read()
     for k, v in pairs:
         k()
     try:
         pass
-    except ValueError as err:
-        err.log()
+    except ValueError as log:
+        log()
     order.save()
     total.add(n())
     args()
-    kw.get()
     helper()
 """
     return (
-        "python",
-        src,
-        [
-            (
-                "function",
-                "run",
-                [
-                    "unqualified:Total",
-                    "type:f",
-                    "unqualified:open",
-                    "type:fh.read",
-                    "type:k",
-                    "type:err.log",
-                    "type:order.save<Order>",
-                    "type:total.add<Total>",
-                    "type:n",
-                    "type:args",
-                    "type:kw.get",
-                    "unqualified:helper",
-                ],
-                [],
-            )
-        ],
+        {"lib.py": lib, "names.py": names, "run.py": run},
+        {
+            ("lib.py", "Total"): {("run.py", "run", "calls")},
+            ("lib.py", "save"): {("run.py", "run", "calls")},
+            ("lib.py", "add"): {("run.py", "run", "calls")},
+            ("names.py", "f"): set(),
+            ("names.py", "k"): set(),
+            ("names.py", "n"): set(),
+            ("names.py", "args"): set(),
+            ("names.py", "log"): set(),
+            ("names.py", "helper"): {("run.py", "run", "calls")},
+        },
     )
 
 
@@ -753,10 +828,27 @@ def run(order: Order, f, *args, n=1, **kw):
 )
 def case_py_a_name_declared_global_is_no_local() -> ReferencesCase:
     """`global helper` then `helper = make()`: `helper()` calls the module's `helper`."""
-    src = """\
+    helpers = """\
+def make():
+    pass
+
+
+def helper():
+    pass
+"""
+    run = """\
+from helpers import helper, make
+
+
 def run():
     global helper
     helper = make()
     helper()
 """
-    return "python", src, [("function", "run", ["unqualified:make", "unqualified:helper"], [])]
+    return (
+        {"helpers.py": helpers, "run.py": run},
+        {
+            ("helpers.py", "make"): {("run.py", "run", "calls")},
+            ("helpers.py", "helper"): {("run.py", "run", "calls")},
+        },
+    )

@@ -5,7 +5,6 @@
     "file_path": "Greeting.svelte",
     "scope": "",
     "language": "svelte",
-    "content": "<!--\n  Svelte single-file component.\n\n  The SFC plugin delegates the <script> block to TypeScript and the\n  <style> block to SCSS; their symbols carry those languages and their\n  imports resolve through the matching resolver. The markup template is\n  not extracted.\n-->",
     "line_start": 1,
     "line_end": 8
   },
@@ -15,7 +14,6 @@
     "file_path": "Greeting.svelte",
     "scope": "",
     "language": "svelte",
-    "content": "<script lang=\"ts\">",
     "line_start": 9,
     "line_end": 9
   },
@@ -25,7 +23,6 @@
     "file_path": "Greeting.svelte",
     "scope": "",
     "language": "typescript",
-    "content": "import { greet } from \"./greeter\";",
     "line_start": 10,
     "line_end": 10,
     "metadata": {
@@ -46,7 +43,6 @@
     "file_path": "Greeting.svelte",
     "scope": "",
     "language": "typescript",
-    "content": "name: string = \"world\"",
     "line_start": 12,
     "line_end": 12
   },
@@ -56,7 +52,6 @@
     "file_path": "Greeting.svelte",
     "scope": "",
     "language": "typescript",
-    "content": "function shout(): string {\n    return greet(name).toUpperCase();\n  }",
     "line_start": 14,
     "line_end": 16
   },
@@ -66,7 +61,6 @@
     "file_path": "Greeting.svelte",
     "scope": "",
     "language": "svelte",
-    "content": "</script>",
     "line_start": 17,
     "line_end": 17
   },
@@ -76,7 +70,6 @@
     "file_path": "Greeting.svelte",
     "scope": "",
     "language": "svelte",
-    "content": "<style lang=\"scss\">",
     "line_start": 19,
     "line_end": 19
   },
@@ -86,7 +79,6 @@
     "file_path": "Greeting.svelte",
     "scope": "",
     "language": "scss",
-    "content": "$accent: #00aa77;",
     "line_start": 20,
     "line_end": 20
   },
@@ -96,7 +88,6 @@
     "file_path": "Greeting.svelte",
     "scope": "",
     "language": "scss",
-    "content": ".greeting {\n    color: $accent;\n    font-weight: bold;\n  }",
     "line_start": 22,
     "line_end": 25
   },
@@ -106,7 +97,6 @@
     "file_path": "Greeting.svelte",
     "scope": "",
     "language": "svelte",
-    "content": "</style>",
     "line_start": 26,
     "line_end": 26
   },
@@ -116,7 +106,6 @@
     "file_path": "Greeting.svelte",
     "scope": "",
     "language": "svelte",
-    "content": "<h1 class=\"greeting\">{shout()}</h1>",
     "line_start": 28,
     "line_end": 28
   },
@@ -126,7 +115,6 @@
     "file_path": "greeter.ts",
     "scope": "",
     "language": "typescript",
-    "content": "// Imported by Greeting.svelte's <script> block.",
     "line_start": 1,
     "line_end": 1
   },
@@ -136,7 +124,6 @@
     "file_path": "greeter.ts",
     "scope": "",
     "language": "typescript",
-    "content": "function greet(name: string): string {\n  return `Hello, ${name}`;\n}",
     "line_start": 3,
     "line_end": 5
   },
@@ -146,7 +133,6 @@
     "file_path": "src/A.svelte",
     "scope": "",
     "language": "svelte",
-    "content": "<script>",
     "line_start": 1,
     "line_end": 1
   },
@@ -156,7 +142,6 @@
     "file_path": "src/A.svelte",
     "scope": "",
     "language": "javascript",
-    "content": "import { helper } from './b.js';",
     "line_start": 2,
     "line_end": 2,
     "metadata": {
@@ -177,7 +162,6 @@
     "file_path": "src/A.svelte",
     "scope": "",
     "language": "svelte",
-    "content": "</script>",
     "line_start": 3,
     "line_end": 3
   },
@@ -187,7 +171,6 @@
     "file_path": "src/b.js",
     "scope": "",
     "language": "javascript",
-    "content": "function helper() {}",
     "line_start": 1,
     "line_end": 1
   }

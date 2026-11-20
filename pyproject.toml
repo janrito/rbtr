@@ -88,6 +88,9 @@ unfixable = ["B"]
 "**/tests/**/*.py" = [
   "S101", # asserts allowed in tests
 ]
+"packages/rbtr/src/rbtr/testing/assertions.py" = [
+  "S101", # pytest assertion helpers: their asserts are rewritten into diffs
+]
 
 [tool.ruff.lint.flake8-quotes]
 docstring-quotes = "double"
@@ -300,7 +303,33 @@ dev = [
 ]
 
 [tool.importlinter]
-root_packages = ["rbtr", "rbtr_eval"]
+root_packages = [
+    "rbtr",
+    "rbtr_eval",
+    "rbtr_lang_bash",
+    "rbtr_lang_c",
+    "rbtr_lang_cpp",
+    "rbtr_lang_css",
+    "rbtr_lang_go",
+    "rbtr_lang_hcl",
+    "rbtr_lang_html",
+    "rbtr_lang_java",
+    "rbtr_lang_javascript",
+    "rbtr_lang_json",
+    "rbtr_lang_less",
+    "rbtr_lang_markdown",
+    "rbtr_lang_python",
+    "rbtr_lang_rst",
+    "rbtr_lang_ruby",
+    "rbtr_lang_rust",
+    "rbtr_lang_scss",
+    "rbtr_lang_sql",
+    "rbtr_lang_svelte",
+    "rbtr_lang_toml",
+    "rbtr_lang_tree_sitter_query",
+    "rbtr_lang_vue",
+    "rbtr_lang_yaml",
+]
 
 [[tool.importlinter.contracts]]
 name = "The eval harness sits above the product"
@@ -419,3 +448,47 @@ type = "protected"
 protected_modules = ["rbtr.index.store", "rbtr.index.writer"]
 allowed_importers = ["rbtr.index.index"]
 as_packages = "false"
+
+[[tool.importlinter.contracts]]
+name = "A plugin imports from core only rbtr.domain.models and rbtr.languages.registration"
+type = "forbidden"
+# An allow-list: all of `rbtr` is forbidden to a plugin, and the imports
+# below are the only ones allowed. A plugin's tests build files through the
+# engine (`rbtr.testing`'s `indexed`), read them with `rbtr.testing.reads`
+# and check them with `rbtr.testing.assertions`, so they may also import
+# those.
+source_modules = [
+    "rbtr_lang_bash",
+    "rbtr_lang_c",
+    "rbtr_lang_cpp",
+    "rbtr_lang_css",
+    "rbtr_lang_go",
+    "rbtr_lang_hcl",
+    "rbtr_lang_html",
+    "rbtr_lang_java",
+    "rbtr_lang_javascript",
+    "rbtr_lang_json",
+    "rbtr_lang_less",
+    "rbtr_lang_markdown",
+    "rbtr_lang_python",
+    "rbtr_lang_rst",
+    "rbtr_lang_ruby",
+    "rbtr_lang_rust",
+    "rbtr_lang_scss",
+    "rbtr_lang_sql",
+    "rbtr_lang_svelte",
+    "rbtr_lang_toml",
+    "rbtr_lang_tree_sitter_query",
+    "rbtr_lang_vue",
+    "rbtr_lang_yaml",
+]
+forbidden_modules = ["rbtr"]
+ignore_imports = [
+    "*.* -> rbtr.domain.models",
+    "*.* -> rbtr.languages.registration",
+    "*.tests.** -> rbtr.domain.models",
+    "*.tests.** -> rbtr.testing",
+    "*.tests.** -> rbtr.testing.reads",
+    "*.tests.** -> rbtr.testing.assertions",
+]
+

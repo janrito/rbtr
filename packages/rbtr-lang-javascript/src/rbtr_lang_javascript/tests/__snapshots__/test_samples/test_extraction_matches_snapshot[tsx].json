@@ -5,7 +5,6 @@
     "file_path": "labels.ts",
     "scope": "",
     "language": "typescript",
-    "content": "// Default UI labels.",
     "line_start": 1,
     "line_end": 1
   },
@@ -15,7 +14,6 @@
     "file_path": "labels.ts",
     "scope": "",
     "language": "typescript",
-    "content": "INITIAL_LABEL = \"Click\"",
     "line_start": 2,
     "line_end": 2
   },
@@ -25,7 +23,6 @@
     "file_path": "main.tsx",
     "scope": "",
     "language": "tsx",
-    "content": "// Mount the greeting on the page.",
     "line_start": 1,
     "line_end": 1
   },
@@ -35,7 +32,6 @@
     "file_path": "main.tsx",
     "scope": "",
     "language": "tsx",
-    "content": "ReactDOM.render(<Greeting name=\"world\" />, document.getElementById(\"root\"));",
     "line_start": 2,
     "line_end": 2
   },
@@ -45,7 +41,6 @@
     "file_path": "main.tsx",
     "scope": "",
     "language": "tsx",
-    "content": "export default Greeting;",
     "line_start": 4,
     "line_end": 4
   },
@@ -55,7 +50,6 @@
     "file_path": "src/a.tsx",
     "scope": "",
     "language": "tsx",
-    "content": "import { Helper } from './b';",
     "line_start": 1,
     "line_end": 1,
     "metadata": {
@@ -76,7 +70,6 @@
     "file_path": "src/b.tsx",
     "scope": "",
     "language": "tsx",
-    "content": "function Helper() {\n  return null;\n}",
     "line_start": 1,
     "line_end": 3
   },
@@ -86,7 +79,6 @@
     "file_path": "tsx.tsx",
     "scope": "",
     "language": "tsx",
-    "content": "// Counter — a small React component rendering a clickable count.\n//\n// The tsx plugin uses the `language_tsx` grammar, not\n// `language_typescript`, which cannot parse JSX (a `.tsx` file parses\n// with errors under the plain TypeScript grammar). It runs the same\n// query as the typescript plugin against the JSX-aware grammar, so it\n// extracts function declarations, arrow-function consts, module\n// variables, imports, and interfaces (as classes — the CounterProps\n// interface below).",
     "line_start": 1,
     "line_end": 9
   },
@@ -96,7 +88,6 @@
     "file_path": "tsx.tsx",
     "scope": "",
     "language": "tsx",
-    "content": "import { useState } from \"react\";",
     "line_start": 11,
     "line_end": 11,
     "metadata": {
@@ -117,7 +108,6 @@
     "file_path": "tsx.tsx",
     "scope": "",
     "language": "tsx",
-    "content": "import type { ReactNode } from \"react\";",
     "line_start": 12,
     "line_end": 12,
     "metadata": {
@@ -138,7 +128,6 @@
     "file_path": "tsx.tsx",
     "scope": "",
     "language": "tsx",
-    "content": "import { INITIAL_LABEL } from \"./labels\";",
     "line_start": 13,
     "line_end": 13,
     "metadata": {
@@ -159,7 +148,6 @@
     "file_path": "tsx.tsx",
     "scope": "",
     "language": "tsx",
-    "content": "INITIAL_COUNT: number = 0",
     "line_start": 15,
     "line_end": 15
   },
@@ -169,7 +157,6 @@
     "file_path": "tsx.tsx",
     "scope": "",
     "language": "tsx",
-    "content": "/** Props for the Counter component. */\ninterface CounterProps {\n  label: string;\n}",
     "line_start": 17,
     "line_end": 20
   },
@@ -179,7 +166,6 @@
     "file_path": "tsx.tsx",
     "scope": "",
     "language": "tsx",
-    "content": "/** A button that increments a counter on each click. */",
     "line_start": 22,
     "line_end": 22
   },
@@ -189,7 +175,6 @@
     "file_path": "tsx.tsx",
     "scope": "",
     "language": "tsx",
-    "content": "function Counter({ label }: CounterProps): ReactNode {\n  const [count, setCount] = useState(INITIAL_COUNT);\n  return (\n    <button onClick={() => setCount(count + 1)}>\n      {label}: {count}\n    </button>\n  );\n}",
     "line_start": 23,
     "line_end": 30
   },
@@ -199,7 +184,6 @@
     "file_path": "tsx.tsx",
     "scope": "",
     "language": "tsx",
-    "content": "/** Render a static badge as a span. */\nconst Badge = (text: string): ReactNode => <span className=\"badge\">{text}</span>;",
     "line_start": 32,
     "line_end": 33
   }

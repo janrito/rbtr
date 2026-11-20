@@ -98,7 +98,7 @@ class WeightTriple(BaseModel):
     gamma: float = Field(ge=0.0, le=1.0, description="Name-match: identifier matching.")
 
     @model_validator(mode="after")
-    def _check_sum(self) -> Self:
+    def check_sum(self) -> Self:
         total = self.alpha + self.beta + self.gamma
         if abs(total - 1.0) > 1e-3:
             msg = f"alpha + beta + gamma must sum to 1.0; got {total:.6f}"
@@ -466,12 +466,12 @@ Disable in tests or resource-constrained environments.",
 
     @field_validator("data_dir", "config_dir", "log_dir", "cache_dir", mode="after")
     @classmethod
-    def _expand_user_tilde(cls, v: Path) -> Path:
+    def expand_user_tilde(cls, v: Path) -> Path:
         return v.expanduser()
 
     @field_validator("log_level", mode="after")
     @classmethod
-    def _known_log_level(cls, v: str) -> str:
+    def known_log_level(cls, v: str) -> str:
         """Take any level name `logging` knows, and hand it over as such.
 
         `Logger.setLevel` accepts the canonical spelling only, so the

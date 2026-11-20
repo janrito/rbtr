@@ -30,7 +30,8 @@ from __future__ import annotations
 
 import importlib
 import importlib.metadata
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import PurePosixPath
 
@@ -69,9 +70,9 @@ class LanguageManager:
         self._filename_map: dict[str, str] = {}
         self._grammar_cache: dict[str, Language | None] = {}
         self._distributions: dict[str, tuple[str, str]] = {}
-        self._collect()
+        self.collect_registrations()
 
-    def _collect(self) -> None:
+    def collect_registrations(self) -> None:
         """Discover registrations from the `rbtr.languages` entry-point group.
 
         Each entry point resolves to a `LanguageRegistration` value. A
@@ -85,17 +86,46 @@ class LanguageManager:
             except Exception:  # a broken plugin must not sink the rest
                 log.warning("language_plugin_load_failed", entry_point=ep.name, exc_info=True)
                 continue
-            if reg.id in self._registrations:
-                msg = f"duplicate language id {reg.id!r} (entry point {ep.name!r})"
-                raise RbtrError(msg)
-            self._registrations[reg.id] = reg
-            for ext in reg.extensions:
-                self._ext_map[ext] = reg.id
-            for name in reg.filenames:
-                self._filename_map[name] = reg.id
+            self.add(reg)
             dist = getattr(ep, "dist", None)
             if dist is not None:
                 self._distributions[reg.id] = (dist.name, dist.version)
+
+    def add(self, registration: LanguageRegistration) -> None:
+        """Hold *registration* beside the others: its id, extensions and file names reach it.
+
+        A second registration of one id is a conflict and raises `RbtrError`.
+        """
+        if registration.id in self._registrations:
+            msg = f"duplicate language id {registration.id!r}"
+            raise RbtrError(msg)
+        self._registrations[registration.id] = registration
+        for ext in registration.extensions:
+            self._ext_map[ext] = registration.id
+        for name in registration.filenames:
+            self._filename_map[name] = registration.id
+
+    @contextmanager
+    def limited_to(self, *registrations: LanguageRegistration) -> Iterator[None]:
+        """Hold exactly *registrations* for the `with` block, as a test loads only the languages it names.
+
+        On exit the manager is as it was: every installed language, the
+        extensions and file names each claims, and the grammars it had
+        loaded.
+        """
+        held = (
+            self._registrations,
+            self._ext_map,
+            self._filename_map,
+            self._grammar_cache,
+        )
+        self._registrations, self._ext_map, self._filename_map, self._grammar_cache = {}, {}, {}, {}
+        try:
+            for registration in registrations:
+                self.add(registration)
+            yield
+        finally:
+            self._registrations, self._ext_map, self._filename_map, self._grammar_cache = held
 
     def detect_language(self, file_path: str) -> str | None:
         """Detect the language of a file from its extension or filename.
@@ -172,23 +202,6 @@ class LanguageManager:
 
         return self._grammar_cache[language_id]
 
-    def missing_grammar(self, language_id: str) -> bool:
-        """Check whether a language *expects* a grammar but it's not installed.
-
-        Returns `True` only when the registration specifies a
-        `grammar_module` but loading it fails.  Languages that
-        intentionally have no grammar, such as plaintext, return `False`.
-
-        Examples:
-
-            `missing_grammar("python")` → `False` (installed)
-            `missing_grammar("plaintext")` → `False` (no grammar needed)
-        """
-        reg = self._registrations.get(language_id)
-        if reg is None or reg.grammar_module is None:
-            return False
-        return self.grammar(language_id) is None
-
     def registrations(self) -> list[LanguageRegistration]:
         """Every installed language's registration."""
         return list(self._registrations.values())
@@ -230,15 +243,6 @@ class LanguageManager:
 def get_manager() -> LanguageManager:
     """Return the cached singleton `LanguageManager`.
 
-    Created on first call and reused thereafter. Call `reset_manager` to force
-    re-creation (testing only).
+    Created on first call and reused thereafter.
     """
     return LanguageManager()
-
-
-def reset_manager() -> None:
-    """Clear the cached singleton so the next `get_manager` creates a fresh
-    `LanguageManager`. For tests that register custom plugins or need a clean
-    slate.
-    """
-    get_manager.cache_clear()

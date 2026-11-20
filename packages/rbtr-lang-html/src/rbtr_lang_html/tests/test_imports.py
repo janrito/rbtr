@@ -7,23 +7,41 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pytest
 
-if TYPE_CHECKING:
-    from syrupy.assertion import SnapshotAssertion
+from rbtr.testing import Indexed
+from rbtr.testing.assertions import Referrer, Target, assert_reached
 
 
-@pytest.fixture(
-    scope="module",
-    params=[
-        "scripts-and-a-stylesheet",
+@pytest.mark.parametrize(
+    ("sample", "reached"),
+    [
+        pytest.param(
+            "scripts-and-a-stylesheet",
+            {
+                ("lib/core.js", "boot"): {
+                    ("web/index.html", '<script src="../lib/core.js"></script>', "imports")
+                },
+                ("lib/core.js", "halt"): {
+                    ("web/index.html", '<script src="../lib/core.js"></script>', "imports")
+                },
+                ("web/app.js", "start"): {
+                    ("web/index.html", '<script src="./app.js"></script>', "imports")
+                },
+                ("web/styles.css", ".banner"): {
+                    ("web/index.html", '<link rel="stylesheet" href="styles.css">', "imports")
+                },
+            },
+            id="scripts-and-a-stylesheet",
+        ),
     ],
 )
-def sample_dir(request: pytest.FixtureRequest) -> Path:
-    return Path(__file__).parent / "samples" / "imports" / str(request.param)
-
-
-def test_edges_match_snapshot(sample_edges: list[str], snapshot_json: SnapshotAssertion) -> None:
-    assert sample_edges == snapshot_json
+def test_each_target_is_reached_by_exactly_the_chunks_named(
+    indexed: Indexed,
+    sample: str,
+    reached: dict[Target, set[Referrer]],
+) -> None:
+    """Each target `(path, symbol)` of the sample under `samples/imports/` is reached by exactly the chunks named, by any edge."""
+    with indexed(Path(__file__).parent / "samples" / "imports" / sample) as build:
+        assert_reached(build, reached)

@@ -145,7 +145,7 @@ def test_initial_work_keeps_its_borrowed_index_open(
     if not stopped:
         counts = index_for_indexer.chunk_counts_for_snapshot(at=at)
         assert counts.total > 0
-        assert counts.is_fully_embedded
+        assert counts.unembedded == 0
     assert indexer.snapshot() == []
 
 
@@ -163,4 +163,4 @@ def test_a_wake_racing_startup_runs_stored_work(
     running_indexer.result(timeout=10)
     at = index_for_indexer.repo(normalise_repo_path(git_repo.workdir)).at(str(git_repo.head.target))
     assert index_for_indexer.has_indexed(at=at)
-    assert index_for_indexer.chunk_counts_for_snapshot(at=at).is_fully_embedded
+    assert index_for_indexer.chunk_counts_for_snapshot(at=at).unembedded == 0

@@ -5,7 +5,6 @@
     "file_path": "json.json",
     "scope": "",
     "language": "json",
-    "content": "{",
     "line_start": 1,
     "line_end": 1
   },
@@ -15,7 +14,6 @@
     "file_path": "json.json",
     "scope": "",
     "language": "json",
-    "content": "\"name\": \"greeter\"",
     "line_start": 2,
     "line_end": 2
   },
@@ -25,7 +23,6 @@
     "file_path": "json.json",
     "scope": "",
     "language": "json",
-    "content": "\"version\": \"1.0.0\"",
     "line_start": 3,
     "line_end": 3
   },
@@ -35,7 +32,6 @@
     "file_path": "json.json",
     "scope": "",
     "language": "json",
-    "content": "\"defaults\": {\n    \"greeting\": \"Hello\",\n    \"locale\": \"en\"\n  }",
     "line_start": 4,
     "line_end": 7
   },
@@ -45,7 +41,6 @@
     "file_path": "json.json",
     "scope": "",
     "language": "json",
-    "content": "\"greeting\": \"Hello\"",
     "line_start": 5,
     "line_end": 5
   },
@@ -55,7 +50,6 @@
     "file_path": "json.json",
     "scope": "",
     "language": "json",
-    "content": "\"locale\": \"en\"",
     "line_start": 6,
     "line_end": 6
   },
@@ -65,7 +59,6 @@
     "file_path": "json.json",
     "scope": "",
     "language": "json",
-    "content": "\"locales\": [\"en\", \"fr\"]",
     "line_start": 8,
     "line_end": 8
   },
@@ -75,7 +68,6 @@
     "file_path": "json.json",
     "scope": "",
     "language": "json",
-    "content": "}",
     "line_start": 9,
     "line_end": 9
   },
@@ -85,7 +77,6 @@
     "file_path": "schema/defs.json",
     "scope": "",
     "language": "json",
-    "content": "{",
     "line_start": 1,
     "line_end": 1
   },
@@ -95,7 +86,6 @@
     "file_path": "schema/defs.json",
     "scope": "",
     "language": "json",
-    "content": "\"$comment\": \"Referred to from schema/greeting.json as a bare sibling.\"",
     "line_start": 2,
     "line_end": 2
   },
@@ -105,7 +95,6 @@
     "file_path": "schema/defs.json",
     "scope": "",
     "language": "json",
-    "content": "\"Name\": {\n    \"type\": \"string\",\n    \"minLength\": 1\n  }",
     "line_start": 3,
     "line_end": 6
   },
@@ -115,7 +104,6 @@
     "file_path": "schema/defs.json",
     "scope": "",
     "language": "json",
-    "content": "\"type\": \"string\"",
     "line_start": 4,
     "line_end": 4
   },
@@ -125,7 +113,6 @@
     "file_path": "schema/defs.json",
     "scope": "",
     "language": "json",
-    "content": "\"minLength\": 1",
     "line_start": 5,
     "line_end": 5
   },
@@ -135,7 +122,6 @@
     "file_path": "schema/defs.json",
     "scope": "",
     "language": "json",
-    "content": "}",
     "line_start": 7,
     "line_end": 7
   },
@@ -145,7 +131,6 @@
     "file_path": "schema/greeting.json",
     "scope": "",
     "language": "json",
-    "content": "{",
     "line_start": 1,
     "line_end": 1
   },
@@ -155,7 +140,6 @@
     "file_path": "schema/greeting.json",
     "scope": "",
     "language": "json",
-    "content": "\"$comment\": \"Refers into its bare sibling, which only resolves relative to this directory.\"",
     "line_start": 2,
     "line_end": 2
   },
@@ -165,7 +149,6 @@
     "file_path": "schema/greeting.json",
     "scope": "",
     "language": "json",
-    "content": "\"type\": \"object\"",
     "line_start": 3,
     "line_end": 3
   },
@@ -175,7 +158,6 @@
     "file_path": "schema/greeting.json",
     "scope": "",
     "language": "json",
-    "content": "\"properties\": {\n    \"recipient\": { \"$ref\": \"defs.json#/Name\" }\n  }",
     "line_start": 4,
     "line_end": 6
   },
@@ -185,7 +167,6 @@
     "file_path": "schema/greeting.json",
     "scope": "",
     "language": "json",
-    "content": "\"$ref\": \"defs.json#/Name\"",
     "line_start": 5,
     "line_end": 5
   },
@@ -195,7 +176,6 @@
     "file_path": "schema/greeting.json",
     "scope": "",
     "language": "json",
-    "content": "\"recipient\": { \"$ref\": \"defs.json#/Name\" }",
     "line_start": 5,
     "line_end": 5
   },
@@ -205,7 +185,6 @@
     "file_path": "schema/greeting.json",
     "scope": "",
     "language": "json",
-    "content": "\"$ref\": \"defs.json#/Name\"",
     "line_start": 5,
     "line_end": 5,
     "metadata": {
@@ -221,7 +200,6 @@
     "file_path": "schema/greeting.json",
     "scope": "",
     "language": "json",
-    "content": "}",
     "line_start": 7,
     "line_end": 7
   }

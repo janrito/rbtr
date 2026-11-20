@@ -1,6 +1,6 @@
 """Python docstring-extraction test cases.
 
-Each `@case` returns `(lang, source, symbol_name, snippet)` consumed by
+Each `@case` returns `(files, symbol_name, snippet)` consumed by
 `test_docstrings.py`; tags drive the documented/undocumented assertion.
 """
 
@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from pytest_cases import case
 
-type DocstringCase = tuple[str, str, str, str]
+type DocstringCase = tuple[dict[str, str], str, str]
 
 
-@case(tags=["documented", "canonical", "interior_doc"])
+@case(tags=["documented"])
 def case_py_function_docstring() -> DocstringCase:
     """PEP 257 single-line function docstring."""
     src = '''\
@@ -19,10 +19,10 @@ def greet(name):
     """Return a friendly greeting for *name*."""
     return f"hi {name}"
 '''
-    return "python", src, "greet", "Return a friendly greeting"
+    return {"input.py": src}, "greet", "Return a friendly greeting"
 
 
-@case(tags=["documented", "canonical", "interior_doc"])
+@case(tags=["documented"])
 def case_py_class_docstring() -> DocstringCase:
     """Class-level docstring as first statement of the body."""
     src = '''\
@@ -32,10 +32,10 @@ class Greeter:
     def hi(self):
         return "hi"
 '''
-    return "python", src, "Greeter", "Produce friendly greetings"
+    return {"input.py": src}, "Greeter", "Produce friendly greetings"
 
 
-@case(tags=["documented", "canonical", "interior_doc"])
+@case(tags=["documented"])
 def case_py_method_docstring() -> DocstringCase:
     """Method docstring inside a class."""
     src = '''\
@@ -44,10 +44,10 @@ class Svc:
         """Execute the main loop."""
         return 0
 '''
-    return "python", src, "run", "Execute the main loop"
+    return {"input.py": src}, "run", "Execute the main loop"
 
 
-@case(tags=["documented", "canonical", "interior_doc"])
+@case(tags=["documented"])
 def case_py_multiline_docstring() -> DocstringCase:
     """Multi-line docstring with summary + body."""
     src = '''\
@@ -59,10 +59,10 @@ def compute(x, y):
     """
     return x + y
 '''
-    return "python", src, "compute", "The summary is one line"
+    return {"input.py": src}, "compute", "The summary is one line"
 
 
-@case(tags=["documented", "edge_case", "interior_doc"])
+@case(tags=["documented"])
 def case_py_raw_string_docstring() -> DocstringCase:
     """`r\"\"\"...\"\"\"` raw string is a valid docstring."""
     src = '''\
@@ -70,10 +70,10 @@ def regex():
     r"""Match DIGIT sequences."""
     return 1
 '''
-    return "python", src, "regex", "Match DIGIT sequences"
+    return {"input.py": src}, "regex", "Match DIGIT sequences"
 
 
-@case(tags=["documented", "edge_case", "interior_doc"])
+@case(tags=["documented"])
 def case_py_single_quoted_docstring() -> DocstringCase:
     """Single-quoted triple-string is equally valid."""
     src = """\
@@ -81,10 +81,10 @@ def foo():
     '''Single-quoted docstring content.'''
     return 1
 """
-    return "python", src, "foo", "Single-quoted docstring content"
+    return {"input.py": src}, "foo", "Single-quoted docstring content"
 
 
-@case(tags=["documented", "edge_case", "interior_doc"])
+@case(tags=["documented"])
 def case_py_decorated_function_docstring() -> DocstringCase:
     """Decorators precede `def`; docstring is still interior."""
     src = '''\
@@ -94,10 +94,10 @@ def memoized(x):
     """Memoise calls to *other*."""
     return other(x)
 '''
-    return "python", src, "memoized", "Memoise calls"
+    return {"input.py": src}, "memoized", "Memoise calls"
 
 
-@case(tags=["documented", "unconventional", "interior_doc"])
+@case(tags=["documented"])
 def case_py_docstring_with_code_block() -> DocstringCase:
     """Docstring embedding example code - common in libraries."""
     src = '''\
@@ -111,10 +111,10 @@ def parse(s):
     """
     return []
 '''
-    return "python", src, "parse", ">>> parse"
+    return {"input.py": src}, "parse", ">>> parse"
 
 
-@case(tags=["documented", "unconventional", "interior_doc"])
+@case(tags=["documented"])
 def case_py_class_and_method_both_documented() -> DocstringCase:
     """Method chunk carries its own docstring, not the class's."""
     src = '''\
@@ -125,10 +125,10 @@ class Svc:
         """Boot the service."""
         return 1
 '''
-    return "python", src, "start", "Boot the service"
+    return {"input.py": src}, "start", "Boot the service"
 
 
-@case(tags=["undocumented", "no_docs"])
+@case(tags=["undocumented"])
 def case_py_function_without_docstring() -> DocstringCase:
     """Plain function: chunk content has no triple-quoted prose.
 
@@ -139,20 +139,20 @@ def case_py_function_without_docstring() -> DocstringCase:
 def add(a, b):
     return a + b
 """
-    return "python", src, "add", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
+    return {"input.py": src}, "add", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
 
 
-@case(tags=["undocumented", "no_docs"])
+@case(tags=["undocumented"])
 def case_py_class_without_docstring() -> DocstringCase:
     """Plain class with no documentation."""
     src = """\
 class Bare:
     pass
 """
-    return "python", src, "Bare", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
+    return {"input.py": src}, "Bare", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
 
 
-@case(tags=["undocumented", "invalid"])
+@case(tags=["undocumented"])
 def case_py_trailing_string_not_a_docstring() -> DocstringCase:
     """A triple-string placed *after* other statements is a
     discarded expression, not a docstring.  The text is in the
@@ -171,4 +171,4 @@ def late():
     """PSEUDO_DOC"""
     return x
 '''
-    return "python", src, "late", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"
+    return {"input.py": src}, "late", "PHANTOM_DOC_TEXT_SHOULD_NEVER_APPEAR"

@@ -10,21 +10,22 @@ from __future__ import annotations
 import pytest
 from pytest_cases import parametrize_with_cases
 
-from rbtr.domain.models import ChunkKind, Import
-from rbtr.git import FileEntry
-from rbtr.languages.extract import extract_file
+from rbtr.domain.models import ChunkKind
+from rbtr.testing import Indexed
+from rbtr.testing.reads import outline, read
 
 
-@parametrize_with_cases("lang, source, expected", cases=".cases_extraction", has_tag="symbol")
-def test_extracts_expected_symbols(lang: str, source: str, expected: list) -> None:
-    """Each expected (kind, name, scope) tuple appears in the output."""
-    chunks = extract_file(FileEntry("input", "sha1", source.encode()), lang)
-    symbols = [(c.kind, c.name, c.scope) for c in chunks]
+@parametrize_with_cases("files, expected", cases=".cases_extraction", has_tag="symbol")
+def test_extracts_expected_symbols(indexed: Indexed, files: dict[str, str], expected: list) -> None:
+    """Each expected (kind, name, scope) tuple appears in the outline."""
+    with indexed(files) as build:
+        reply = outline(build)
+    symbols = [(s.kind, s.name, s.scope) for s in reply]
     for exp in expected:
         assert exp in symbols, f"expected {exp} not found in {symbols}"
 
 
-def test_md_subsection_excluded_from_parent_content() -> None:
+def test_md_subsection_excluded_from_parent_content(indexed: Indexed) -> None:
     """Markdown parent chunk excludes child section content."""
     src = """\
 # Parent
@@ -35,26 +36,25 @@ Parent body.
 
 Child body.
 """
-    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
-    parent = next(c for c in chunks if c.name == "Parent")
+    with indexed({"input.md": src}) as build:
+        [parent] = read(build, "Parent")
     assert "Child body" not in parent.content
     assert "Parent body" in parent.content
 
 
-def test_md_headingless_paragraphs() -> None:
+def test_md_headingless_paragraphs(indexed: Indexed) -> None:
     """Markdown without headings is held by fragments of its text."""
     src = """\
 First paragraph.
 
 Second paragraph.
 """
-    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
-    assert [(c.kind, c.content) for c in chunks] == [
-        (ChunkKind.FRAGMENT, "First paragraph.\n\nSecond paragraph.")
-    ]
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
+    assert [(c.kind, c.line_start, c.line_end) for c in chunks] == [(ChunkKind.FRAGMENT, 1, 3)]
 
 
-def test_md_chunker_target_extracted() -> None:
+def test_md_chunker_target_extracted(indexed: Indexed) -> None:
     """A chunker-based target (yaml) inside a Markdown fence extracts.
 
     Query targets (python) already worked; this proves the delegate runs a
@@ -67,13 +67,14 @@ def test_md_chunker_target_extracted() -> None:
 service: greeter
 ```
 """
-    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
     yaml_sections = [c for c in chunks if c.language == "yaml"]
     assert [c.name for c in yaml_sections] == ["service"]
     assert yaml_sections[0].line_start == 4
 
 
-def test_md_nested_injection_extracts_inner_js() -> None:
+def test_md_nested_injection_extracts_inner_js(indexed: Indexed) -> None:
     """Delegation recurses: markdown -> html -> its inline js.
 
     An HTML block whose HTML contains an inline `<script>` yields both the
@@ -94,14 +95,15 @@ def test_md_nested_injection_extracts_inner_js() -> None:
 </body>
 ```
 """
-    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
     assert "html" in {c.language for c in chunks}
     js = [c for c in chunks if c.language == "javascript" and c.kind == ChunkKind.FUNCTION]
     assert [c.name for c in js] == ["boot"]
     assert js[0].line_start == 7
 
 
-def test_md_unknown_fence_left_unparsed() -> None:
+def test_md_unknown_fence_left_unparsed(indexed: Indexed) -> None:
     """A fence naming a language rbtr has no grammar for is not delegated."""
     src = """\
 # Doc
@@ -110,38 +112,41 @@ def test_md_unknown_fence_left_unparsed() -> None:
 some content here
 ```
 """
-    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
     assert {c.language for c in chunks} == {"markdown"}
 
 
-def test_md_local_link_produces_import() -> None:
+def test_md_local_link_produces_import(indexed: Indexed) -> None:
     """Markdown [text](local.md) produces an IMPORT chunk."""
     src = """\
 # Guide
 
 See [other doc](other.md) for details.
 """
-    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
-    imports = [c.role for c in chunks if isinstance(c.role, Import)]
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
+    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert len(imports) == 1
-    assert imports[0].meta.module == "other.md"
+    assert imports[0].module == "other.md"
 
 
-def test_md_link_with_fragment_sets_names() -> None:
+def test_md_link_with_fragment_sets_names(indexed: Indexed) -> None:
     """Markdown [text](path.md#section) sets module and names."""
     src = """\
 # Guide
 
 See [API section](api.md#my-function) for the API.
 """
-    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
-    imports = [c.role for c in chunks if isinstance(c.role, Import)]
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
+    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert len(imports) == 1
-    assert imports[0].meta.module == "api.md"
-    assert imports[0].meta.names == "my-function"
+    assert imports[0].module == "api.md"
+    assert imports[0].names == "my-function"
 
 
-def test_md_link_within_the_document_names_its_own_file() -> None:
+def test_md_link_within_the_document_names_its_own_file(indexed: Indexed) -> None:
     """Markdown [text](#section) imports the anchor from the document it is in."""
     src = """\
 # Guide
@@ -150,62 +155,67 @@ Jump to [usage](#usage).
 
 ## Usage
 """
-    chunks = extract_file(FileEntry("docs/guide.md", "sha1", src.encode()), "markdown")
-    imports = [c.role for c in chunks if isinstance(c.role, Import)]
-    assert [(i.meta.module, i.meta.names) for i in imports] == [("guide.md", "usage")]
+    with indexed({"docs/guide.md": src}) as build:
+        chunks = outline(build)
+    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    assert [(i.module, i.names) for i in imports] == [("guide.md", "usage")]
 
 
-def test_md_relative_link_produces_import() -> None:
+def test_md_relative_link_produces_import(indexed: Indexed) -> None:
     """Markdown [text](../src/foo.py) with relative path produces import."""
     src = """\
 # Docs
 
 See [source](../src/foo.py) for details.
 """
-    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
-    imports = [c.role for c in chunks if isinstance(c.role, Import)]
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
+    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert len(imports) == 1
-    assert imports[0].meta.module == "../src/foo.py"
+    assert imports[0].module == "../src/foo.py"
 
 
-def test_md_external_link_skipped() -> None:
+def test_md_external_link_skipped(indexed: Indexed) -> None:
     """Markdown links to external URLs produce no import chunk."""
     src = """\
 # Guide
 
 See [example](https://example.com) and [mail](mailto:a@b.com).
 """
-    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
-    imports = [c.role for c in chunks if isinstance(c.role, Import)]
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
+    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert imports == []
 
 
-def test_md_multiple_links_in_one_section() -> None:
+def test_md_multiple_links_in_one_section(indexed: Indexed) -> None:
     """Multiple links in a single section produce multiple imports."""
     src = """\
 # Guide
 
 See [a](one.md) and [b](two.py) here.
 """
-    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
-    imports = [c.role for c in chunks if isinstance(c.role, Import)]
-    modules = {c.meta.module for c in imports}
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
+    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    modules = {c.module for c in imports}
     assert modules == {"one.md", "two.py"}
 
 
-def test_md_bare_mention_no_import() -> None:
+def test_md_bare_mention_no_import(indexed: Indexed) -> None:
     """Prose mentioning a symbol name without a link produces no import."""
     src = """\
 # Guide
 
 Call do_stuff to process the data.
 """
-    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
-    imports = [c.role for c in chunks if isinstance(c.role, Import)]
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
+    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
     assert imports == []
 
 
-def test_md_headings_of_either_style_nest_by_level() -> None:
+def test_md_headings_of_either_style_nest_by_level(indexed: Indexed) -> None:
     """Each heading style states its level: `#` 1, `##` 2, an `=` underline 1, a `-` underline 2.
 
     So `---` is a sibling of `##` and `===` closes both, whichever style
@@ -230,9 +240,10 @@ Reference
 
 Reference text.
 """
-    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
     assert [
-        (c.name, c.scope, c.span.start, c.span.end)
+        (c.name, c.scope, c.line_start, c.line_end)
         for c in chunks
         if c.kind == ChunkKind.DOC_SECTION
     ] == [
@@ -243,7 +254,7 @@ Reference text.
     ]
 
 
-def test_md_a_heading_in_a_block_quote_is_a_section_of_its_own() -> None:
+def test_md_a_heading_in_a_block_quote_is_a_section_of_its_own(indexed: Indexed) -> None:
     """A heading inside a block quote or list item is a section within the one around it."""
     src = """\
 # Notes
@@ -252,9 +263,10 @@ def test_md_a_heading_in_a_block_quote_is_a_section_of_its_own() -> None:
 >
 > Text.
 """
-    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
     assert [
-        (c.name, c.span.start, c.span.end) for c in chunks if c.kind == ChunkKind.DOC_SECTION
+        (c.name, c.line_start, c.line_end) for c in chunks if c.kind == ChunkKind.DOC_SECTION
     ] == [
         ("Notes", 1, 5),
         ("Quoted", 3, 5),
@@ -266,7 +278,7 @@ def test_md_a_heading_in_a_block_quote_is_a_section_of_its_own() -> None:
     reason="a nested heading is scoped by the grammar's sections around it, and a "
     "top-level heading is read flat, naming no section: the scope is empty",
 )
-def test_md_a_nested_heading_is_scoped_under_the_heading_above_it() -> None:
+def test_md_a_nested_heading_is_scoped_under_the_heading_above_it(indexed: Indexed) -> None:
     """`# Notes` then a heading in a list item: the item's heading is scoped `Notes`."""
     src = """\
 # Notes
@@ -275,5 +287,6 @@ def test_md_a_nested_heading_is_scoped_under_the_heading_above_it() -> None:
 
   Text.
 """
-    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
+    with indexed({"input.md": src}) as build:
+        chunks = outline(build)
     assert ("Item", "Notes") in [(c.name, c.scope) for c in chunks]

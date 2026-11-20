@@ -24,7 +24,7 @@ Extracted chunks::
 
 from __future__ import annotations
 
-from rbtr.domain.edge_frames import ModuleStyle
+from rbtr.domain.models import ModuleStyle
 from rbtr.languages.registration import LanguageRegistration, QueryExtraction, load_query
 
 rust = LanguageRegistration(

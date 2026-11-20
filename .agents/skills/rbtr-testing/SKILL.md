@@ -118,11 +118,12 @@ production, and every change to an internal shape ripples through
 the tests. Work at these levels:
 
 - **Use cases, the bulk.** Input as files or arguments, results read back through
-  `Index` reads, or through the reply DTOs in `rbtr.daemon.dto` where a reply shape
-  exists. A plugin's sample test reads its built sample through `sample_symbols` and
-  `sample_edges`, plain values with no index or frame behind them, rather than
-  extracting each file and inferring edges itself; an edge case is a set of files built
-  with `build_index`, not chunks written by hand.
+  `Index` reads, or through the daemon's handlers where a reply shape exists. A
+  language test builds its files with `with indexed(files) as build:`, reads them with
+  `rbtr.testing.reads` (`outline`, `read`) and checks them with
+  `rbtr.testing.assertions` (`assert_reached`, `assert_every_line_in_a_chunk`), so
+  every language test reads and checks the same way; an edge case is a set of files and
+  what reaches each target, not chunks written by hand.
 - **A small low-level core.** Only for a rule a use case cannot
   isolate, such as the order rows reach inference in, or one that
   would need too many builds, such as module resolution's steps.
@@ -146,7 +147,7 @@ Four checks on any code in a test:
   stored changes no snapshot.
 
 Small reshapers of values a test already has are fine:
-the sample fixtures' renderings, the eval's row builders.
+the eval's row builders.
 
 ## Test structure
 
@@ -235,6 +236,8 @@ types, makes it worse while appearing to address the note.
   callable that makes one: factories hide the dependency graph.
   Where several fixtures need the same kind of setup, each does it
   itself — three lines repeated beat a builder passed around.
+  One fixture is a purposeful exception: `indexed` in `rbtr.testing`,
+  for language tests (see the note above it).
 - **Helpers belong in cases or conftest.** If a helper
   function is needed to build test data, call it from case
   functions or define it in `conftest.py`. Don't scatter

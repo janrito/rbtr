@@ -8,5 +8,6 @@ directly:
   `ModuleStyle`, the resolver aliases, `load_query`, capture/import helpers).
 - `rbtr.languages.manager` — `get_manager()` discovers registered plugins and
   drives detection and grammar loading.
-- `rbtr.languages._resolvers` — the engine's built-in resolvers (private).
+- `rbtr.languages.resolvers` — the engine's built-in resolvers, which a
+  plugin reaches through `LanguageRegistration`.
 """
