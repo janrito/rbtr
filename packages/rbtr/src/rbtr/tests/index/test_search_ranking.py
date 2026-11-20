@@ -28,7 +28,7 @@ def test_class_definition_outranks_its_import(ranking_index: Index, ranking_comm
         within=[repo.at(ranking_commit)],
         top_k=10,
     )
-    assert_outranks(results, "AppConfig", "from config import AppConfig")
+    assert_outranks(results, "AppConfig", "from config import AppConfig, load_config")
 
 
 def test_source_function_outranks_test_with_higher_tf(
@@ -65,8 +65,7 @@ def test_doc_section_ranks_below_code(ranking_index: Index, ranking_commit: str)
 def test_exact_name_match_ranks_first(ranking_index: Index, ranking_commit: str) -> None:
     """Exact name match on 'start_server' ranks it first.
 
-    Other chunks mention 'server' in content (import_config,
-    start_server definition), but only start_server has the exact
+    Other chunks mention 'server' in content, but only start_server has the exact
     name match (score 1.0).
     """
     [repo] = ranking_index.repos()
@@ -96,7 +95,7 @@ def test_class_name_query_finds_definition(ranking_index: Index, ranking_commit:
 
 
 def test_high_df_term_still_finds_definition(ranking_index: Index, ranking_commit: str) -> None:
-    """'config' appears in 5/6 chunks; class definition is in top 2.
+    """'config' appears in most chunks; class definition is in top 2.
 
     IDF neutralisation prevents rare-term bias, and kind boost
     (CLASS=1.5) lifts the definition above high-TF test content.

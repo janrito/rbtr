@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from collections import Counter
 from collections.abc import Generator
 from dataclasses import replace
 from pathlib import Path
@@ -15,6 +16,7 @@ from pytest_mock import MockerFixture
 from rbtr.domain.models import (
     ChunkKind,
     EdgeKind,
+    FileOutcome,
     FileSnapshot,
     IndexResult,
 )
@@ -24,6 +26,10 @@ from rbtr.index.index import Index
 from rbtr.index.search import search
 from rbtr.languages.manager import get_manager
 from rbtr.languages.treesitter import compiled_query
+from rbtr_lang_markdown.plugin import markdown, markdown_inline
+from rbtr_lang_python.plugin import python
+
+from ..conftest import make_commit
 
 
 @pytest.fixture(scope="module")
@@ -854,6 +860,70 @@ def test_build_index_reextracts_on_contributor_bump(
 
     rebuild = build_index(multilang_repo.workdir, sha, index)
     assert rebuild.stats.parsed_files >= 1
+
+
+def test_a_file_whose_language_is_no_longer_installed_is_extracted_again(
+    fake_repo: str, index: Index
+) -> None:
+    """A Python file built while Python was installed is extracted again once it is not.
+
+    Its stored extraction is at Python's serial, which no installed
+    language states any more, so the blob has no current extraction.
+    """
+    repo = pygit2.Repository(fake_repo)
+    sha = str(
+        make_commit(
+            repo,
+            {"a.py": b"def f():\n    pass\n"},
+            parents=[repo.head.peel(pygit2.Commit).id],
+        )
+    )
+    with get_manager().limited_to(python):
+        build_index(fake_repo, sha, index)
+    with get_manager().limited_to():
+        rebuild = build_index(fake_repo, sha, index)
+
+    assert rebuild.stats.outcomes == Counter({FileOutcome.PARSED: 1})
+
+
+def test_a_plaintext_file_is_reused_on_rebuild(fake_repo: str, index: Index) -> None:
+    """A file no language reads keeps its plaintext extraction across builds."""
+    repo = pygit2.Repository(fake_repo)
+    sha = str(
+        make_commit(
+            repo,
+            {"NOTES": b"Remember the milk.\n"},
+            parents=[repo.head.peel(pygit2.Commit).id],
+        )
+    )
+    build_index(fake_repo, sha, index)
+    rebuild = build_index(fake_repo, sha, index)
+
+    assert rebuild.stats.outcomes == Counter({FileOutcome.SKIPPED_CURRENT: 1})
+
+
+def test_bumping_one_reading_of_shared_bytes_extracts_only_that_reading(
+    fake_repo: str, index: Index
+) -> None:
+    """The same bytes read as Python and as Markdown are two extractions, each current on its own.
+
+    Raising Markdown's serial re-extracts the Markdown file; the Python
+    file, the same blob, stays current.
+    """
+    repo = pygit2.Repository(fake_repo)
+    text = b"x = 1\n"
+    sha = str(
+        make_commit(repo, {"a.py": text, "a.md": text}, parents=[repo.head.peel(pygit2.Commit).id])
+    )
+    with get_manager().limited_to(python, markdown, markdown_inline):
+        build_index(fake_repo, sha, index)
+    bumped = replace(markdown, extraction_serial=markdown.extraction_serial + 1)
+    with get_manager().limited_to(python, bumped, markdown_inline):
+        rebuild = build_index(fake_repo, sha, index)
+
+    assert rebuild.stats.outcomes == Counter(
+        {FileOutcome.PARSED: 1, FileOutcome.SKIPPED_CURRENT: 1}
+    )
 
 
 def test_build_index_dedups_empty_file(tmp_path: Path, index: Index) -> None:

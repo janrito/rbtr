@@ -1,43 +1,32 @@
-"""Read-side behavioural tests for Index.
+"""Read-side behavioural tests for Index, over what builds wrote.
 
-Covers: chunks filters, edges filters, current_blobs
-language matching, chunk upsert, delete_chunks_for_blobs,
+Covers: chunks filters, edges filters, how an import is stored,
 multi-repo data isolation, and cross-repo content sharing
 (content-addressed dedup, shared embeddings, reference-counted
-cleanup).
+gc).
 """
 
 from __future__ import annotations
+
+import dataclasses
 
 import pygit2
 import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.domain.models import (
-    Chunk,
-    EdgeKind,
-    Import,
-    ImportMeta,
-    SnapshotRef,
-    Span,
-)
+from rbtr.domain.models import ChunkKind, EdgeKind, GcMode, SnapshotRef
 from rbtr.git import normalise_repo_path
 from rbtr.index.build import build_index
 from rbtr.index.embed import embed_index
 from rbtr.index.embeddings import Embedder
+from rbtr.index.gc import run_gc
 from rbtr.index.index import Index
-from rbtr.index.staging import serial_map_view, staged_chunks
-from rbtr.languages.chunks import chunk_rows
+from rbtr.languages.manager import get_manager
+from rbtr.languages.registration import QueryExtraction
+from rbtr_lang_python.plugin import python
 
 from ..conftest import make_commit
-from .cases_read import (
-    BlobCurrentScenario,
-    ChunkQueryScenario,
-    EmbedOrderScenario,
-    GcCountScenario,
-    PathsRead,
-)
-from .conftest import make_chunk, make_snap, seed_index
+from .cases_read import ChunkQueryScenario, GcCountScenario, PathsRead
 
 
 @fixture
@@ -99,62 +88,6 @@ DEC = 12  # winter
     ]
 
 
-@fixture
-@parametrize_with_cases("scenario", has_tag="current_blobs")
-def blob_query(scenario: BlobCurrentScenario, index: Index) -> tuple[Index, BlobCurrentScenario]:
-    repo = index.register("/repo")
-    with index.session(repo) as ws:
-        ws.add_chunks(staged_chunks(chunk_rows(scenario.chunks), scenario.stored_serials))
-        ws.replace_snapshots(list(scenario.snapshots), snapshot_sha="head")
-    return index, scenario
-
-
-def test_current_blobs_match(
-    blob_query: tuple[Index, BlobCurrentScenario],
-) -> None:
-    index, s = blob_query
-    with index.session(index.repo("/repo")) as ws:
-        current = ws.current_blobs(s.query_blobs, serial_map_view(s.serial_map))
-    assert current == s.expected
-
-
-def test_upsert_replaces_content(index: Index) -> None:
-    """Adding a chunk with the same ID replaces the content."""
-    c1 = make_chunk("fn1", content="def fn1(): return 1")
-    c2 = make_chunk("fn1", content="def fn1(): return 2")
-
-    repo = index.register("/repo")
-    with index.session(repo) as ws:
-        ws.add_chunks(staged_chunks(chunk_rows([c1]), {}))
-        ws.replace_snapshots([make_snap("head", "f.py", c1.blob_sha)], snapshot_sha="head")
-
-    with index.session(repo) as ws:
-        ws.add_chunks(staged_chunks(chunk_rows([c2]), {}))
-
-    chunks = index.chunks(at=repo.at("head"))
-    assert len(chunks) == 1
-    assert "return 2" in chunks["content"][0]
-
-
-def test_delete_chunks_for_blobs_removes_target(index: Index) -> None:
-    """Deleting a blob's chunks removes them, leaves others."""
-    c1 = make_chunk("fn1", blob="b1", path="a.py")
-    c2 = make_chunk("fn2", blob="b2", path="b.py")
-
-    repo = index.register("/repo")
-    with index.session(repo) as ws:
-        ws.add_chunks(staged_chunks(chunk_rows([c1, c2]), {}))
-        ws.replace_snapshots(
-            [make_snap("head", "a.py", "b1"), make_snap("head", "b.py", "b2")], snapshot_sha="head"
-        )
-
-    with index.session(repo) as ws:
-        ws.delete_chunks_for_blobs({"b1"}, file_language="")
-
-    with index.session(repo) as ws:
-        assert ws.current_blobs(["b1", "b2"], serial_map_view({"": 1})) == {("b2", "")}
-
-
 def test_edges_returns_all(module_index: Index, import_graph: SnapshotRef) -> None:
     """Every edge the build inferred at a snapshot is returned, of every kind."""
     edges = module_index.edges(within=[import_graph])
@@ -203,35 +136,39 @@ def test_a_read_leaves_the_cursor_free_for_the_next(
     assert module_index.chunks_by_id([fn], at=import_graph)["id"].to_list() == [fn]
 
 
-@pytest.fixture
-def script_import() -> Chunk:
-    """An import with every metadata field set, so a field storage drops shows."""
-    content = '<script src="greeter.js"></script>'
-    return Chunk(
-        blob_sha="blob_page",
-        file_path="page.html",
-        role=Import(
-            name="greeter.js",
-            meta=ImportMeta(module="./greeter.js", names="greet", language_hint="javascript"),
-        ),
-        content=content,
-        span=Span(start=3, end=3),
-    )
-
-
 def test_an_import_reads_back_as_written(
-    script_import: Chunk, index: Index, head_ref: SnapshotRef
+    index: Index, git_repo: pygit2.Repository, repo_path: str
 ) -> None:
-    seed_index(index, [script_import], head_ref)
-    assert index.chunks(at=head_ref)["metadata"].to_list() == [
+    """Every field of an import is stored and read back: a JavaScript import's module, names and bindings, an HTML script's hint."""
+    sha = str(
+        make_commit(
+            git_repo,
+            {
+                "app.js": b'import { greet as hello } from "./greeter.js";\n',
+                "page.html": b'<script src="greeter.js"></script>\n',
+            },
+            ref="refs/heads/imports",
+        )
+    )
+    build_index(repo_path, sha, index)
+    imports = index.chunks(at=index.register(repo_path).at(sha), kind=ChunkKind.IMPORT)
+    assert imports["metadata"].to_list() == [
         {
-            "module": "./greeter.js",
+            "module": "./greeter",
             "names": "greet",
+            "language_hint": "",
+            "node_types": None,
+            "refs": None,
+            "bindings": [{"name": "greet", "local": "hello"}],
+        },
+        {
+            "module": "greeter.js",
+            "names": "",
             "language_hint": "javascript",
             "node_types": None,
             "refs": None,
             "bindings": [],
-        }
+        },
     ]
 
 
@@ -341,72 +278,52 @@ def test_shared_chunk_embedded_once_across_repos(
     assert index.chunk_counts_for_snapshot(at=in_repo2).unembedded == 0
 
 
-def test_cleanup_keeps_chunk_referenced_by_another_repo(
-    shared_chunk_index: Index,
-    shared_sha: str,
-    shared_chunk_id: str,
-) -> None:
-    """A repo's build-finalise `cleanup()` must not prune a co-tenant's chunk.
-
-    `cleanup()` runs the global `prune_chunks`. While repo 2 still
-    references the shared blob, repo 1's cleanup must remove nothing and
-    leave the chunk visible to both — the realistic co-tenant case, since
-    `cleanup` runs at the end of every build.
-    """
-    index = shared_chunk_index
-    repo1, repo2 = index.repos()
-    with index.session(repo1) as ws:
-        cleaned = ws.cleanup()
-    assert cleaned.chunks == 0
-    assert index.count_orphan_chunks() == 0
-    assert index.chunks(at=repo1.at(shared_sha))["id"].to_list() == [shared_chunk_id]
-    assert index.chunks(at=repo2.at(shared_sha))["id"].to_list() == [shared_chunk_id]
-
-
 def test_shared_chunk_swept_only_after_last_repo_drops_it(
     shared_chunk_index: Index,
     shared_sha: str,
     shared_chunk_id: str,
+    repo_path: str,
+    linked_worktree: pygit2.Repository,
 ) -> None:
-    """Cross-repo refcount: the chunk survives until the last reference goes."""
+    """Cross-repo refcount: a gc in one checkout keeps the chunk the other still claims, and the last collects it.
+
+    A gc's clean-up prunes chunks across the project, so the first
+    checkout's must not take the chunk its co-tenant still reads.
+    """
     index = shared_chunk_index
-    repo1, repo2 = index.repos()
-    # Repo 1 drops its commit: shared chunk survives (repo 2 references it).
-    with index.session(repo1) as ws:
-        first_drop = ws.drop_snapshot(snapshot_sha=shared_sha)
-    assert first_drop.chunks == 0
+    _repo1, repo2 = index.repos()
+    first = run_gc(index, repo_path, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
+    assert first.chunks == 0
     assert index.chunks(at=repo2.at(shared_sha))["id"].to_list() == [shared_chunk_id]
 
-    # Repo 2 drops its commit: last reference gone, chunk is swept.
-    with index.session(repo2) as ws:
-        second_drop = ws.drop_snapshot(snapshot_sha=shared_sha)
-    assert second_drop.chunks == 1
+    worktree = normalise_repo_path(linked_worktree.workdir)
+    second = run_gc(index, worktree, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
+    assert second.chunks == 1
     assert index.count_orphan_chunks() == 0
     assert index.chunks(at=repo2.at(shared_sha)).is_empty()
 
 
 def test_rechunk_of_shared_blob_propagates_to_all_repos(
-    shared_chunk_index: Index,
-    shared_sha: str,
+    shared_chunk_index: Index, shared_sha: str, repo_path: str
 ) -> None:
-    """Re-chunking a shared blob updates the content for every repo.
+    """A plugin upgrade's re-extraction in one checkout changes the chunks every checkout reads.
 
-    A plugin upgrade re-chunks a blob globally (delete its chunks, then
-    re-insert at the new serial). Because the chunk is content-addressed
-    and shared, every repo referencing the blob — not just the one that
-    triggered the re-chunk — sees the new chunks, without re-indexing.
+    The chunk is content-addressed and shared, so the second checkout sees
+    the new extraction without building again: here a Python query that
+    no longer captures functions makes `shared_fn` a fragment.
     """
     index = shared_chunk_index
     repo1, repo2 = index.repos()
-    blob = str(index.chunks(at=repo1.at(shared_sha))["blob_sha"].item())
-    rechunked = make_chunk("shared_fn_v2", path="x.py", blob=blob, language="python")
-    # A different name, so a different id: the upgrade replaces the row.
-    with index.session(repo1) as ws:
-        ws.delete_chunks_for_blobs({blob}, file_language="python")
-        ws.add_chunks(staged_chunks(chunk_rows([rechunked]), {"python": 2}))
+    upgraded = dataclasses.replace(
+        python,
+        extraction=QueryExtraction(query="(comment) @comment\n"),
+        extraction_serial=python.extraction_serial + 1,
+    )
+    with get_manager().limited_to(upgraded):
+        build_index(repo_path, shared_sha, index)
 
-    assert index.chunks(at=repo1.at(shared_sha))["id"].to_list() == [rechunked.id]
-    assert index.chunks(at=repo2.at(shared_sha))["id"].to_list() == [rechunked.id]
+    assert index.chunks(at=repo1.at(shared_sha))["kind"].to_list() == ["fragment"]
+    assert index.chunks(at=repo2.at(shared_sha))["kind"].to_list() == ["fragment"]
 
 
 @pytest.fixture
@@ -429,10 +346,10 @@ def shared():
     return str(make_commit(git_repo, {"a.py": shared}, ref="refs/heads/one"))
 
 
-def test_drop_snapshot_keeps_a_chunk_still_reachable_at_another_path(
+def test_gc_keeps_a_chunk_still_reachable_at_another_path(
     index: Index, repo_path: str, two_paths_sha: str, one_path_sha: str
 ) -> None:
-    """`drop_snapshot` keeps a chunk whose blob is referenced elsewhere.
+    """A gc keeps a chunk whose blob is referenced elsewhere.
 
     Identical content at `a.py` and `b.py` is one chunk reached through
     two paths, so dropping the commit that referenced `b.py` collects
@@ -444,9 +361,9 @@ def test_drop_snapshot_keeps_a_chunk_still_reachable_at_another_path(
     repo = index.register(repo_path)
     shared = index.chunks(at=repo.at(one_path_sha))["id"].to_list()
 
-    with index.session(repo) as ws:
-        dropped = ws.drop_snapshot(snapshot_sha=two_paths_sha)
+    dropped = run_gc(index, repo_path, mode=GcMode.KEEP, refs=["one"], dry_run=False)
 
+    assert dropped.snapshots == 1
     assert dropped.chunks == 0
     assert index.count_orphan_chunks() == 0
     assert index.chunks(at=repo.at(one_path_sha))["id"].to_list() == shared
@@ -511,31 +428,26 @@ def test_gc_chunk_split_counts(
 
 
 def test_gc_chunk_split_agrees_with_real_deletion(
-    gc_count: GcCountScenario, gc_count_shas: dict[str, str], project_index: Index
+    gc_count: GcCountScenario,
+    gc_count_shas: dict[str, str],
+    project_index: Index,
+    repo_path: str,
+    linked_worktree: pygit2.Repository,
 ) -> None:
-    """The predicted drop count matches a real deletion, leaving no orphans.
+    """A gc's dry run predicts the chunks its real run deletes, leaving no orphans.
 
-    Guards against drift between `count_gc_chunk_split` (the prediction)
-    and the `drop_snapshot` sweep (the deletion), and between the sweep and
-    `count_orphan_chunks`: dropping the drop set's commits must remove
-    exactly the predicted number of chunks and leave the store
-    orphan-free. Both sides are read off the same reference graph, so
-    they must never diverge.
+    Guards against drift between `count_gc_chunk_split` (the prediction a
+    dry run reports) and the `drop_snapshot` sweep (the deletion), and
+    between the sweep and `count_orphan_chunks`. The gc keeps every commit
+    the scenario does not drop.
     """
     index = project_index
-    drop = index.repos()[gc_count.drop_checkout]
-    drop_shas = [gc_count_shas[c] for c in gc_count.drop]
-    predicted_dropped = index.count_gc_chunk_split(drop, drop_shas).dropped
+    path = [repo_path, normalise_repo_path(linked_worktree.workdir)][gc_count.drop_checkout]
+    kept = [label for label in gc_count_shas if label not in gc_count.drop]
+    predicted = run_gc(index, path, mode=GcMode.KEEP, refs=kept, dry_run=True)
+    collected = run_gc(index, path, mode=GcMode.KEEP, refs=kept, dry_run=False)
 
-    with index.reader(drop) as cur:
-        ((before,),) = cur.sql("SELECT count(*) FROM chunks").fetchall()
-    with index.session(drop) as ws:
-        for sha in drop_shas:
-            ws.drop_snapshot(snapshot_sha=sha)
-    with index.reader(drop) as cur:
-        ((after,),) = cur.sql("SELECT count(*) FROM chunks").fetchall()
-
-    assert before - after == predicted_dropped
+    assert collected.chunks == predicted.chunks == gc_count.expected_dropped
     assert index.count_orphan_chunks() == 0
 
 
@@ -621,25 +533,28 @@ def test_an_indexed_snapshot_with_no_chunks_counts_zero(
     assert [ref.snapshot_sha for ref in snapshots] == [nothing_to_index_ref.snapshot_sha]
 
 
-@parametrize_with_cases("scenario", cases=".cases_read", has_tag="embed_order")
-def test_snapshots_come_back_in_embed_order(scenario: EmbedOrderScenario, index: Index) -> None:
-    """Order decides which snapshot is embedded next, so the queries fix it.
+def test_snapshots_come_back_in_embed_order(
+    index: Index, git_repo: pygit2.Repository, repo_path: str
+) -> None:
+    """The newest build is embedded first, so the queries fix the order.
 
     Asserted through `snapshots_to_embed`, which the job picker reads, and
     `chunk_counts_by_snapshot`, which status reports in the same order.
-    Each snapshot holds one chunk without a vector, so each has work.
+    Each commit holds one function without a vector, so each has work.
     """
-    for shas in scenario.transactions:
-        repo = index.register("/r")
-        with index.session(repo) as ws:
-            for sha in shas:
-                chunk = make_chunk(sha, path=f"{sha}.py")
-                ws.add_chunks(staged_chunks(chunk_rows([chunk]), {}))
-                ws.replace_snapshots(
-                    [make_snap(sha, chunk.file_path, chunk.blob_sha)], snapshot_sha=sha
-                )
-                ws.mark_indexed(snapshot_sha=sha)
+    built = []
+    for label in ("older", "newer"):
+        sha = str(
+            make_commit(
+                git_repo,
+                {f"{label}.py": f"def {label}():\n    pass\n".encode()},
+                ref=f"refs/heads/{label}",
+            )
+        )
+        build_index(repo_path, sha, index)
+        built.append(sha)
 
-    assert [ref.snapshot_sha for ref in index.snapshots_to_embed()] == scenario.expected
-    counted = index.chunk_counts_by_snapshot(repo=repo)
-    assert [ref.snapshot_sha for ref in counted] == scenario.expected
+    newest_first = built[::-1]
+    assert [ref.snapshot_sha for ref in index.snapshots_to_embed()] == newest_first
+    counted = index.chunk_counts_by_snapshot(repo=index.register(repo_path))
+    assert [ref.snapshot_sha for ref in counted] == newest_first
