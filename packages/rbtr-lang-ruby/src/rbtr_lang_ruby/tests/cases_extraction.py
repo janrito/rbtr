@@ -5,6 +5,8 @@ from __future__ import annotations
 import pytest
 from pytest_cases import case
 
+from rbtr.testing.assertions import Referrer, Target
+
 type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
 type ImportCase = tuple[dict[str, str], dict[str, str | list[dict[str, str]]]]
 type MultiImportCase = tuple[dict[str, str], int, list[dict[str, str]]]
@@ -315,7 +317,7 @@ def case_ruby_nested_unpack_xfail() -> SymbolCase:
     )
 
 
-type ReferencesCase = tuple[str, str, list[tuple[str, str, list[str], list[str]]]]
+type ReferencesCase = tuple[dict[str, str], dict[Target, set[Referrer]]]
 
 
 @case(tags=["references"])
@@ -323,10 +325,23 @@ def case_ruby_calls_and_bases() -> ReferencesCase:
     """Each call shape, `Klass.new` as the class it constructs, and a base by path.
 
     `items.first.size` has no parentheses, so its text is names only and it
-    is a path; its head is a local, so it reaches nothing.
+    is a path through `items`; it does not reach `Order#size`.
     """
-    src = """\
+    order = """\
+require_relative "shop"
+require_relative "foo"
+require_relative "util"
+
 class Order < Shop::Base
+  def check
+  end
+
+  def helper(n)
+  end
+
+  def size
+  end
+
   def save
     self.check
     check()
@@ -338,35 +353,79 @@ class Order < Shop::Base
   end
 end
 """
+    shop = """\
+module Shop
+  class Base
+  end
+
+  class Klass
+  end
+end
+"""
+    foo = """\
+class Foo
+end
+"""
+    util = """\
+class Util
+  def self.log
+  end
+end
+"""
     return (
-        "ruby",
-        src,
-        [
-            ("class", "Order", [], ["unqualified:Shop.Base"]),
-            (
-                "method",
-                "save",
-                [
-                    "member:check",
-                    "unqualified:check",
-                    "unqualified:helper",
-                    "unqualified:Foo",
-                    "unqualified:Shop.Klass",
-                    "unqualified:Util.log",
-                    "unqualified:items.first",
-                    "unqualified:items.first.size",
-                ],
-                [],
-            ),
-        ],
+        {
+            "order.rb": order,
+            "shop.rb": shop,
+            "foo.rb": foo,
+            "util.rb": util,
+        },
+        {
+            ("shop.rb", "Base"): {("order.rb", "Order", "inherits")},
+            ("order.rb", "check"): {("order.rb", "save", "calls")},
+            ("order.rb", "helper"): {("order.rb", "save", "calls")},
+            ("foo.rb", "Foo"): {("order.rb", "save", "calls")},
+            ("shop.rb", "Klass"): {("order.rb", "save", "calls")},
+            ("util.rb", "log"): {("order.rb", "save", "calls")},
+            ("order.rb", "size"): set(),
+        },
     )
 
 
 @case(tags=["references"])
 def case_rb_a_bare_name_is_a_call_unless_it_is_a_local() -> ReferencesCase:
-    """`check` alone calls a method; a parameter, block parameter or assigned name is a local, a value."""
-    src = """\
+    """`check` alone calls a method; a parameter, block parameter or assigned name is a local, a value.
+
+    `x` and `item` are methods too, which the locals of those names do not reach.
+    """
+    order = """\
 class Order
+  def check
+  end
+
+  def compute
+  end
+
+  def log(*args)
+  end
+
+  def other
+  end
+
+  def result
+  end
+
+  def pending
+  end
+
+  def render(item)
+  end
+
+  def x
+  end
+
+  def item
+  end
+
   def save(a, key: 1, &blk)
     check
     x = compute
@@ -377,27 +436,64 @@ class Order
 end
 """
     return (
-        "ruby",
-        src,
-        [
-            (
-                "method",
-                "save",
-                [
-                    "unqualified:check",
-                    "unqualified:compute",
-                    "unqualified:log",
-                    "type:x",
-                    "unqualified:other",
-                    "unqualified:result",
-                    "unqualified:pending",
-                    "unqualified:items.each",
-                    "unqualified:render",
-                    "type:item",
-                ],
-                [],
-            )
-        ],
+        {"order.rb": order},
+        {
+            ("order.rb", "check"): {("order.rb", "save", "calls")},
+            ("order.rb", "compute"): {("order.rb", "save", "calls")},
+            ("order.rb", "log"): {("order.rb", "save", "calls")},
+            ("order.rb", "other"): {("order.rb", "save", "calls")},
+            ("order.rb", "result"): {("order.rb", "save", "calls")},
+            ("order.rb", "pending"): {("order.rb", "save", "calls")},
+            ("order.rb", "render"): {("order.rb", "save", "calls")},
+            ("order.rb", "x"): set(),
+            ("order.rb", "item"): set(),
+        },
+    )
+
+
+@case(
+    tags=["references"],
+    marks=pytest.mark.xfail(
+        strict=True,
+        reason="a qualified path resolves its qualifier to one definition, the first "
+        "file required; Ruby reopens a module, so both files' classes are its members",
+    ),
+)
+def case_rb_a_module_reopened_in_two_files_holds_both_files_classes() -> ReferencesCase:
+    """`Shop` opened in `shop/base.rb` and in `shop/klass.rb`: `Shop::Klass.new` reaches `Klass`."""
+    order = """\
+require_relative "shop/base"
+require_relative "shop/klass"
+
+class Order
+  def save
+    Shop::Base.new
+    Shop::Klass.new
+  end
+end
+"""
+    base = """\
+module Shop
+  class Base
+  end
+end
+"""
+    klass = """\
+module Shop
+  class Klass
+  end
+end
+"""
+    return (
+        {
+            "order.rb": order,
+            "shop/base.rb": base,
+            "shop/klass.rb": klass,
+        },
+        {
+            ("shop/base.rb", "Base"): {("order.rb", "save", "calls")},
+            ("shop/klass.rb", "Klass"): {("order.rb", "save", "calls")},
+        },
     )
 
 
@@ -411,13 +507,18 @@ end
 )
 def case_rb_a_name_before_its_assignment_is_a_call() -> ReferencesCase:
     """`check` then `check = 1`: the first `check` is still a method call."""
-    src = """\
-def save
-  check
-  check = 1
+    order = """\
+class Order
+  def check
+  end
+
+  def save
+    check
+    check = 1
+  end
 end
 """
-    return "ruby", src, [("function", "save", ["unqualified:check"], [])]
+    return {"order.rb": order}, {("order.rb", "check"): {("order.rb", "save", "calls")}}
 
 
 @case(tags=["symbol"])

@@ -9,6 +9,8 @@ from __future__ import annotations
 import pytest
 from pytest_cases import case
 
+from rbtr.testing.assertions import Referrer, Target
+
 type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
 type ImportCase = tuple[dict[str, str], dict[str, str | list[dict[str, str]]]]
 type MultiImportCase = tuple[dict[str, str], int, list[dict[str, str | list[dict[str, str]]]]]
@@ -454,17 +456,26 @@ def case_js_nested_object_xfail() -> SymbolCase:
     return {"input.js": "const {a: {b}} = x;\n"}, [("variable", "b", "")]
 
 
-type ReferencesCase = tuple[str, str, list[tuple[str, str, list[str], list[str]]]]
+type ReferencesCase = tuple[dict[str, str], dict[Target, set[Referrer]]]
 
 
 @case(tags=["references"])
 def case_js_calls_and_bases() -> ReferencesCase:
-    """Each call shape, a base by name and by path, and the receivers `this` and `super`."""
-    src = """\
+    """Each call shape, a base by name and by path, and the receivers `this` and `super`.
+
+    `m` is a function of its own, which `x[0].m()`, a call through a value,
+    does not reach.
+    """
+    order = """\
 import { b as local } from './ui';
 import * as utils from '../utils';
+import * as mixins from '../mixins';
+import { Base } from '../base';
+import { Foo } from '../foo';
 
 class Order extends Base {
+  check() {}
+
   save() {
     super.save();
     this.check();
@@ -478,53 +489,84 @@ class Order extends Base {
 
 class Plain extends mixins.Logged {}
 """
+    utils = """\
+export function log() {}
+
+export function m() {}
+"""
+    base = """\
+export class Base {
+  save() {}
+}
+"""
     return (
-        "javascript",
-        src,
-        [
-            ("class", "Order", [], ["unqualified:Base"]),
-            (
-                "method",
-                "save",
-                [
-                    "base:save",
-                    "member:check",
-                    "unqualified:utils.log",
-                    "unqualified:local",
-                    "unqualified:Foo",
-                    "unqualified:a.b",
-                ],
-                [],
-            ),
-            ("class", "Plain", [], ["unqualified:mixins.Logged"]),
-        ],
+        {
+            "app/order.js": order,
+            "app/ui.js": "export function b() {}\n",
+            "utils.js": utils,
+            "mixins.js": "export class Logged {}\n",
+            "base.js": base,
+            "foo.js": "export class Foo {}\n",
+        },
+        {
+            ("base.js", "Base"): {("app/order.js", "Order", "inherits")},
+            ("mixins.js", "Logged"): {("app/order.js", "Plain", "inherits")},
+            ("base.js", "save"): {("app/order.js", "save", "calls")},
+            ("app/order.js", "check"): {("app/order.js", "save", "calls")},
+            ("utils.js", "log"): {("app/order.js", "save", "calls")},
+            ("app/ui.js", "b"): {("app/order.js", "save", "calls")},
+            ("foo.js", "Foo"): {("app/order.js", "save", "calls")},
+            ("utils.js", "m"): set(),
+        },
     )
 
 
 @case(tags=["references"])
 def case_ts_calls_and_bases() -> ReferencesCase:
     """TypeScript's `extends` is a base and `implements` none; type arguments are not the callee."""
-    src = """\
+    order = """\
+import { Base } from './base';
+import { Saveable } from './saveable';
+import { sum } from './sum';
+
 class Order extends Base implements Saveable {
+  items(): number[] {
+    return [];
+  }
+
   total(): number {
     return sum<number>(this.items());
   }
 }
 """
+    total = """\
+export function sum<T>(xs: T[]): number {
+  return xs.length;
+}
+"""
     return (
-        "typescript",
-        src,
-        [
-            ("class", "Order", [], ["unqualified:Base"]),
-            ("method", "total", ["unqualified:sum", "member:items"], []),
-        ],
+        {
+            "order.ts": order,
+            "base.ts": "export class Base {}\n",
+            "saveable.ts": "export interface Saveable {}\n",
+            "sum.ts": total,
+        },
+        {
+            ("base.ts", "Base"): {("order.ts", "Order", "inherits")},
+            ("saveable.ts", "Saveable"): set(),
+            ("sum.ts", "sum"): {("order.ts", "total", "calls")},
+            ("order.ts", "items"): {("order.ts", "total", "calls")},
+        },
     )
 
 
 @case(tags=["references"])
 def case_tsx_a_rendered_component_is_a_reference() -> ReferencesCase:
-    """`<Toolbar>`, `<Ui.Button />` and `<motion.div />` render components; `<div>` is HTML."""
-    src = """\
+    """`<Toolbar>` and `<Ui.Button />` render components; `<div>` is HTML, not the function `div`."""
+    app = """\
+import { Toolbar, make, div } from './toolbar';
+import * as Ui from './ui';
+
 export function App() {
   return (
     <div>
@@ -536,34 +578,65 @@ export function App() {
   );
 }
 """
+    toolbar = """\
+export function Toolbar(props: object) {
+  return null;
+}
+
+export function make() {
+  return [];
+}
+
+export function div() {
+  return null;
+}
+"""
+    ui = """\
+export function Button() {
+  return null;
+}
+"""
     return (
-        "tsx",
-        src,
-        [
-            (
-                "function",
-                "App",
-                [
-                    "unqualified:Toolbar",
-                    "unqualified:make",
-                    "unqualified:Ui.Button",
-                    "unqualified:motion.div",
-                ],
-                [],
-            )
-        ],
+        {
+            "app.tsx": app,
+            "toolbar.tsx": toolbar,
+            "ui.tsx": ui,
+        },
+        {
+            ("toolbar.tsx", "Toolbar"): {("app.tsx", "App", "calls")},
+            ("toolbar.tsx", "make"): {("app.tsx", "App", "calls")},
+            ("ui.tsx", "Button"): {("app.tsx", "App", "calls")},
+            ("toolbar.tsx", "div"): set(),
+        },
     )
 
 
 @case(tags=["references"])
 def case_jsx_a_rendered_component_is_a_reference() -> ReferencesCase:
-    """A `.jsx` component's element is a reference as in TSX."""
-    src = """\
+    """A `.jsx` component's element is a reference as in TSX; `<span />` is HTML."""
+    app = """\
+import { Panel, span } from './panel';
+
 export function App() {
   return <Panel><span /></Panel>;
 }
 """
-    return "javascript", src, [("function", "App", ["unqualified:Panel"], [])]
+    panel = """\
+export function Panel() {
+  return null;
+}
+
+export function span() {
+  return null;
+}
+"""
+    return (
+        {"app.jsx": app, "panel.jsx": panel},
+        {
+            ("panel.jsx", "Panel"): {("app.jsx", "App", "calls")},
+            ("panel.jsx", "span"): set(),
+        },
+    )
 
 
 @case(tags=["import"])

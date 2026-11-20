@@ -5,6 +5,8 @@ from __future__ import annotations
 import pytest
 from pytest_cases import case
 
+from rbtr.testing.assertions import Referrer, Target
+
 type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
 type ImportCase = tuple[dict[str, str], dict[str, str | list[dict[str, str]]]]
 type MultiImportCase = tuple[dict[str, str], int, list[dict[str, str | list[dict[str, str]]]]]
@@ -247,14 +249,50 @@ def case_java_import_wildcard() -> ImportCase:
     }
 
 
-type ReferencesCase = tuple[str, str, list[tuple[str, str, list[str], list[str]]]]
+type ReferencesCase = tuple[dict[str, str], dict[Target, set[Referrer]]]
 
 
 @case(tags=["references"])
 def case_java_calls_and_bases() -> ReferencesCase:
-    """Each call shape, a generic base, an implemented interface and a generic `new`."""
-    src = """\
+    """Each call shape, a generic base, an implemented interface and a generic `new`.
+
+    `size` is a method of its own, which `items.get(0).size()`, a call
+    through a value, does not reach.
+    """
+    base = """\
+package shop;
+
+class Base<T> {
+    void save() {}
+}
+"""
+    saveable = """\
+package shop;
+
+interface Saveable {}
+"""
+    util = """\
+package shop;
+
+class Util {
+    static void log() {}
+
+    static void size() {}
+}
+"""
+    foo = """\
+package shop;
+
+class Foo<T> {}
+"""
+    order = """\
+package shop;
+
 class Order extends Base<String> implements Saveable {
+    void check() {}
+
+    void helper() {}
+
     void save() {
         super.save();
         this.check();
@@ -262,28 +300,25 @@ class Order extends Base<String> implements Saveable {
         Util.log();
         new Foo<Bar>();
         items.get(0).size();
-        a.b.c();
     }
 }
 """
     return (
-        "java",
-        src,
-        [
-            ("class", "Order", [], ["unqualified:Base", "unqualified:Saveable"]),
-            (
-                "method",
-                "save",
-                [
-                    "base:save",
-                    "member:check",
-                    "unqualified:helper",
-                    "unqualified:Util.log",
-                    "unqualified:Foo",
-                    "unqualified:items.get",
-                    "unqualified:a.b.c",
-                ],
-                [],
-            ),
-        ],
+        {
+            "shop/Base.java": base,
+            "shop/Saveable.java": saveable,
+            "shop/Util.java": util,
+            "shop/Foo.java": foo,
+            "shop/Order.java": order,
+        },
+        {
+            ("shop/Base.java", "Base"): {("shop/Order.java", "Order", "inherits")},
+            ("shop/Saveable.java", "Saveable"): {("shop/Order.java", "Order", "inherits")},
+            ("shop/Base.java", "save"): {("shop/Order.java", "save", "calls")},
+            ("shop/Order.java", "check"): {("shop/Order.java", "save", "calls")},
+            ("shop/Order.java", "helper"): {("shop/Order.java", "save", "calls")},
+            ("shop/Util.java", "log"): {("shop/Order.java", "save", "calls")},
+            ("shop/Util.java", "size"): set(),
+            ("shop/Foo.java", "Foo"): {("shop/Order.java", "save", "calls")},
+        },
     )

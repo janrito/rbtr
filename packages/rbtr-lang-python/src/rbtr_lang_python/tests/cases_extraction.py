@@ -5,9 +5,11 @@ from __future__ import annotations
 import pytest
 from pytest_cases import case
 
+from rbtr.testing.assertions import Referrer, Target
+
 type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
 type ImportCase = tuple[dict[str, str], dict[str, str | list[dict[str, str]]]]
-type ReferencesCase = tuple[str, str, list[tuple[str, str, list[str], list[str]]]]
+type ReferencesCase = tuple[dict[str, str], dict[Target, set[Referrer]]]
 type MultiImportCase = tuple[dict[str, str], int, list[dict[str, str | list[dict[str, str]]]]]
 type MixedCase = tuple[dict[str, str], set[str], list[tuple[str, str]]]
 
@@ -619,15 +621,64 @@ def case_py_chained_assignment_xfail() -> SymbolCase:
 
 @case(tags=["references"])
 def case_py_calls_and_bases() -> ReferencesCase:
-    """Each call shape, a class's bases, a decorator's call and a nested function's."""
-    src = """\
+    """Each call shape, a class's bases, a decorator's call and a nested function's.
+
+    `Meta` is a metaclass, not a base; `x[0].m()` is a call through a value;
+    `cls.build()` is a member of the class, not the module's `build`.
+    """
+    models = """\
+class Model:
+    def save(self):
+        pass
+
+    def m(self):
+        pass
+
+    @classmethod
+    def build(cls):
+        pass
+
+
+class CharField:
+    pass
+"""
+    mixins = """\
+class Logged:
+    pass
+"""
+    meta = """\
+class Meta(type):
+    pass
+"""
+    helpers = """\
+def write_row(row):
+    pass
+
+
+def register(name):
+    pass
+
+
+def helper():
+    pass
+"""
+    orders = """\
+import mixins
+import models
+from helpers import helper, register, write_row
+from meta import Meta
+from models import Model
+
+
 class Order(Model, mixins.Logged, metaclass=Meta):
+    def validate(self):
+        pass
+
     def save(self):
         self.validate()
         super().save()
         models.CharField(max_length=3)
         write_row(self)
-        obj.save()
         x[0].m()
 
     @classmethod
@@ -643,89 +694,127 @@ def build():
     inner()
 """
     return (
-        "python",
-        src,
-        [
-            ("class", "Order", [], ["unqualified:Model", "unqualified:mixins.Logged"]),
-            (
-                "method",
-                "save",
-                [
-                    "member:validate",
-                    "base:save",
-                    "unqualified:models.CharField",
-                    "unqualified:write_row",
-                    "unqualified:obj.save",
-                ],
-                [],
-            ),
-            ("method", "make", ["member:build"], []),
-            ("function", "build", ["unqualified:register", "unqualified:inner"], []),
-            ("function", "inner", ["unqualified:helper"], []),
-        ],
+        {
+            "models.py": models,
+            "mixins.py": mixins,
+            "meta.py": meta,
+            "helpers.py": helpers,
+            "orders.py": orders,
+        },
+        {
+            ("models.py", "Model"): {("orders.py", "Order", "inherits")},
+            ("mixins.py", "Logged"): {("orders.py", "Order", "inherits")},
+            ("meta.py", "Meta"): set(),
+            ("orders.py", "validate"): {("orders.py", "save", "calls")},
+            ("models.py", "save"): {("orders.py", "save", "calls")},
+            ("models.py", "CharField"): {("orders.py", "save", "calls")},
+            ("helpers.py", "write_row"): {("orders.py", "save", "calls")},
+            ("models.py", "m"): set(),
+            ("models.py", "build"): {("orders.py", "make", "calls")},
+            ("orders.py", "build"): set(),
+            ("helpers.py", "register"): {("orders.py", "build", "calls")},
+            ("orders.py", "inner"): {("orders.py", "build", "calls")},
+            ("helpers.py", "helper"): {("orders.py", "inner", "calls")},
+        },
     )
 
 
 @case(tags=["references"])
 def case_py_a_decorators_call_is_the_decorated_methods() -> ReferencesCase:
     """`@override_settings(...)` on a method is a call the method makes."""
-    src = """\
+    helpers = """\
+def override_settings(**kwargs):
+    pass
+"""
+    tests = """\
+from helpers import override_settings
+
+
 class Tests:
     @override_settings(DEBUG=True)
     def test_debug(self):
         pass
 """
-    return "python", src, [("method", "test_debug", ["unqualified:override_settings"], [])]
+    return (
+        {"helpers.py": helpers, "tests.py": tests},
+        {("helpers.py", "override_settings"): {("tests.py", "test_debug", "calls")}},
+    )
 
 
 @case(tags=["references"])
 def case_py_a_call_through_a_local_is_on_a_value() -> ReferencesCase:
-    """Parameters, assignment, loop, `with` and `except` targets are locals; a call through one is on a value.
+    """Parameters, assignment, loop and `except` targets are locals; a call through one is on a value.
 
-    An annotation or the constructor assigned gives its written type, shown `<T>`.
+    Each local shadows an imported function of its name, which it does not
+    reach. An annotation or the constructor assigned gives its written type,
+    so `order.save()` and `total.add()` reach their class's methods.
     """
-    src = """\
+    lib = """\
+class Order:
+    def save(self):
+        pass
+
+
+class Total:
+    def add(self, n):
+        pass
+"""
+    names = """\
+def f():
+    pass
+
+
+def k():
+    pass
+
+
+def n():
+    pass
+
+
+def args():
+    pass
+
+
+def log():
+    pass
+
+
+def helper():
+    pass
+"""
+    run = """\
+from lib import Order, Total
+from names import args, f, helper, k, log, n
+
+
 def run(order: Order, f, *args, n=1, **kw):
     total = Total()
     a, b = f()
-    with open(path) as fh:
-        fh.read()
     for k, v in pairs:
         k()
     try:
         pass
-    except ValueError as err:
-        err.log()
+    except ValueError as log:
+        log()
     order.save()
     total.add(n())
     args()
-    kw.get()
     helper()
 """
     return (
-        "python",
-        src,
-        [
-            (
-                "function",
-                "run",
-                [
-                    "unqualified:Total",
-                    "type:f",
-                    "unqualified:open",
-                    "type:fh.read",
-                    "type:k",
-                    "type:err.log",
-                    "type:order.save<Order>",
-                    "type:total.add<Total>",
-                    "type:n",
-                    "type:args",
-                    "type:kw.get",
-                    "unqualified:helper",
-                ],
-                [],
-            )
-        ],
+        {"lib.py": lib, "names.py": names, "run.py": run},
+        {
+            ("lib.py", "Total"): {("run.py", "run", "calls")},
+            ("lib.py", "save"): {("run.py", "run", "calls")},
+            ("lib.py", "add"): {("run.py", "run", "calls")},
+            ("names.py", "f"): set(),
+            ("names.py", "k"): set(),
+            ("names.py", "n"): set(),
+            ("names.py", "args"): set(),
+            ("names.py", "log"): set(),
+            ("names.py", "helper"): {("run.py", "run", "calls")},
+        },
     )
 
 
@@ -739,10 +828,27 @@ def run(order: Order, f, *args, n=1, **kw):
 )
 def case_py_a_name_declared_global_is_no_local() -> ReferencesCase:
     """`global helper` then `helper = make()`: `helper()` calls the module's `helper`."""
-    src = """\
+    helpers = """\
+def make():
+    pass
+
+
+def helper():
+    pass
+"""
+    run = """\
+from helpers import helper, make
+
+
 def run():
     global helper
     helper = make()
     helper()
 """
-    return "python", src, [("function", "run", ["unqualified:make", "unqualified:helper"], [])]
+    return (
+        {"helpers.py": helpers, "run.py": run},
+        {
+            ("helpers.py", "make"): {("run.py", "run", "calls")},
+            ("helpers.py", "helper"): {("run.py", "run", "calls")},
+        },
+    )

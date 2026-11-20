@@ -5,6 +5,8 @@ from __future__ import annotations
 import pytest
 from pytest_cases import case
 
+from rbtr.testing.assertions import Referrer, Target
+
 type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
 type ImportCase = tuple[dict[str, str], dict[str, str | list[dict[str, str]]]]
 type MixedCase = tuple[dict[str, str], set[str], list[tuple[str, str]]]
@@ -373,14 +375,36 @@ def case_rust_import_glob() -> ImportCase:
     return {"input.rs": "use crate::models::*;\n"}, {"module": "crate::models", "names": "*"}
 
 
-type ReferencesCase = tuple[str, str, list[tuple[str, str, list[str], list[str]]]]
+type ReferencesCase = tuple[dict[str, str], dict[Target, set[Referrer]]]
 
 
 @case(tags=["references"])
 def case_rust_calls() -> ReferencesCase:
-    """Each call shape; `self` and `Self` reach the impl's type, a macro is no call."""
-    src = """\
+    """Each call shape; `self` and `Self` reach the impl's type, a macro is no call.
+
+    `z` is a function of its own, which `x.y().z()`, a call through a value,
+    does not reach, and `println` one which `println!` does not.
+    """
+    order = """\
+use crate::models;
+
+pub struct Order;
+
+fn helper() {}
+
+fn foo<T>() {}
+
+fn z() {}
+
+fn println() {}
+
 impl Order {
+    fn new() -> Self {
+        Order
+    }
+
+    fn check(&self) {}
+
     fn save(&self) {
         self.check();
         helper();
@@ -393,23 +417,28 @@ impl Order {
     }
 }
 """
+    manifest = """\
+[package]
+name = "shop"
+"""
+    lib = """\
+mod models;
+mod order;
+"""
     return (
-        "rust",
-        src,
-        [
-            (
-                "method",
-                "save",
-                [
-                    "member:check",
-                    "unqualified:helper",
-                    "member:new",
-                    "unqualified:Order.new",
-                    "unqualified:models.make",
-                    "unqualified:foo",
-                    "unqualified:x.y",
-                ],
-                [],
-            ),
-        ],
+        {
+            "Cargo.toml": manifest,
+            "src/lib.rs": lib,
+            "src/models.rs": "pub fn make() {}\n",
+            "src/order.rs": order,
+        },
+        {
+            ("src/order.rs", "check"): {("src/order.rs", "save", "calls")},
+            ("src/order.rs", "helper"): {("src/order.rs", "save", "calls")},
+            ("src/order.rs", "new"): {("src/order.rs", "save", "calls")},
+            ("src/models.rs", "make"): {("src/order.rs", "save", "calls")},
+            ("src/order.rs", "foo"): {("src/order.rs", "save", "calls")},
+            ("src/order.rs", "z"): set(),
+            ("src/order.rs", "println"): set(),
+        },
     )

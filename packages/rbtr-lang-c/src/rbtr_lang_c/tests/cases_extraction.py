@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pytest_cases import case
 
+from rbtr.testing.assertions import Referrer, Target
+
 type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
 type ImportCase = tuple[dict[str, str], dict[str, str | list[dict[str, str]]]]
 type MultiImportCase = tuple[dict[str, str], int, list[dict[str, str]]]
@@ -141,13 +143,30 @@ def case_c_global() -> SymbolCase:
     return {"input.c": "int g = 5;\n"}, [("variable", "g", "")]
 
 
-type ReferencesCase = tuple[str, str, list[tuple[str, str, list[str], list[str]]]]
+type ReferencesCase = tuple[dict[str, str], dict[Target, set[Referrer]]]
 
 
 @case(tags=["references"])
 def case_c_calls() -> ReferencesCase:
-    """A call by name, and calls through a struct's field, which start at a value."""
-    src = """\
+    """A call by name reaches the prototype and the definition; calls through a struct's field start at a value.
+
+    `check` and `size` are functions of their own, which the field calls
+    `s->check()` and `s->items.size()` do not reach.
+    """
+    util_h = """\
+int helper(int x);
+"""
+    util_c = """\
+int helper(int x) { return x; }
+"""
+    other_h = """\
+int check(void);
+int size(void);
+"""
+    main_c = """\
+#include "util.h"
+#include "other.h"
+
 int run(struct shop *s) {
     helper(1);
     s->check();
@@ -156,16 +175,13 @@ int run(struct shop *s) {
 }
 """
     return (
-        "c",
-        src,
-        [
-            (
-                "function",
-                "run",
-                ["unqualified:helper", "unqualified:s.check", "unqualified:s.items.size"],
-                [],
-            )
-        ],
+        {"util.h": util_h, "util.c": util_c, "other.h": other_h, "main.c": main_c},
+        {
+            ("util.h", "helper"): {("main.c", "run", "calls")},
+            ("util.c", "helper"): {("main.c", "run", "calls")},
+            ("other.h", "check"): set(),
+            ("other.h", "size"): set(),
+        },
     )
 
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 import pytest
 from pytest_cases import case
 
+from rbtr.testing.assertions import Referrer, Target
+
 type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
 type ImportCase = tuple[dict[str, str], dict[str, str | list[dict[str, str]]]]
 type MultiImportCase = tuple[dict[str, str], int, list[dict[str, str | list[dict[str, str]]]]]
@@ -335,43 +337,63 @@ const (
     return {"input.go": src}, [("variable", "A", ""), ("variable", "B", "")]
 
 
-type ReferencesCase = tuple[str, str, list[tuple[str, str, list[str], list[str]]]]
+type ReferencesCase = tuple[dict[str, str], dict[Target, set[Referrer]]]
 
 
 @case(tags=["references"])
 def case_go_calls_and_bases() -> ReferencesCase:
-    """Each call shape and a generic callee; an embedded field is a base, a named one none."""
-    src = """\
+    """Each call shape and a generic callee; an embedded field is a base, a named one none.
+
+    `Run` is a function of its own, which `exec.Command("x").Run()`, a call
+    through a value, does not reach.
+    """
+    order = """\
 package shop
+
+import (
+    "os/exec"
+
+    "example.com/m/pkg"
+)
+
+type Model struct{}
+
+type Base struct{}
+
+type name struct{}
 
 type Order struct {
     Model
     *Base
-    name string
+    label name
 }
+
+func helper() {}
+
+func Run() {}
 
 func (o *Order) Save() {
     helper()
-    f.Println()
     exec.Command("x").Run()
     pkg.New[int]()
 }
 """
+    new = """\
+package pkg
+
+func New[T any]() T {
+    var t T
+    return t
+}
+"""
     return (
-        "go",
-        src,
-        [
-            ("class", "Order", [], ["unqualified:Model", "unqualified:Base"]),
-            (
-                "method",
-                "Save",
-                [
-                    "unqualified:helper",
-                    "unqualified:f.Println",
-                    "unqualified:exec.Command",
-                    "unqualified:pkg.New",
-                ],
-                [],
-            ),
-        ],
+        {"go.mod": "module example.com/m\n", "order.go": order, "pkg/new.go": new},
+        {
+            ("order.go", "Model"): {("order.go", "Order", "inherits")},
+            ("order.go", "Base"): {("order.go", "Order", "inherits")},
+            ("order.go", "name"): set(),
+            ("order.go", "helper"): {("order.go", "Save", "calls")},
+            ("order.go", "Run"): set(),
+            ("pkg/new.go", "New"): {("order.go", "Save", "calls")},
+        },
     )

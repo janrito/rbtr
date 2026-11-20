@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pytest_cases import case
 
+from rbtr.testing.assertions import Referrer, Target
+
 type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
 type ImportCase = tuple[dict[str, str], dict[str, str | list[dict[str, str]]]]
 type MixedCase = tuple[dict[str, str], set[str], list[tuple[str, str]]]
@@ -225,16 +227,41 @@ def case_cpp_global() -> SymbolCase:
     return {"input.cpp": "int g = 5;\n"}, [("variable", "g", "")]
 
 
-type ReferencesCase = tuple[str, str, list[tuple[str, str, list[str], list[str]]]]
+type ReferencesCase = tuple[dict[str, str], dict[Target, set[Referrer]]]
 
 
 @case(tags=["references"])
 def case_cpp_calls_and_bases() -> ReferencesCase:
     """Each call shape and the bases after their access specifiers; an out-of-class member is scoped by its class."""
-    src = """\
+    base = """\
+class Base {
+public:
+    void save();
+};
+"""
+    logged = """\
+namespace mixins {
+class Logged {};
+}
+"""
+    util = """\
+namespace util {
+void log();
+}
+
+template <typename T> T make() { return T(); }
+
+class Foo {};
+"""
+    order = """\
+#include "base.hpp"
+#include "logged.hpp"
+#include "util.hpp"
+
 namespace shop {
 class Order : public Base, private mixins::Logged {
     int check() { return 1; }
+    void save();
 };
 void Order::save() {
     Base::save();
@@ -247,24 +274,16 @@ void Order::save() {
 }
 """
     return (
-        "cpp",
-        src,
-        [
-            ("class", "Order", [], ["unqualified:Base", "unqualified:mixins.Logged"]),
-            (
-                "function",
-                "save",
-                [
-                    "unqualified:Base.save",
-                    "member:check",
-                    "unqualified:check",
-                    "unqualified:util.log",
-                    "unqualified:make",
-                    "unqualified:Foo",
-                ],
-                [],
-            ),
-        ],
+        {"base.hpp": base, "logged.hpp": logged, "util.hpp": util, "order.cpp": order},
+        {
+            ("base.hpp", "Base"): {("order.cpp", "Order", "inherits")},
+            ("logged.hpp", "Logged"): {("order.cpp", "Order", "inherits")},
+            ("base.hpp", "save"): {("order.cpp", "save", "calls")},
+            ("order.cpp", "check"): {("order.cpp", "save", "calls")},
+            ("util.hpp", "log"): {("order.cpp", "save", "calls")},
+            ("util.hpp", "make"): {("order.cpp", "save", "calls")},
+            ("util.hpp", "Foo"): {("order.cpp", "save", "calls")},
+        },
     )
 
 

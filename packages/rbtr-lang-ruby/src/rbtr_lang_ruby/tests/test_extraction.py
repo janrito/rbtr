@@ -9,9 +9,8 @@ from rbtr.domain.models import (
     EdgeKind,
     ImportMeta,
 )
-from rbtr.git import FileEntry
-from rbtr.languages.extract import extract_batch, file_rows
 from rbtr.testing import Indexed
+from rbtr.testing.assertions import Referrer, Target, assert_reached
 from rbtr.testing.reads import outline
 
 
@@ -72,25 +71,15 @@ def test_extracts_multi_import(
     assert imports == [ImportMeta(**expected) for expected in metadata_list]
 
 
-@parametrize_with_cases("lang, source, expected", cases=".cases_extraction", has_tag="references")
-def test_records_calls_and_bases(lang: str, source: str, expected: list) -> None:
-    """Each chunk records what it calls and a class its bases, written `lookup:a.b`."""
-    recorded = []
-    rows = extract_batch(file_rows([(FileEntry("input", "sha1", source.encode()), lang)]))
-    for row in rows.iter_rows(named=True):
-        refs = (row["metadata"] or {}).get("refs") or []
-        calls = [r for r in refs if r["kind"] == EdgeKind.CALLS]
-        bases = [r for r in refs if r["kind"] == EdgeKind.INHERITS]
-        if calls or bases:
-            recorded.append(
-                (
-                    row["kind"],
-                    row["name"],
-                    [f"{p['lookup']}:{'.'.join(p['path'])}" for p in calls],
-                    [f"{p['lookup']}:{'.'.join(p['path'])}" for p in bases],
-                )
-            )
-    assert recorded == expected
+@parametrize_with_cases("files, reached", cases=".cases_extraction", has_tag="references")
+def test_a_call_or_base_reaches_what_it_names(
+    indexed: Indexed,
+    files: dict[str, str],
+    reached: dict[Target, set[Referrer]],
+) -> None:
+    """Each target `(path, symbol)` is reached by exactly the callers and subclasses named."""
+    with indexed(files) as index:
+        assert_reached(index, reached, edges={EdgeKind.CALLS, EdgeKind.INHERITS})
 
 
 def test_an_empty_require_records_nothing(indexed: Indexed) -> None:
