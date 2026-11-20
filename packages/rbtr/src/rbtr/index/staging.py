@@ -86,10 +86,11 @@ class ChunkStagingRow(dy.Schema):
     # payloads' fields, null where a role has none.
     metadata = dy.Struct(
         {
-            "module": dy.String(nullable=False),
-            "names": dy.String(nullable=False),
-            "dots": dy.String(nullable=False),
-            "language_hint": dy.String(nullable=False),
+            "module": dy.String(nullable=True),
+            "names": dy.String(nullable=True),
+            "dots": dy.String(nullable=True),
+            "language_hint": dy.String(nullable=True),
+            "node_types": dy.List(dy.String(), nullable=True),
         },
         nullable=True,
     )

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from rbtr.domain.models import ChunkKind, EdgeKind, ImportMeta
+from rbtr.domain.models import ChunkKind, EdgeKind, FragmentMeta, ImportMeta
 from rbtr.languages.registration import ModuleStyle
 from rbtr.languages.resolution import ImportResolution
 
@@ -871,4 +871,31 @@ def case_import_bare_excludes_import_chunks() -> EdgeScenario:
         },
         # css_imp is an IMPORT chunk → excluded from fan-out.
         expected=frozenset({("imp1", "css1")}),
+    )
+
+
+def case_import_bare_skips_fragments() -> EdgeScenario:
+    """A bare import reaches a module's definitions, not the code no query names."""
+    return EdgeScenario(
+        chunks=[
+            ChunkSpec(
+                id="imp1",
+                kind=ChunkKind.IMPORT,
+                name="import src.models",
+                file_path="src/app.py",
+                language="python",
+                metadata=ImportMeta(module="src.models"),
+            ),
+            ChunkSpec(id="cls1", kind=ChunkKind.CLASS, name="User", file_path="src/models.py"),
+            ChunkSpec(
+                id="frag1",
+                kind=ChunkKind.FRAGMENT,
+                name="",
+                file_path="src/models.py",
+                metadata=FragmentMeta(node_types=("expression_statement",)),
+            ),
+        ],
+        repo_files=frozenset({"src/app.py", "src/models.py"}),
+        resolution_map=_PYTHON_MAP,
+        expected=frozenset({("imp1", "cls1")}),
     )

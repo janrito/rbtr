@@ -17,7 +17,7 @@ import type {
 import { shortSha } from "./render.js";
 
 /** Kinds an outline leaves out: they are not where a reader goes next. */
-export const OUTLINE_EXCLUDES: [ChunkKind, ...ChunkKind[]] = ["import", "comment"];
+export const OUTLINE_EXCLUDES: [ChunkKind, ...ChunkKind[]] = ["import", "comment", "fragment"];
 /** Lines of each search hit's body the model is sent; a longer hit says how many more it has. */
 export const SEARCH_PREVIEW_LINES = 8;
 /** An outline name longer than this is cut, so each line stays one short line. */

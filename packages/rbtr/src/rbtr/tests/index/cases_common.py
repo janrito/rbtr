@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from rbtr.domain.models import ChunkKind, ImportMeta
+from rbtr.domain.models import ChunkKind, FragmentMeta, ImportMeta
 
 
 @dataclass(frozen=True)
@@ -29,4 +29,4 @@ class ChunkSpec:
     file_path: str = "src/lib.py"
     language: str = ""
     content: str = ""
-    metadata: ImportMeta = field(default_factory=ImportMeta)
+    metadata: ImportMeta | FragmentMeta = field(default_factory=ImportMeta)

@@ -66,6 +66,7 @@ def test_name_score_expr(query: str, name: str, expected: float) -> None:
         (ChunkKind.IMPORT, 0.3),
         (ChunkKind.RAW_CHUNK, 0.5),
         (ChunkKind.COMMENT, 0.5),
+        (ChunkKind.FRAGMENT, 0.5),
         (ChunkKind.DOC_SECTION, 0.8),
         (ChunkKind.CONFIG_KEY, 0.6),
         (ChunkKind.VARIABLE, 1.0),

@@ -1,6 +1,195 @@
 [
   {
     "blob_sha": "sha1",
+    "file_path": "cli.py",
+    "role": {
+      "kind": "comment"
+    },
+    "scope": "",
+    "language": "python",
+    "file_language": "python",
+    "content": "\"\"\"Run the greeter from the command line.\"\"\"",
+    "span": {
+      "start": 1,
+      "end": 1
+    },
+    "id": "5580e5551412db6c"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "cli.py",
+    "role": {
+      "kind": "import",
+      "name": "import sys",
+      "meta": {
+        "module": "sys",
+        "names": "",
+        "dots": "",
+        "language_hint": ""
+      }
+    },
+    "scope": "",
+    "language": "python",
+    "file_language": "python",
+    "content": "import sys",
+    "span": {
+      "start": 3,
+      "end": 3
+    },
+    "id": "2714fc8c5b3395c2"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "cli.py",
+    "role": {
+      "kind": "import",
+      "name": "import readline",
+      "meta": {
+        "module": "readline",
+        "names": "",
+        "dots": "",
+        "language_hint": ""
+      }
+    },
+    "scope": "",
+    "language": "python",
+    "file_language": "python",
+    "content": "import readline",
+    "span": {
+      "start": 9,
+      "end": 9
+    },
+    "id": "d7292dff54dca2ea"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "cli.py",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "expression_statement"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "python",
+    "file_language": "python",
+    "content": "sys.path.insert(0, \".\")\nOPTIONS[\"verbose\"] = True",
+    "span": {
+      "start": 5,
+      "end": 6
+    },
+    "id": "d59643a56ef0d591"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "cli.py",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "except_clause"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "python",
+    "file_language": "python",
+    "content": "except ImportError:\n    readline = None",
+    "span": {
+      "start": 10,
+      "end": 11
+    },
+    "id": "d6bf127df987d8e4"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "cli.py",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "for_statement"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "python",
+    "file_language": "python",
+    "content": "for name in sys.argv[1:]:\n    print(name)",
+    "span": {
+      "start": 13,
+      "end": 14
+    },
+    "id": "de36162f1ea29d04"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "cli.py",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "with_statement"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "python",
+    "file_language": "python",
+    "content": "with open(\"greeting.log\", \"a\") as log:\n    log.write(\"ran\\n\")",
+    "span": {
+      "start": 16,
+      "end": 17
+    },
+    "id": "8245ab9773fb1e57"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "cli.py",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "delete_statement",
+          "assert_statement"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "python",
+    "file_language": "python",
+    "content": "del readline\nassert sys.argv",
+    "span": {
+      "start": 19,
+      "end": 20
+    },
+    "id": "de168f7e5319b625"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "cli.py",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "if_statement"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "python",
+    "file_language": "python",
+    "content": "if __name__ == \"__main__\":\n    print(\"greeter\")",
+    "span": {
+      "start": 22,
+      "end": 23
+    },
+    "id": "38b3f18ccb97d64f"
+  },
+  {
+    "blob_sha": "sha1",
     "file_path": "config.py",
     "role": {
       "kind": "comment"
@@ -505,5 +694,26 @@
       "end": 85
     },
     "id": "64cbb79e676b4e9d"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "python.py",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "decorator"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "python",
+    "file_language": "python",
+    "content": "@lru_cache",
+    "span": {
+      "start": 49,
+      "end": 49
+    },
+    "id": "3737d43147fb34bf"
   }
 ]

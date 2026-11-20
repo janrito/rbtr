@@ -43,10 +43,11 @@ CREATE TABLE IF NOT EXISTS chunks (
   name_tokens TEXT NOT NULL DEFAULT '',
   line_start INTEGER NOT NULL,
   line_end INTEGER NOT NULL,
-  -- An import's module, names, relative depth and target language.
-  -- NULL on every other chunk.
+  -- What the chunk's role carries beyond kind and name: an import's
+  -- module, names, relative depth and target language; a fragment's
+  -- syntax node types.  NULL for a role that carries nothing.
   metadata STRUCT(
-    module TEXT, names TEXT, dots TEXT, language_hint TEXT
+    module TEXT, names TEXT, dots TEXT, language_hint TEXT, node_types TEXT[]
   ),
   -- Variable-length embedding vector; dimension is determined by
   -- the model (see ARCHITECTURE.md "Embedding column").

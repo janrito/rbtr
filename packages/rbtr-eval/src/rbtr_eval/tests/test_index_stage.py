@@ -6,6 +6,7 @@ markdown: the figures are the behaviour, the table layout is not.
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 import polars as pl
@@ -13,6 +14,7 @@ import pygit2
 import pytest
 
 from rbtr.domain.models import EdgeKind
+from rbtr.errors import BuildStopped
 from rbtr.git import normalise_repo_path
 from rbtr.index.build import build_index
 from rbtr.index.index import Index
@@ -22,6 +24,8 @@ from rbtr.tests.conftest import make_commit
 from rbtr_eval.corpus import Corpus, corpus_refs
 from rbtr_eval.index_stage import (
     embedding_counts,
+    fragment_counts,
+    fragment_types,
     kind_counts,
     language_counts,
     repo_counts,
@@ -112,6 +116,73 @@ def load():
     index = Index(str(tmp_path / "index" / "index.duckdb"), writable=True)
     build_index(normalise_repo_path(repo.workdir), sha, index)
     return index
+
+
+@pytest.fixture
+def index_with_fragments(tmp_path: Path) -> Index:
+    """`app.py` built at HEAD: a class whose method shares its lines, and two fragments.
+
+    Lines 6-8 hold a call and an `if`; line 10 another call. A second
+    commit adds `gone.py`, whose `except` is a fragment; its build stops
+    after writing chunks, before marking the snapshot indexed, so no
+    count may include it.
+    """
+    app = b"""\
+class Loader:
+    def load(self):
+        return 1
+
+
+Loader().load()
+if __name__ == "__main__":
+    Loader().load()
+
+print("done")
+"""
+    gone = b"""\
+try:
+    import missing
+except ImportError:
+    missing = None
+"""
+    repo = pygit2.init_repository(str(tmp_path / "repo"), bare=False, initial_head="main")
+    head = make_commit(repo, {"app.py": app})
+    residue = make_commit(
+        repo, {"app.py": app, "gone.py": gone}, parents=[head], ref="refs/heads/wip"
+    )
+    index = Index(str(tmp_path / "index" / "index.duckdb"), writable=True)
+    path = normalise_repo_path(repo.workdir)
+    build_index(path, str(head), index)
+    stop = threading.Event()
+    with pytest.raises(BuildStopped):
+        build_index(
+            path,
+            str(residue),
+            index,
+            stop=stop,
+            on_progress=lambda phase, _done, _total: stop.set() if phase == "edges" else None,
+        )
+    return index
+
+
+def test_fragments_are_counted_by_language_and_by_node_type(index_with_fragments: Index) -> None:
+    """A fragment's lines count toward its language, and toward each node type it holds.
+
+    A line two chunks hold counts once.
+    """
+    corpus = corpus_refs(index_with_fragments)
+    assert fragment_counts(index_with_fragments, corpus).rows(named=True) == [
+        {"lang": "python", "fragments": 2, "fragment_lines": 4, "chunk_lines": 7, "share": 4 / 7}
+    ]
+    assert fragment_types(index_with_fragments, corpus).rows(named=True) == [
+        {
+            "lang": "python",
+            "node_type": "expression_statement",
+            "fragments": 2,
+            "fragment_lines": 4,
+        },
+        {"lang": "python", "node_type": "if_statement", "fragments": 1, "fragment_lines": 3},
+    ]
 
 
 def test_counts_describe_only_indexed_snapshots(index_with_residue: Index) -> None:

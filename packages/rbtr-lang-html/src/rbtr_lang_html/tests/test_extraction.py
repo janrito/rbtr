@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pytest_cases import parametrize_with_cases
 
-from rbtr.domain.models import Import
+from rbtr.domain.models import ChunkKind, Import
 from rbtr.git import FileEntry
 from rbtr.languages.extract import extract_file
 
@@ -23,15 +23,14 @@ def test_extracts_expected_symbols(lang: str, source: str, expected: list) -> No
         assert exp in symbols, f"expected {exp} not found in {symbols}"
 
 
-def test_html_non_semantic_only_emits_presence() -> None:
-    """HTML with no head/body/semantic element yields only a presence chunk.
+def test_html_non_semantic_is_a_fragment() -> None:
+    """HTML with no head/body/semantic element yields one fragment.
 
-    A non-semantic wrapper (`<div>`) is not elevated, so no searchable
-    doc_section is produced; the engine appends one content-less host chunk.
+    A non-semantic wrapper (`<div>`) is not elevated to a doc_section, so
+    it reaches a chunk only as code no pattern names.
     """
     chunks = extract_file(FileEntry("input", "sha1", b"<div>hello</div>"), "html")
-    assert [c.kind for c in chunks if c.content] == []
-    assert [c.language for c in chunks] == ["html"]
+    assert [(c.kind, c.content) for c in chunks] == [(ChunkKind.FRAGMENT, "<div>hello</div>")]
 
 
 def test_html_script_src_produces_import() -> None:

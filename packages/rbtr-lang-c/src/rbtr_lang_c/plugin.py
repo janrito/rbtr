@@ -31,5 +31,5 @@ c = LanguageRegistration(
         query=load_query(__package__, "c"),
     ),
     source_roots=("", "include", "src"),
-    extraction_serial=4,
+    extraction_serial=5,
 )

@@ -75,7 +75,7 @@ html = LanguageRegistration(
     ),
     injection_query=load_query(__package__, "injections"),
     import_targets=frozenset({"javascript", "typescript", "css"}),
-    extraction_serial=3,
+    extraction_serial=4,
 )
 
 

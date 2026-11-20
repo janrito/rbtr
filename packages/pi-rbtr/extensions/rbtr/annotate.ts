@@ -31,7 +31,14 @@ export const OUTLINE_FROM_LINES = 200;
  * Chunks that name something without defining code. A search for a name
  * shows them only when no code chunk defines it.
  */
-const NOT_CODE: ReadonlySet<ChunkKind> = new Set(["doc_section", "config_key", "comment", "raw_chunk", "import"]);
+const NOT_CODE: ReadonlySet<ChunkKind> = new Set([
+  "doc_section",
+  "config_key",
+  "comment",
+  "raw_chunk",
+  "fragment",
+  "import",
+]);
 
 /** The lookups the facts come from, against the repository the agent works in. */
 export interface IndexLookups {

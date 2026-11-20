@@ -123,7 +123,7 @@ javascript = LanguageRegistration(
     index_files=frozenset({"index.js"}),
     import_targets=frozenset({"javascript", "css"}),
     source_roots=("", "src"),
-    extraction_serial=6,
+    extraction_serial=7,
 )
 typescript = LanguageRegistration(
     id="typescript",
@@ -150,7 +150,7 @@ typescript = LanguageRegistration(
     index_files=frozenset({"index.ts", "index.js"}),
     import_targets=frozenset({"typescript", "tsx", "javascript", "css"}),
     source_roots=("", "src"),
-    extraction_serial=6,
+    extraction_serial=7,
 )
 tsx = LanguageRegistration(
     id="tsx",
@@ -177,7 +177,7 @@ tsx = LanguageRegistration(
     index_files=frozenset({"index.tsx", "index.ts", "index.js"}),
     import_targets=frozenset({"tsx", "typescript", "javascript", "css"}),
     source_roots=("", "src"),
-    extraction_serial=3,
+    extraction_serial=4,
 )
 
 javascript.import_extractor(extract_import_meta)

@@ -606,7 +606,10 @@ UPDATE meta SET value = '2026.10.0' WHERE key = 'schema_version';
         index.close()
     assert read.select(pl.col("kind").cast(pl.String), "metadata").sort("kind").rows() == [
         ("function", None),
-        ("import", {"module": "os", "names": "", "dots": "", "language_hint": ""}),
+        (
+            "import",
+            {"module": "os", "names": "", "dots": "", "language_hint": "", "node_types": None},
+        ),
     ]
 
 
