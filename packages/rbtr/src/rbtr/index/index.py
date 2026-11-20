@@ -17,6 +17,7 @@ import polars as pl
 import structlog
 
 from rbtr.config import config
+from rbtr.domain.edge_frames import ModuleFileRow, ModulePathRow
 from rbtr.domain.identity import SCOPE_SEPARATOR
 from rbtr.domain.models import (
     ChunkKind,
@@ -29,6 +30,7 @@ from rbtr.domain.models import (
     SnapshotRange,
     SnapshotRef,
 )
+from rbtr.domain.resolution import module_files
 from rbtr.domain.tokenise import search_tokens
 from rbtr.errors import (
     RepoNotFoundError,
@@ -59,7 +61,7 @@ from rbtr.index.results import (
 from rbtr.index.store import Store
 from rbtr.index.writer import WriteSession
 from rbtr.languages.manager import get_manager
-from rbtr.languages.resolution import build_resolution_map, module_files
+from rbtr.languages.resolution import language_resolutions
 
 log = structlog.get_logger(__name__)
 
@@ -75,6 +77,7 @@ _SEARCH_FULLTEXT_SQL = load_sql("search_fulltext.sql")
 _COUNT_ORPHAN_CHUNKS_SQL = load_sql("count_orphan_chunks.sql")
 _COUNT_GC_CHUNK_SPLIT_SQL = load_sql("count_gc_chunk_split.sql")
 _INBOUND_DEGREE_SQL = load_sql("inbound_degree.sql")
+_QUALIFIER_BASES_SQL = load_sql("qualifier_bases.sql")
 _GET_CHUNK_PATHS_SQL = load_sql("get_chunk_paths.sql")
 _CHUNK_COUNTS_BY_SNAPSHOT_SQL = load_sql("chunk_counts_by_snapshot.sql")
 _DISTINCT_CHUNK_LANGUAGES_SQL = load_sql("distinct_chunk_languages.sql")
@@ -544,7 +547,7 @@ class Index:
     def inbound_degrees(
         self, chunk_ids: list[str], *, within: list[SnapshotRef]
     ) -> dy.DataFrame[InboundDegreeResultRow]:
-        """Return inbound edge counts for the given chunk IDs.
+        """Return inbound edge counts for the given chunk IDs, per edge kind.
 
         A chunk two projects share has edges in each file; its degree is
         their sum.
@@ -556,7 +559,7 @@ class Index:
             return InboundDegreeResultRow.create_empty()
         return (
             pl.concat(frames)
-            .group_by("chunk_id")
+            .group_by("chunk_id", "kind")
             .agg(pl.col("degree").sum())
             .pipe(InboundDegreeResultRow.validate, cast=True)
         )
@@ -640,13 +643,18 @@ class Index:
         resolves them as an import would (`module_files`, for each
         language in the snapshot) and asks the symbol to be in a file
         they name, with the remaining parts as its exact scope.
+        A class it places also places the scope of each of its bases,
+        followed through `inherits` edges (`qualifier_bases.sql`), so
+        `Order.check` reaches a `check` only a base defines. Every matching
+        member up the chain is admitted: names alone cannot say which one
+        an override hides.
         An empty *qualifier* (a bare name) places nothing.
         """
         if not qualifier:
             return QualifierRow.create_empty()
         # Registrations only: a read has no manifest text, so Go's `go.mod`
         # substitutions are not applied.
-        resolutions = build_resolution_map(get_manager())
+        resolutions = language_resolutions(get_manager().registrations())
         files = _concat(self._within(within, _SNAPSHOT_FILE_PATHS_SQL, {}), SnapshotFileRow)
         splits = pl.DataFrame(
             [
@@ -657,27 +665,50 @@ class Index:
                 for split in range(1, len(qualifier) + 1)
             ]
         )
+        places = (
+            files.select("repo_id", language="detected_language").unique().join(splits, how="cross")
+        )
+        lookups = places.with_row_index("lookup")
+        # One lookup batch per repository: each resolves among its own paths.
         in_modules = (
-            files.select("repo_id", language="detected_language")
-            .unique()
-            .filter(pl.col("language").is_in(list(resolutions)))
-            .join(files.group_by("repo_id").agg(repo_files="file_path"), on="repo_id")
-            .join(splits, how="cross")
-            .with_columns(
-                file_path=pl.struct("module", "repo_files", "language").map_elements(
-                    lambda place: module_files(
-                        place["module"], set(place["repo_files"]), resolutions[place["language"]]
+            pl.concat(
+                [
+                    ModuleFileRow.create_empty(),
+                    *(
+                        module_files(
+                            lookups.filter(pl.col("repo_id") == repo_id)
+                            .select(
+                                "lookup",
+                                "language",
+                                attempt=pl.lit(0),
+                                path="module",
+                                importer_extension=pl.lit(""),
+                            )
+                            .pipe(ModulePathRow.validate, cast=True),
+                            set(repo_files),
+                            resolutions,
+                        )
+                        for repo_id, repo_files in files.group_by("repo_id")
+                        .agg("file_path")
+                        .iter_rows()
                     ),
-                    return_dtype=pl.List(pl.String),
-                )
+                ],
+                how="vertical",
             )
-            .explode("file_path")
-            .drop_nulls("file_path")
-            .select("repo_id", "file_path", "scope")
+            .join(lookups, on="lookup")
+            .select("repo_id", file_path="target_path", scope="scope")
         )
         anywhere = pl.DataFrame({"scope": [SCOPE_SEPARATOR.join(qualifier)]})
-        return (
+        places = (
             pl.concat([anywhere, in_modules], how="diagonal_relaxed")
+            .unique()
+            .pipe(QualifierRow.validate, cast=True)
+        )
+        bases = self._within(
+            within, _QUALIFIER_BASES_SQL, {"steps": config.follow_steps}, _qualifiers=places
+        )
+        return (
+            pl.concat([places, *bases], how="diagonal_relaxed")
             .unique()
             .pipe(QualifierRow.validate, cast=True)
         )

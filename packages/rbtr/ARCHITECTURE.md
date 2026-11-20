@@ -326,19 +326,19 @@ on a small, stable surface of core symbols. This is the
 contract that survives packaging each language as its own
 distribution:
 
-- `rbtr.languages.registration` — `LanguageRegistration`,
-  `ModuleStyle`, the wrap-override resolver type aliases
-  (`NameResolver` / `ScopeResolver` / `ImportResolver`), and the
-  capture/import helpers `collect_scoped_path`,
-  `enclosing_nodes_of_type`, `build_quoted_import`,
-  `parse_path_relative`, and `load_query` (loads a plugin's co-located
-  `.scm` query as package data). (Overrides receive the built-in resolver
-  as their wrap `resolver` argument and delegate to it, so plugins never
-  import the built-ins; those built-ins live in the private
-  `rbtr.languages._resolvers`.)
+- `rbtr.domain.edge_frames` — `ModuleStyle`, `SectionNames` and
+  `MemberOrder`, the declared resolution policies, and the frames edge
+  inference exchanges.
+- `rbtr.languages.registration` — `LanguageRegistration`, the wrap-override resolver
+  type aliases (`NameResolver` / `ScopeResolver`), and the capture
+  helpers `enclosing_nodes_of_type` and `load_query` (loads a plugin's co-located `.scm`
+  query as package data). (Overrides receive the built-in resolver as their wrap
+  `resolver` argument and delegate to it, so plugins never import the built-ins; those
+  built-ins live in the private `rbtr.languages._resolvers`.)
 - `rbtr.domain.models` — `Chunk`, its roles (`Definition`, `Section`,
-  `Import`, `Comment`, `RawSlice`, `Fragment`), `Span`, `ChunkKind` and
-  `ImportMeta`.
+  `Import`, `Comment`, `RawSlice`, `Fragment`), `Span`, `ChunkKind`,
+  `ImportMeta`, and `Lookup`, where a reference's path is looked up. A
+  chunk's references are read from its row, in `metadata.refs`.
   A chunk's `id` is a property over its own fields, so a plugin yields
   chunks and never computes an identity.
 - `rbtr.languages.chunks` — `last_line`, which turns a
@@ -392,12 +392,13 @@ tests rather than held to product-code standards.
 
 ## Dependency graph
 
-Edge inference (`languages/edges.py`) records what each import
-reaches:
+Edge inference (`domain/edges.py`) records what each import, call and
+base reaches:
 
 - **Import edges** - from an import to the symbols it names in
   the files its module resolves to, or to every chunk of those
-  files for a bare import; an import whose extractor recorded
+  files for a bare import or one naming `*` (`from lib import *`); an
+  import whose extractor recorded
   nothing usable reaches files whose stem is a word of its text.
 - **Doc edges** - prose (a Markdown link, an rST role) documents
   the file, section or symbol it references.
@@ -406,26 +407,35 @@ reaches:
   `path` dependency. A `$ref`'s pointer names a key inside the
   document it reaches, as a Markdown link's fragment names a
   heading, so a data language's keys are in the symbol index.
+- **Call and inherits edges** - from a chunk to each definition its
+  calls name, and from a class to each base it names
+  ([Calls and bases](#calls-and-bases)).
 
-Import resolution (`languages/resolution.py`) maps a module
-string to repo files, by the rules each language plugin declares
-on its registration. A reference carrying its own depth — `../b`,
-or a `dots` the extractor set — is anchored to the importing file
-and has one place to look. Anything else is looked for from the
-repository root: under each source root, then as a *suffix* of a
-candidate file path (so `rbtr.index.index` →
-`…/rbtr/index/index.py`, which lets a single index span a
-monorepo), then as a package directory. A `ModuleStyle.PATH`
-reference found nowhere from the root is tried beside the
-importing file: `@import "b.css"` in `css/a.css` means
-`css/b.css`, and the root comes first so a reference that already
-resolves keeps the file it resolved to. `module_style` and
-`source_roots` tune the mapping per language; ambiguous matches
-are dropped rather than guessed, and a file resolves to itself only
-for a reference that names that file and something in it (`#usage`,
-or `guide.md#usage` in `guide.md`): `from . import x` in an
-`__init__.py` reaches it through its directory's stand-in, which names
-the directory, not the file.
+File resolution (`domain/resolution.py`) maps a module string to repo files, by the
+rules each language plugin declares on its registration. A relative import is anchored
+to the importing file and has one place to look. The query captures a module as written,
+with any prefix its pattern states (`import.prefix`: Ruby's `require_relative` writes
+`./`, Rust's `mod util;` writes `self::`). Each import's module is then read once, by
+its writing language's style, into the levels it climbs (`ImportRow.depth`) and the
+rest: a path starts `./` or `../`, or is `.` or `..` alone; a dotted module starts with
+one dot per level (Python's `..core`). A language's module words read from the importing
+module: the current word (`current_module`, Rust's `self::`) stays in it, and each
+parent word (`parent_module`, Rust's `super::`) climbs one level. A file named in
+`directory_module_files` (Rust's `mod.rs`, `lib.rs`, `main.rs`) is its directory's
+module; any other file is a module of its own, its children in the directory named by
+its stem. Anything else is looked for from the repository root: under each source root,
+then as a *suffix* of a candidate file path (so `rbtr.index.index` →
+`…/rbtr/index/index.py`, which lets a single index span a monorepo), then as a package
+directory. A `ModuleStyle.PATH` reference found nowhere from the root is tried beside
+the importing file: `@import "b.css"` in `css/a.css` means `css/b.css`, and the root
+comes first so a reference that already resolves keeps the file it resolved to. Source
+roots are tried in the order the plugin declares them. When two candidates differ only
+by extension, the importer's own extension wins, then another of its language's, then
+the first in the language's compiled extension list. A suffix that matches files in
+different directories is ambiguous and resolves to nothing. A file resolves to itself
+only for a reference that names that file and something in it (`#usage`, or
+`guide.md#usage` in `guide.md`): `from . import x` in an `__init__.py` reaches it
+through its directory's stand-in, which names the directory, not the file.
 
 Some references name a directory rather than a file. Where the
 language names a directory's stand-in — `__init__.py`,
@@ -442,7 +452,7 @@ repository rather than in the language: `go.mod` states `module
 example.com/m`, which makes `example.com/m/b` the directory `b`.
 A registration names such a file as its `manifest`, the
 extraction loop reads it while the content is in hand, and
-`build_resolution_map` turns it into path substitutions — the
+`language_resolutions` turns it into path substitutions — the
 edge pass itself reads no files.
 
 References reach sections by their names. Queries capture explicit HTML
@@ -468,6 +478,66 @@ small projects under its `tests/samples/imports/`. Core pins the rules
 of each import way on literal rows in neutral languages
 (`cases_import_ways.py`), so it needs no plugin to test them.
 
+### Calls and bases
+
+Extraction records, on the innermost chunk around each call and base,
+a reference (`metadata.refs`): the edge it makes, `calls` or
+`inherits`, and the path it is written as: `self.save()` is a path through the
+enclosing class's instance, `models.CharField(…)` the names `models`
+then `CharField`, `super().save()` a path through the class's bases. A
+path through a value (`x[0].m()`, `f().g()`) is not recorded. The edge
+phase resolves each path by its names alone, with no types:
+
+| Path starts with | Reaches                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| a name           | what the file makes available under that name at the innermost enclosing scope: its own functions and classes (a method is never in scope), else what its imports bind (an alias, a module, a submodule, a name followed through re-exports), else the first star import or `#include`, in order, that has it at that scope, else, where the language declares `directory_scope`, a top-level definition of another file in its directory, else, where it declares `members_in_scope`, the enclosing class's member, else its first ancestor's holding one |
+| `self`           | the enclosing class's member of the next name, else its first ancestor's holding one                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| a local          | an instance of the local's written type (an annotation, or the class called to make it): the path goes on from that type, so `order.save()` with `order: Order` is `Order` → `save`; with no written type, or calling the value itself, nothing                                                                                                                                                                                                                                                                                                            |
+| `super`          | the first ancestor's member of the next name, the class itself left out                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+
+Each further name is looked for inside what the previous one reached: a module's
+top-level definition, or a class's member, else its first ancestor's holding one. A
+function ends the path. A function reached in a language that declares
+`linked_functions` (C, C++) also reaches every function of its scope and name in those
+languages: a call to the prototype a header declares reaches each definition too, which
+no include brings in. Names cannot tell one program's definition from another's, so a
+name defined in several programs of one repository reaches each. No match makes no edge,
+and several make an edge to each. A file's names are what its imports bind as their
+language's extractor records them (`ImportMeta.bindings`), so a binding belongs to the
+importing file: two files may bind one name to different modules, and each reaches its
+own.
+
+A class's ancestors are searched in its language's member order (`MemberOrder`).
+`LISTED` and `REVERSED` walk the bases depth first and keep each ancestor's last visit,
+so a base two others share comes after both: `LISTED` takes the bases as written
+(Python, Java, C++, JavaScript, Rust), `REVERSED` last written first (Ruby, where a
+later `include` precedes an earlier one and both precede the superclass). `NEAREST`
+takes the shallowest, ties alike (Go's embedding). Call resolution walks the bases in
+the order they are written: each resolved base keeps its position (`ResolvedPathRow`)
+for the calls that follow it. Each code plugin's `member-order` sample states what its
+language resolves.
+
+Exact C3 linearisation is not used. It differs from the depth-first walk on 22 of 39,469
+inherited-member lookups in home-assistant and on none of 5,497 in django. It also finds
+no order for a Java class implementing an interface and its subinterface
+(`K implements I, J`, `J extends I`), and it needs a merge per class rather than one
+walk over the edges. Ranking by distance alone is wrong in 3% of those lookups, for
+Python, Java and Ruby. Ruby's `prepend` puts a module before the class itself, which no
+order of bases expresses; a language with a rule like it would need one more
+`MemberOrder`.
+
+Resolving by names alone, with no types and no control flow, gets these
+wrong in every language. Each is a strict expected failure, so fixing one
+fails its test and asks for the test to change. What a single language's
+names leave unresolved is listed in that plugin's README, under
+"Limitations":
+
+| What happens                                                                                                                                                                   | Why                                                                                                                                                                              | Pinned by                                                           |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| A call on a local reaches its class's member only through a written type: `x = make()` reads `make` as the type, and a local with no annotation or constructor reaches nothing | Types are read from what is written beside the local, not inferred                                                                                                               | `case_a_local_assigned_from_a_factory_reaches_the_class_it_returns` |
+| A name bound twice in one file reaches both                                                                                                                                    | Bindings keep no order, so a later import shadowing an earlier one cannot be told from alternatives (`try: import ujson as json / except: import json`), which should reach both | `case_a_later_import_of_a_name_shadows_an_earlier`                  |
+| `Special.save` returns every `save` up the chain                                                                                                                               | The qualified-name reader admits each ancestor's scope; the member order is applied to calls only                                                                                | `test_a_class_qualified_name_reaches_the_override_it_calls`         |
+
 Powers `find-refs` and the importance signal in search
 ranking. `find-refs` first resolves the user's symbol *name*
 to chunk IDs via `name_matches` (edges are keyed on chunk
@@ -475,6 +545,86 @@ IDs, not names), then a single `inbound_refs` query joins the
 inbound edges to their *source* chunk so the response names
 the referring symbol (`RefOut`) rather than exposing an opaque
 hash.
+
+### Computing a snapshot's edges
+
+The build's edge phase (`index.build`) compiles each language's registration into a
+`LanguageResolutionRow` frame (`languages.resolution.language_resolutions`), reads the
+snapshot's chunks as `EdgeChunkRow`, infers the edges of every file
+(`domain.edges.infer_edges`), and replaces the snapshot's edges in one write session.
+
+`infer_edges` runs four steps over every import, call and base of the snapshot at once.
+Each is a polars process with a typed result, declared in
+`domain.edge_frames`; a language's resolution reaches a step as columns joined from
+that frame.
+
+| Step                | Result                                                                                                                              | Read by                         |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `requested_imports` | `ImportRow`: source location/language and line, text, way, the module as written and read (depth, module), names, bindings and hint | File resolution, targets, calls |
+| `resolved_files`    | `FileMatchRow`: source location and a file it reaches                                                                               | Targets                         |
+| `reached_targets`   | `InferredEdgeRow`: located source-to-target edge                                                                                    | Writer                          |
+| `called_targets`    | `InferredEdgeRow`: the `calls` and `inherits` edges of each call and base                                                           | Writer                          |
+
+`resolved_files` finds module files through `module_files`, which turns
+`ModulePathRow` lookups into `ModuleFileRow` files. Qualified-name lookup
+calls it too ([Symbol name resolution](#symbol-name-resolution)).
+
+`called_targets` (`domain.calls`) resolves the paths extraction recorded on
+each chunk ([Calls and bases](#calls-and-bases)) in two steps. `exports`
+gives the names every file makes available: its top-level functions and
+classes, and what its imports bind, followed through other files'
+imports (re-exports) and star imports. `path_targets` then resolves
+each path from its head one name at a time against those names and the
+classes' members, first for bases, giving the `inherits` edges, then for
+calls, reaching inherited members through those edges. Re-exports, star
+imports and bases are followed at most `config.follow_steps` times.
+It runs in polars rather than as recursive SQL: on home-assistant's
+461,105 calls the two gave the same edges, in 0.22 s and 0.84 GB
+against 4–6 s and 7.5 GB.
+
+Two choices keep the answers right. An import's location is its chunk id
+and its path: chunks are content-addressed, so byte-identical files share an
+import chunk, and each copy resolves relative to its own path. And an
+import's scope, its resolved files or its hinted language, is chosen
+before candidates are ranked, so an earlier chunk outside the scope cannot
+hide one inside it.
+
+For example, take three files: `app.py` holding `from pkg.util import greet`,
+`src/pkg/util.py` defining `greet`, and `docs/guide.rst` saying
+``Call :func:`greet` first.`` Python's resolution row tries the source roots `""` and
+`src`, the extensions `.py` and `.pyi`, and reads modules dotted; rST is prose and
+folds section names. The build reads the two imports as `EdgeChunkRow`s:
+
+| `file_path`      | `name`                       | `language` | `module`   | `names` | `language_hint` |
+| ---------------- | ---------------------------- | ---------- | ---------- | ------- | --------------- |
+| `app.py`         | `from pkg.util import greet` | `python`   | `pkg.util` | `greet` |                 |
+| `docs/guide.rst` | ``:func:`greet` ``           | `rst`      |            | `greet` | `python`        |
+
+`requested_imports` classifies them. The Python import names a module; the
+rST role is prose naming a name and no file, so it documents rather than imports:
+
+| `source_path`    | `way`    | `kind`      | `depth` | `module`   | `names`     | `language_hint` |
+| ---------------- | -------- | ----------- | ------- | ---------- | ----------- | --------------- |
+| `app.py`         | `module` | `imports`   | 0       | `pkg.util` | `["greet"]` |                 |
+| `docs/guide.rst` | `name`   | `documents` | 0       |            | `["greet"]` | `python`        |
+
+`resolved_files` looks for `pkg.util` as `pkg/util`. Under the root `""`, none of
+`pkg/util`, `pkg/util.py`, `pkg/util.pyi` or `pkg/util/__init__.py` exists; under
+`src`, `src/pkg/util.py` does. The name import resolves no file:
+
+| `source_path` | `target_path`     |
+| ------------- | ----------------- |
+| `app.py`      | `src/pkg/util.py` |
+
+`reached_targets` reads the target chunks: `run` in `app.py`, the `Guide` section
+of `docs/guide.rst`, and `greet` in `src/pkg/util.py`. The import reaches `greet`
+in its resolved file. The role looks only at Python, its hint, where `greet` is the
+first symbol of that name:
+
+| `source_path`    | `target_path`     | target  | `kind`      |
+| ---------------- | ----------------- | ------- | ----------- |
+| `app.py`         | `src/pkg/util.py` | `greet` | `imports`   |
+| `docs/guide.rst` | `src/pkg/util.py` | `greet` | `documents` |
 
 ## Working-tree indexing
 
@@ -1315,15 +1465,16 @@ source 1.0. Classified by path pattern, first match wins.
 
 **Importance** — how much depends on it:
 `1 + log2(1 + degree) / 4`, capped at 3.0, where `degree` is
-the inbound edge count. One inbound edge gives 1.25, three
-1.5, fifteen 2.0. Logarithmic because the step from one
+the inbound edge count, each edge counted at its kind's weight
+(`config.edge_weights`, 1 for every kind by default). One inbound
+edge gives 1.25, three 1.5, fifteen 2.0. Logarithmic because the step from one
 dependent to three says far more than the step from thirty to
 thirty-two.
 
 **Proximity** — distance from the current diff, when there is
-one. 1.5 for a chunk in a changed file, 1.2 for one with an
-edge to a changed file, 1.1 for one in a changed directory,
-1.0 otherwise.
+one. 1.5 for a chunk in a changed file, 1 + 0.2 × the edge kind's
+weight for one with an edge to a changed file (1.2 by default),
+1.1 for one in a changed directory, 1.0 otherwise.
 
 These magnitudes are hand-set. The fusion weights below are
 chosen with [`rbtr-eval`](../rbtr-eval/README.md)'s
@@ -1450,7 +1601,7 @@ symbol is, as rows of the `_qualifiers` view that
 - read whole as a scope, the symbol's scope must end with it
   (`EngineArgs.add_cli_args`, `Inner.m` for `Outer::Inner`);
 - its leading parts may name a module, resolved as an import
-  would be (`module_files` in `rbtr.languages.edges`, for each
+  would be (`module_files` in `rbtr.domain.resolution`, for each
   language in the snapshot: source roots, `index_files`,
   `path_substitutions`, a path suffix of two or more parts);
   the symbol must then be in a file they name, with the
@@ -1466,6 +1617,13 @@ answer means the qualified symbol does not exist.
 
 Module resolution reuses import resolution, so a qualified
 name reaches a module exactly when an import of it would.
+
+A class the qualifier places also places the scope of each of its
+bases, found by a recursive query over `inherits` edges
+(`qualifier_bases.sql`), so `Order.check`, where only `Base` defines
+`check`, reaches `Base.check`. Every matching member up the chain is
+returned: `Special.save`, where `Order` overrides `Base.save`, gives
+both. The member order is applied to calls only.
 
 ### Query expansion
 
@@ -2179,7 +2337,16 @@ imports resolve by matching the module path as a suffix
 of candidate file paths, not by per-repo module-root
 configuration. This supports monorepos transparently;
 genuinely ambiguous matches are dropped rather than
-guessed.
+guessed. A build matches every import's suffix lookups in
+one join of the names against each file's path tails
+(`module_files`). Scanning the repository's files for each
+lookup does not work here: its cost is the repository's size
+times its imports, and on a large repository it was most of
+the edge phase. The rest of resolution is joins too: candidate
+paths are source roots × extensions × index files, and first
+match is a rank. Resolving each reference in a Python callback
+made resolution the largest edge step: on Django's 14,358 module
+references, the callbacks took 0.25 s and the joins 0.05 s.
 
 **Standalone comments as their own `COMMENT` kind.** A comment
 that isn't a symbol's documentation — a banner, licence header,
@@ -2322,17 +2489,17 @@ from the version it records. Replacing the index on every breaking
 change does not work here: it re-extracts every checkout and
 re-embeds every chunk to change a column.
 
-**Roles describe chunks; rows expose their fields.** A custom chunker
-returns `Chunk` values whose roles (`Definition`, `Section`, `Import`,
-`Comment`, `RawSlice`, `Fragment`) carry the data for that kind. Query
-extraction produces the corresponding columns directly. Both paths
-reach `ChunkRow`: `kind`, `name` and span columns support filtering and
-identity, while `metadata` is a `STRUCT` of role payload fields, null
-where a role has none. `chunk_rows` flattens the chunker's values;
-staging adds the storage columns. Reads keep those rows rather than
-reconstructing write models. A struct passes between DuckDB and polars
-as Arrow; storing metadata as JSON would add per-row encoding and
-parsing.
+**Roles describe chunks; rows expose their fields.** A custom chunker returns `Chunk`
+values whose roles (`Definition`, `Section`, `Import`, `Comment`,
+`RawSlice`, `Fragment`) carry the data for that kind. Query extraction produces the
+corresponding columns directly. Both paths reach `ChunkRow`: `kind`, `name` and span
+columns support filtering and identity, while `metadata` is a `STRUCT` of role payload
+fields, null where a role has none: an import's module, names, hint and bindings, a
+fragment's node types, what a definition, class or fragment calls, and a class's bases.
+A role that can record calls always stores a list, empty when it records none.
+`chunk_rows` flattens the chunker's values; staging adds the storage columns. Reads keep
+those rows rather than reconstructing write models. A struct passes between DuckDB and
+polars as Arrow; storing metadata as JSON would add per-row encoding and parsing.
 
 **Opening the index migrates it.** Migration belongs to the `index`
 layer and reports through the log; the CLI just opens the index, and

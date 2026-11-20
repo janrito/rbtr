@@ -21,8 +21,8 @@
     "metadata": {
       "module": "./lib/colours.sh",
       "names": "",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -37,8 +37,8 @@
     "metadata": {
       "module": "/etc/greeter.conf",
       "names": "",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -173,8 +173,8 @@
     "metadata": {
       "module": "./b.sh",
       "names": "",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {

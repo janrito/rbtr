@@ -29,10 +29,15 @@
     "line_start": 11,
     "line_end": 11,
     "metadata": {
-      "module": "std/collections",
+      "module": "std::collections",
       "names": "HashMap",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "HashMap",
+          "local": "HashMap"
+        }
+      ]
     }
   },
   {
@@ -45,10 +50,15 @@
     "line_start": 13,
     "line_end": 13,
     "metadata": {
-      "module": "crate/config",
+      "module": "crate::config",
       "names": "LOCALE",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "LOCALE",
+          "local": "LOCALE"
+        }
+      ]
     }
   },
   {
@@ -61,10 +71,15 @@
     "line_start": 14,
     "line_end": 14,
     "metadata": {
-      "module": "",
+      "module": "super",
       "names": "util",
-      "dots": "2",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "util",
+          "local": "util"
+        }
+      ]
     }
   },
   {
@@ -276,5 +291,96 @@
     "content": "//! Locale configuration.\npub const LOCALE: &str = \"en\";",
     "line_start": 1,
     "line_end": 2
+  },
+  {
+    "name": "",
+    "kind": "comment",
+    "file_path": "src/orders.rs",
+    "scope": "",
+    "language": "rust",
+    "content": "//! Orders — calls through `Self`, `self`, a type, and a `use` binding.",
+    "line_start": 1,
+    "line_end": 1
+  },
+  {
+    "name": "use crate::config::LOCALE as locale;",
+    "kind": "import",
+    "file_path": "src/orders.rs",
+    "scope": "",
+    "language": "rust",
+    "content": "use crate::config::LOCALE as locale;",
+    "line_start": 3,
+    "line_end": 3,
+    "metadata": {
+      "module": "crate::config",
+      "names": "LOCALE",
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "LOCALE",
+          "local": "locale"
+        }
+      ]
+    }
+  },
+  {
+    "name": "Order",
+    "kind": "class",
+    "file_path": "src/orders.rs",
+    "scope": "",
+    "language": "rust",
+    "content": "pub struct Order {\n    name: String,\n}",
+    "line_start": 5,
+    "line_end": 7
+  },
+  {
+    "name": "Order",
+    "kind": "class",
+    "file_path": "src/orders.rs",
+    "scope": "",
+    "language": "rust",
+    "content": "impl Order {\n    pub fn new(name: &str) -> Self {\n        Self { name: name.to_string() }\n    }\n\n    pub fn build() -> Order {\n        let order = Self::new(locale);\n        order.check();\n        Order::new(\"x\")\n    }\n\n    fn check(&self) -> bool {\n        self.valid()\n    }\n\n    fn valid(&self) -> bool {\n        true\n    }\n}",
+    "line_start": 9,
+    "line_end": 27
+  },
+  {
+    "name": "new",
+    "kind": "method",
+    "file_path": "src/orders.rs",
+    "scope": "Order",
+    "language": "rust",
+    "content": "pub fn new(name: &str) -> Self {\n        Self { name: name.to_string() }\n    }",
+    "line_start": 10,
+    "line_end": 12
+  },
+  {
+    "name": "build",
+    "kind": "method",
+    "file_path": "src/orders.rs",
+    "scope": "Order",
+    "language": "rust",
+    "content": "pub fn build() -> Order {\n        let order = Self::new(locale);\n        order.check();\n        Order::new(\"x\")\n    }",
+    "line_start": 14,
+    "line_end": 18
+  },
+  {
+    "name": "check",
+    "kind": "method",
+    "file_path": "src/orders.rs",
+    "scope": "Order",
+    "language": "rust",
+    "content": "fn check(&self) -> bool {\n        self.valid()\n    }",
+    "line_start": 20,
+    "line_end": 22
+  },
+  {
+    "name": "valid",
+    "kind": "method",
+    "file_path": "src/orders.rs",
+    "scope": "Order",
+    "language": "rust",
+    "content": "fn valid(&self) -> bool {\n        true\n    }",
+    "line_start": 24,
+    "line_end": 26
   }
 ]

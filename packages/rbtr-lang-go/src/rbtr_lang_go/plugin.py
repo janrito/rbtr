@@ -11,16 +11,25 @@ Extracted chunks::
     type Reader interface { ... }   → class "Reader", scope ""
 
     import "fmt"
-        → import, metadata {module: "fmt"}
+        → import, metadata {module: "fmt"}, binding `fmt`
     import ("fmt" "os/exec")
-        → 2 import chunks: {module: "fmt"}, {module: "os/exec"}
+        → 2 import chunks: {module: "fmt"}, {module: "os/exec"}, binding `exec`
+
+A package's files see each other's names without imports
+(`directory_scope`), and an embedded struct field is a base; the
+shallowest embedding's method wins (`MemberOrder.NEAREST`).
 """
 
 from __future__ import annotations
 
 import re
 
-from rbtr.languages.registration import LanguageRegistration, QueryExtraction, load_query
+from rbtr.domain.edge_frames import MemberOrder
+from rbtr.languages.registration import (
+    LanguageRegistration,
+    QueryExtraction,
+    load_query,
+)
 
 _MODULE_LINE = re.compile(r"^\s*module\s+(\S+)", re.MULTILINE)
 
@@ -30,11 +39,13 @@ go = LanguageRegistration(
     extensions=frozenset({".go"}),
     grammar_module="tree_sitter_go",
     extraction=QueryExtraction(
-        query=load_query(__package__, "go"),
+        query=load_query(__package__, "go") + load_query(__package__, "references"),
         scope_types=frozenset({"type_spec"}),
     ),
     package_directory=True,
-    extraction_serial=5,
+    directory_scope=True,
+    member_order=MemberOrder.NEAREST,
+    extraction_serial=7,
     manifest="go.mod",
 )
 

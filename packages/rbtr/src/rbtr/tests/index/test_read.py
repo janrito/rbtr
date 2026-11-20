@@ -158,8 +158,11 @@ def test_delete_chunks_for_blobs_removes_target(index: Index) -> None:
 def test_edges_returns_all(module_index: Index, import_graph: SnapshotRef) -> None:
     """Every edge the build inferred at a snapshot is returned, of every kind."""
     edges = module_index.edges(within=[import_graph])
-    assert edges.select("source_path", "target_path", "kind").sort("source_path").to_dicts() == [
+    assert edges.select("source_path", "target_path", "kind").sort(
+        "source_path", "kind"
+    ).to_dicts() == [
         {"source_path": "README.md", "target_path": "src/m.py", "kind": "documents"},
+        {"source_path": "src/app.py", "target_path": "src/m.py", "kind": "calls"},
         {"source_path": "src/app.py", "target_path": "src/m.py", "kind": "imports"},
     ]
 
@@ -176,8 +179,11 @@ def test_inbound_refs_resolves_source(module_index: Index, import_graph: Snapsho
     """Each inbound edge resolves to its source chunk plus the edge kind."""
     fn = module_index.chunks(at=import_graph, name="fn")["id"].item()
     frame = module_index.inbound_refs([fn], at=import_graph)
-    assert frame.select("file_path", "name", "kind", "edge").sort("file_path").to_dicts() == [
+    assert frame.select("file_path", "name", "kind", "edge").sort(
+        "file_path", "edge"
+    ).to_dicts() == [
         {"file_path": "README.md", "name": "src/m.py", "kind": "import", "edge": "documents"},
+        {"file_path": "src/app.py", "name": "run", "kind": "function", "edge": "calls"},
         {
             "file_path": "src/app.py",
             "name": "from src.m import fn",
@@ -193,7 +199,7 @@ def test_a_read_leaves_the_cursor_free_for_the_next(
     """A read consumes its whole result, so the thread's next read can
     register views on the same cached cursor."""
     fn = module_index.chunks(at=import_graph, name="fn")["id"].item()
-    assert module_index.count_edges(at=import_graph) == 2
+    assert module_index.count_edges(at=import_graph) == 3
     assert module_index.chunks_by_id([fn], at=import_graph)["id"].to_list() == [fn]
 
 
@@ -206,9 +212,7 @@ def script_import() -> Chunk:
         file_path="page.html",
         role=Import(
             name="greeter.js",
-            meta=ImportMeta(
-                module="greeter.js", names="greet", dots="1", language_hint="javascript"
-            ),
+            meta=ImportMeta(module="./greeter.js", names="greet", language_hint="javascript"),
         ),
         content=content,
         span=Span(start=3, end=3),
@@ -221,11 +225,12 @@ def test_an_import_reads_back_as_written(
     seed_index(index, [script_import], head_ref)
     assert index.chunks(at=head_ref)["metadata"].to_list() == [
         {
-            "module": "greeter.js",
+            "module": "./greeter.js",
             "names": "greet",
-            "dots": "1",
             "language_hint": "javascript",
             "node_types": None,
+            "refs": None,
+            "bindings": [],
         }
     ]
 

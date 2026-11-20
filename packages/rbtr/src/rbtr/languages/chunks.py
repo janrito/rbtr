@@ -14,7 +14,7 @@ import dataframely as dy
 import polars as pl
 
 from rbtr.domain.models import Chunk, Chunks
-from rbtr.domain.rules import ChunkRow
+from rbtr.domain.rules import ChunkRow, holds_references, no_references
 
 if TYPE_CHECKING:
     from tree_sitter import Node
@@ -44,7 +44,11 @@ ROLE = pl.Struct({"kind": pl.String, "name": pl.String, "meta": ChunkRow.metadat
 
 
 def chunk_rows(chunks: Sequence[Chunk]) -> dy.DataFrame[ChunkRow]:
-    """*chunks* as rows, each role spread over `kind`, `name` and `metadata`."""
+    """*chunks* as rows, each role spread over `kind`, `name` and `metadata`.
+
+    A definition or fragment gets empty `refs`: a chunker records no call
+    or base.
+    """
     if not chunks:
         return ChunkRow.create_empty()
     return (
@@ -56,6 +60,20 @@ def chunk_rows(chunks: Sequence[Chunk]) -> dy.DataFrame[ChunkRow]:
             pl.col("span").struct.field("start").alias("line_start"),
             pl.col("span").struct.field("end").alias("line_end"),
             docs=pl.lit(None, dtype=pl.String),
+        )
+        .with_columns(
+            metadata=pl.when(holds_references())
+            .then(
+                pl.col("metadata")
+                .fill_null(
+                    pl.lit(
+                        dict.fromkeys(ChunkRow.metadata.inner),
+                        dtype=ChunkRow.metadata.dtype,
+                    )
+                )
+                .struct.with_fields(refs=no_references())
+            )
+            .otherwise("metadata")
         )
         .pipe(ChunkRow.validate, cast=True)
     )

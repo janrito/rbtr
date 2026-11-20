@@ -34,6 +34,14 @@ export const PROTOCOL_DEFS = {
     title: "AutoRebuildNotification",
     type: "object",
   },
+  Binding: {
+    description:
+      "A name an import binds in the importing file, and what it names there.\n\n`local` is the name the file's code uses. `name` is what it names: for\nan import listing names, one of them (`from m import Chunk as C` binds\n`C` to `Chunk`); for one listing none, a module path (`import numpy as\nnp` binds `np` to `numpy`).",
+    properties: { name: { type: "string" }, local: { type: "string" } },
+    required: ["name", "local"],
+    title: "Binding",
+    type: "object",
+  },
   BuildWork: {
     additionalProperties: false,
     description: "Building the snapshot `ref` of the repository at `repo_path`.",
@@ -380,8 +388,8 @@ export const PROTOCOL_DEFS = {
     properties: {
       module: { default: "", type: "string" },
       names: { default: "", type: "string" },
-      dots: { default: "", type: "string" },
       language_hint: { default: "", type: "string" },
+      bindings: { items: { $ref: "#/$defs/Binding" }, type: "array" },
     },
     title: "ImportMeta",
     type: "object",

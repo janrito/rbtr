@@ -105,11 +105,40 @@ function listSymbolsText(response: ListSymbolsResponse): string {
   return [readAt(response.resolved), heading, ...response.chunks.map(outlineLine)].join("\n");
 }
 
+/** How many refs a find-refs reply lists; the rest are counted per kind. */
+const MAX_REFS = 50;
+const EDGE_ORDER = ["calls", "inherits", "imports", "documents", "configures"];
+
 function findRefsText(response: FindRefsResponse): string {
-  return [
-    `${readAt(response.resolved)}: ${response.refs.length} ref(s)`,
-    ...response.refs.map((ref) => `${ref.edge}: ${located(ref.file_path, ref.line_start, ref.kind, ref.name)}`),
-  ].join("\n");
+  const byKind = new Map<string, FindRefsResponse["refs"]>();
+  for (const ref of response.refs) byKind.set(ref.edge, [...(byKind.get(ref.edge) ?? []), ref]);
+  const kinds = [...byKind.keys()].sort((a, b) => rank(a) - rank(b));
+  // The space is shared in turn, so one kind's thousands of callers leave room for the others.
+  const shown = new Map<string, number>(kinds.map((kind) => [kind, 0]));
+  for (let listed = 0, round = 0; listed < MAX_REFS && listed < response.refs.length; round += 1) {
+    for (const kind of kinds) {
+      if (listed < MAX_REFS && round < (byKind.get(kind)?.length ?? 0)) {
+        shown.set(kind, round + 1);
+        listed += 1;
+      }
+    }
+  }
+  const lines = [`${readAt(response.resolved)}: ${response.refs.length} ref(s)`];
+  for (const kind of kinds) {
+    const refs = byKind.get(kind) ?? [];
+    const count = shown.get(kind) ?? 0;
+    lines.push(
+      ...refs.slice(0, count).map((ref) => `${kind}: ${located(ref.file_path, ref.line_start, ref.kind, ref.name)}`),
+    );
+    if (refs.length > count) lines.push(`… ${refs.length - count} more ${kind}`);
+  }
+  return lines.join("\n");
+}
+
+/** A kind's place in a find-refs reply: callers first, unknown kinds last. */
+function rank(kind: string): number {
+  const position = EDGE_ORDER.indexOf(kind);
+  return position === -1 ? EDGE_ORDER.length : position;
 }
 
 function changedSymbolsText(response: ChangedSymbolsResponse): string {

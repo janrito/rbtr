@@ -23,7 +23,9 @@ from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.dto import ResolvedRef
 from rbtr.daemon.handlers import (
     handle_daemon_config,
+    handle_find_refs,
     handle_gc_all,
+    handle_read_symbol,
     handle_status,
     handle_status_all,
     handle_unwatch,
@@ -62,6 +64,7 @@ from rbtr.domain.models import (
     QueryKind,
     RefSource,
 )
+from rbtr.git import normalise_repo_path
 from rbtr.index.build import build_index
 from rbtr.index.index import Index
 from rbtr.index.progress import ProgressCallback
@@ -575,3 +578,28 @@ def test_watch_refs_logs_intent(
     events = [e["event"] for e in log_output.entries]
     assert "watched_refs_added" in events
     assert "watched_refs_removed" in events
+
+
+def test_read_symbol_and_find_refs_reach_an_inherited_member(
+    module_index: Index, module_repo: pygit2.Repository
+) -> None:
+    """`Order.check`, where only `Base` defines `check`, reads and finds the refs of `Base.check`."""
+    files = {
+        "base.py": b"class Base:\n    def check(self):\n        return True\n",
+        "models.py": b"from base import Base\n\n\nclass Order(Base):\n    def run(self):\n        return self.check()\n",
+    }
+    sha = str(make_commit(module_repo, files, ref="refs/heads/inherited-handlers"))
+    path = normalise_repo_path(module_repo.workdir)
+    build_index(path, sha, module_index)
+
+    read = handle_read_symbol(
+        ReadSymbolRequest(repo_path=path, symbol="Order.check", ref=sha), module_index
+    )
+    refs = handle_find_refs(
+        FindRefsRequest(repo_path=path, symbol="Order.check", ref=sha), module_index
+    )
+
+    assert [(c.file_path, c.scope, c.name) for c in read.chunks] == [("base.py", "Base", "check")]
+    assert [(r.file_path, r.name, r.edge) for r in refs.refs] == [
+        ("models.py", "run", EdgeKind.CALLS)
+    ]

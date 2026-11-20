@@ -9,12 +9,13 @@ content-less host-presence chunk emitted for every registered language.
 
 from __future__ import annotations
 
+import polars as pl
 import pytest
 
 from rbtr.config import config
 from rbtr.domain.models import ChunkKind, Fragment, Import
 from rbtr.git import FileEntry
-from rbtr.languages.extract import extract_file, extract_symbols
+from rbtr.languages.extract import extract_batch, extract_file, extract_symbols, file_rows
 from rbtr.languages.manager import get_manager
 from rbtr.languages.registration import LanguageRegistration, QueryExtraction
 
@@ -467,3 +468,343 @@ run();
         (c.line_start, c.line_end, c.content) for c in chunks if c.kind == ChunkKind.FRAGMENT
     ]
     assert fragments == [(1, 1, "<p>intro</p>")]
+
+
+def test_a_callee_becomes_the_path_it_names() -> None:
+    """Names and attribute paths are paths; one starting at a `self` or `super` marker reads from it.
+
+    A callee through a value (`x[0].m()`, `f().g()`) is no path, and a
+    marker alone (`super()`) names nothing.
+    """
+    grammar = get_manager().grammar("python")
+    assert grammar is not None
+    query = """\
+(function_definition name: (identifier) @_fn_name) @function
+(call function: (_) @_call)
+((identifier) @_self (#eq? @_self "self"))
+((identifier) @_super (#eq? @_super "super"))
+"""
+    src = b"""\
+def run(self):
+    foo()
+    a.b.c()
+    self.save()
+    super().__init__()
+    x[0].m()
+    f().g()
+    foo()
+"""
+    reg = LanguageRegistration(id="faketest", extraction=QueryExtraction(query=query))
+    rows = extract_batch(
+        file_rows([(FileEntry("t.py", "sha1", src), reg.id)]), {reg.id: (reg, grammar)}.get
+    )
+    assert rows.filter(pl.col("name") == "run")["metadata"].struct.field("refs").to_list() == [
+        [
+            {"kind": "calls", "lookup": "unqualified", "path": ["foo"], "type": None},
+            {"kind": "calls", "lookup": "unqualified", "path": ["a", "b", "c"], "type": None},
+            {"kind": "calls", "lookup": "member", "path": ["save"], "type": None},
+            {"kind": "calls", "lookup": "base", "path": ["__init__"], "type": None},
+            {"kind": "calls", "lookup": "unqualified", "path": ["f"], "type": None},
+        ]
+    ]
+
+
+def test_a_reference_belongs_to_the_innermost_chunk_around_it() -> None:
+    """A method's call is the method's, a class body's the class's, a module-level call a fragment's.
+
+    A base is the class's own; `metaclass=Meta` is no base the query captures.
+    """
+    grammar = get_manager().grammar("python")
+    assert grammar is not None
+    query = """\
+(function_definition name: (identifier) @_fn_name) @function
+(class_definition name: (identifier) @_cls_name) @class
+(call function: (_) @_call)
+(class_definition superclasses: (argument_list [(identifier) (attribute)] @_base))
+"""
+    src = b"""\
+class Box(Base, mod.Mixin, metaclass=Meta):
+    size = compute()
+
+    def open(self):
+        helper()
+
+
+helper()
+"""
+    reg = LanguageRegistration(
+        id="faketest",
+        extraction=QueryExtraction(query=query, scope_types=frozenset({"class_definition"})),
+    )
+    rows = extract_batch(
+        file_rows([(FileEntry("t.py", "sha1", src), reg.id)]), {reg.id: (reg, grammar)}.get
+    )
+    assert rows.select(
+        pl.col("kind").cast(pl.String),
+        "name",
+        refs=pl.col("metadata").struct.field("refs"),
+    ).rows() == [
+        (
+            "class",
+            "Box",
+            [
+                {"kind": "inherits", "lookup": "unqualified", "path": ["Base"], "type": None},
+                {
+                    "kind": "inherits",
+                    "lookup": "unqualified",
+                    "path": ["mod", "Mixin"],
+                    "type": None,
+                },
+                {"kind": "calls", "lookup": "unqualified", "path": ["compute"], "type": None},
+            ],
+        ),
+        (
+            "method",
+            "open",
+            [{"kind": "calls", "lookup": "unqualified", "path": ["helper"], "type": None}],
+        ),
+        (
+            "fragment",
+            "",
+            [{"kind": "calls", "lookup": "unqualified", "path": ["helper"], "type": None}],
+        ),
+    ]
+
+
+def test_a_call_through_a_functions_local_is_on_a_value() -> None:
+    """A call whose head is a local of a function around it is on a value, with the local's written type.
+
+    A nested function sees its enclosing function's locals and a sibling
+    does not; a definition of the name inside the function wins over the
+    local; a class body holds no locals.
+    """
+    grammar = get_manager().grammar("python")
+    assert grammar is not None
+    query = """\
+(function_definition name: (identifier) @_fn_name) @function
+(class_definition name: (identifier) @_cls_name) @class
+(call function: (_) @_call)
+(parameters (identifier) @_local)
+(parameters (typed_parameter (identifier) @_local type: (type) @_local_type))
+(assignment left: (identifier) @_local)
+"""
+    src = b"""\
+def run(order: Order, f, g):
+    f()
+    order.save()
+    g()
+
+    def g():
+        pass
+
+    def inner():
+        f()
+
+
+def other():
+    f()
+
+
+class Box:
+    size = 1
+
+    def open(self):
+        size()
+"""
+    reg = LanguageRegistration(
+        id="faketest",
+        extraction=QueryExtraction(query=query, scope_types=frozenset({"class_definition"})),
+    )
+    rows = extract_batch(
+        file_rows([(FileEntry("t.py", "sha1", src), reg.id)]), {reg.id: (reg, grammar)}.get
+    )
+    assert rows.filter(pl.col("kind") != ChunkKind.FRAGMENT).select(
+        pl.col("kind").cast(pl.String),
+        "name",
+        refs=pl.col("metadata").struct.field("refs"),
+    ).rows() == [
+        (
+            "function",
+            "run",
+            [
+                {"kind": "calls", "lookup": "type", "path": ["f"], "type": None},
+                {
+                    "kind": "calls",
+                    "lookup": "type",
+                    "path": ["order", "save"],
+                    "type": ["Order"],
+                },
+                {"kind": "calls", "lookup": "unqualified", "path": ["g"], "type": None},
+            ],
+        ),
+        ("function", "g", []),
+        (
+            "function",
+            "inner",
+            [{"kind": "calls", "lookup": "type", "path": ["f"], "type": None}],
+        ),
+        (
+            "function",
+            "other",
+            [{"kind": "calls", "lookup": "unqualified", "path": ["f"], "type": None}],
+        ),
+        ("class", "Box", []),
+        (
+            "method",
+            "open",
+            [{"kind": "calls", "lookup": "unqualified", "path": ["size"], "type": None}],
+        ),
+    ]
+
+
+def test_a_super_call_calls_the_bases_method_of_its_functions_name() -> None:
+    """A `@_super_call` (Ruby's bare `super`) calls the bases' method of its function's own name.
+
+    In a class body it names nothing, so it is no reference.
+    """
+    grammar = get_manager().grammar("ruby")
+    assert grammar is not None
+    query = """\
+(method name: (identifier) @_fn_name) @function
+(class name: (constant) @_cls_name) @class
+(super) @_super_call
+"""
+    src = b"""\
+class Order < Model
+  super
+  def save
+    super
+  end
+end
+"""
+    reg = LanguageRegistration(
+        id="faketest", extraction=QueryExtraction(query=query, scope_types=frozenset({"class"}))
+    )
+    rows = extract_batch(
+        file_rows([(FileEntry("t.rb", "sha1", src), reg.id)]), {reg.id: (reg, grammar)}.get
+    )
+    assert rows.filter(pl.col("kind") != ChunkKind.FRAGMENT).select(
+        pl.col("kind").cast(pl.String), "name", refs=pl.col("metadata").struct.field("refs")
+    ).rows() == [
+        ("class", "Order", []),
+        (
+            "method",
+            "save",
+            [{"kind": "calls", "lookup": "base", "path": ["save"], "type": None}],
+        ),
+    ]
+
+
+def test_a_callee_captured_in_parts_is_one_path() -> None:
+    """Nodes one match captures as `@_call` are one span: a grammar with no single callee node captures each part."""
+    grammar = get_manager().grammar("python")
+    assert grammar is not None
+    query = """\
+(function_definition name: (identifier) @_fn_name) @function
+(call function: (attribute object: (identifier) @_call attribute: (identifier) @_call))
+"""
+    src = b"""\
+def run():
+    models . Field()
+"""
+    reg = LanguageRegistration(id="faketest", extraction=QueryExtraction(query=query))
+    rows = extract_batch(
+        file_rows([(FileEntry("t.py", "sha1", src), reg.id)]), {reg.id: (reg, grammar)}.get
+    )
+    assert rows.filter(pl.col("name") == "run")["metadata"].struct.field("refs").to_list() == [
+        [{"kind": "calls", "lookup": "unqualified", "path": ["models", "Field"], "type": None}]
+    ]
+
+
+@pytest.mark.parametrize(
+    ("query", "src", "expected"),
+    [
+        pytest.param(
+            """\
+(import_from_statement
+  module_name: (dotted_name) @_import_module
+  name: (dotted_name) @_import_names) @import
+""",
+            b"from m import a, b\n",
+            [{"module": "m", "names": "a,b", "bindings": []}],
+            id="a-list-of-names",
+        ),
+        pytest.param(
+            """\
+(import_from_statement
+  module_name: (dotted_name) @_import_module
+  name: (dotted_name) @_import_names @_bind_name) @import
+
+(import_from_statement
+  module_name: (dotted_name) @_import_module
+  name: (aliased_import
+    name: (dotted_name) @_import_names @_bind_name
+    alias: (identifier) @_bind_local)) @import
+""",
+            b"from m import a, b as c\n",
+            [
+                {
+                    "module": "m",
+                    "names": "a,b",
+                    "bindings": [{"name": "a", "local": "a"}, {"name": "b", "local": "c"}],
+                }
+            ],
+            id="matches-on-one-import-merge",
+        ),
+        pytest.param(
+            """\
+(import_statement
+  name: (aliased_import
+    name: (dotted_name) @_import_module
+    alias: (identifier) @_bind_local)) @import
+""",
+            b"import numpy as np\n",
+            [{"module": "numpy", "names": "", "bindings": [{"name": "numpy", "local": "np"}]}],
+            id="a-local-alone-binds-the-module",
+        ),
+        pytest.param(
+            """\
+(import_statement name: (dotted_name) @_import_module) @import
+""",
+            b"import os, sys\n",
+            [
+                {"module": "os", "names": "", "bindings": []},
+                {"module": "sys", "names": "", "bindings": []},
+            ],
+            id="two-modules-are-two-imports",
+        ),
+        pytest.param(
+            """\
+((import_from_statement
+  module_name: (dotted_name) @_import_module
+  (wildcard_import))
+  (#set! import.names "*")) @import
+""",
+            b"from m import *\n",
+            [{"module": "m", "names": "*", "bindings": []}],
+            id="a-pattern-sets-names",
+        ),
+        pytest.param(
+            """\
+((import_statement name: (dotted_name) @_import_module)
+  (#set! import.prefix "./")) @import
+""",
+            b"import helpers\n",
+            [{"module": "./helpers", "names": "", "bindings": []}],
+            id="a-pattern-writes-a-prefix-before-its-module",
+        ),
+    ],
+)
+def test_a_query_states_an_imports_names_and_bindings(
+    query: str, src: bytes, expected: list[dict]
+) -> None:
+    """Names, bindings and directives come from captures alone, with no import extractor."""
+    grammar = get_manager().grammar("python")
+    assert grammar is not None
+    reg = LanguageRegistration(id="faketest", extraction=QueryExtraction(query=query))
+    imports = [
+        c.role.meta.model_dump(include={"module", "names", "bindings"})
+        for c in extract_symbols(reg, "t.py", "sha1", src, grammar)
+        if isinstance(c.role, Import)
+    ]
+    assert imports == expected

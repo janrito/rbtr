@@ -21,9 +21,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from rbtr.domain.models import ImportMeta
 from rbtr.languages.registration import (
-    ImportResolver,
     LanguageRegistration,
     NameResolver,
     QueryExtraction,
@@ -96,21 +94,3 @@ def _element_name(
     if tag_nodes and tag_nodes[0].text:
         return tag_nodes[0].text.decode()
     return ""
-
-
-@html.import_extractor
-def _import_meta(
-    resolver: ImportResolver, node: Node, captures: dict[str, list[Node]]
-) -> ImportMeta:
-    """Import metadata hinted by the element kind: a script, a stylesheet, or a link to a page.
-
-    A `<script src>` imports JavaScript and a `<link href>` CSS, each hinted
-    so it resolves by that language's rules. An `<a href>` names a page and
-    takes no hint.
-    """
-    meta = resolver(node, captures)
-    if node.type == "script_element":
-        meta.language_hint = "javascript"
-    elif not captures.get("_at"):
-        meta.language_hint = "css"
-    return meta

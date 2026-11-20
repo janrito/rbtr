@@ -5,7 +5,7 @@ from __future__ import annotations
 from pytest_cases import case
 
 type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
-type ImportCase = tuple[str, str, dict[str, str]]
+type ImportCase = tuple[str, str, dict[str, str | list[dict[str, str]]]]
 type MultiImportCase = tuple[str, str, int, list[dict[str, str]]]
 type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
 
@@ -69,25 +69,25 @@ int func(void) { return 0; }
 @case(tags=["import"])
 def case_c_include_system() -> ImportCase:
     """#include <stdio.h>."""
-    return "c", "#include <stdio.h>\n", {"module": "stdio.h"}
+    return "c", "#include <stdio.h>\n", {"module": "stdio.h", "names": "*"}
 
 
 @case(tags=["import"])
 def case_c_include_local() -> ImportCase:
     """#include "mylib.h"."""
-    return "c", '#include "mylib.h"\n', {"module": "mylib.h"}
+    return "c", '#include "mylib.h"\n', {"module": "mylib.h", "names": "*"}
 
 
 @case(tags=["import"])
 def case_c_include_nested_path() -> ImportCase:
     """#include "utils/helpers.h"."""
-    return "c", '#include "utils/helpers.h"\n', {"module": "utils/helpers.h"}
+    return "c", '#include "utils/helpers.h"\n', {"module": "utils/helpers.h", "names": "*"}
 
 
 @case(tags=["import"])
 def case_c_include_system_nested() -> ImportCase:
     """#include <sys/types.h>."""
-    return "c", "#include <sys/types.h>\n", {"module": "sys/types.h"}
+    return "c", "#include <sys/types.h>\n", {"module": "sys/types.h", "names": "*"}
 
 
 @case(tags=["multi_import"])
@@ -97,7 +97,7 @@ def case_c_multiple_includes() -> MultiImportCase:
 #include <stdlib.h>
 #include "local.h"
 """
-    return "c", src, 2, [{"module": "stdlib.h"}, {"module": "local.h"}]
+    return "c", src, 2, [{"module": "stdlib.h", "names": "*"}, {"module": "local.h", "names": "*"}]
 
 
 @case(tags=["mixed"])
@@ -135,3 +135,31 @@ static void cleanup(void) {
 def case_c_global() -> SymbolCase:
     """File-scope global with initialiser."""
     return "c", "int g = 5;\n", [("variable", "g", "")]
+
+
+type ReferencesCase = tuple[str, str, list[tuple[str, str, list[str], list[str]]]]
+
+
+@case(tags=["references"])
+def case_c_calls() -> ReferencesCase:
+    """A call by name, and calls through a struct's field, which start at a value."""
+    src = """\
+int run(struct shop *s) {
+    helper(1);
+    s->check();
+    s->items.size();
+    return 0;
+}
+"""
+    return (
+        "c",
+        src,
+        [
+            (
+                "function",
+                "run",
+                ["unqualified:helper", "unqualified:s.check", "unqualified:s.items.size"],
+                [],
+            )
+        ],
+    )

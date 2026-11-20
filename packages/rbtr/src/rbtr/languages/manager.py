@@ -189,6 +189,10 @@ class LanguageManager:
             return False
         return self.grammar(language_id) is None
 
+    def registrations(self) -> list[LanguageRegistration]:
+        """Every installed language's registration."""
+        return list(self._registrations.values())
+
     def all_language_ids(self) -> list[str]:
         """Return all registered language IDs."""
         return list(self._registrations)

@@ -16,7 +16,7 @@ Extracted chunks::
     };
 
     #include <iostream>
-        → import, metadata {module: "iostream"}
+        → import, metadata {module: "iostream", names: "*"}
 """
 
 from __future__ import annotations
@@ -28,10 +28,13 @@ cpp = LanguageRegistration(
     extensions=frozenset({".cpp", ".cc", ".cxx", ".hpp", ".hxx"}),
     grammar_module="tree_sitter_cpp",
     extraction=QueryExtraction(
-        query=load_query(__package__, "cpp"),
+        query=load_query(__package__, "cpp") + load_query(__package__, "references"),
         scope_types=frozenset({"class_specifier", "struct_specifier", "namespace_definition"}),
         class_scope_types=frozenset({"class_specifier", "struct_specifier"}),
     ),
+    import_targets=frozenset({"cpp", "c"}),
     source_roots=("", "include", "src"),
-    extraction_serial=7,
+    members_in_scope=True,
+    linked_functions=True,
+    extraction_serial=9,
 )

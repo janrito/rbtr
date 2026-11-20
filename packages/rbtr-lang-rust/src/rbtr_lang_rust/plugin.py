@@ -15,125 +15,32 @@ Extracted chunks::
     }
 
     use std::collections::HashMap
-        → import, metadata {module: "std/collections", names: "HashMap"}
+        → import, metadata {module: "std::collections", names: "HashMap"}
     use crate::models::{Chunk, Edge}
-        → import, metadata {module: "crate/models", names: "Chunk,Edge"}
+        → import, metadata {module: "crate::models", names: "Chunk,Edge"}
     use super::utils
-        → import, metadata {names: "utils", dots: "2"}
+        → import, metadata {module: "../", names: "utils"}
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-from rbtr.domain.models import ImportMeta
-from rbtr.languages.registration import (
-    ImportResolver,
-    LanguageRegistration,
-    QueryExtraction,
-    collect_scoped_path,
-    load_query,
-)
-
-if TYPE_CHECKING:
-    from tree_sitter import Node
-
-
-def _path_to_meta(parts: list[str], meta: ImportMeta) -> None:
-    """Convert collected Rust path segments into module/dots metadata.
-
-    Leading `super` segments are counted as relative dots using
-    the unified convention (each `super` = one extra level up,
-    plus 1 for the file itself).  `crate` is kept as a literal
-    path segment — it's root-relative, not parent-relative.
-    """
-    dots = 0
-    while parts and parts[0] == "super":
-        dots += 1
-        parts = parts[1:]
-    if dots:
-        meta.dots = str(dots + 1)  # +1: super = parent dir = 2 levels from file
-
-    if parts:
-        meta.module = "/".join(parts)
-
-
-def extract_import_meta(
-    _resolver: ImportResolver, node: Node, captures: dict[str, list[Node]]
-) -> ImportMeta:
-    """Extract import data from a Rust `use_declaration` node.
-
-    Walks the node's `argument` field for module path and names.
-    The query only captures `@import` — module extraction needs
-    `collect_scoped_path` to flatten `scoped_identifier` trees
-    and `_path_to_meta` to convert `super` segments to dots.
-
-    Examples:
-
-        `use std::collections::HashMap;`:
-            module="std/collections", names="HashMap"
-
-        `use crate::models::{Chunk, Edge};`:
-            module="crate/models", names="Chunk,Edge"
-
-        `use super::utils;`:
-            names="utils", dots="2"
-
-        `use std::io::{self, Read};`:
-            module="std/io", names="self,Read"
-
-        `use serde;`:
-            module="serde"
-    """
-    meta = ImportMeta()
-    arg = node.child_by_field_name("argument")
-    if arg is None:
-        return meta
-
-    match arg.type:
-        case "scoped_identifier":
-            parts = collect_scoped_path(arg)
-            if len(parts) > 1:
-                _path_to_meta(parts[:-1], meta)
-                meta.names = parts[-1]
-            elif parts:
-                _path_to_meta(parts, meta)
-
-        case "scoped_use_list":
-            path_parts: list[str] = []
-            names: list[str] = []
-            for sc in arg.children:
-                if sc.type == "scoped_identifier":
-                    path_parts = collect_scoped_path(sc)
-                elif sc.type == "use_list":
-                    for item in sc.children:
-                        if item.type == "identifier" and item.text:
-                            names.append(item.text.decode())
-                        elif item.type == "self":
-                            names.append("self")
-            _path_to_meta(path_parts, meta)
-            if names:
-                meta.names = ",".join(names)
-
-        case "identifier":
-            if arg.text:
-                meta.module = arg.text.decode()
-
-    return meta
-
+from rbtr.domain.edge_frames import ModuleStyle
+from rbtr.languages.registration import LanguageRegistration, QueryExtraction, load_query
 
 rust = LanguageRegistration(
     id="rust",
     extensions=frozenset({".rs"}),
     grammar_module="tree_sitter_rust",
     extraction=QueryExtraction(
-        query=load_query(__package__, "rust"),
+        query=load_query(__package__, "rust") + load_query(__package__, "references"),
         scope_types=frozenset({"impl_item", "struct_item", "trait_item", "mod_item", "enum_item"}),
         class_scope_types=frozenset({"impl_item", "struct_item", "trait_item"}),
     ),
     index_files=frozenset({"mod.rs"}),
-    path_substitutions=(("crate/", "src/"),),
-    extraction_serial=7,
+    module_style=ModuleStyle.SCOPED,
+    path_substitutions=(("crate::", "src/"),),
+    parent_module="super",
+    current_module="self",
+    directory_module_files=frozenset({"mod.rs", "lib.rs", "main.rs"}),
+    extraction_serial=12,
 )
-
-rust.import_extractor(extract_import_meta)

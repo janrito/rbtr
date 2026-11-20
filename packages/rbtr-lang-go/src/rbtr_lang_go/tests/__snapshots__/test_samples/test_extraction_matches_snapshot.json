@@ -31,8 +31,13 @@
     "metadata": {
       "module": "fmt",
       "names": "",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "fmt",
+          "local": "fmt"
+        }
+      ]
     }
   },
   {
@@ -47,8 +52,13 @@
     "metadata": {
       "module": "example.com/greeter/greeter",
       "names": "",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "example.com/greeter/greeter",
+          "local": "greeter"
+        }
+      ]
     }
   },
   {
@@ -203,8 +213,13 @@
     "metadata": {
       "module": "strings",
       "names": "",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "strings",
+          "local": "strings"
+        }
+      ]
     }
   },
   {
@@ -216,5 +231,85 @@
     "content": "// Trim removes surrounding whitespace from a name.\nfunc Trim(name string) string {\n\treturn strings.TrimSpace(name)\n}",
     "line_start": 10,
     "line_end": 13
+  },
+  {
+    "name": "",
+    "kind": "comment",
+    "file_path": "shop/model.go",
+    "scope": "",
+    "language": "go",
+    "content": "// Package shop holds orders; its files share their names without imports.",
+    "line_start": 1,
+    "line_end": 1
+  },
+  {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "shop/model.go",
+    "scope": "",
+    "language": "go",
+    "content": "package shop",
+    "line_start": 2,
+    "line_end": 2
+  },
+  {
+    "name": "Model",
+    "kind": "class",
+    "file_path": "shop/model.go",
+    "scope": "",
+    "language": "go",
+    "content": "// Model is embedded in Order, which gets its methods.\ntype Model struct{}",
+    "line_start": 4,
+    "line_end": 5
+  },
+  {
+    "name": "Check",
+    "kind": "method",
+    "file_path": "shop/model.go",
+    "scope": "Model",
+    "language": "go",
+    "content": "// Check reports whether a model is valid.\nfunc (m Model) Check() bool {\n\treturn valid()\n}",
+    "line_start": 7,
+    "line_end": 10
+  },
+  {
+    "name": "valid",
+    "kind": "function",
+    "file_path": "shop/model.go",
+    "scope": "",
+    "language": "go",
+    "content": "func valid() bool {\n\treturn true\n}",
+    "line_start": 12,
+    "line_end": 14
+  },
+  {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "shop/order.go",
+    "scope": "",
+    "language": "go",
+    "content": "package shop",
+    "line_start": 1,
+    "line_end": 1
+  },
+  {
+    "name": "Order",
+    "kind": "class",
+    "file_path": "shop/order.go",
+    "scope": "",
+    "language": "go",
+    "content": "// Order embeds Model.\ntype Order struct {\n\tModel\n\tName string\n}",
+    "line_start": 3,
+    "line_end": 7
+  },
+  {
+    "name": "NewOrder",
+    "kind": "function",
+    "file_path": "shop/order.go",
+    "scope": "",
+    "language": "go",
+    "content": "// NewOrder builds an order with a function its package's other file defines.\nfunc NewOrder(name string) Order {\n\tif !valid() {\n\t\treturn Order{}\n\t}\n\treturn Order{Name: name}\n}",
+    "line_start": 9,
+    "line_end": 15
   }
 ]

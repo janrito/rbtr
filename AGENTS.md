@@ -67,6 +67,14 @@ awkward".
   the situation. Every suppression must include the error code
   and a reason: `# type: ignore[code]  # why`.
 
+### Names
+
+- **A plain word that is both a noun and a verb is the noun.**
+  For the verb, use a conjugated form: `import` is an import,
+  `imported` the verb; `reference` is a reference, `referenced`
+  the verb. This holds for every name: functions, variables,
+  columns, types and prose.
+
 ### Design
 
 - Composition over inheritance. Functions over methods
@@ -130,6 +138,17 @@ Boundary rules:
   the figure, if it was measured), and what would justify
   revisiting. "We used to do X" is history; "X does not
   work here, because…" is rationale.
+- **A figure has two places, and no others.** A
+  measurement the project keeps alongside its code, which
+  reruns it (the eval packages). Or the argument against an
+  approach that was dismissed, stated as the comparison
+  that dismissed it: what was measured, on what, and how
+  each approach fared ("on home-assistant's calls, polars
+  and recursive SQL gave the same edges, in 0.22 s against
+  4–6 s"). A figure about the current system ("resolution
+  takes 0.05 s", "3 of 2,413 imports differ") is neither:
+  it stops holding after the next change, and commits the
+  docs to re-measuring it.
 - **State what a thing does, not what it is not.**
   Negative definitions ("no shell commands, no file
   paths, no…") and vague honorifics ("the full gate",

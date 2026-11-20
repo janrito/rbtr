@@ -22,21 +22,25 @@
       (quoted_attribute_value (attribute_value) @_section_name)))
   (#any-of? @_a "id" "name")) @doc_section
 
-(script_element
+; A script's `src` imports JavaScript, a stylesheet link's `href` CSS: each
+; is hinted so it resolves by that language's rules.
+((script_element
   (start_tag
     (attribute (attribute_name) @_a
-      (quoted_attribute_value (attribute_value) @_import_module))
-    (#eq? @_a "src"))) @import
+      (quoted_attribute_value (attribute_value) @_import_module)))) @import
+  (#set! import.language_hint "javascript")
+  (#eq? @_a "src"))
 
-(element
+((element
   [(start_tag (tag_name) @_lt
      (attribute (attribute_name) @_h
        (quoted_attribute_value (attribute_value) @_import_module)))
    (self_closing_tag (tag_name) @_lt
      (attribute (attribute_name) @_h
-       (quoted_attribute_value (attribute_value) @_import_module)))]
+       (quoted_attribute_value (attribute_value) @_import_module)))]) @import
+  (#set! import.language_hint "css")
   (#eq? @_lt "link")
-  (#eq? @_h "href")) @import
+  (#eq? @_h "href"))
 
 ; A link to a page in the repository, or to an element on its own page
 ; (`#top`). An external URL (a scheme or `//`) is not a cross-reference.

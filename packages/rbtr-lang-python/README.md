@@ -28,13 +28,23 @@ class User:  # class "User"
 
 
 MAX = 100  # variable "MAX"
-from .utils import helper  # import, metadata {module: ".utils", names: "helper"}
+from .utils import helper  # import, metadata {module: "./utils", names: "helper"}
 ```
 
 ## Embedded / injected chunks
 
 None of its own — Python is embedded *by* Markdown fenced code blocks, which
 delegate ` ```python ` blocks here.
+
+## Limitations
+
+rbtr resolves calls by the names they are written with, without types
+or control flow. These are what that gets wrong in this language; each
+is a strict expected failure, so fixing one fails its test.
+
+| What happens                                                                                                      | Why                                            | Pinned by                                    |
+| ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | -------------------------------------------- |
+| A Python name declared `global` and assigned in a function is read as a local, so a call through it makes no edge | The query reads every assigned name as a local | `case_py_a_name_declared_global_is_no_local` |
 
 ## Grammar & dependencies
 

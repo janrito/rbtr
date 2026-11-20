@@ -14,7 +14,9 @@ falls through to plaintext.
 A `$ref` or an `extends` names another file, so each becomes an **import**
 and links the two documents. A `$ref`'s pointer — the part after the `#` —
 names a key inside the file it reaches, so the edge lands on that key rather
-than on the document as a whole.
+than on the document as a whole. Keys are not scoped by their parents, so
+`#/definitions/Named` reaches the first key named `Named`; a pointer alone
+(`#/z`) is into the same document.
 
 ## Chunks produced
 

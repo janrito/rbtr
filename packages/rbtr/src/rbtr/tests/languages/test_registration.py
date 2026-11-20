@@ -7,48 +7,12 @@ import functools
 import pytest
 from tree_sitter import Node
 
-from rbtr.domain.models import ImportMeta
-from rbtr.languages._resolvers import DefaultImport, DefaultName, DefaultScope
+from rbtr.languages._resolvers import DefaultName, DefaultScope
 from rbtr.languages.registration import (
-    ImportResolver,
     LanguageRegistration,
     NameResolver,
     QueryExtraction,
-    parse_path_relative,
 )
-
-
-@pytest.mark.parametrize(
-    ("path", "expected_dots", "expected_cleaned"),
-    [
-        ("./models", 1, "models"),
-        ("../utils", 2, "utils"),
-        ("../../shared/helpers", 3, "shared/helpers"),
-        ("../../../root", 4, "root"),
-        ("./a/b/c", 1, "a/b/c"),
-        ("./styles.css", 1, "styles.css"),
-        ("react", 0, "react"),
-        ("@testing-library/react", 0, "@testing-library/react"),
-        ("", 0, ""),
-        (".", 0, "."),
-    ],
-    ids=[
-        "current-dir",
-        "parent-dir",
-        "grandparent-dir",
-        "triple-parent",
-        "current-dir-nested",
-        "current-with-extension",
-        "absolute-package",
-        "scoped-package",
-        "empty-string",
-        "single-dot",
-    ],
-)
-def test_parse_path_relative(path: str, expected_dots: int, expected_cleaned: str) -> None:
-    dots, cleaned = parse_path_relative(path)
-    assert dots == expected_dots
-    assert cleaned == expected_cleaned
 
 
 def test_registration_defaults() -> None:
@@ -61,7 +25,6 @@ def test_registration_defaults() -> None:
     # No overrides set — slots hold the built-in resolver (null-object).
     assert isinstance(reg._name_resolver, DefaultName)
     assert isinstance(reg._scope_resolver, DefaultScope)
-    assert isinstance(reg._import_resolver, DefaultImport)
 
 
 def test_registration_is_frozen() -> None:
@@ -90,11 +53,6 @@ def test_query_extraction_class_scope_defaults_to_scope() -> None:
 
 
 def test_registration_with_all_fields() -> None:
-    def dummy_extractor(
-        resolver: ImportResolver, node: Node, captures: dict[str, list[Node]]
-    ) -> ImportMeta:
-        return ImportMeta()
-
     reg = LanguageRegistration(
         id="test",
         extensions=frozenset({".tst"}),
@@ -106,7 +64,6 @@ def test_registration_with_all_fields() -> None:
             scope_types=frozenset({"test_scope"}),
         ),
     )
-    reg.import_extractor(dummy_extractor)  # compose via the method
     assert reg.id == "test"
     assert reg.extensions == frozenset({".tst"})
     assert reg.filenames == frozenset({"Testfile"})
@@ -115,8 +72,6 @@ def test_registration_with_all_fields() -> None:
     assert isinstance(reg.extraction, QueryExtraction)
     assert reg.extraction.query == "(test) @function"
     assert reg.extraction.scope_types == frozenset({"test_scope"})
-    assert isinstance(reg._import_resolver, functools.partial)
-    assert reg._import_resolver.func is dummy_extractor  # composed over the built-in
 
 
 def test_registration_override_decorator() -> None:

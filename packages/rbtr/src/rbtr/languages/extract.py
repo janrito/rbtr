@@ -19,7 +19,14 @@ import structlog
 
 from rbtr.config import config
 from rbtr.domain.models import Chunk
-from rbtr.domain.rules import FileRow, PlacedChunkRow, assemble, capture_chunks, line_windows
+from rbtr.domain.rules import (
+    FileRow,
+    PlacedChunkRow,
+    assemble,
+    capture_chunks,
+    line_windows,
+    with_metadata,
+)
 from rbtr.git import FileEntry
 from rbtr.languages.chunks import chunk_models
 from rbtr.languages.plaintext import PLAINTEXT
@@ -67,10 +74,10 @@ def extract_batch(
     `PLAINTEXT` windows of lines, and assemble each file's, over all the
     files at once.
     """
-    captures, chunked, plain = read(files, languages)
+    captures, metadata_captures, chunked, plain = read(files, languages)
     return assemble(
         files,
-        capture_chunks(files, captures),
+        capture_chunks(files, with_metadata(captures, metadata_captures)),
         chunked,
         line_windows(files, plain, config.chunk_lines, config.chunk_overlap, PLAINTEXT),
     )

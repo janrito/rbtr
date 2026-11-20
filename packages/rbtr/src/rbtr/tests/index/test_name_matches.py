@@ -224,3 +224,70 @@ def test_name_matches_across_projects_keep_the_best_tier(
     """
     within = [name_ref, other_project_ref]
     assert set(module_index.name_matches("chunk", within=within)["name"]) == {"Chunk"}
+
+
+@pytest.fixture(scope="module")
+def inherited_ref(module_index: Index, module_repo: pygit2.Repository) -> SnapshotRef:
+    """`Order` extends `Base`, and `Special` extends `Order`, across two files."""
+    base = b"""\
+class Base:
+    def check(self):
+        return True
+
+    def save(self):
+        return self.check()
+"""
+    models = b"""\
+from base import Base
+
+
+class Order(Base):
+    def save(self):
+        return super().save()
+
+
+class Special(Order):
+    pass
+"""
+    sha = str(
+        make_commit(module_repo, {"base.py": base, "models.py": models}, ref="refs/heads/inherited")
+    )
+    path = normalise_repo_path(module_repo.workdir)
+    build_index(path, sha, module_index)
+    return module_index.register(path).at(sha)
+
+
+@pytest.mark.parametrize(
+    ("pattern", "expected"),
+    [
+        ("Order.check", {("base.py", "Base", "check")}),
+        ("Special.check", {("base.py", "Base", "check")}),
+        ("Special.save", {("models.py", "Order", "save"), ("base.py", "Base", "save")}),
+        ("Order.missing", set()),
+        ("Unknown.check", set()),
+    ],
+    ids=["a-base", "a-base-of-a-base", "every-base-up-the-chain", "no-base-has-it", "no-class"],
+)
+def test_a_class_qualified_name_reaches_its_bases_members(
+    module_index: Index,
+    inherited_ref: SnapshotRef,
+    pattern: str,
+    expected: set[tuple[str, str, str]],
+) -> None:
+    found = module_index.name_matches(pattern, within=[inherited_ref])
+    assert set(found.select("file_path", "scope", "name").iter_rows()) == expected
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="names only: an override hides its bases' member, but which one a call reaches "
+    "needs the language's resolution order, so every member up the chain is returned",
+)
+def test_a_class_qualified_name_reaches_the_override_it_calls(
+    module_index: Index, inherited_ref: SnapshotRef
+) -> None:
+    """`Special.save` is `Order.save`, which overrides `Base.save`."""
+    found = module_index.name_matches("Special.save", within=[inherited_ref])
+    assert set(found.select("file_path", "scope", "name").iter_rows()) == {
+        ("models.py", "Order", "save")
+    }

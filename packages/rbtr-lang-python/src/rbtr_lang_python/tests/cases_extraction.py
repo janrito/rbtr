@@ -6,8 +6,9 @@ import pytest
 from pytest_cases import case
 
 type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
-type ImportCase = tuple[str, str, dict[str, str]]
-type MultiImportCase = tuple[str, str, int, list[dict[str, str]]]
+type ImportCase = tuple[str, str, dict[str, str | list[dict[str, str]]]]
+type ReferencesCase = tuple[str, str, list[tuple[str, str, list[str], list[str]]]]
+type MultiImportCase = tuple[str, str, int, list[dict[str, str | list[dict[str, str]]]]]
 type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
 
 _xfail_nested = pytest.mark.xfail(
@@ -368,25 +369,37 @@ TIMEOUT: int = 30
 @case(tags=["import"])
 def case_py_import_bare() -> ImportCase:
     """import os."""
-    return "python", "import os\n", {"module": "os"}
+    return "python", "import os\n", {"module": "os", "bindings": [{"name": "os", "local": "os"}]}
 
 
 @case(tags=["import"])
 def case_py_import_dotted() -> ImportCase:
     """import os.path."""
-    return "python", "import os.path\n", {"module": "os.path"}
+    return (
+        "python",
+        "import os.path\n",
+        {"module": "os.path", "bindings": [{"name": "os", "local": "os"}]},
+    )
 
 
 @case(tags=["import"])
 def case_py_import_deeply_nested() -> ImportCase:
     """import a.b.c.d."""
-    return "python", "import a.b.c.d\n", {"module": "a.b.c.d"}
+    return (
+        "python",
+        "import a.b.c.d\n",
+        {"module": "a.b.c.d", "bindings": [{"name": "a", "local": "a"}]},
+    )
 
 
 @case(tags=["import"])
 def case_py_from_import_single() -> ImportCase:
     """from pathlib import Path."""
-    return "python", "from pathlib import Path\n", {"module": "pathlib", "names": "Path"}
+    return (
+        "python",
+        "from pathlib import Path\n",
+        {"module": "pathlib", "names": "Path", "bindings": [{"name": "Path", "local": "Path"}]},
+    )
 
 
 @case(tags=["import"])
@@ -395,7 +408,11 @@ def case_py_from_import_multiple() -> ImportCase:
     return (
         "python",
         "from rbtr.index.models import Chunk, Edge\n",
-        {"module": "rbtr.index.models", "names": "Chunk,Edge"},
+        {
+            "module": "rbtr.index.models",
+            "names": "Chunk,Edge",
+            "bindings": [{"name": "Chunk", "local": "Chunk"}, {"name": "Edge", "local": "Edge"}],
+        },
     )
 
 
@@ -405,7 +422,7 @@ def case_py_from_import_aliased() -> ImportCase:
     return (
         "python",
         "from .models import Chunk as C\n",
-        {"dots": "1", "module": "models", "names": "Chunk"},
+        {"module": ".models", "names": "Chunk", "bindings": [{"name": "Chunk", "local": "C"}]},
     )
 
 
@@ -415,7 +432,11 @@ def case_py_from_import_multiple_aliased() -> ImportCase:
     return (
         "python",
         "from models import Foo as F, Bar as B\n",
-        {"module": "models", "names": "Foo,Bar"},
+        {
+            "module": "models",
+            "names": "Foo,Bar",
+            "bindings": [{"name": "Foo", "local": "F"}, {"name": "Bar", "local": "B"}],
+        },
     )
 
 
@@ -425,7 +446,7 @@ def case_py_relative_dot_with_module() -> ImportCase:
     return (
         "python",
         "from .models import Chunk\n",
-        {"dots": "1", "module": "models", "names": "Chunk"},
+        {"module": ".models", "names": "Chunk", "bindings": [{"name": "Chunk", "local": "Chunk"}]},
     )
 
 
@@ -435,14 +456,22 @@ def case_py_relative_dotdot() -> ImportCase:
     return (
         "python",
         "from ..core import engine\n",
-        {"dots": "2", "module": "core", "names": "engine"},
+        {
+            "module": "..core",
+            "names": "engine",
+            "bindings": [{"name": "engine", "local": "engine"}],
+        },
     )
 
 
 @case(tags=["import"])
 def case_py_relative_dot_only() -> ImportCase:
-    """from . import utils — no module key."""
-    return "python", "from . import utils\n", {"dots": "1", "names": "utils"}
+    """from . import utils — the package itself."""
+    return (
+        "python",
+        "from . import utils\n",
+        {"module": ".", "names": "utils", "bindings": [{"name": "utils", "local": "utils"}]},
+    )
 
 
 @case(tags=["import"])
@@ -451,14 +480,28 @@ def case_py_relative_three_dots() -> ImportCase:
     return (
         "python",
         "from ...lib import helper\n",
-        {"dots": "3", "module": "lib", "names": "helper"},
+        {
+            "module": "...lib",
+            "names": "helper",
+            "bindings": [{"name": "helper", "local": "helper"}],
+        },
     )
 
 
 @case(tags=["import"])
 def case_py_import_star() -> ImportCase:
-    """from os.path import * — no names key."""
-    return "python", "from os.path import *\n", {"module": "os.path"}
+    """from os.path import * — every name, written `*`."""
+    return "python", "from os.path import *\n", {"module": "os.path", "names": "*"}
+
+
+@case(tags=["import"])
+def case_py_import_aliased_module() -> ImportCase:
+    """import numpy as np — the module under a local name."""
+    return (
+        "python",
+        "import numpy as np\n",
+        {"module": "numpy", "bindings": [{"name": "numpy", "local": "np"}]},
+    )
 
 
 @case(tags=["import"])
@@ -468,7 +511,7 @@ def case_py_import_inside_function() -> ImportCase:
 def f():
     import json
 """
-    return "python", src, {"module": "json"}
+    return "python", src, {"module": "json", "bindings": [{"name": "json", "local": "json"}]}
 
 
 @case(tags=["import"])
@@ -478,7 +521,15 @@ def case_py_import_inside_class() -> ImportCase:
 class C:
     from collections import OrderedDict
 """
-    return "python", src, {"module": "collections", "names": "OrderedDict"}
+    return (
+        "python",
+        src,
+        {
+            "module": "collections",
+            "names": "OrderedDict",
+            "bindings": [{"name": "OrderedDict", "local": "OrderedDict"}],
+        },
+    )
 
 
 @case(tags=["multi_import"])
@@ -488,7 +539,15 @@ def case_py_multiple_imports() -> MultiImportCase:
 import os
 import sys
 """
-    return "python", src, 2, [{"module": "os"}, {"module": "sys"}]
+    return (
+        "python",
+        src,
+        2,
+        [
+            {"module": "os", "bindings": [{"name": "os", "local": "os"}]},
+            {"module": "sys", "bindings": [{"name": "sys", "local": "sys"}]},
+        ],
+    )
 
 
 @case(tags=["mixed"])
@@ -570,3 +629,134 @@ def case_py_nested_unpack_xfail() -> SymbolCase:
 def case_py_chained_assignment_xfail() -> SymbolCase:
     """Chained assignment — only the first target is captured today."""
     return "python", "a = b = f()\n", [("variable", "a", ""), ("variable", "b", "")]
+
+
+@case(tags=["references"])
+def case_py_calls_and_bases() -> ReferencesCase:
+    """Each call shape, a class's bases, a decorator's call and a nested function's."""
+    src = """\
+class Order(Model, mixins.Logged, metaclass=Meta):
+    def save(self):
+        self.validate()
+        super().save()
+        models.CharField(max_length=3)
+        write_row(self)
+        obj.save()
+        x[0].m()
+
+    @classmethod
+    def make(cls):
+        return cls.build()
+
+
+@register("orders")
+def build():
+    def inner():
+        helper()
+
+    inner()
+"""
+    return (
+        "python",
+        src,
+        [
+            ("class", "Order", [], ["unqualified:Model", "unqualified:mixins.Logged"]),
+            (
+                "method",
+                "save",
+                [
+                    "member:validate",
+                    "base:save",
+                    "unqualified:models.CharField",
+                    "unqualified:write_row",
+                    "unqualified:obj.save",
+                ],
+                [],
+            ),
+            ("method", "make", ["member:build"], []),
+            ("function", "build", ["unqualified:register", "unqualified:inner"], []),
+            ("function", "inner", ["unqualified:helper"], []),
+        ],
+    )
+
+
+@case(tags=["references"])
+def case_py_a_decorators_call_is_the_decorated_methods() -> ReferencesCase:
+    """`@override_settings(...)` on a method is a call the method makes."""
+    src = """\
+class Tests:
+    @override_settings(DEBUG=True)
+    def test_debug(self):
+        pass
+"""
+    return "python", src, [("method", "test_debug", ["unqualified:override_settings"], [])]
+
+
+@case(tags=["references"])
+def case_py_a_call_through_a_local_is_on_a_value() -> ReferencesCase:
+    """Parameters, assignment, loop, `with` and `except` targets are locals; a call through one is on a value.
+
+    An annotation or the constructor assigned gives its written type, shown `<T>`.
+    """
+    src = """\
+def run(order: Order, f, *args, n=1, **kw):
+    total = Total()
+    a, b = f()
+    with open(path) as fh:
+        fh.read()
+    for k, v in pairs:
+        k()
+    try:
+        pass
+    except ValueError as err:
+        err.log()
+    order.save()
+    total.add(n())
+    args()
+    kw.get()
+    helper()
+"""
+    return (
+        "python",
+        src,
+        [
+            (
+                "function",
+                "run",
+                [
+                    "unqualified:Total",
+                    "type:f",
+                    "unqualified:open",
+                    "type:fh.read",
+                    "type:k",
+                    "type:err.log",
+                    "type:order.save<Order>",
+                    "type:total.add<Total>",
+                    "type:n",
+                    "type:args",
+                    "type:kw.get",
+                    "unqualified:helper",
+                ],
+                [],
+            )
+        ],
+    )
+
+
+@case(
+    tags=["references"],
+    marks=pytest.mark.xfail(
+        strict=True,
+        reason="`global helper` makes the assignment rebind the module's `helper`, "
+        "but the query reads every assigned name as a local",
+    ),
+)
+def case_py_a_name_declared_global_is_no_local() -> ReferencesCase:
+    """`global helper` then `helper = make()`: `helper()` calls the module's `helper`."""
+    src = """\
+def run():
+    global helper
+    helper = make()
+    helper()
+"""
+    return "python", src, [("function", "run", ["unqualified:make", "unqualified:helper"], [])]

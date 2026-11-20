@@ -1,4 +1,12 @@
 [
+  "com/example/shop/Model.java::save -> com/example/shop/Model.java::check [calls]",
+  "com/example/shop/Order.java::Order -> com/example/shop/Model.java::Model [inherits]",
+  "com/example/shop/Order.java::build -> com/example/shop/Order.java::Order [calls]",
+  "com/example/shop/Order.java::import com.example.format.Formatter; -> com/example/format/Formatter.java::Formatter [imports]",
+  "com/example/shop/Order.java::save -> com/example/shop/Model.java::check [calls]",
+  "com/example/shop/Order.java::save -> com/example/shop/Model.java::save [calls]",
+  "java.java::Greeter -> com/example/format/Formatter.java::Formatter [inherits]",
+  "java.java::format -> java.java::greet [calls]",
   "java.java::import com.example.format.Formatter; -> com/example/format/Formatter.java::Formatter [imports]",
-  "java.java::import com.example.format.Formatter; -> com/example/format/Formatter.java::format [imports]"
+  "java.java::withDefault -> java.java::Greeter [calls]"
 ]

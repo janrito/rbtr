@@ -22,6 +22,7 @@ from collections.abc import Mapping
 import dataframely as dy
 import polars as pl
 
+from rbtr.domain.edge_frames import InferredEdgeRow
 from rbtr.domain.identity import chunk_id
 from rbtr.domain.models import (
     ChunkKind,
@@ -32,7 +33,6 @@ from rbtr.domain.models import (
 )
 from rbtr.domain.rules import ChunkRow
 from rbtr.domain.tokenise import search_tokens
-from rbtr.languages.edges import InferredEdgeRow
 
 
 class ChunkStagingRow(dy.Schema):
@@ -59,16 +59,7 @@ class ChunkStagingRow(dy.Schema):
     line_end = dy.Int32(nullable=False)
     # What the role carries beyond kind and name: the union of the role
     # payloads' fields, null where a role has none.
-    metadata = dy.Struct(
-        {
-            "module": dy.String(nullable=True),
-            "names": dy.String(nullable=True),
-            "dots": dy.String(nullable=True),
-            "language_hint": dy.String(nullable=True),
-            "node_types": dy.List(dy.String(), nullable=True),
-        },
-        nullable=True,
-    )
+    metadata = ChunkRow.metadata
     extraction_serial = dy.Int32(nullable=False)
 
 

@@ -31,6 +31,107 @@
   },
   {
     "name": "",
+    "kind": "fragment",
+    "file_path": "com/example/shop/Model.java",
+    "scope": "",
+    "language": "java",
+    "content": "package com.example.shop;",
+    "line_start": 1,
+    "line_end": 1
+  },
+  {
+    "name": "Model",
+    "kind": "class",
+    "file_path": "com/example/shop/Model.java",
+    "scope": "",
+    "language": "java",
+    "content": "/** A base whose members a subclass reaches without naming them. */\npublic class Model {\n    public boolean save() {\n        return check();\n    }\n\n    public boolean check() {\n        return true;\n    }\n}",
+    "line_start": 3,
+    "line_end": 12
+  },
+  {
+    "name": "save",
+    "kind": "method",
+    "file_path": "com/example/shop/Model.java",
+    "scope": "Model",
+    "language": "java",
+    "content": "public boolean save() {\n        return check();\n    }",
+    "line_start": 5,
+    "line_end": 7
+  },
+  {
+    "name": "check",
+    "kind": "method",
+    "file_path": "com/example/shop/Model.java",
+    "scope": "Model",
+    "language": "java",
+    "content": "public boolean check() {\n        return true;\n    }",
+    "line_start": 9,
+    "line_end": 11
+  },
+  {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "com/example/shop/Order.java",
+    "scope": "",
+    "language": "java",
+    "content": "package com.example.shop;",
+    "line_start": 1,
+    "line_end": 1
+  },
+  {
+    "name": "import com.example.format.Formatter;",
+    "kind": "import",
+    "file_path": "com/example/shop/Order.java",
+    "scope": "",
+    "language": "java",
+    "content": "import com.example.format.Formatter;",
+    "line_start": 3,
+    "line_end": 3,
+    "metadata": {
+      "module": "com.example.format.Formatter",
+      "names": "Formatter",
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "Formatter",
+          "local": "Formatter"
+        }
+      ]
+    }
+  },
+  {
+    "name": "Order",
+    "kind": "class",
+    "file_path": "com/example/shop/Order.java",
+    "scope": "",
+    "language": "java",
+    "content": "/** A subclass: `Model` is in its package, so it needs no import. */\npublic class Order extends Model {\n    @Override\n    public boolean save() {\n        super.save();\n        return check() && this.check();\n    }\n\n    static Order build() {\n        return new Order();\n    }\n}",
+    "line_start": 5,
+    "line_end": 16
+  },
+  {
+    "name": "save",
+    "kind": "method",
+    "file_path": "com/example/shop/Order.java",
+    "scope": "Order",
+    "language": "java",
+    "content": "@Override\n    public boolean save() {\n        super.save();\n        return check() && this.check();\n    }",
+    "line_start": 7,
+    "line_end": 11
+  },
+  {
+    "name": "build",
+    "kind": "method",
+    "file_path": "com/example/shop/Order.java",
+    "scope": "Order",
+    "language": "java",
+    "content": "static Order build() {\n        return new Order();\n    }",
+    "line_start": 13,
+    "line_end": 15
+  },
+  {
+    "name": "",
     "kind": "comment",
     "file_path": "java.java",
     "scope": "",
@@ -60,9 +161,14 @@
     "line_end": 8,
     "metadata": {
       "module": "java.util.List",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+      "names": "List",
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "List",
+          "local": "List"
+        }
+      ]
     }
   },
   {
@@ -75,10 +181,15 @@
     "line_start": 9,
     "line_end": 9,
     "metadata": {
-      "module": "java.util.Collections.emptyList",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+      "module": "java.util.Collections",
+      "names": "Collections.emptyList",
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "Collections.emptyList",
+          "local": "emptyList"
+        }
+      ]
     }
   },
   {
@@ -92,9 +203,14 @@
     "line_end": 11,
     "metadata": {
       "module": "com.example.format.Formatter",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+      "names": "Formatter",
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "Formatter",
+          "local": "Formatter"
+        }
+      ]
     }
   },
   {

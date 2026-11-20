@@ -6,7 +6,7 @@ import pytest
 from pytest_cases import case
 
 type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
-type ImportCase = tuple[str, str, dict[str, str]]
+type ImportCase = tuple[str, str, dict[str, str | list[dict[str, str]]]]
 type MultiImportCase = tuple[str, str, int, list[dict[str, str]]]
 type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
 
@@ -194,37 +194,37 @@ end
 @case(tags=["import"])
 def case_ruby_require_simple() -> ImportCase:
     """require "json"."""
-    return "ruby", 'require "json"\n', {"module": "json"}
+    return "ruby", 'require "json"\n', {"module": "json", "names": "*"}
 
 
 @case(tags=["import"])
 def case_ruby_require_nested() -> ImportCase:
     """require "net/http"."""
-    return "ruby", 'require "net/http"\n', {"module": "net/http"}
+    return "ruby", 'require "net/http"\n', {"module": "net/http", "names": "*"}
 
 
 @case(tags=["import"])
 def case_ruby_require_relative() -> ImportCase:
     """require_relative "helpers"."""
-    return "ruby", 'require_relative "helpers"\n', {"module": "helpers", "dots": "1"}
+    return "ruby", 'require_relative "helpers"\n', {"module": "./helpers", "names": "*"}
 
 
 @case(tags=["import"])
 def case_ruby_require_relative_nested() -> ImportCase:
     """require_relative "lib/utils"."""
-    return "ruby", 'require_relative "lib/utils"\n', {"module": "lib/utils", "dots": "1"}
+    return "ruby", 'require_relative "lib/utils"\n', {"module": "./lib/utils", "names": "*"}
 
 
 @case(tags=["import"])
 def case_ruby_require_relative_dot_prefix() -> ImportCase:
-    """require_relative "./config" — the `./` is stripped into dots."""
-    return "ruby", 'require_relative "./config"\n', {"module": "config", "dots": "1"}
+    """require_relative "./config" — already written relative."""
+    return "ruby", 'require_relative "./config"\n', {"module": "./config", "names": "*"}
 
 
 @case(tags=["import"])
 def case_ruby_require_relative_parent() -> ImportCase:
-    """require_relative "../lib/utils" — `../` becomes dots=2."""
-    return "ruby", 'require_relative "../lib/utils"\n', {"module": "lib/utils", "dots": "2"}
+    """require_relative "../lib/utils" — already written relative."""
+    return "ruby", 'require_relative "../lib/utils"\n', {"module": "../lib/utils", "names": "*"}
 
 
 @case(tags=["import"])
@@ -243,7 +243,7 @@ def case_ruby_multiple_requires() -> MultiImportCase:
 require "json"
 require_relative "helpers"
 """
-    return "ruby", src, 2, [{"module": "json"}, {"module": "helpers", "dots": "1"}]
+    return "ruby", src, 2, [{"module": "json", "names": "*"}, {"module": "./helpers", "names": "*"}]
 
 
 @case(tags=["mixed"])
@@ -318,3 +318,108 @@ def case_ruby_nested_unpack_xfail() -> SymbolCase:
         "(A, B), C = x\n",
         [("variable", "A", ""), ("variable", "B", ""), ("variable", "C", "")],
     )
+
+
+type ReferencesCase = tuple[str, str, list[tuple[str, str, list[str], list[str]]]]
+
+
+@case(tags=["references"])
+def case_ruby_calls_and_bases() -> ReferencesCase:
+    """Each call shape, `Klass.new` as the class it constructs, and a base by path.
+
+    `items.first.size` has no parentheses, so its text is names only and it
+    is a path; its head is a local, so it reaches nothing.
+    """
+    src = """\
+class Order < Shop::Base
+  def save
+    self.check
+    check()
+    helper 1
+    Foo.new(1)
+    Shop::Klass.new
+    Util.log
+    items.first.size
+  end
+end
+"""
+    return (
+        "ruby",
+        src,
+        [
+            ("class", "Order", [], ["unqualified:Shop.Base"]),
+            (
+                "method",
+                "save",
+                [
+                    "member:check",
+                    "unqualified:check",
+                    "unqualified:helper",
+                    "unqualified:Foo",
+                    "unqualified:Shop.Klass",
+                    "unqualified:Util.log",
+                    "unqualified:items.first",
+                    "unqualified:items.first.size",
+                ],
+                [],
+            ),
+        ],
+    )
+
+
+@case(tags=["references"])
+def case_rb_a_bare_name_is_a_call_unless_it_is_a_local() -> ReferencesCase:
+    """`check` alone calls a method; a parameter, block parameter or assigned name is a local, a value."""
+    src = """\
+class Order
+  def save(a, key: 1, &blk)
+    check
+    x = compute
+    log(x, other)
+    return result if pending
+    items.each { |item| render(item) }
+  end
+end
+"""
+    return (
+        "ruby",
+        src,
+        [
+            (
+                "method",
+                "save",
+                [
+                    "unqualified:check",
+                    "unqualified:compute",
+                    "unqualified:log",
+                    "type:x",
+                    "unqualified:other",
+                    "unqualified:result",
+                    "unqualified:pending",
+                    "unqualified:items.each",
+                    "unqualified:render",
+                    "type:item",
+                ],
+                [],
+            )
+        ],
+    )
+
+
+@case(
+    tags=["references"],
+    marks=pytest.mark.xfail(
+        strict=True,
+        reason="a function's locals hold for its whole body, but Ruby makes a name "
+        "a local only from the assignment on",
+    ),
+)
+def case_rb_a_name_before_its_assignment_is_a_call() -> ReferencesCase:
+    """`check` then `check = 1`: the first `check` is still a method call."""
+    src = """\
+def save
+  check
+  check = 1
+end
+"""
+    return "ruby", src, [("function", "save", ["unqualified:check"], [])]

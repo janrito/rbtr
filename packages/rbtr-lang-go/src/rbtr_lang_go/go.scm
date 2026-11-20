@@ -27,14 +27,26 @@
   (type_alias
     name: (type_identifier) @_cls_name)) @class
 
-(import_declaration
-  (import_spec
-    path: (interpreted_string_literal) @_import_module) @import)
+; An import binds its package under its alias, or, written with none, under
+; its path's last segment (`"example.com/m/greeter"` binds `greeter`); `.`
+; imports every name and `_` binds nothing.
+(import_spec
+  name: (package_identifier) @_bind_local
+  path: (interpreted_string_literal) @_import_module) @import
 
-(import_declaration
-  (import_spec_list
-    (import_spec
-      path: (interpreted_string_literal) @_import_module) @import))
+((import_spec
+  name: (dot)
+  path: (interpreted_string_literal) @_import_module) @import
+  (#set! import.names "*"))
+
+(import_spec
+  name: (blank_identifier)
+  path: (interpreted_string_literal) @_import_module) @import
+
+((import_spec
+  !name
+  path: (interpreted_string_literal) @_import_module @_bind_local) @import
+  (#strip! @_bind_local "^\"(?:[^\"]*/)?|\"$"))
 
 (source_file
   (var_declaration

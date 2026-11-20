@@ -31,8 +31,13 @@
     "metadata": {
       "module": "greeter",
       "names": "format_greeting",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "format_greeting",
+          "local": "format_greeting"
+        }
+      ]
     }
   },
   {
@@ -177,8 +182,8 @@
     "metadata": {
       "module": "greeter.css",
       "names": "",
-      "dots": "",
-      "language_hint": "css"
+      "language_hint": "css",
+      "bindings": []
     }
   },
   {
@@ -273,8 +278,8 @@
     "metadata": {
       "module": "troubleshooting.md",
       "names": "",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -339,8 +344,8 @@
     "metadata": {
       "module": "config.md",
       "names": "",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -355,8 +360,8 @@
     "metadata": {
       "module": "api.md",
       "names": "format-a-greeting-the-helper",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -371,8 +376,8 @@
     "metadata": {
       "module": "config.md",
       "names": "locale",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -387,8 +392,8 @@
     "metadata": {
       "module": "config.md",
       "names": "install-notes",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -403,8 +408,8 @@
     "metadata": {
       "module": "config.md",
       "names": "legacy-options",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -429,8 +434,8 @@
     "metadata": {
       "module": "locales.md",
       "names": "",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -445,8 +450,8 @@
     "metadata": {
       "module": "markdown.md",
       "names": "usage",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -461,8 +466,8 @@
     "metadata": {
       "module": "guides/setup.md",
       "names": "",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {

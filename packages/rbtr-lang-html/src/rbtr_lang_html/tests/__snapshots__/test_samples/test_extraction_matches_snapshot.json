@@ -71,8 +71,8 @@
     "metadata": {
       "module": "styles.css",
       "names": "",
-      "dots": "",
-      "language_hint": "css"
+      "language_hint": "css",
+      "bindings": []
     }
   },
   {
@@ -87,8 +87,8 @@
     "metadata": {
       "module": "greeter.js",
       "names": "",
-      "dots": "",
-      "language_hint": "javascript"
+      "language_hint": "javascript",
+      "bindings": []
     }
   },
   {
@@ -153,8 +153,8 @@
     "metadata": {
       "module": "pages/about.html",
       "names": "team",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -169,8 +169,8 @@
     "metadata": {
       "module": "pages/about.html",
       "names": "contributors",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -185,8 +185,8 @@
     "metadata": {
       "module": "pages/about.html",
       "names": "schedule",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -201,8 +201,8 @@
     "metadata": {
       "module": "pages/about.html",
       "names": "history",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -277,8 +277,8 @@
     "metadata": {
       "module": "about.js",
       "names": "",
-      "dots": "",
-      "language_hint": "javascript"
+      "language_hint": "javascript",
+      "bindings": []
     }
   },
   {
@@ -343,8 +343,8 @@
     "metadata": {
       "module": "../html.html",
       "names": "intro",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {

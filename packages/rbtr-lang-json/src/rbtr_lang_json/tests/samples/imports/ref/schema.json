@@ -1,0 +1,5 @@
+{
+  "x": {"$ref": "defs.json#/definitions/Named"},
+  "y": {"$ref": "#/z"},
+  "z": 1
+}

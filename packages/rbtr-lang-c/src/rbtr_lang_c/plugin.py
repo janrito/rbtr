@@ -14,9 +14,9 @@ Extracted chunks::
     typedef struct { ... } Point;   → class "Point", scope ""
 
     #include <stdio.h>
-        → import, metadata {module: "stdio.h"}
+        → import, metadata {module: "stdio.h", names: "*"}
     #include "mylib.h"
-        → import, metadata {module: "mylib.h"}
+        → import, metadata {module: "mylib.h", names: "*"}
 """
 
 from __future__ import annotations
@@ -28,8 +28,9 @@ c = LanguageRegistration(
     extensions=frozenset({".c", ".h"}),
     grammar_module="tree_sitter_c",
     extraction=QueryExtraction(
-        query=load_query(__package__, "c"),
+        query=load_query(__package__, "c") + load_query(__package__, "references"),
     ),
     source_roots=("", "include", "src"),
-    extraction_serial=5,
+    linked_functions=True,
+    extraction_serial=7,
 )

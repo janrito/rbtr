@@ -41,11 +41,13 @@ from rbtr.errors import (
 )
 from rbtr.git import normalise_repo_path
 from rbtr.index import load_sql
+from rbtr.index.build import build_index
 from rbtr.index.constants import EMBEDDING_FORMAT_VERSION, SCHEMA_VERSION
 from rbtr.index.index import Index
 from rbtr.index.migrations import BringForward, FileKind, Migrate, chain, parse_calver, run
 from rbtr.index.staging import EmbeddingStagingRow, staged_chunks
 from rbtr.languages.chunks import chunk_rows
+from rbtr.tests.conftest import make_commit
 
 from .cases_index_versioning import FileAfter, MigrationScenario, VersioningScenario
 from .conftest import make_chunk, make_snap
@@ -600,12 +602,89 @@ UPDATE meta SET value = '2026.10.0' WHERE key = 'schema_version';
     finally:
         index.close()
     assert read.select(pl.col("kind").cast(pl.String), "metadata").sort("kind").rows() == [
-        ("function", None),
+        (
+            "function",
+            {
+                "module": None,
+                "names": None,
+                "language_hint": None,
+                "node_types": None,
+                "refs": [],
+                "bindings": None,
+            },
+        ),
         (
             "import",
-            {"module": "os", "names": "", "dots": "", "language_hint": "", "node_types": None},
+            {
+                "module": "os",
+                "names": "",
+                "language_hint": "",
+                "node_types": None,
+                "refs": None,
+                "bindings": [],
+            },
         ),
     ]
+
+
+def test_a_project_file_from_2026_11_0_keeps_its_chunks_and_gives_each_role_empty_references(
+    tmp_path: Path, git_repo: pygit2.Repository, repo_path: str
+) -> None:
+    """Each definition, class and fragment gets no references, an import no bindings.
+
+    The file is written now and forged back to 2026.11.0's metadata,
+    which holds none of them and an import's `dots`; one chunk carries an embedding, which stays.
+    """
+    path = tmp_path / "data" / "index.duckdb"
+    source = b"import os\n\n\nclass Box:\n    pass\n\n\ndef run():\n    return 1\n\n\nos.environ\n"
+    sha = str(
+        make_commit(git_repo, {"m.py": source}, parents=[git_repo.head.peel(pygit2.Commit).id])
+    )
+    seed = Index(path, writable=True)
+    build_index(repo_path, sha, seed)
+    repo = seed.register(repo_path)
+    chunks = seed.chunks(at=repo.at(sha)).select("id", "kind", "name").sort(pl.all())
+    seed.close()
+    (project_file,) = (tmp_path / "data" / "index").glob("*.duckdb")
+    with duckdb.connect(str(project_file)) as con:
+        con.execute("""\
+UPDATE chunks SET embedding = [0.5, 0.25] WHERE name = 'run';
+DROP INDEX idx_chunks_blob;
+ALTER TABLE chunks ALTER metadata TYPE STRUCT(
+  module TEXT, names TEXT, dots TEXT, language_hint TEXT, node_types TEXT[]
+) USING CASE WHEN metadata IS NOT NULL AND kind IN ('import', 'fragment') THEN struct_pack(
+  module := metadata.module,
+  names := metadata.names,
+  dots := CASE WHEN kind = 'import' THEN '' END,
+  language_hint := metadata.language_hint,
+  node_types := metadata.node_types
+) END;
+CREATE INDEX idx_chunks_blob ON chunks (blob_sha, file_language);
+UPDATE meta SET value = '2026.11.0' WHERE key = 'schema_version';
+""")
+    with duckdb.connect(str(path)) as con:
+        con.execute("UPDATE meta SET value = '2026.11.0' WHERE key = 'schema_version'")
+
+    index = Index(path, writable=True)
+    try:
+        [repo] = index.repos()
+        read = index.chunks(at=repo.at(sha))
+        with index.reader(repo) as cur:
+            vectors = cur.sql("SELECT embedding FROM chunks WHERE name = 'run'").fetchall()
+    finally:
+        index.close()
+    assert read.select("id", "kind", "name").sort(pl.all()).equals(chunks)
+    payloads = {
+        str(kind): (meta["refs"], meta["bindings"])
+        for kind, meta in read.select("kind", "metadata").iter_rows()
+    }
+    assert payloads == {
+        "import": (None, []),
+        "class": ([], None),
+        "function": ([], None),
+        "fragment": ([], None),
+    }
+    assert vectors == [([0.5, 0.25],)]
 
 
 @pytest.mark.parametrize("kind", list(FileKind))

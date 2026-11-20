@@ -165,6 +165,27 @@ describe("modelText", () => {
     expect(modelText(response)).toBe(expected);
   });
 
+  test("references group by kind, at most 50, sharing the space and counting the rest", () => {
+    const ref = (edge: string, i: number) => ({
+      name: `f${i}`,
+      kind: "function",
+      file_path: `${edge}.py`,
+      line_start: i,
+      edge,
+    });
+    const refs = [
+      ...Array.from({ length: 60 }, (_, i) => ref("calls", i + 1)),
+      ...Array.from({ length: 2 }, (_, i) => ref("imports", i + 1)),
+    ];
+    const text = modelText({ kind: "find_refs", resolved: head, file_paths: null, refs } as Response);
+    const lines = text.split("\n");
+    expect(lines[0]).toBe("read at 7d19de2e9c9a (head): 62 ref(s)");
+    expect(lines.filter((line) => line.startsWith("calls: "))).toHaveLength(48);
+    expect(lines.filter((line) => line.startsWith("imports: "))).toHaveLength(2);
+    expect(lines).toContain("… 12 more calls");
+    expect(lines.findIndex((line) => line.startsWith("imports: "))).toBeGreaterThan(lines.indexOf("… 12 more calls"));
+  });
+
   test("an error stays rbtr's JSON", () => {
     const error: Response = { kind: "error", code: "repo_not_found", message: "no such repo" };
     expect(JSON.parse(modelText(error))).toEqual(error);

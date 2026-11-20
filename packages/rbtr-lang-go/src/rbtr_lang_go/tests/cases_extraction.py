@@ -6,8 +6,8 @@ import pytest
 from pytest_cases import case
 
 type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
-type ImportCase = tuple[str, str, dict[str, str]]
-type MultiImportCase = tuple[str, str, int, list[dict[str, str]]]
+type ImportCase = tuple[str, str, dict[str, str | list[dict[str, str]]]]
+type MultiImportCase = tuple[str, str, int, list[dict[str, str | list[dict[str, str]]]]]
 type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
 
 _xfail_nested = pytest.mark.xfail(
@@ -141,7 +141,7 @@ def case_go_import_single() -> ImportCase:
 package main
 import "fmt"
 """
-    return "go", src, {"module": "fmt"}
+    return "go", src, {"module": "fmt", "bindings": [{"name": "fmt", "local": "fmt"}]}
 
 
 @case(tags=["import"])
@@ -151,7 +151,7 @@ def case_go_import_nested() -> ImportCase:
 package main
 import "os/exec"
 """
-    return "go", src, {"module": "os/exec"}
+    return "go", src, {"module": "os/exec", "bindings": [{"name": "os/exec", "local": "exec"}]}
 
 
 @case(tags=["import"])
@@ -161,17 +161,44 @@ def case_go_import_url() -> ImportCase:
 package main
 import "github.com/user/repo"
 """
-    return "go", src, {"module": "github.com/user/repo"}
+    return (
+        "go",
+        src,
+        {
+            "module": "github.com/user/repo",
+            "bindings": [{"name": "github.com/user/repo", "local": "repo"}],
+        },
+    )
 
 
 @case(tags=["import"])
 def case_go_import_aliased() -> ImportCase:
-    """import f "fmt" — alias ignored, module captured."""
+    """import f "fmt" — the module, bound under its alias."""
     src = """\
 package main
 import f "fmt"
 """
-    return "go", src, {"module": "fmt"}
+    return "go", src, {"module": "fmt", "bindings": [{"name": "fmt", "local": "f"}]}
+
+
+@case(tags=["import"])
+def case_go_import_dot() -> ImportCase:
+    """import . "strings" — every name of the package, written `*`."""
+    src = """\
+package main
+import . "strings"
+"""
+    return "go", src, {"module": "strings", "names": "*"}
+
+
+@case(tags=["import"])
+def case_go_import_blank() -> ImportCase:
+    """import _ "embed" — imported for its effect, binding nothing."""
+    src = """\
+package main
+import _ "embed"
+"""
+    return "go", src, {"module": "embed"}
 
 
 @case(tags=["multi_import"])
@@ -188,7 +215,10 @@ import (
         "go",
         src,
         2,
-        [{"module": "fmt"}, {"module": "os"}],
+        [
+            {"module": "fmt", "bindings": [{"name": "fmt", "local": "fmt"}]},
+            {"module": "os", "bindings": [{"name": "os", "local": "os"}]},
+        ],
     )
 
 
@@ -207,7 +237,11 @@ import (
         "go",
         src,
         3,
-        [{"module": "fmt"}, {"module": "os/exec"}, {"module": "net/http"}],
+        [
+            {"module": "fmt", "bindings": [{"name": "fmt", "local": "fmt"}]},
+            {"module": "os/exec", "bindings": [{"name": "os/exec", "local": "exec"}]},
+            {"module": "net/http", "bindings": [{"name": "net/http", "local": "http"}]},
+        ],
     )
 
 
@@ -220,7 +254,7 @@ import (
     "fmt"
 )
 """
-    return "go", src, {"module": "fmt"}
+    return "go", src, {"module": "fmt", "bindings": [{"name": "fmt", "local": "fmt"}]}
 
 
 @case(tags=["mixed"])
@@ -292,3 +326,45 @@ const (
 )
 """
     return "go", src, [("variable", "A", ""), ("variable", "B", "")]
+
+
+type ReferencesCase = tuple[str, str, list[tuple[str, str, list[str], list[str]]]]
+
+
+@case(tags=["references"])
+def case_go_calls_and_bases() -> ReferencesCase:
+    """Each call shape and a generic callee; an embedded field is a base, a named one none."""
+    src = """\
+package shop
+
+type Order struct {
+    Model
+    *Base
+    name string
+}
+
+func (o *Order) Save() {
+    helper()
+    f.Println()
+    exec.Command("x").Run()
+    pkg.New[int]()
+}
+"""
+    return (
+        "go",
+        src,
+        [
+            ("class", "Order", [], ["unqualified:Model", "unqualified:Base"]),
+            (
+                "method",
+                "Save",
+                [
+                    "unqualified:helper",
+                    "unqualified:f.Println",
+                    "unqualified:exec.Command",
+                    "unqualified:pkg.New",
+                ],
+                [],
+            ),
+        ],
+    )

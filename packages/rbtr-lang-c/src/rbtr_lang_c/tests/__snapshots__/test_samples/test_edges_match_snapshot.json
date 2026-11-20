@@ -3,5 +3,10 @@
   "c.c::#include \"greeter.h\" -> greeter.h::Greeter [imports]",
   "c.c::#include \"greeter.h\" -> greeter.h::Greeter [imports]",
   "c.c::#include \"greeter.h\" -> greeter.h::MAX_NAME [imports]",
+  "shop/shop.c::#include \"shop.h\" -> shop/shop.h::shop_total [imports]",
+  "shop/shop.c::shop_total -> shop/shop.c::valid [calls]",
+  "shop/use.c::#include \"shop.h\" -> shop/shop.h::shop_total [imports]",
+  "shop/use.c::use_shop -> shop/shop.c::shop_total [calls]",
+  "shop/use.c::use_shop -> shop/shop.h::shop_total [calls]",
   "util/text.c::#include \"text.h\" -> util/text.h::GREETER_UTIL_TEXT_H [imports]"
 ]

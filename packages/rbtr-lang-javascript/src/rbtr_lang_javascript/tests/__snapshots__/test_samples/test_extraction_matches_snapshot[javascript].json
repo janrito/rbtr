@@ -69,10 +69,15 @@
     "line_start": 9,
     "line_end": 9,
     "metadata": {
-      "module": "config",
+      "module": "./config",
       "names": "LOCALE",
-      "dots": "1",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "LOCALE",
+          "local": "LOCALE"
+        }
+      ]
     }
   },
   {
@@ -87,8 +92,13 @@
     "metadata": {
       "module": "formatter",
       "names": "format",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "format",
+          "local": "format"
+        }
+      ]
     }
   },
   {
@@ -101,10 +111,10 @@
     "line_start": 11,
     "line_end": 11,
     "metadata": {
-      "module": "styles",
+      "module": "./styles",
       "names": "",
-      "dots": "1",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -258,6 +268,138 @@
     "line_end": 45
   },
   {
+    "name": "",
+    "kind": "comment",
+    "file_path": "orders.js",
+    "scope": "",
+    "language": "javascript",
+    "content": "// Orders — calls of each shape the call graph resolves, and two it leaves.",
+    "line_start": 1,
+    "line_end": 1
+  },
+  {
+    "name": "import * as greeter from \"./javascript.js\";",
+    "kind": "import",
+    "file_path": "orders.js",
+    "scope": "",
+    "language": "javascript",
+    "content": "import * as greeter from \"./javascript.js\";",
+    "line_start": 3,
+    "line_end": 3,
+    "metadata": {
+      "module": "./javascript",
+      "names": "",
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "./javascript",
+          "local": "greeter"
+        }
+      ]
+    }
+  },
+  {
+    "name": "import { formatGreeting as greet } from \"./javascript.js\";",
+    "kind": "import",
+    "file_path": "orders.js",
+    "scope": "",
+    "language": "javascript",
+    "content": "import { formatGreeting as greet } from \"./javascript.js\";",
+    "line_start": 4,
+    "line_end": 4,
+    "metadata": {
+      "module": "./javascript",
+      "names": "formatGreeting",
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "formatGreeting",
+          "local": "greet"
+        }
+      ]
+    }
+  },
+  {
+    "name": "Model",
+    "kind": "class",
+    "file_path": "orders.js",
+    "scope": "",
+    "language": "javascript",
+    "content": "class Model {\n  save() {\n    return this.check();\n  }\n\n  check() {\n    return true;\n  }\n}",
+    "line_start": 6,
+    "line_end": 14
+  },
+  {
+    "name": "save",
+    "kind": "method",
+    "file_path": "orders.js",
+    "scope": "Model",
+    "language": "javascript",
+    "content": "save() {\n    return this.check();\n  }",
+    "line_start": 7,
+    "line_end": 9
+  },
+  {
+    "name": "check",
+    "kind": "method",
+    "file_path": "orders.js",
+    "scope": "Model",
+    "language": "javascript",
+    "content": "check() {\n    return true;\n  }",
+    "line_start": 11,
+    "line_end": 13
+  },
+  {
+    "name": "Order",
+    "kind": "class",
+    "file_path": "orders.js",
+    "scope": "",
+    "language": "javascript",
+    "content": "class Order extends Model {\n  save() {\n    super.save();\n    return new greeter.Greeter().greet(greet(\"order\"));\n  }\n\n  total(items) {\n    // `sum` is defined nowhere here, and `items[0]` is a value: no edge.\n    return sum(items) + Number(this.check()) + items[0].valueOf();\n  }\n}",
+    "line_start": 16,
+    "line_end": 26
+  },
+  {
+    "name": "save",
+    "kind": "method",
+    "file_path": "orders.js",
+    "scope": "Order",
+    "language": "javascript",
+    "content": "save() {\n    super.save();\n    return new greeter.Greeter().greet(greet(\"order\"));\n  }",
+    "line_start": 17,
+    "line_end": 20
+  },
+  {
+    "name": "total",
+    "kind": "method",
+    "file_path": "orders.js",
+    "scope": "Order",
+    "language": "javascript",
+    "content": "total(items) {\n    // `sum` is defined nowhere here, and `items[0]` is a value: no edge.\n    return sum(items) + Number(this.check()) + items[0].valueOf();\n  }",
+    "line_start": 22,
+    "line_end": 25
+  },
+  {
+    "name": "build",
+    "kind": "function",
+    "file_path": "orders.js",
+    "scope": "",
+    "language": "javascript",
+    "content": "function build() {\n  const inner = () => new Order();\n  return inner();\n}",
+    "line_start": 28,
+    "line_end": 31
+  },
+  {
+    "name": "inner",
+    "kind": "function",
+    "file_path": "orders.js",
+    "scope": "build",
+    "language": "javascript",
+    "content": "const inner = () => new Order();",
+    "line_start": 29,
+    "line_end": 29
+  },
+  {
     "name": "import { helper } from './b.js';",
     "kind": "import",
     "file_path": "src/a.js",
@@ -267,10 +409,15 @@
     "line_start": 1,
     "line_end": 1,
     "metadata": {
-      "module": "b",
+      "module": "./b",
       "names": "helper",
-      "dots": "1",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "helper",
+          "local": "helper"
+        }
+      ]
     }
   },
   {

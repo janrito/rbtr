@@ -21,6 +21,7 @@ import polars as pl
 import pygit2
 import pytest
 
+from rbtr.domain.edge_frames import InferredEdgeRow
 from rbtr.domain.models import (
     Chunk,
     ChunkKind,
@@ -39,7 +40,6 @@ from rbtr.index.index import Index
 from rbtr.index.refs import latest_ref
 from rbtr.index.staging import staged_chunks
 from rbtr.languages.chunks import chunk_rows
-from rbtr.languages.edges import InferredEdgeRow
 
 from ..conftest import make_commit
 
@@ -369,6 +369,7 @@ def render_widget(widget):
     return normalise_widget(widget)
 '''
 
+    referrer = b"from .shared import parse_manifest\n"
     repo = pygit2.init_repository(str(tmp_path), bare=False, initial_head="main")
     sig = pygit2.Signature("Test", "test@test.com")
     commits: list[str] = []
@@ -380,9 +381,18 @@ def render_widget(widget):
                 "types/api.d.ts": api,
                 "src/dup.py": dup,
                 "src/caller.py": caller,
+                "src/referrer.py": referrer,
             },
         ),
-        ("Copies", {"lib/shared.py": shared, "dist/api.js": api, "node_modules/dup.py": dup}),
+        (
+            "Copies",
+            {
+                "lib/shared.py": shared,
+                "dist/api.js": api,
+                "node_modules/dup.py": dup,
+                "lib/referrer.py": referrer,
+            },
+        ),
     ):
         for path, content in files.items():
             full = tmp_path / path
@@ -609,8 +619,8 @@ def ranking_index(
     ranking_edges: list[dict[str, str]],
 ) -> Generator[Index]:
     """An in-memory Index pre-loaded with the ranking dataset."""
-    # Written by hand, not built: `ranking_edges` holds a `calls` edge,
-    # and no build infers `calls` edges yet.
+    # Written by hand, not built: the ranking tests count each kind of
+    # edge a chunk receives, and a build would add the edges its code makes.
     index = Index(writable=True)
     repo = index.register("/repo")
     with index.session(repo) as ws:

@@ -59,10 +59,15 @@
     "line_start": 1,
     "line_end": 1,
     "metadata": {
-      "module": "b",
+      "module": "./b",
       "names": "Helper",
-      "dots": "1",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "Helper",
+          "local": "Helper"
+        }
+      ]
     }
   },
   {
@@ -97,8 +102,13 @@
     "metadata": {
       "module": "react",
       "names": "useState",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "useState",
+          "local": "useState"
+        }
+      ]
     }
   },
   {
@@ -113,8 +123,13 @@
     "metadata": {
       "module": "react",
       "names": "ReactNode",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "ReactNode",
+          "local": "ReactNode"
+        }
+      ]
     }
   },
   {
@@ -127,10 +142,15 @@
     "line_start": 13,
     "line_end": 13,
     "metadata": {
-      "module": "labels",
+      "module": "./labels",
       "names": "INITIAL_LABEL",
-      "dots": "1",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "INITIAL_LABEL",
+          "local": "INITIAL_LABEL"
+        }
+      ]
     }
   },
   {

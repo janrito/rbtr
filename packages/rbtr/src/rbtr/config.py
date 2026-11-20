@@ -41,7 +41,7 @@ import hashlib
 import logging
 import os
 from pathlib import Path
-from typing import Self
+from typing import Annotated, Self
 
 import platformdirs
 from pydantic import (
@@ -60,7 +60,7 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
-from rbtr.domain.models import QueryKind
+from rbtr.domain.models import EdgeKind, QueryKind
 
 RBTR_NAME = "rbtr"
 
@@ -374,6 +374,18 @@ Disable in tests or resource-constrained environments.",
         },
         description="Per-query-kind fusion weights (semantic, lexical, name-match). "
         "Every search classifies the query and selects the matching triple.",
+    )
+    follow_steps: int = Field(
+        default=8,
+        ge=1,
+        description="How many re-exports, star imports or bases resolving a call or base "
+        "follows before it stops; a cycle ends there too.",
+    )
+    edge_weights: dict[EdgeKind, Annotated[float, Field(ge=0.0)]] = Field(
+        default=dict.fromkeys(EdgeKind, 1.0),
+        description="How much an edge of each kind counts in search: a chunk's importance "
+        "grows with the weighted count of edges reaching it, and an edge to a changed file "
+        "lifts proximity by 0.2 times its weight. 0 leaves a kind out; a kind not listed counts 1.",
     )
 
     # `# type: ignore[prop-decorator]` on every `@computed_field`

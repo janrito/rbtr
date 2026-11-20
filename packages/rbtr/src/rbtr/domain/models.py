@@ -105,6 +105,19 @@ class EmbeddingState(StrEnum):
     TRUNCATED = "truncated"
 
 
+class Binding(BaseModel, frozen=True):
+    """A name an import binds in the importing file, and what it names there.
+
+    `local` is the name the file's code uses. `name` is what it names: for
+    an import listing names, one of them (`from m import Chunk as C` binds
+    `C` to `Chunk`); for one listing none, a module path (`import numpy as
+    np` binds `np` to `numpy`).
+    """
+
+    name: str
+    local: str
+
+
 class ImportMeta(BaseModel):
     """Structured import data extracted by tree-sitter.
 
@@ -114,15 +127,28 @@ class ImportMeta(BaseModel):
     """
 
     module: str = ""
-    """Module path after stripping relative prefixes."""
+    """Module path; a relative one starts with `./` (the file's directory) or `../`."""
     names: str = ""
     """Comma-separated imported symbol names."""
-    dots: str = ""
-    """Relative import depth as a string (empty for absolute)."""
     language_hint: str = ""
     """Target language when known from structure (e.g. HTML
     `<script src>` → `'javascript'`).  Empty means unknown —
     resolver uses `import_targets`."""
+    bindings: list[Binding] = Field(default_factory=list)
+    """Every name it binds in the importing file; empty when its language records none."""
+
+
+class Lookup(StrEnum):
+    """Where a reference's path is looked up, from how it starts: name lookup, as language standards call it."""
+
+    UNQUALIFIED = "unqualified"
+    """In the enclosing scopes, then the file's imports: `foo()`, `models.CharField()`."""
+    MEMBER = "member"
+    """In the enclosing class's members: `self.save()`, `this.render()`."""
+    BASE = "base"
+    """In the enclosing class's bases: `super().__init__()`."""
+    TYPE = "type"
+    """In the written type of a function's local: `order.save()` with `order: Order`."""
 
 
 class Definition(BaseModel, frozen=True):
@@ -184,9 +210,11 @@ class RawSlice(BaseModel, frozen=True):
 
 
 class FragmentMeta(BaseModel, frozen=True):
-    """The syntax a fragment holds: its named nodes' types, in order, once each."""
+    """The syntax a fragment holds, its named nodes' types in order once each."""
 
     node_types: tuple[str, ...]
+    """Diagnostic: nothing in search or the edge graph reads it. rbtr-eval's
+    index report tallies it to find syntax no query captures."""
 
 
 class Fragment(BaseModel, frozen=True):
@@ -201,7 +229,8 @@ class Fragment(BaseModel, frozen=True):
 
 
 type Role = Annotated[
-    Definition | Section | Import | Comment | RawSlice | Fragment, Discriminator("kind")
+    Definition | Section | Import | Comment | RawSlice | Fragment,
+    Discriminator("kind"),
 ]
 """What a chunk is, carrying exactly the data that kind of chunk has."""
 

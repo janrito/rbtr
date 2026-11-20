@@ -64,8 +64,8 @@ def test_populated_metadata_is_kept(replies: dict[ChunkKind, SymbolOut]) -> None
     assert data["metadata"] == {
         "module": "os",
         "names": "environ",
-        "dots": "",
         "language_hint": "",
+        "bindings": [{"name": "environ", "local": "environ"}],
     }
 
 

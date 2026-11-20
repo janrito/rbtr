@@ -161,8 +161,8 @@
     "metadata": {
       "module": "defs.json",
       "names": "Name",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   }
 ]

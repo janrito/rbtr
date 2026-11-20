@@ -91,8 +91,8 @@
     "metadata": {
       "module": "crates/helper",
       "names": "",
-      "dots": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   }
 ]
