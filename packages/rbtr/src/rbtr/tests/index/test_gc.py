@@ -165,8 +165,9 @@ def test_orphans_never_drops_indexed_snapshots(gc: GcFixture) -> None:
 def test_orphans_sweeps_crashed_residue(gc: GcFixture) -> None:
     # Simulate a crashed build: snapshot without mark_indexed.
     with gc.index.session(gc.registered) as ws:
-        ws.insert_snapshots(
+        ws.replace_snapshots(
             [FileSnapshot(snapshot_sha="crashed", file_path="x.py", blob_sha="bx")],
+            snapshot_sha="crashed",
         )
     run_gc(gc.index, gc.repo_path, mode=GcMode.ORPHANS, refs=[], dry_run=False)
     # Orphan snapshot is gone (swept on session entry or by GC).
@@ -215,7 +216,7 @@ def test_gc_reports_reclaimed_orphan_chunks(gc: GcFixture) -> None:
     with gc.index.session(gc.registered) as ws:
         ws.add_watched_refs([gc.c2])  # keep every commit -> no drops
         ws.add_chunk(make_chunk("orphan", path="z.py", blob="b_orphan"))
-        ws.insert_snapshots([make_snap("forgotten", "z.py", "b_orphan")])
+        ws.replace_snapshots([make_snap("forgotten", "z.py", "b_orphan")], snapshot_sha="forgotten")
     with gc.index.session(gc.registered) as ws:
         ws.replace_snapshots([], snapshot_sha="forgotten")
     assert gc.index.count_orphan_chunks() == 1

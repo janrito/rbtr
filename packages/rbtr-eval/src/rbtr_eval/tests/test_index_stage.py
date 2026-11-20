@@ -65,8 +65,8 @@ def index_with_residue(tmp_path: Path) -> Index:
         for sha, chunks in ((INDEXED, [imp, fn]), (RESIDUE, [orphan])):
             for c in chunks:
                 ws.add_chunk(c)
-            ws.insert_snapshots([snap(sha, chunks[0])])
-        ws.insert_edges(
+            ws.replace_snapshots([snap(sha, chunks[0])], snapshot_sha=sha)
+        ws.replace_edges(
             InferredEdgeRow.validate(
                 pl.DataFrame(
                     [

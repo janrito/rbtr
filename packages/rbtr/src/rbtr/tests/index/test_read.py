@@ -73,7 +73,7 @@ def blob_query(scenario: BlobCurrentScenario, index: Index) -> tuple[Index, Blob
     with index.session(repo) as ws:
         for c in scenario.chunks:
             ws.add_chunk(c)
-        ws.insert_snapshots(list(scenario.snapshots))
+        ws.replace_snapshots(list(scenario.snapshots), snapshot_sha="head")
     return index, scenario
 
 
@@ -94,7 +94,7 @@ def test_upsert_replaces_content(index: Index) -> None:
     repo = index.register("/repo")
     with index.session(repo) as ws:
         ws.add_chunk(c1)
-        ws.insert_snapshots([make_snap("head", "f.py", c1.blob_sha)])
+        ws.replace_snapshots([make_snap("head", "f.py", c1.blob_sha)], snapshot_sha="head")
 
     with index.session(repo) as ws:
         ws.add_chunk(c2)
@@ -113,8 +113,8 @@ def test_delete_chunks_for_blobs_removes_target(index: Index) -> None:
     with index.session(repo) as ws:
         ws.add_chunk(c1)
         ws.add_chunk(c2)
-        ws.insert_snapshots(
-            [make_snap("head", "a.py", "b1"), make_snap("head", "b.py", "b2")],
+        ws.replace_snapshots(
+            [make_snap("head", "a.py", "b1"), make_snap("head", "b.py", "b2")], snapshot_sha="head"
         )
 
     with index.session(repo) as ws:
@@ -597,7 +597,9 @@ def test_snapshots_come_back_in_embed_order(scenario: EmbedOrderScenario, index:
             for sha in shas:
                 chunk = make_chunk(sha, path=f"{sha}.py")
                 ws.add_chunk(chunk)
-                ws.insert_snapshots([make_snap(sha, chunk.file_path, chunk.blob_sha)])
+                ws.replace_snapshots(
+                    [make_snap(sha, chunk.file_path, chunk.blob_sha)], snapshot_sha=sha
+                )
                 ws.mark_indexed(snapshot_sha=sha)
 
     assert [ref.snapshot_sha for ref in index.snapshots_to_embed()] == scenario.expected
