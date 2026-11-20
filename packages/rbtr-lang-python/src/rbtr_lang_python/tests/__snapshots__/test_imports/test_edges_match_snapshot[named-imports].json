@@ -1,0 +1,7 @@
+[
+  "pkg/a.py::from .models import User -> pkg/models.py::User [imports]",
+  "pkg/a.py::from pkg.b import helper, Config -> pkg/b.py::Config [imports]",
+  "pkg/a.py::from pkg.b import helper, Config -> pkg/b.py::helper [imports]",
+  "pkg/a.py::from pkg.config import settings, high -> pkg/config.py::high [imports]",
+  "pkg/a.py::from pkg.config import settings, high -> pkg/config.py::settings [imports]"
+]

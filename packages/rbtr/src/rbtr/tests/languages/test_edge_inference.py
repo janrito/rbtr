@@ -3,43 +3,13 @@
 from __future__ import annotations
 
 import polars as pl
-import pygit2
 import pytest
-from pytest_cases import fixture, parametrize_with_cases
+from pytest_cases import parametrize_with_cases
 
-from rbtr.domain.models import SnapshotRef
-from rbtr.index.build import build_index
-from rbtr.index.index import Index
 from rbtr.languages.edges import EdgeChunkRow, infer_import_edges
 from rbtr.languages.resolution import ImportResolution
-from rbtr.testing import render_edges
 
-from ..conftest import make_commit
-from .cases_edges import EdgeScenario
 from .cases_import_ways import ImportWayScenario
-
-
-@fixture
-@parametrize_with_cases("scenario", cases=".cases_edges")
-def edge_scenario(scenario: EdgeScenario) -> EdgeScenario:
-    return scenario
-
-
-@pytest.fixture
-def edge_scenario_ref(
-    edge_scenario: EdgeScenario, index: Index, git_repo: pygit2.Repository, repo_path: str
-) -> SnapshotRef:
-    sha = str(make_commit(git_repo, edge_scenario.files, ref="refs/heads/case"))
-    build_index(repo_path, sha, index)
-    return index.register(repo_path).at(sha)
-
-
-def test_a_build_infers_the_edges_its_imports_make(
-    edge_scenario: EdgeScenario, edge_scenario_ref: SnapshotRef, index: Index
-) -> None:
-    chunks = index.chunks(at=edge_scenario_ref)
-    edges = index.edges(within=[edge_scenario_ref])
-    assert render_edges(edges, chunks) == edge_scenario.expected
 
 
 @pytest.fixture

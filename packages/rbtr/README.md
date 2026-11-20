@@ -794,9 +794,9 @@ def go_module_prefix(text: str) -> tuple[tuple[str, str], ...]:
     return ((f"{match.group(1)}/", ""),) if match else ()
 ```
 
-Add a case to `cases_edges.py` for the language: two real files in a
-subdirectory, one referencing the other, and the edge a build of them
-records. Nested because two files at the repository root cannot tell a
+Put a file in the plugin's sample that references a sibling inside a
+subdirectory, so the sample's edge snapshot records the edge a build
+infers. Nested because two files at the repository root cannot tell a
 reference to a sibling from a reference from the root.
 
 ### Chunker-based plugin

@@ -531,11 +531,14 @@ extraction loop reads it while the content is in hand, and
 `build_resolution_map` turns it into path substitutions — the
 edge pass itself reads no files.
 
-Whether each language's own syntax reaches a file is pinned per
-language by `cases_edges.py`, whose cases build two real files in
-nested directories and read back the edges the build infers. Nested
-because two files at the repository root cannot tell a sibling
-reference from a root-relative one.
+Whether each language's own syntax reaches a file is pinned in that
+language's plugin: its sample holds a file importing a sibling inside a
+subdirectory, and its edge snapshot records the edge the build infers.
+Nested because two files at the repository root cannot tell a sibling
+reference from a root-relative one. A plugin's other import forms are
+small projects under its `tests/samples/imports/`. Core pins the rules
+of each import way on literal rows in neutral languages
+(`cases_import_ways.py`), so it needs no plugin to test them.
 
 Powers `find-refs` and the importance signal in search
 ranking. `find-refs` first resolves the user's symbol *name*
@@ -2589,7 +2592,7 @@ is opt-in, for tests that drive the model from several threads.
 fixtures — `index/conftest.py` has git repos, ranking
 dataset, named chunks; `daemon/conftest.py` has seeded
 stores and running servers) → case files (scenarios via
-pytest-cases, e.g. `cases_edges.py`, `cases_fuse.py`).
+pytest-cases, e.g. `cases_import_ways.py`, `cases_fuse.py`).
 
 **Real infrastructure, not mocks.** Index tests create
 real `pygit2` repositories with deliberate data shapes.
