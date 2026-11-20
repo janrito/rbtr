@@ -7,12 +7,12 @@ import functools
 import pytest
 from tree_sitter import Node
 
-from rbtr.languages._resolvers import DefaultName, DefaultScope
 from rbtr.languages.registration import (
     LanguageRegistration,
     NameResolver,
     QueryExtraction,
 )
+from rbtr.languages.resolvers import DefaultName, DefaultScope
 
 
 def test_registration_defaults() -> None:

@@ -67,29 +67,29 @@ log = structlog.get_logger(__name__)
 
 
 # Pre-load all SQL at import time so file I/O is not on the hot path.
-_GET_CHUNKS_SQL = load_sql("get_chunks.sql")
-_GET_EDGES_SQL = load_sql("get_edges.sql")
-_INBOUND_REFS_SQL = load_sql("inbound_refs.sql")
-_CHANGED_SYMBOLS_SQL = load_sql("changed_symbols.sql")
-_SEARCH_BY_NAME_SQL = load_sql("search_by_name.sql")
-_SEARCH_SIMILAR_SQL = load_sql("search_similar.sql")
-_SEARCH_FULLTEXT_SQL = load_sql("search_fulltext.sql")
-_COUNT_ORPHAN_CHUNKS_SQL = load_sql("count_orphan_chunks.sql")
-_COUNT_GC_CHUNK_SPLIT_SQL = load_sql("count_gc_chunk_split.sql")
-_INBOUND_DEGREE_SQL = load_sql("inbound_degree.sql")
-_QUALIFIER_BASES_SQL = load_sql("qualifier_bases.sql")
-_GET_CHUNK_PATHS_SQL = load_sql("get_chunk_paths.sql")
-_CHUNK_COUNTS_BY_SNAPSHOT_SQL = load_sql("chunk_counts_by_snapshot.sql")
-_DISTINCT_CHUNK_LANGUAGES_SQL = load_sql("distinct_chunk_languages.sql")
-_HAS_INDEXED_SQL = load_sql("has_indexed.sql")
-_LIST_INDEXED_COMMITS_SQL = load_sql("list_indexed_snapshots.sql")
-_LIST_WATCHED_REFS_SQL = load_sql("list_watched_refs.sql")
-_COUNT_FILE_SNAPSHOTS_SQL = load_sql("count_file_snapshots.sql")
-_COUNT_EDGES_SQL = load_sql("count_edges.sql")
-_UNEMBEDDED_CHUNK_IDS_SQL = load_sql("unembedded_chunk_ids.sql")
-_GET_CHUNKS_BY_ID_SQL = load_sql("get_chunks_by_id.sql")
-_SNAPSHOTS_TO_EMBED_SQL = load_sql("snapshots_to_embed.sql")
-_SNAPSHOT_FILE_PATHS_SQL = load_sql("snapshot_file_paths.sql")
+GET_CHUNKS_SQL = load_sql("get_chunks.sql")
+GET_EDGES_SQL = load_sql("get_edges.sql")
+INBOUND_REFS_SQL = load_sql("inbound_refs.sql")
+CHANGED_SYMBOLS_SQL = load_sql("changed_symbols.sql")
+SEARCH_BY_NAME_SQL = load_sql("search_by_name.sql")
+SEARCH_SIMILAR_SQL = load_sql("search_similar.sql")
+SEARCH_FULLTEXT_SQL = load_sql("search_fulltext.sql")
+COUNT_ORPHAN_CHUNKS_SQL = load_sql("count_orphan_chunks.sql")
+COUNT_GC_CHUNK_SPLIT_SQL = load_sql("count_gc_chunk_split.sql")
+INBOUND_DEGREE_SQL = load_sql("inbound_degree.sql")
+QUALIFIER_BASES_SQL = load_sql("qualifier_bases.sql")
+GET_CHUNK_PATHS_SQL = load_sql("get_chunk_paths.sql")
+CHUNK_COUNTS_BY_SNAPSHOT_SQL = load_sql("chunk_counts_by_snapshot.sql")
+DISTINCT_CHUNK_LANGUAGES_SQL = load_sql("distinct_chunk_languages.sql")
+HAS_INDEXED_SQL = load_sql("has_indexed.sql")
+LIST_INDEXED_COMMITS_SQL = load_sql("list_indexed_snapshots.sql")
+LIST_WATCHED_REFS_SQL = load_sql("list_watched_refs.sql")
+COUNT_FILE_SNAPSHOTS_SQL = load_sql("count_file_snapshots.sql")
+COUNT_EDGES_SQL = load_sql("count_edges.sql")
+UNEMBEDDED_CHUNK_IDS_SQL = load_sql("unembedded_chunk_ids.sql")
+GET_CHUNKS_BY_ID_SQL = load_sql("get_chunks_by_id.sql")
+SNAPSHOTS_TO_EMBED_SQL = load_sql("snapshots_to_embed.sql")
+SNAPSHOT_FILE_PATHS_SQL = load_sql("snapshot_file_paths.sql")
 
 
 class Index:
@@ -238,7 +238,7 @@ class Index:
         """Return the repo's watched refs (symbolic names), sorted by name."""
         rows = (
             self._store.data(repo)
-            .sql(_LIST_WATCHED_REFS_SQL, params={"repo_id": repo.repo_id})
+            .sql(LIST_WATCHED_REFS_SQL, params={"repo_id": repo.repo_id})
             .fetchall()
         )
         return [str(r[0]) for r in rows]
@@ -248,7 +248,7 @@ class Index:
         rows = (
             self._store.data(at.repo)
             .sql(
-                _HAS_INDEXED_SQL,
+                HAS_INDEXED_SQL,
                 params={"repo_id": at.repo.repo_id, "snapshot_sha": at.snapshot_sha},
             )
             .fetchall()
@@ -259,7 +259,7 @@ class Index:
         """Return the repo's indexed snapshots, newest first."""
         rows = (
             self._store.data(repo)
-            .sql(_LIST_INDEXED_COMMITS_SQL, params={"repo_id": repo.repo_id})
+            .sql(LIST_INDEXED_COMMITS_SQL, params={"repo_id": repo.repo_id})
             .fetchall()
         )
         return [IndexedSnapshot(snapshot_sha=str(r[0]), indexed_at=r[1]) for r in rows]
@@ -272,7 +272,7 @@ class Index:
         rows = (
             self._store.data(at.repo)
             .sql(
-                _COUNT_FILE_SNAPSHOTS_SQL,
+                COUNT_FILE_SNAPSHOTS_SQL,
                 params={"repo_id": at.repo.repo_id, "snapshot_sha": at.snapshot_sha},
             )
             .fetchall()
@@ -287,7 +287,7 @@ class Index:
         rows = (
             self._store.data(at.repo)
             .sql(
-                _COUNT_EDGES_SQL,
+                COUNT_EDGES_SQL,
                 params={"repo_id": at.repo.repo_id, "snapshot_sha": at.snapshot_sha},
             )
             .fetchall()
@@ -301,7 +301,7 @@ class Index:
         checkouts, so a chunk is an orphan iff no snapshot of any of them
         references its `(blob_sha, file_language)`.  Summed over projects.
         """
-        rows = self._store.each_file(lambda cur: cur.sql(_COUNT_ORPHAN_CHUNKS_SQL).fetchall())
+        rows = self._store.each_file(lambda cur: cur.sql(COUNT_ORPHAN_CHUNKS_SQL).fetchall())
         return sum(int(file_rows[0][0]) for file_rows in rows if file_rows)
 
     def count_gc_chunk_split(self, repo: Repo, drop_shas: list[str]) -> ChunkSplit:
@@ -317,7 +317,7 @@ class Index:
         if not drop_shas:
             return ChunkSplit(dropped=0, kept=0)
         params = {"repo_id": repo.repo_id, "drop_shas": drop_shas}
-        rows = self._store.data(repo).sql(_COUNT_GC_CHUNK_SPLIT_SQL, params=params).fetchall()
+        rows = self._store.data(repo).sql(COUNT_GC_CHUNK_SPLIT_SQL, params=params).fetchall()
         if not rows:
             return ChunkSplit(dropped=0, kept=0)
         return ChunkSplit(dropped=int(rows[0][0]), kept=int(rows[0][1]))
@@ -336,10 +336,10 @@ class Index:
         chunks counts zero.  Ordered most recently indexed first, ties
         broken by `snapshot_sha`.
         """
-        frame = self._chunk_counts_frame(repo)
+        frame = self.chunk_counts_frame(repo)
         return frame_to_snapshot_counts(frame, {r.repo_id: r for r in self._store.repos()})
 
-    def _chunk_counts_frame(
+    def chunk_counts_frame(
         self, scope: Repo | SnapshotRef | None
     ) -> dy.DataFrame[SnapshotCountsRow]:
         """Back the counts readers with one validated frame.
@@ -353,7 +353,7 @@ class Index:
         params = {"repo_id": repo_id, "snapshot_sha": snapshot_sha}
 
         def count(cur: duckdb.DuckDBPyConnection) -> pl.DataFrame:
-            return cur.sql(_CHUNK_COUNTS_BY_SNAPSHOT_SQL, params=params).pl()
+            return cur.sql(CHUNK_COUNTS_BY_SNAPSHOT_SQL, params=params).pl()
 
         frames = (
             [count(self._store.data(repo))] if repo is not None else self._store.each_file(count)
@@ -373,8 +373,8 @@ class Index:
         `chunk_counts_by_snapshot`.  A snapshot of a repo forgotten since
         is left out.
         """
-        frame = _concat(
-            self._store.each_file(lambda cur: cur.sql(_SNAPSHOTS_TO_EMBED_SQL).pl()),
+        frame = validated_concat(
+            self._store.each_file(lambda cur: cur.sql(SNAPSHOTS_TO_EMBED_SQL).pl()),
             IndexedSnapshotRow,
         ).sort(["indexed_at", "snapshot_sha"], descending=[True, False])
         repos = {r.repo_id: r for r in self._store.repos()}
@@ -392,7 +392,7 @@ class Index:
         holds no chunks, or was never marked indexed, reads as zero of
         zero.
         """
-        frame = self._chunk_counts_frame(at)
+        frame = self.chunk_counts_frame(at)
         if frame.is_empty():
             return SnapshotCounts(total=0, embedded=0)
         row = frame.row(0, named=True)
@@ -410,7 +410,7 @@ class Index:
         rows = (
             self._store.data(at.repo)
             .sql(
-                _UNEMBEDDED_CHUNK_IDS_SQL,
+                UNEMBEDDED_CHUNK_IDS_SQL,
                 params={"repo_id": at.repo.repo_id, "snapshot_sha": at.snapshot_sha},
             )
             .fetchall()
@@ -433,7 +433,7 @@ class Index:
             self._store.data(at.repo), _chunk_ids=chunk_ids_view(chunk_ids)
         ) as cur:
             return (
-                cur.sql(_GET_CHUNKS_BY_ID_SQL, params=params)
+                cur.sql(GET_CHUNKS_BY_ID_SQL, params=params)
                 .pl()
                 .pipe(ChunkResultRow.validate, cast=True)
             )
@@ -445,7 +445,7 @@ class Index:
         result is the set of languages some plugin has actually
         extracted -- a record of the plugin set that built the index.
         """
-        rows = self._store.each_file(lambda cur: cur.sql(_DISTINCT_CHUNK_LANGUAGES_SQL).fetchall())
+        rows = self._store.each_file(lambda cur: cur.sql(DISTINCT_CHUNK_LANGUAGES_SQL).fetchall())
         return {str(r[0]) for file_rows in rows for r in file_rows}
 
     def chunks(
@@ -471,7 +471,7 @@ class Index:
         }
         return (
             self._store.data(at.repo)
-            .sql(_GET_CHUNKS_SQL, params=params)
+            .sql(GET_CHUNKS_SQL, params=params)
             .pl()
             .pipe(ChunkResultRow.validate, cast=True)
         )
@@ -490,7 +490,7 @@ class Index:
             self._store.data(at.repo), _snapshot_refs=snapshot_refs_view([at])
         ) as cur:
             return (
-                cur.sql(_INBOUND_REFS_SQL, params={"target_ids": target_ids})
+                cur.sql(INBOUND_REFS_SQL, params={"target_ids": target_ids})
                 .pl()
                 .pipe(InboundRefResultRow.validate, cast=True)
             )
@@ -512,7 +512,7 @@ class Index:
         }
         return (
             self._store.data(at.repo)
-            .sql(_GET_CHUNKS_SQL, params=params)
+            .sql(GET_CHUNKS_SQL, params=params)
             .pl()
             .select(
                 "file_path",
@@ -542,7 +542,7 @@ class Index:
             "target_id": target_id,
             "kind": kind_val,
         }
-        return _concat(self._within(within, _GET_EDGES_SQL, params), EdgeResultRow)
+        return validated_concat(self.read_each_file(within, GET_EDGES_SQL, params), EdgeResultRow)
 
     def inbound_degrees(
         self, chunk_ids: list[str], *, within: list[SnapshotRef]
@@ -554,7 +554,7 @@ class Index:
         """
         if not chunk_ids:
             return InboundDegreeResultRow.create_empty()
-        frames = self._within(within, _INBOUND_DEGREE_SQL, {"chunk_ids": chunk_ids})
+        frames = self.read_each_file(within, INBOUND_DEGREE_SQL, {"chunk_ids": chunk_ids})
         if not frames:
             return InboundDegreeResultRow.create_empty()
         return (
@@ -596,7 +596,7 @@ class Index:
         paths = file_paths_view(file_paths or [])
         with registered_views(self._store.data(between.repo), _file_paths=paths) as cur:
             return (
-                cur.sql(_CHANGED_SYMBOLS_SQL, params=params)
+                cur.sql(CHANGED_SYMBOLS_SQL, params=params)
                 .pl()
                 .pipe(ChangedSymbolRow.validate, cast=True)
             )
@@ -620,9 +620,9 @@ class Index:
         for separator in config.qualifier_separators:
             canonical = canonical.replace(separator, SCOPE_SEPARATOR)
         *qualifier, name = [part for part in canonical.split(SCOPE_SEPARATOR) if part] or [pattern]
-        qualifiers = self._qualifiers(qualifier, within)
+        qualifiers = self.qualifier_places(qualifier, within)
         params = {"literal": pattern, "name": name, "qualified": bool(qualifier)}
-        frames = self._within(within, _SEARCH_BY_NAME_SQL, params, _qualifiers=qualifiers)
+        frames = self.read_each_file(within, SEARCH_BY_NAME_SQL, params, _qualifiers=qualifiers)
         if not frames:
             return ChunkResultRow.create_empty()
         matches = pl.concat(frames).pipe(NameMatchRow.validate, cast=True)
@@ -633,7 +633,7 @@ class Index:
             .pipe(ChunkResultRow.validate, cast=True)
         )
 
-    def _qualifiers(
+    def qualifier_places(
         self, qualifier: list[str], within: list[SnapshotRef]
     ) -> dy.DataFrame[QualifierRow]:
         """Where *qualifier* (outermost-first) may place a symbol.
@@ -655,7 +655,9 @@ class Index:
         # Registrations only: a read has no manifest text, so Go's `go.mod`
         # substitutions are not applied.
         resolutions = language_resolutions(get_manager().registrations())
-        files = _concat(self._within(within, _SNAPSHOT_FILE_PATHS_SQL, {}), SnapshotFileRow)
+        files = validated_concat(
+            self.read_each_file(within, SNAPSHOT_FILE_PATHS_SQL, {}), SnapshotFileRow
+        )
         splits = pl.DataFrame(
             [
                 {
@@ -704,8 +706,8 @@ class Index:
             .unique()
             .pipe(QualifierRow.validate, cast=True)
         )
-        bases = self._within(
-            within, _QUALIFIER_BASES_SQL, {"steps": config.follow_steps}, _qualifiers=places
+        bases = self.read_each_file(
+            within, QUALIFIER_BASES_SQL, {"steps": config.follow_steps}, _qualifiers=places
         )
         return (
             pl.concat([places, *bases], how="diagonal_relaxed")
@@ -734,8 +736,10 @@ class Index:
         *top_k* of those.
         """
         vecs_frame = pl.DataFrame({"vec": query_embeddings}).cast({"vec": pl.List(pl.Float32)})
-        frames = self._within(within, _SEARCH_SIMILAR_SQL, {"top_k": top_k}, _qvecs=vecs_frame)
-        return _best(frames, top_k)
+        frames = self.read_each_file(
+            within, SEARCH_SIMILAR_SQL, {"top_k": top_k}, _qvecs=vecs_frame
+        )
+        return best_scored(frames, top_k)
 
     def fulltext_matches(
         self,
@@ -753,7 +757,7 @@ class Index:
         if not tokenised_query:
             return ScoredChunkResultRow.create_empty()
         params = {"tokenised_query": tokenised_query, "top_k": top_k}
-        return _best(self._within(within, _SEARCH_FULLTEXT_SQL, params), top_k)
+        return best_scored(self.read_each_file(within, SEARCH_FULLTEXT_SQL, params), top_k)
 
     def chunk_paths(
         self, chunk_ids: list[str], *, within: list[SnapshotRef]
@@ -761,10 +765,10 @@ class Index:
         """Return `(id, file_path)` for the given chunk IDs."""
         if not chunk_ids:
             return ChunkPathResultRow.create_empty()
-        frames = self._within(within, _GET_CHUNK_PATHS_SQL, {"chunk_ids": chunk_ids})
-        return _concat(frames, ChunkPathResultRow)
+        frames = self.read_each_file(within, GET_CHUNK_PATHS_SQL, {"chunk_ids": chunk_ids})
+        return validated_concat(frames, ChunkPathResultRow)
 
-    def _within(
+    def read_each_file(
         self,
         within: list[SnapshotRef],
         sql: str,
@@ -784,14 +788,14 @@ class Index:
         return self._store.across(within, read)
 
 
-def _concat[S: dy.Schema](frames: list[pl.DataFrame], schema: type[S]) -> dy.DataFrame[S]:
+def validated_concat[S: dy.Schema](frames: list[pl.DataFrame], schema: type[S]) -> dy.DataFrame[S]:
     """One validated frame of the per-file *frames*."""
     if not frames:
         return schema.create_empty()
     return pl.concat(frames).pipe(schema.validate, cast=True)
 
 
-def _best(frames: list[pl.DataFrame], top_k: int) -> dy.DataFrame[ScoredChunkResultRow]:
+def best_scored(frames: list[pl.DataFrame], top_k: int) -> dy.DataFrame[ScoredChunkResultRow]:
     """The *top_k* best-scored rows of the per-file *frames*."""
     if not frames:
         return ScoredChunkResultRow.create_empty()

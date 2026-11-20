@@ -142,7 +142,7 @@ class _Extracted:
     manifests: dict[str, str]
 
 
-def _extract_and_store_chunks(
+def extract_and_store_chunks(
     *,
     index: Index,
     repo_path: str,
@@ -253,7 +253,7 @@ def _extract_and_store_chunks(
     return _Extracted(result=result, repo_files=repo_files, manifests=manifests)
 
 
-def _infer_and_store_edges(
+def infer_and_store_edges(
     *,
     index: Index,
     repo_files: set[str],
@@ -273,7 +273,7 @@ def _infer_and_store_edges(
     return len(edges), len(chunks)
 
 
-def _mark_indexed_and_cleanup(
+def mark_indexed_and_cleanup(
     *, index: Index, repo: Repo, snapshot_sha: str, on_progress: ProgressCallback
 ) -> None:
     """Mark the commit indexed and remove orphaned data."""
@@ -331,7 +331,7 @@ def build_index(
     repo = index.register(repo_path)
 
     # Phase 1: extract chunks from git, write to DB.
-    extracted = _extract_and_store_chunks(
+    extracted = extract_and_store_chunks(
         index=index,
         repo_path=repo_path,
         snapshot_sha=snapshot_sha,
@@ -346,7 +346,7 @@ def build_index(
     result = extracted.result
 
     # Phase 2: infer cross-file edges.
-    result.stats.total_edges, result.stats.total_chunks = _infer_and_store_edges(
+    result.stats.total_edges, result.stats.total_chunks = infer_and_store_edges(
         index=index,
         repo_files=extracted.repo_files,
         manifests=extracted.manifests,
@@ -358,7 +358,7 @@ def build_index(
         raise BuildStopped
 
     # Phase 3: mark complete and remove orphaned data.
-    _mark_indexed_and_cleanup(
+    mark_indexed_and_cleanup(
         index=index, repo=repo, snapshot_sha=snapshot_sha, on_progress=on_progress
     )
 

@@ -359,7 +359,7 @@ distribution:
   every chunker share it, so a span means the same thing in every
   language. (Overrides receive the built-in resolver as their wrap
   `resolver` argument and delegate to it, so plugins never import the built-ins; those
-  built-ins live in the private `rbtr.languages._resolvers`.)
+  built-ins live in `rbtr.languages.resolvers`.)
 - `rbtr.domain.models` — `Chunk`, its roles (`Definition`, `Section`,
   `Import`, `Comment`, `RawSlice`, `Fragment`), `Span`, `ChunkKind`,
   `ImportMeta`, `Lookup`, where a reference's path is looked up, and

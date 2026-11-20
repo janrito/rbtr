@@ -278,7 +278,7 @@ class Span(BaseModel, frozen=True):
     end: int
 
     @model_validator(mode="after")
-    def _ends_after_it_starts(self) -> Span:
+    def ends_after_it_starts(self) -> Span:
         if self.end < self.start:
             msg = f"a span cannot end (line {self.end}) before it starts (line {self.start})"
             raise ValueError(msg)
@@ -340,7 +340,7 @@ class Chunk(BaseModel, frozen=True):
 
     @field_validator("scope", mode="before")
     @classmethod
-    def _compose_scope(cls, value: str | Sequence[str]) -> str:
+    def composed_scope(cls, value: str | Sequence[str]) -> str:
         """Join enclosing-scope segments into the `::` address.
 
         A plain string (storage read, scope-less chunk) passes through;

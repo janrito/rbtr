@@ -69,9 +69,9 @@ class LanguageManager:
         self._filename_map: dict[str, str] = {}
         self._grammar_cache: dict[str, Language | None] = {}
         self._distributions: dict[str, tuple[str, str]] = {}
-        self._collect()
+        self.collect_registrations()
 
-    def _collect(self) -> None:
+    def collect_registrations(self) -> None:
         """Discover registrations from the `rbtr.languages` entry-point group.
 
         Each entry point resolves to a `LanguageRegistration` value. A

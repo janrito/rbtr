@@ -492,7 +492,7 @@ def test_a_build_that_failed_after_extracting_is_rebuilt_in_full(
     for sha in shas[:-1]:
         build_index(git_repo.workdir, sha, index)
     crash = mocker.patch(
-        "rbtr.index.build._infer_and_store_edges", side_effect=RuntimeError("crash")
+        "rbtr.index.build.infer_and_store_edges", side_effect=RuntimeError("crash")
     )
     with pytest.raises(RuntimeError, match="crash"):
         build_index(git_repo.workdir, head_sha, index)
@@ -519,7 +519,7 @@ def test_a_checkouts_failed_build_leaves_its_sibling_whole(
     checkout built meanwhile reuses the failed build's chunks and is whole;
     the failed checkout is whole once it builds again."""
     crash = mocker.patch(
-        "rbtr.index.build._infer_and_store_edges", side_effect=RuntimeError("crash")
+        "rbtr.index.build.infer_and_store_edges", side_effect=RuntimeError("crash")
     )
     with pytest.raises(RuntimeError, match="crash"):
         build_index(git_repo.workdir, snapshot_sha, index)

@@ -30,7 +30,7 @@ is the `LanguageRegistration`, named by its language id::
 This module provides language registrations, resolver type aliases, query
 loading and tree-derived helpers (`last_line`). Policy enums live in
 `domain.models`; path-relative parsing lives in `domain.resolution`.
-The engine's built-in resolvers live in the private `_resolvers` module.
+The engine's built-in resolvers live in `rbtr.languages.resolvers`.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ from importlib.resources import files
 from typing import TYPE_CHECKING
 
 from rbtr.domain.models import Chunk, MemberOrder, ModuleStyle, SectionNames
-from rbtr.languages._resolvers import DefaultName, DefaultScope
+from rbtr.languages.resolvers import DefaultName, DefaultScope
 
 if TYPE_CHECKING:
     from tree_sitter import Language, Node, Range
