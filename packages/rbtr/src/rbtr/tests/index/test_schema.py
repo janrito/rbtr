@@ -479,6 +479,25 @@ def test_a_deferred_migration_refuses_its_file_until_it_runs(
         index.close()
 
 
+def test_a_migrated_file_deletes_the_file_it_replaced_at_once(
+    tmp_path: Path, chains: Path, mocker: MockerFixture
+) -> None:
+    """No read uses a file waiting to migrate, so its copy replaces it on disk straight away."""
+    path = tmp_path / "index.duckdb"
+    _seed_one_chunk(path)
+    (old_file,) = (tmp_path / "index").glob("*.duckdb")
+    (chains / "project").mkdir()
+    (chains / "project" / f"{SCHEMA_VERSION}__2099.1.0.sql").write_text("SELECT 1;")
+    mocker.patch("rbtr.index.store.SCHEMA_VERSION", "2099.1.0")
+
+    index = Index(path, writable=True, migrate=Migrate.LATER)
+    try:
+        index.migrate()
+        assert not old_file.exists()
+    finally:
+        index.close()
+
+
 @pytest.mark.parametrize(("ratio", "compacted"), [(1000.0, False), (1.0, True)])
 def test_a_copy_a_migration_grew_is_copied_again(
     ratio: float, compacted: bool, tmp_path: Path, chains: Path, mocker: MockerFixture
@@ -685,6 +704,49 @@ UPDATE meta SET value = '2026.11.0' WHERE key = 'schema_version';
         "fragment": ([], None),
     }
     assert vectors == [([0.5, 0.25],)]
+
+
+def test_a_project_file_from_2026_11_0_keeps_its_chunks_edges_and_embeddings(
+    tmp_path: Path, git_repo: pygit2.Repository, repo_path: str
+) -> None:
+    """Chunk ids of an earlier hash become sha256 ids; rows, edges and vectors stay.
+
+    The file is written now and forged back: every chunk id, and every
+    edge naming one, is renamed, and one chunk carries an embedding.
+    """
+    path = tmp_path / "data" / "index.duckdb"
+    files = {"m.py": b"def fn():\n    return 1\n", "app.py": b"from m import fn\n"}
+    sha = str(make_commit(git_repo, files, parents=[git_repo.head.peel(pygit2.Commit).id]))
+    seed = Index(path, writable=True)
+    build_index(repo_path, sha, seed)
+    repo = seed.register(repo_path)
+    chunks = seed.chunks(at=repo.at(sha)).select("id", "file_path", "name").sort(pl.all())
+    edges = seed.edges(within=[repo.at(sha)]).sort(pl.all())
+    seed.close()
+    assert not edges.is_empty()
+    (project_file,) = (tmp_path / "data" / "index").glob("*.duckdb")
+    with duckdb.connect(str(project_file)) as con:
+        con.execute("""\
+UPDATE chunks SET embedding = [0.5, 0.25] WHERE name = 'fn';
+UPDATE edges SET source_id = 'old' || left(source_id, 13);
+UPDATE edges SET target_id = 'old' || left(target_id, 13);
+UPDATE chunks SET id = 'old' || left(id, 13);
+UPDATE meta SET value = '2026.11.0' WHERE key = 'schema_version';
+""")
+    with duckdb.connect(str(path)) as con:
+        con.execute("UPDATE meta SET value = '2026.11.0' WHERE key = 'schema_version'")
+
+    index = Index(path, writable=True)
+    try:
+        [repo] = index.repos()
+        read = index.chunks(at=repo.at(sha)).select("id", "file_path", "name").sort(pl.all())
+        assert read.equals(chunks)
+        assert index.edges(within=[repo.at(sha)]).sort(pl.all()).equals(edges)
+        with index.reader(repo) as cur:
+            vectors = cur.sql("SELECT embedding FROM chunks WHERE name = 'fn'").fetchall()
+        assert vectors == [([0.5, 0.25],)]
+    finally:
+        index.close()
 
 
 @pytest.mark.parametrize("kind", list(FileKind))

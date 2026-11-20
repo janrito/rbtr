@@ -971,6 +971,9 @@ class Gc(BaseModel):
                     self._run_inline(request, index)
                 except RbtrError as exc:
                     fail(exc)
+                finally:
+                    # Closing deletes the files compaction replaced.
+                    index.close()
             case resp:
                 fail(ErrorResponse(code=ErrorCode.INTERNAL, message=f"unexpected response: {resp}"))
 

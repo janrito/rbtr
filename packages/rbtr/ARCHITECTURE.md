@@ -170,8 +170,12 @@ host chunk records that the file has been read even when its useful
 content is entirely in embedded languages.
 
 When re-extracting, `WriteSession.replace_chunks` deletes the old
-chunks for that `(blob_sha, file_language)` before inserting the new
-ones. Other host-language extractions of the same bytes are retained.
+chunks for that `(blob_sha, file_language)` that the new extraction
+does not produce, then upserts the new ones. A chunk produced again keeps
+its embedding while its content is unchanged: the model reads its name,
+which its id covers, and its content. So a serial bump re-embeds only the
+chunks it changes. Other host-language extractions of the same bytes are
+retained.
 
 ### Extraction
 
@@ -974,9 +978,12 @@ one registry `UPDATE` naming the new file; that commit is the switch.
 Reads already running finish on the old file, which stays attached for
 `retire_delay_s` (60 s) and is then detached and deleted. A crash
 before the commit leaves the new file unnamed, and a crash after it
-leaves the old one unnamed; the next open deletes either. Compaction
-switches to a plain copy; migrating a project file switches to a copy
-the migrations ran on (see [Migrations](#migrations)).
+leaves the old one unnamed; the next open deletes either. Closing the
+store deletes every old file still waiting. Compaction switches to a
+plain copy; migrating a project file switches to a copy the migrations
+ran on (see [Migrations](#migrations)), and deletes the old file at
+once, since no read uses a file waiting to migrate. A migration of many
+files therefore holds one extra copy at a time, not one per file.
 
 ![How compaction replaces a project's file: copy, switch the registry,
 and delete the old file after the retire delay](docs/diagrams/file-switch.png)
@@ -1038,11 +1045,14 @@ project file's tables, with the joins between them](docs/diagrams/data-model.png
 | `projects`          | `common_dir`, the git common directory, unique; `file` is unique too, so no two projects share a file                                                                                                     |
 | `repos`             | `path`, unique and always canonical; `id` is a surrogate the other tables carry                                                                                                                           |
 | `file_snapshots`    | `(repo_id, snapshot_sha, file_path)`                                                                                                                                                                      |
-| `chunks`            | `(id)` = `blake2b(blob_sha:file_language:kind:name:line_start:line_end, digest_size=8)` — content-addressed, shared across a project's checkouts and paths                                                |
+| `chunks`            | `(id)` = first 16 hex of `sha256(blob_sha:file_language:kind:name:line_start:line_end)` — content-addressed, shared across a project's checkouts and paths                                                |
 | `edges`             | `(repo_id, snapshot_sha, source_id, target_id, kind, source_path, target_path)` — the whole tuple is the key, the paths included: one import chunk imports a different sibling from each of its locations |
 | `indexed_snapshots` | `(repo_id, snapshot_sha)`                                                                                                                                                                                 |
 | `watched_refs`      | `(repo_id, ref)`                                                                                                                                                                                          |
 | `meta`              | `(key)`                                                                                                                                                                                                   |
+
+Chunk ids are sha256, so Python and DuckDB compute the same value: Python as rows
+are staged, polars having no sha256, and migrations in SQL.
 
 ### Embedding column
 

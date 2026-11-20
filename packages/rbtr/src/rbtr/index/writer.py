@@ -221,15 +221,20 @@ class WriteSession:
 
         A blob extracted again may give chunks with other ids than before
         (its language may have changed), so the chunks stored for each
-        blob and file language in *chunks* are deleted first.
+        blob and file language in *chunks* that *chunks* does not hold are
+        deleted. A chunk it holds again keeps its embedding while its
+        content is unchanged (`upsert_chunks.sql`), since the model reads
+        its name, part of its id, and its content.
         """
-        blobs = chunks.group_by("file_language").agg(pl.col("blob_sha").unique())
-        for file_language, blob_shas in blobs.iter_rows():
-            self.delete_chunks_for_blobs(set(blob_shas), file_language)
+        blobs = chunks.group_by("file_language").agg(pl.col("blob_sha").unique(), pl.col("id"))
+        for file_language, blob_shas, ids in blobs.iter_rows():
+            self.delete_chunks_for_blobs(set(blob_shas), file_language, keep=set(ids))
         self.add_chunks(chunks)
 
-    def delete_chunks_for_blobs(self, blob_shas: set[str], file_language: str) -> None:
-        """Delete the given blobs' chunks extracted as *file_language*.
+    def delete_chunks_for_blobs(
+        self, blob_shas: set[str], file_language: str, *, keep: set[str] | None = None
+    ) -> None:
+        """Delete the given blobs' chunks extracted as *file_language*, except the ids in *keep*.
 
         Called before re-inserting chunks when a blob must be
         re-extracted. Chunks are content-addressed and shared across
@@ -245,7 +250,11 @@ class WriteSession:
         self._require_active()
         self._cursor.execute(
             _DELETE_CHUNKS_FOR_BLOBS_SQL,
-            {"blob_shas": list(blob_shas), "file_language": file_language},
+            {
+                "blob_shas": list(blob_shas),
+                "file_language": file_language,
+                "keep": sorted(keep or ()),
+            },
         )
         self._chunks_modified = True
 

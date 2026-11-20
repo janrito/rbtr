@@ -89,6 +89,15 @@ def test_gc_default_keeps_head_drops_unreferenced(
     assert index.has_indexed(at=seeded.at(tiny_repo.c2)) is True
 
 
+def test_gc_leaves_no_file_it_replaced(
+    tiny_repo: TinyRepo, seeded_repo_both_commits: Repo, isolated_db: Path
+) -> None:
+    """A compacting `rbtr gc` with no daemon deletes the file its copy replaced before it exits."""
+    r = run_cli(["--json", "gc", "--repo-path", str(tiny_repo.path)])
+    assert r.returncode == 0, r.stderr
+    assert len(list((isolated_db / "index").glob("*.duckdb"))) == 1
+
+
 def test_gc_dry_run_changes_nothing(
     tiny_repo: TinyRepo,
     seeded_repo_first_commit: Repo,

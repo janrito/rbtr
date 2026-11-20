@@ -1,3 +1,35 @@
+-- Chunk ids become the first 16 hex characters of the sha256 of
+-- `blob_sha:file_language:kind:name:line_start:line_end`, the hash
+-- Python and DuckDB compute alike.  Each chunk keeps its row, so its
+-- embedding stays; the edges naming it are renamed with it.
+CREATE TABLE chunk_ids AS
+SELECT
+  id AS old_id,
+  left(
+    sha256(
+      concat_ws(':', blob_sha, file_language, kind, name, line_start, line_end)
+    ),
+    16
+  ) AS new_id
+FROM chunks;
+
+UPDATE chunks
+SET id = m.new_id
+FROM chunk_ids AS m
+WHERE chunks.id = m.old_id;
+
+UPDATE edges
+SET source_id = m.new_id
+FROM chunk_ids AS m
+WHERE edges.source_id = m.old_id;
+
+UPDATE edges
+SET target_id = m.new_id
+FROM chunk_ids AS m
+WHERE edges.target_id = m.old_id;
+
+DROP TABLE chunk_ids;
+
 -- `metadata` loses `dots`, since an import records its module as written
 -- (`./b`, `..b`, `super::b`), and gains the calls and bases a definition,
 -- class or fragment writes (`refs`) and the names an import binds.  Every
