@@ -453,7 +453,11 @@ class Index:
         kind: ChunkKind | None = None,
         name: str | None = None,
     ) -> dy.DataFrame[ChunkResultRow]:
-        """Query chunks visible at *at* with optional filters, one row per location."""
+        """Query chunks visible at *at* with optional filters, one row per location.
+
+        Rows come in one order every read: by file path, start line, end
+        line, kind, name and id.
+        """
         kind_val = kind.value if kind is not None else None
         params = {
             "repo_id": at.repo.repo_id,
