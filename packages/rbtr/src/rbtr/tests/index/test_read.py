@@ -12,7 +12,8 @@ from __future__ import annotations
 import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.domain.models import ChunkKind, Edge, EdgeKind, SnapshotRef
+from rbtr.domain.models import ChunkKind, Edge, EdgeKind, ImportMeta, SnapshotRef
+from rbtr.domain.tokenise import tokenise_code
 from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
 
@@ -202,6 +203,31 @@ def test_a_read_leaves_the_cursor_free_for_the_next(index: Index, head_ref: Snap
     seed_index(index, [chunk], head_ref)
     assert index.count_edges(at=head_ref) == 0
     assert [c.id for c in index.chunks_by_id([chunk.id], at=head_ref)] == [chunk.id]
+
+
+@pytest.fixture
+def script_import() -> TokenisedChunk:
+    """An HTML `<script src>`, whose metadata names the language it imports."""
+    content = '<script src="greeter.js"></script>'
+    return TokenisedChunk(
+        blob_sha="blob_page",
+        file_path="page.html",
+        kind=ChunkKind.IMPORT,
+        name="greeter.js",
+        content=content,
+        content_tokens=tokenise_code(content),
+        line_start=3,
+        line_end=3,
+        metadata=ImportMeta(module="greeter.js", language_hint="javascript"),
+    )
+
+
+def test_an_import_reads_back_as_written(
+    script_import: TokenisedChunk, index: Index, head_ref: SnapshotRef
+) -> None:
+    seed_index(index, [script_import], head_ref)
+    [read] = index.chunks(at=head_ref)
+    assert read.metadata == script_import.metadata
 
 
 def test_inbound_refs_empty_targets(index: Index, head_ref: SnapshotRef) -> None:

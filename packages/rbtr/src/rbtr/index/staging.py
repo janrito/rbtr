@@ -84,6 +84,7 @@ class ChunkStagingRow(dy.Schema):
             "module": dy.String(nullable=False),
             "names": dy.String(nullable=False),
             "dots": dy.String(nullable=False),
+            "language_hint": dy.String(nullable=False),
         },
         nullable=False,
     )
