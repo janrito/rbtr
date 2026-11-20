@@ -58,8 +58,8 @@ from rbtr.index.results import (
 )
 from rbtr.index.store import Store
 from rbtr.index.writer import WriteSession
-from rbtr.languages.edges import build_resolution_map, module_files
 from rbtr.languages.manager import get_manager
+from rbtr.languages.resolution import build_resolution_map, module_files
 
 log = structlog.get_logger(__name__)
 

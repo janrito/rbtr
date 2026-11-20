@@ -55,7 +55,7 @@ class ModuleStyle(StrEnum):
     """How import module strings map to file paths.
 
     Languages declare this on `LanguageRegistration` to control
-    how `edges.py` resolves module strings to repo files.
+    how module resolution (`resolution.py`) maps module strings to repo files.
 
     `PATH`:
         Slash-separated or bare filenames.  The resolver tries

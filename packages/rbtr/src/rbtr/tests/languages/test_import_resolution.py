@@ -12,9 +12,10 @@ from __future__ import annotations
 from pytest_cases import parametrize_with_cases
 
 from rbtr.git import FileEntry
-from rbtr.languages.edges import build_resolution_map, infer_import_edges
+from rbtr.languages.edges import infer_import_edges
 from rbtr.languages.extract import extract_file
 from rbtr.languages.manager import get_manager
+from rbtr.languages.resolution import build_resolution_map
 from rbtr.testing import edge_rows
 
 from .cases_import_resolution import ImportScenario
