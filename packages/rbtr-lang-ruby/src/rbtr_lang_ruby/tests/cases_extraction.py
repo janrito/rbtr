@@ -298,28 +298,18 @@ def case_ruby_constant() -> SymbolCase:
 
 @case(
     tags=["symbol"],
-    marks=pytest.mark.xfail(
-        strict=True,
-        reason="a declaration of several names is one span captured once per name, so the "
-        "index keeps the first name (one-span-one-chunk Phase 6: a chunk lists its names)",
-    ),
 )
 def case_ruby_multiple_assignment() -> SymbolCase:
     """Ruby multiple assignment of constants."""
-    return {"input.rb": "A, B = 1, 2\n"}, [("variable", "A", ""), ("variable", "B", "")]
+    return {"input.rb": "A, B = 1, 2\n"}, [("variable", "A, B", "")]
 
 
 @case(
     tags=["symbol"],
-    marks=pytest.mark.xfail(
-        strict=True,
-        reason="a declaration of several names is one span captured once per name, so the "
-        "index keeps the first name (one-span-one-chunk Phase 6: a chunk lists its names)",
-    ),
 )
 def case_ruby_splat_assignment() -> SymbolCase:
     """Ruby splat target."""
-    return {"input.rb": "A, *B = list\n"}, [("variable", "A", ""), ("variable", "B", "")]
+    return {"input.rb": "A, *B = list\n"}, [("variable", "A, B", "")]
 
 
 @case(tags=["symbol"], marks=_xfail_nested)
@@ -327,7 +317,7 @@ def case_ruby_nested_unpack_xfail() -> SymbolCase:
     """Ruby nested destructuring — only the outer level captured today."""
     return (
         {"input.rb": "(A, B), C = x\n"},
-        [("variable", "A", ""), ("variable", "B", ""), ("variable", "C", "")],
+        [("variable", "A, B, C", "")],
     )
 
 

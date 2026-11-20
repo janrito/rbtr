@@ -8,17 +8,24 @@ import dataframely as dy
 import polars as pl
 
 from rbtr.domain.models import Chunk, Chunks
-from rbtr.domain.rules import ChunkRow, holds_references, no_references
+from rbtr.domain.rules import (
+    ChunkRow,
+    capture_metadata,
+    chunk_metadata,
+    holds_references,
+    no_references,
+)
 
 # A dumped chunk's `role`, every role's fields present: chunks without an
 # import would otherwise infer a struct with no `meta`.
-ROLE = pl.Struct({"kind": pl.String, "name": pl.String, "meta": ChunkRow.metadata.dtype})
+ROLE = pl.Struct({"kind": pl.String, "name": pl.String, "meta": capture_metadata().dtype})
 
 
 def chunk_rows(chunks: Sequence[Chunk]) -> dy.DataFrame[ChunkRow]:
     """*chunks* as rows, each role spread over `kind`, `name` and `metadata`.
 
-    A definition or fragment gets empty `refs`: a chunker records no call
+    An `Import` role is the chunk's one import, named by its name. A
+    definition or fragment gets empty `refs`: a chunker records no call
     or base.
     """
     if not chunks:
@@ -35,19 +42,11 @@ def chunk_rows(chunks: Sequence[Chunk]) -> dy.DataFrame[ChunkRow]:
             pl.col("span").struct.field("end_byte"),
             docs=pl.lit(None, dtype=pl.String),
         )
+        .with_columns(metadata=chunk_metadata())
         .with_columns(
-            metadata=pl.when(holds_references())
-            .then(
-                pl.col("metadata")
-                .fill_null(
-                    pl.lit(
-                        dict.fromkeys(ChunkRow.metadata.inner),
-                        dtype=ChunkRow.metadata.dtype,
-                    )
-                )
-                .struct.with_fields(refs=no_references())
+            metadata=pl.col("metadata").struct.with_fields(
+                refs=pl.when(holds_references()).then(no_references())
             )
-            .otherwise("metadata")
         )
         .pipe(ChunkRow.validate, cast=True)
     )

@@ -25,12 +25,14 @@
     "language": "yaml",
     "line_start": 5,
     "line_end": 5,
-    "metadata": {
-      "module": "paths.yaml",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "paths.yaml",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "get",

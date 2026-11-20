@@ -53,7 +53,7 @@ def test_extracts_import_metadata(indexed: Indexed, files: dict[str, str], expec
     """The first import has the expected metadata."""
     with indexed(files) as build:
         reply = outline(build)
-    imports = [s.metadata for s in reply if s.kind == ChunkKind.IMPORT]
+    imports = [meta for s in reply for meta in s.imports]
     assert imports, f"no import extracted from {files!r}"
     assert imports[0] == ImportMeta(**expected)
 
@@ -70,7 +70,7 @@ def test_extracts_multi_import(
     """Multiple imports have correct count and per-import metadata."""
     with indexed(files) as build:
         reply = outline(build)
-    imports = [s.metadata for s in reply if s.kind == ChunkKind.IMPORT]
+    imports = [meta for s in reply for meta in s.imports]
     assert len(imports) == count
     assert imports == [ImportMeta(**expected) for expected in metadata_list]
 
@@ -123,21 +123,15 @@ def test_py_a_local_or_attribute_is_no_variable(indexed: Indexed, src: str) -> N
     assert [s for s in reply if s.kind == ChunkKind.VARIABLE] == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="a declaration of several names is one span captured once per name, so the "
-    "index keeps the first name (one-span-one-chunk Phase 6: a chunk lists its names)",
-)
 def test_py_tuple_unpacking_captured_as_variables(indexed: Indexed) -> None:
-    """Flat tuple-unpacking binds each target as its own VARIABLE chunk, spanning the whole statement."""
+    """Flat tuple-unpacking is one VARIABLE chunk over the whole statement, named by its targets joined."""
     src = """\
 a, b = compute()
 """
     with indexed({"a.py": src}) as build:
         reply = outline(build)
     assert [(s.kind, s.name, s.line_start, s.line_end) for s in reply] == [
-        (ChunkKind.VARIABLE, "a", 1, 1),
-        (ChunkKind.VARIABLE, "b", 1, 1),
+        (ChunkKind.VARIABLE, "a, b", 1, 1),
     ]
 
 
@@ -157,7 +151,7 @@ import numpy as np
     with indexed({"a.py": src}) as build:
         reply = outline(build)
     assert [
-        (s.name, s.metadata.module if s.metadata else "")
+        (s.name, s.imports[0].module if s.imports else "")
         for s in reply
         if s.kind == ChunkKind.IMPORT
     ] == [

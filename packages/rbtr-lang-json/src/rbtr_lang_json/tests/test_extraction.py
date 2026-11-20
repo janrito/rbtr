@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 from pytest_cases import parametrize_with_cases
 
 from rbtr.testing import Indexed
@@ -20,11 +19,6 @@ def test_extracts_expected_symbols(indexed: Indexed, files: dict[str, str], expe
         assert exp in symbols, f"expected {exp} not found in {symbols}"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="the key and the import it makes are two captures of one span, so two symbols "
-    "(one-span-one-chunk Phase 5: the key carries the import)",
-)
 def test_a_ref_key_is_one_symbol(indexed: Indexed) -> None:
     """A `$ref` is a key that also imports the file it names: one symbol, which reaches the key its pointer names."""
     files = {

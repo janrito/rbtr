@@ -61,17 +61,19 @@
     "language": "javascript",
     "line_start": 9,
     "line_end": 9,
-    "metadata": {
-      "module": "./config",
-      "names": "LOCALE",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "LOCALE",
-          "local": "LOCALE"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "./config",
+        "names": "LOCALE",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "LOCALE",
+            "local": "LOCALE"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "import format from \"formatter\";",
@@ -81,17 +83,19 @@
     "language": "javascript",
     "line_start": 10,
     "line_end": 10,
-    "metadata": {
-      "module": "formatter",
-      "names": "format",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "format",
-          "local": "format"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "formatter",
+        "names": "format",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "format",
+            "local": "format"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "import \"./styles.css\";",
@@ -101,12 +105,14 @@
     "language": "javascript",
     "line_start": 11,
     "line_end": 11,
-    "metadata": {
-      "module": "./styles",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "./styles",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "DEFAULT_GREETING",
@@ -251,17 +257,19 @@
     "language": "javascript",
     "line_start": 3,
     "line_end": 3,
-    "metadata": {
-      "module": "./javascript",
-      "names": "",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "./javascript",
-          "local": "greeter"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "./javascript",
+        "names": "",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "./javascript",
+            "local": "greeter"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "import { formatGreeting as greet } from \"./javascript.js\";",
@@ -271,17 +279,19 @@
     "language": "javascript",
     "line_start": 4,
     "line_end": 4,
-    "metadata": {
-      "module": "./javascript",
-      "names": "formatGreeting",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "formatGreeting",
-          "local": "greet"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "./javascript",
+        "names": "formatGreeting",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "formatGreeting",
+            "local": "greet"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "Model",
@@ -363,17 +373,19 @@
     "language": "javascript",
     "line_start": 1,
     "line_end": 1,
-    "metadata": {
-      "module": "./b",
-      "names": "helper",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "helper",
-          "local": "helper"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "./b",
+        "names": "helper",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "helper",
+            "local": "helper"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "helper",

@@ -45,7 +45,7 @@ def test_html_script_src_produces_import(indexed: Indexed) -> None:
 """
     with indexed({"input.html": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     assert len(imports) == 1
     assert imports[0].module == "app.js"
     assert imports[0].language_hint == "javascript"
@@ -61,7 +61,7 @@ def test_html_link_href_produces_import(indexed: Indexed) -> None:
 """
     with indexed({"input.html": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     assert len(imports) == 1
     assert imports[0].module == "styles.css"
     assert imports[0].language_hint == "css"
@@ -77,7 +77,7 @@ def test_html_self_closing_link_produces_import(indexed: Indexed) -> None:
 """
     with indexed({"input.html": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     assert len(imports) == 1
     assert imports[0].module == "styles.css"
 
@@ -97,7 +97,7 @@ def test_html_anchor_href_names_a_page(indexed: Indexed) -> None:
 """
     with indexed({"page.html": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     # `list-symbols` gives a line's symbols in name order, not source order.
     assert [(i.module, i.names, i.language_hint) for i in imports] == [
         ("about.html", "", ""),

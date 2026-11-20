@@ -8,7 +8,6 @@ from collections.abc import Generator
 from dataclasses import replace
 from pathlib import Path
 
-import polars as pl
 import pygit2
 import pytest
 from pytest_mock import MockerFixture
@@ -458,12 +457,12 @@ def test_build_index_replaces_snapshots_for_same_ref(
 def test_build_index_metadata_round_trip(
     git_repo: pygit2.Repository, index: Index, snapshot_sha: str
 ) -> None:
-    """Import metadata should survive store round-trip."""
+    """The imports chunks make survive a store round-trip."""
     build_index(git_repo.workdir, snapshot_sha, index)
 
     [repo] = index.repos()
     chunks = index.chunks(at=repo.at(snapshot_sha), file_path="src/main.py")
-    imports = chunks.filter(pl.col("kind") == ChunkKind.IMPORT)["metadata"].to_list()
+    imports = [imp for meta in chunks["metadata"].to_list() for imp in meta["imports"]]
     assert len(imports) > 0
 
     # At least one import should have structural metadata.

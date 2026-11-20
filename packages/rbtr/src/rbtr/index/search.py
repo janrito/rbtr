@@ -32,7 +32,7 @@ from rbtr.index.results import (
     FusedRow,
     FusionInputRow,
     ScoredChunkResultRow,
-    import_metadata,
+    reply_imports,
 )
 
 if TYPE_CHECKING:
@@ -485,7 +485,7 @@ def materialise_scored(
             pl.all().exclude("id", "repo_id", "file_path").first(),
         )
     )
-    rows = collapsed.with_columns(import_metadata()).to_dicts()
+    rows = collapsed.with_columns(reply_imports()).to_dicts()
     for row in rows:
         row["query_kind"] = query_kind
         if repo_paths is not None:

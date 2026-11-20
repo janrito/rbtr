@@ -25,17 +25,19 @@
     "language": "typescript",
     "line_start": 10,
     "line_end": 10,
-    "metadata": {
-      "module": "./greeter",
-      "names": "greet",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "greet",
-          "local": "greet"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "./greeter",
+        "names": "greet",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "greet",
+            "local": "greet"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "name",
@@ -144,17 +146,19 @@
     "language": "javascript",
     "line_start": 2,
     "line_end": 2,
-    "metadata": {
-      "module": "./b",
-      "names": "helper",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "helper",
-          "local": "helper"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "./b",
+        "names": "helper",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "helper",
+            "local": "helper"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "",

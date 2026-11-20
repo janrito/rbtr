@@ -25,12 +25,14 @@
     "language": "ruby",
     "line_start": 1,
     "line_end": 1,
-    "metadata": {
-      "module": "./b",
-      "names": "*",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "./b",
+        "names": "*",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "helper",
@@ -76,12 +78,14 @@
     "language": "ruby",
     "line_start": 1,
     "line_end": 1,
-    "metadata": {
-      "module": "./model",
-      "names": "*",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "./model",
+        "names": "*",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "Order",
@@ -136,12 +140,14 @@
     "language": "ruby",
     "line_start": 11,
     "line_end": 11,
-    "metadata": {
-      "module": "json",
-      "names": "*",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "json",
+        "names": "*",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "require_relative \"./config\"",
@@ -151,12 +157,14 @@
     "language": "ruby",
     "line_start": 12,
     "line_end": 12,
-    "metadata": {
-      "module": "./config",
-      "names": "*",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "./config",
+        "names": "*",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "",

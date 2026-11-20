@@ -97,17 +97,19 @@
     "language": "typescript",
     "line_start": 1,
     "line_end": 1,
-    "metadata": {
-      "module": "./b",
-      "names": "helper",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "helper",
-          "local": "helper"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "./b",
+        "names": "helper",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "helper",
+            "local": "helper"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "helper",
@@ -153,17 +155,19 @@
     "language": "typescript",
     "line_start": 10,
     "line_end": 10,
-    "metadata": {
-      "module": "./config",
-      "names": "LOCALE",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "LOCALE",
-          "local": "LOCALE"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "./config",
+        "names": "LOCALE",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "LOCALE",
+            "local": "LOCALE"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "import type { Formatter } from \"./types\";",
@@ -173,17 +177,19 @@
     "language": "typescript",
     "line_start": 11,
     "line_end": 11,
-    "metadata": {
-      "module": "./types",
-      "names": "Formatter",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "Formatter",
-          "local": "Formatter"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "./types",
+        "names": "Formatter",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "Formatter",
+            "local": "Formatter"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "DEFAULT_GREETING",
@@ -400,17 +406,19 @@
     "language": "typescript",
     "line_start": 67,
     "line_end": 67,
-    "metadata": {
-      "module": "./types",
-      "names": "Locale",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "Locale",
-          "local": "Locale"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "./types",
+        "names": "Locale",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "Locale",
+            "local": "Locale"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "export * from \"./config\";",
@@ -420,12 +428,14 @@
     "language": "typescript",
     "line_start": 68,
     "line_end": 68,
-    "metadata": {
-      "module": "./config",
-      "names": "*",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "./config",
+        "names": "*",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "",

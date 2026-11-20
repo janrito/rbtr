@@ -16,17 +16,19 @@
     "language": "python",
     "line_start": 3,
     "line_end": 3,
-    "metadata": {
-      "module": "sys",
-      "names": "",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "sys",
-          "local": "sys"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "sys",
+        "names": "",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "sys",
+            "local": "sys"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "",
@@ -54,17 +56,19 @@
     "language": "python",
     "line_start": 9,
     "line_end": 9,
-    "metadata": {
-      "module": "readline",
-      "names": "",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "readline",
-          "local": "readline"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "readline",
+        "names": "",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "readline",
+            "local": "readline"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "",
@@ -146,17 +150,19 @@
     "language": "python",
     "line_start": 3,
     "line_end": 3,
-    "metadata": {
-      "module": ".",
-      "names": "python",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "python",
-          "local": "greetings"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": ".",
+        "names": "python",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "python",
+            "local": "greetings"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "from .config import LOCALE as locale_name",
@@ -166,17 +172,19 @@
     "language": "python",
     "line_start": 4,
     "line_end": 4,
-    "metadata": {
-      "module": ".config",
-      "names": "LOCALE",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "LOCALE",
-          "local": "locale_name"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": ".config",
+        "names": "LOCALE",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "LOCALE",
+            "local": "locale_name"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "from .python import *",
@@ -186,12 +194,14 @@
     "language": "python",
     "line_start": 5,
     "line_end": 5,
-    "metadata": {
-      "module": ".python",
-      "names": "*",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": ".python",
+        "names": "*",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "Model",
@@ -300,17 +310,19 @@
     "language": "python",
     "line_start": 1,
     "line_end": 1,
-    "metadata": {
-      "module": "pkg.b",
-      "names": "helper",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "helper",
-          "local": "helper"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "pkg.b",
+        "names": "helper",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "helper",
+            "local": "helper"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "helper",
@@ -347,17 +359,19 @@
     "language": "python",
     "line_start": 14,
     "line_end": 14,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "annotations",
-          "local": "annotations"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "",
+        "names": "",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "annotations",
+            "local": "annotations"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "import os",
@@ -367,17 +381,19 @@
     "language": "python",
     "line_start": 16,
     "line_end": 16,
-    "metadata": {
-      "module": "os",
-      "names": "",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "os",
-          "local": "os"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "os",
+        "names": "",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "os",
+            "local": "os"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "import os.path as osp",
@@ -387,17 +403,19 @@
     "language": "python",
     "line_start": 17,
     "line_end": 17,
-    "metadata": {
-      "module": "os.path",
-      "names": "",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "os.path",
-          "local": "osp"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "os.path",
+        "names": "",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "os.path",
+            "local": "osp"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "from functools import lru_cache",
@@ -407,17 +425,19 @@
     "language": "python",
     "line_start": 18,
     "line_end": 18,
-    "metadata": {
-      "module": "functools",
-      "names": "lru_cache",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "lru_cache",
-          "local": "lru_cache"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "functools",
+        "names": "lru_cache",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "lru_cache",
+            "local": "lru_cache"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "from pathlib import Path as P",
@@ -427,17 +447,19 @@
     "language": "python",
     "line_start": 19,
     "line_end": 19,
-    "metadata": {
-      "module": "pathlib",
-      "names": "Path",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "Path",
-          "local": "P"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "pathlib",
+        "names": "Path",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "Path",
+            "local": "P"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "from .config import LOCALE",
@@ -447,17 +469,19 @@
     "language": "python",
     "line_start": 21,
     "line_end": 21,
-    "metadata": {
-      "module": ".config",
-      "names": "LOCALE",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "LOCALE",
-          "local": "LOCALE"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": ".config",
+        "names": "LOCALE",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "LOCALE",
+            "local": "LOCALE"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "GreetingList",
@@ -478,7 +502,7 @@
     "line_end": 25
   },
   {
-    "name": "LOCALES",
+    "name": "LOCALES, FALLBACK",
     "kind": "variable",
     "file_path": "python.py",
     "scope": "",

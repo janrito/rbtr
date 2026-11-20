@@ -431,14 +431,16 @@ def capture(
     level: int | None = None,
     level_style: str | None = None,
 ) -> Capture:
-    """A row for *source*'s span from *first*'s start to *last*'s end, numbered next in its file.
+    """A row for *source*'s span from *first*'s start to *last*'s end, less the whitespace it ends with, numbered next in its file.
 
     *end*, when given, is where a section's own text ends: its end byte
     and last line. *meta* is an import's metadata, *node_types* a
     fragment's, *match* the query match that captured it, *level* and
     *level_style* the level its pattern states.
     """
-    end_byte, line_end = end if end is not None else (last.end_byte, last_line(last))
+    end_byte, line_end = (
+        end if end is not None else trimmed_end(source.content, first, last.end_byte)
+    )
     metadata: Metadata | None = None
     if meta is not None:
         metadata = Metadata(
@@ -621,15 +623,27 @@ def section_end(node: Node, sections: set[int], content: bytes) -> tuple[int, in
     Markdown `# Title`'s chunk holds its text up to `## Install`, which has
     a chunk of its own. Any other section keeps its node's span: an HTML
     element's own content continues past a nested one, to its end tag
-    at least. Trailing whitespace is not the section's.
+    at least. Trailing whitespace is not the section's (`trimmed_end`).
     """
     first = next((i for i, c in enumerate(node.children) if c.id in sections), None)
     end = node.end_byte
     if first is not None and all(c.id in sections for c in node.children[first:]):
         end = node.children[first].start_byte
-    while end > node.start_byte and content[end - 1 : end] in (b" ", b"\t", b"\r", b"\n"):
+    return trimmed_end(content, node, end)
+
+
+def trimmed_end(content: bytes, first: Node, end: int) -> tuple[int, int]:
+    """Where the text from *first*'s start to *end* ends less the whitespace it ends with, and the 1-based line its last byte is on.
+
+    A captured span never ends in whitespace: two captures of one node
+    (a section that also imports) are then one span, whatever their
+    grammar folds into the node.
+    """
+    start = first.start_byte
+    while end > start and content[end - 1 : end].isspace():
         end -= 1
-    return end, content.count(b"\n", 0, end) + 1
+    # Counted from *first*'s line, not the file's start, to stay linear in the span.
+    return end, first.start_point[0] + content.count(b"\n", start, max(start, end - 1)) + 1
 
 
 def line_imports(

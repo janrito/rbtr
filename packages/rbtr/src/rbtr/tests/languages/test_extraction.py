@@ -164,11 +164,11 @@ load("plain.html")
     with get_manager().limited_to(reg), indexed({"docs/guide.html": src}) as build:
         at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
         chunks = build.index.chunks(at=at, file_path="docs/guide.html").rows(named=True)
-    assert [
-        (c["metadata"]["module"], c["metadata"]["names"])
-        for c in chunks
-        if c["kind"] == ChunkKind.IMPORT
-    ] == [("page.html", "intro"), ("guide.html", "usage"), ("plain.html", "")]
+    assert [(imp["module"], imp["names"]) for c in chunks for imp in c["metadata"]["imports"]] == [
+        ("page.html", "intro"),
+        ("guide.html", "usage"),
+        ("plain.html", ""),
+    ]
 
 
 def test_a_section_ends_where_its_first_subsection_begins(
@@ -301,7 +301,7 @@ def test_strip_directive_shapes_an_import(
     with get_manager().limited_to(reg), indexed({"a.py": src}) as build:
         at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
         rows = build.index.chunks(at=at, file_path="a.py").rows(named=True)
-    [meta] = [c["metadata"] for c in rows if c["kind"] == ChunkKind.IMPORT]
+    [meta] = [imp for c in rows for imp in c["metadata"]["imports"]]
     assert (meta["module"], meta["names"]) == ("guide", "intro")
 
 
@@ -334,9 +334,9 @@ LINKS = [
         at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
         rows = build.index.chunks(at=at, file_path="a.py").rows(named=True)
     imports = [
-        (c["name"], c["metadata"]["module"], c["line_start"], c["line_end"])
+        (c["name"], imp["module"], c["line_start"], c["line_end"])
         for c in rows
-        if c["kind"] == ChunkKind.IMPORT
+        for imp in c["metadata"]["imports"]
     ]
     assert imports == [
         ("x:topics/intro", "topics/intro", 2, 2),
@@ -363,7 +363,7 @@ def test_set_directive_names_where_an_import_finds_its_name(
     with get_manager().limited_to(reg), indexed({"a.py": 'ref("intro")\n'}) as build:
         at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
         rows = build.index.chunks(at=at, file_path="a.py").rows(named=True)
-    [meta] = [c["metadata"] for c in rows if c["kind"] == ChunkKind.IMPORT]
+    [meta] = [imp for c in rows for imp in c["metadata"]["imports"]]
     assert (meta["names"], meta["language_hint"]) == ("intro", "rst")
 
 
@@ -757,11 +757,6 @@ run();
                 {"module": "sys", "names": "", "bindings": []},
             ],
             id="two-modules-are-two-imports",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="two imports of one statement share its name and lines, so their chunk "
-                "ids collide and the index keeps one",
-            ),
         ),
         pytest.param(
             """\
@@ -799,9 +794,9 @@ def test_a_query_states_an_imports_names_and_bindings(
         at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
         rows = build.index.chunks(at=at, file_path="t.py").rows(named=True)
     imports = [
-        {key: c["metadata"][key] for key in ("module", "names", "bindings")}
+        {key: imp[key] for key in ("module", "names", "bindings")}
         for c in rows
-        if c["kind"] == ChunkKind.IMPORT
+        for imp in c["metadata"]["imports"]
     ]
     assert imports == expected
 

@@ -51,7 +51,7 @@ source ./env.sh
 """
     with indexed({"input.sh": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     assert len(imports) == 2
     modules = {c.module for c in imports}
     assert modules == {"./env.sh", "/etc/profile"}

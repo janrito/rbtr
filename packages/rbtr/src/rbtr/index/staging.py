@@ -45,7 +45,8 @@ class ChunkStagingRow(dy.Schema):
     initial insert and set later via `update_embeddings`.
     """
 
-    id = dy.String(nullable=False)
+    # One row per id: two in a batch are a merge bug or a hash collision.
+    id = dy.String(primary_key=True)
     blob_sha = dy.String(nullable=False)
     kind = dy.Enum(k.value for k in ChunkKind)
     name = dy.String(nullable=False)
@@ -125,8 +126,8 @@ def staged_chunks(
     in *serials* (the embedded language of a block it was read from), else
     its file's, else 1. Ids are computed in one Python pass over their
     columns: polars has no sha256, and its own hash is not stable across
-    versions. A span captured twice (a declaration of several names, a key
-    that imports) is one id, and its first capture is the row.
+    versions. A blob at two paths of one batch gives its chunks twice, the
+    same rows, kept once; two different rows of one id are refused.
     """
     identities = chunks.select("blob_sha", "file_language", "start_byte", "end_byte").iter_rows()
     return (
@@ -142,7 +143,8 @@ def staged_chunks(
                 return_dtype=pl.Int32,
             ),
         )
-        .unique("id", keep="first", maintain_order=True)
+        .select(ChunkStagingRow.column_names())
+        .unique(maintain_order=True)
         .pipe(ChunkStagingRow.validate, cast=True)
     )
 

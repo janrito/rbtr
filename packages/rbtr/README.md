@@ -581,7 +581,7 @@ backend names and requirements.
 ## Supported languages
 
 Languages with tree-sitter grammars get structural
-extraction (symbol-level chunks, import metadata, scope
+extraction (symbol-level chunks, imports, scope
 detection). Everything else gets line-based chunking, so it
 stays searchable without structure.
 
@@ -720,7 +720,7 @@ A capture's name decides the chunk kind. Nine produce chunks:
 | `@class`         | `@_cls_name`      | a class, struct, enum, trait, or other named collection of declarations              |
 | `@variable`      | `@_var_name`      | a module-level variable or constant                                                  |
 | `@test_function` | `@_test_name`     | a test, named by its description (RSpec's `describe` and `it`); no call reaches it   |
-| `@import`        | `@_import_module` | an import, with metadata for the edge graph                                          |
+| `@import`        | `@_import_module` | an import for the edge graph; a statement of several modules is one import of each   |
 | `@doc_section`   | `@_section_name`  | a prose section                                                                      |
 | `@config_key`    | `@_section_name`  | a config or data key — JSON object keys, TOML tables, YAML mappings, HCL blocks      |
 | `@comment`       | —                 | a comment; see below                                                                 |
@@ -729,6 +729,14 @@ Helper captures do not produce chunks of their own: `@_scope`
 contributes a scope segment that lexical nesting cannot reach (a Go
 method's receiver type), and `@_docstring` marks an interior docstring.
 Any capture starting with `_` is read but never becomes a chunk.
+
+**One node, one chunk.** Two patterns capturing one node make one chunk
+with every import they make: a JSON `$ref` captured as `@config_key` and
+`@import` is one key that imports. The narrower kind names it: a
+`@test_function`, `@api_endpoint` or `@migration` over a `@function` or
+`@method`, and any kind over `@import`. Any other pair of kinds on one
+node is a defect the build reports (`kind_overlap` in the log,
+`IndexResult.kind_overlaps`); keep such patterns apart with predicates.
 
 **Headings a grammar leaves flat.** Where a grammar gives a heading no
 node holding its text, state the heading's level and the engine nests it:

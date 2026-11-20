@@ -16,12 +16,14 @@
     "language": "bash",
     "line_start": 8,
     "line_end": 8,
-    "metadata": {
-      "module": "./lib/colours.sh",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "./lib/colours.sh",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": ". /etc/greeter.conf",
@@ -31,12 +33,14 @@
     "language": "bash",
     "line_start": 9,
     "line_end": 9,
-    "metadata": {
-      "module": "/etc/greeter.conf",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "/etc/greeter.conf",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "",
@@ -154,12 +158,14 @@
     "language": "bash",
     "line_start": 1,
     "line_end": 1,
-    "metadata": {
-      "module": "./b.sh",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "./b.sh",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "helper",

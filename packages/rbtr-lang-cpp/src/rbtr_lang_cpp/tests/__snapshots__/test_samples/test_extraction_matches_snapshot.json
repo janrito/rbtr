@@ -16,12 +16,14 @@
     "language": "cpp",
     "line_start": 8,
     "line_end": 8,
-    "metadata": {
-      "module": "string",
-      "names": "*",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "string",
+        "names": "*",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "#include \"greeter.hpp\"",
@@ -31,12 +33,14 @@
     "language": "cpp",
     "line_start": 10,
     "line_end": 10,
-    "metadata": {
-      "module": "greeter.hpp",
-      "names": "*",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "greeter.hpp",
+        "names": "*",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "GREET_VERSION",
@@ -208,12 +212,14 @@
     "language": "cpp",
     "line_start": 8,
     "line_end": 8,
-    "metadata": {
-      "module": "string",
-      "names": "*",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "string",
+        "names": "*",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "greet",
@@ -277,12 +283,14 @@
     "language": "cpp",
     "line_start": 1,
     "line_end": 1,
-    "metadata": {
-      "module": "model.hpp",
-      "names": "*",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "model.hpp",
+        "names": "*",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "shop",
@@ -382,12 +390,14 @@
     "language": "cpp",
     "line_start": 1,
     "line_end": 1,
-    "metadata": {
-      "module": "order.hpp",
-      "names": "*",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "order.hpp",
+        "names": "*",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "shop",
@@ -433,12 +443,14 @@
     "language": "cpp",
     "line_start": 3,
     "line_end": 3,
-    "metadata": {
-      "module": "model.hpp",
-      "names": "*",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "model.hpp",
+        "names": "*",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "shop",
@@ -493,12 +505,14 @@
     "language": "cpp",
     "line_start": 2,
     "line_end": 2,
-    "metadata": {
-      "module": "text.hpp",
-      "names": "*",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "text.hpp",
+        "names": "*",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "util",

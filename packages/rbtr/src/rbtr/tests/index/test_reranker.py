@@ -78,7 +78,7 @@ def _build_fused_frame(scenario: RerankScenario) -> dy.DataFrame[FusedRow]:
             "line_end": [1] * n,
             "start_byte": [0] * n,
             "end_byte": [0] * n,
-            "metadata": [None] * n,
+            "metadata": [{"node_types": None, "refs": None, "imports": []}] * n,
             "lexical": [0.0] * n,
             "semantic": [0.0] * n,
             "importance": [1.0] * n,

@@ -152,7 +152,8 @@ The query's capture names drive the chunk kind (see `CAPTURE_KINDS` in
   class-like is also promoted to a method)
 - `@variable` / `@_var_name` — module/top-level variables, constants, fields
 - `@import` — import statements (module, names and bindings via `@_import_module`,
-  `@_import_names`, `@_bind_name` / `@_bind_local`, `#strip!` and `#set!`)
+  `@_import_names`, `@_bind_name` / `@_bind_local`, `#strip!` and `#set!`); a
+  statement of several modules is one chunk importing each
 - `@_scope` — optional: a node whose **text** becomes the symbol's innermost
   scope segment, for scopes lexical nesting can't reach (e.g. a Go method's
   receiver type). Strictly additive: absent → no effect.
@@ -171,6 +172,12 @@ The query's capture names drive the chunk kind (see `CAPTURE_KINDS` in
   instance and bases (`self`, `this`, `super`), marked with a predicate
 
 Capture names starting with `_` are read but never become chunks.
+
+Two patterns on one node make one chunk with every import they make (a JSON
+`$ref` key that imports). The narrower kind names it: `@test_function`,
+`@api_endpoint`, `@migration` over `@function` / `@method`, any kind over
+`@import` (`KIND_NARROWS`). Any other pair is a defect the build reports as a
+`kind_overlap`; keep such patterns apart with predicates.
 
 The display name comes from the paired `@_*_name` capture via the built-in
 name resolver. When a query cannot express the name, attach a

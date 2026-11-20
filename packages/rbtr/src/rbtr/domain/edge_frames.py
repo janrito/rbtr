@@ -81,8 +81,8 @@ class LanguageResolutionRow(dy.Schema):
 class EdgeChunkRow(dy.Schema):
     """A located chunk as edge inference reads it.
 
-    Module, names, hint and bindings are null on all but an import;
-    `refs` is null on a role that records none.
+    `imports` are the imports it makes, empty when it makes none; `refs`
+    is null on a role that records none.
     """
 
     id = dy.String(nullable=False)
@@ -92,18 +92,17 @@ class EdgeChunkRow(dy.Schema):
     name = dy.String(nullable=False)
     scope = dy.String(nullable=False)
     language = dy.String(nullable=False)
-    module = dy.String(nullable=True)
-    names = dy.String(nullable=True)
-    language_hint = dy.String(nullable=True)
-    bindings = ChunkRow.metadata.inner["bindings"]
+    imports = ChunkRow.metadata.inner["imports"]
     refs = ChunkRow.metadata.inner["refs"]
 
 
 class ImportRow(dy.Schema):
     """An import at its source location, normalised, before any file is resolved.
 
-    `text` is the import chunk's own text, which `TEXT` imports match
-    against file stems. `written` is its module as written, read once by
+    `source_import` is its place among its chunk's imports: a chunk can
+    make several (`import os, sys`), and each reaches its own files.
+    `text` is the import's own text, which `TEXT` imports match against
+    file stems. `written` is its module as written, read once by
     its writing language's style: its relative prefix (`./`, `..`,
     `super::`) is `depth`, the levels it climbs from the importing file, 0
     when it climbs none, and `module` is the rest. `names` lists what it
@@ -113,6 +112,7 @@ class ImportRow(dy.Schema):
 
     source_id = dy.String(nullable=False)
     source_path = dy.String(nullable=False)
+    source_import = dy.Int64(nullable=False)
     source_language = dy.String(nullable=False)
     text = dy.String(nullable=False)
     way = dy.Enum(w.value for w in ImportWay)
@@ -153,10 +153,11 @@ class ModuleFileRow(dy.Schema):
 
 
 class FileMatchRow(dy.Schema):
-    """One file an import at a source location reaches."""
+    """One file an import at a source location reaches; `source_import` is the import's place among its chunk's."""
 
     source_id = dy.String(nullable=False)
     source_path = dy.String(nullable=False)
+    source_import = dy.Int64(nullable=False)
     target_path = dy.String(nullable=False)
 
 

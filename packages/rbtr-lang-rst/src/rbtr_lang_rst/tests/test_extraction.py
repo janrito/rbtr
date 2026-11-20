@@ -83,7 +83,7 @@ def test_rst_headingless_file_still_extracts_references(indexed: Indexed) -> Non
     src = "See :doc:`guide` and :func:`do_stuff` for details.\n"
     with indexed({"input.rst": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     assert [c.module or c.names for c in imports] == ["guide", "do_stuff"]
 
 
@@ -139,7 +139,7 @@ See :func:`do_stuff` for details.
 """
     with indexed({"input.rst": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     assert len(imports) == 1
     assert imports[0].names == "do_stuff"
     assert imports[0].module == ""
@@ -155,7 +155,7 @@ See :class:`User` for the model.
 """
     with indexed({"input.rst": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     assert len(imports) == 1
     assert imports[0].names == "User"
 
@@ -170,7 +170,7 @@ See :meth:`User.save` for persistence.
 """
     with indexed({"input.rst": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     assert len(imports) == 1
     assert imports[0].names == "User.save"
 
@@ -185,7 +185,7 @@ See :func:`~mypackage.utils.do_stuff` for details.
 """
     with indexed({"input.rst": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     assert len(imports) == 1
     assert imports[0].names == "do_stuff"
 
@@ -200,7 +200,7 @@ See :doc:`api/module` for the API.
 """
     with indexed({"input.rst": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     assert len(imports) == 1
     assert imports[0].module == "api/module"
 
@@ -215,7 +215,7 @@ See :mod:`mypackage.utils` for helpers.
 """
     with indexed({"input.rst": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     assert len(imports) == 1
     assert imports[0].module == "mypackage.utils"
 
@@ -234,7 +234,7 @@ Title
 """
     with indexed({"input.rst": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     modules = {c.module for c in imports}
     assert modules == {"intro", "api/index"}
 
@@ -249,7 +249,7 @@ See `the guide <other.rst>`_ for details.
 """
     with indexed({"input.rst": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     assert len(imports) == 1
     assert imports[0].module == "other.rst"
 
@@ -264,7 +264,7 @@ See `the setup <guide.rst#setup>`_ and `the title <#title>`_.
 """
     with indexed({"docs/index.rst": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     assert [(i.module, i.names) for i in imports] == [
         ("guide.rst", "setup"),
         ("index.rst", "title"),
@@ -281,7 +281,7 @@ See :ref:`intro-label` and :ref:`the intro <Other Label>`.
 """
     with indexed({"input.rst": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     assert [(i.module, i.names, i.language_hint) for i in imports] == [
         ("", "intro-label", "rst"),
         ("", "Other Label", "rst"),
@@ -320,7 +320,7 @@ See `example <https://example.com>`_ for details.
 """
     with indexed({"input.rst": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     assert imports == []
 
 
@@ -334,5 +334,5 @@ Call do_stuff to process the data.
 """
     with indexed({"input.rst": src}) as build:
         chunks = outline(build)
-    imports = [c.metadata for c in chunks if c.kind == ChunkKind.IMPORT and c.metadata]
+    imports = [meta for c in chunks for meta in c.imports]
     assert imports == []

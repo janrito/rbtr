@@ -254,8 +254,10 @@ def build_index(
             to_extract = [(f.entry, f.language) for f in batch if isinstance(f, FileToExtract)]
             failed: list[str] = []
             if to_extract:
-                chunks, failed = extract_files(file_rows(to_extract))
-                session.replace_chunks(staged_chunks(chunks, serial_by_language))
+                extraction = extract_files(file_rows(to_extract))
+                failed = extraction.failed
+                result.kind_overlaps.extend(extraction.overlaps)
+                session.replace_chunks(staged_chunks(extraction.chunks, serial_by_language))
                 extracted.update((entry.blob_sha, language) for entry, language in to_extract)
 
             for listed_file in batch:

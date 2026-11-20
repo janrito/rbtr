@@ -154,20 +154,30 @@ def test_an_import_reads_back_as_written(
     imports = index.chunks(at=index.register(repo_path).at(sha), kind=ChunkKind.IMPORT)
     assert imports["metadata"].to_list() == [
         {
-            "module": "./greeter",
-            "names": "greet",
-            "language_hint": "",
             "node_types": None,
             "refs": None,
-            "bindings": [{"name": "greet", "local": "hello"}],
+            "imports": [
+                {
+                    "text": 'import { greet as hello } from "./greeter.js";',
+                    "module": "./greeter",
+                    "names": "greet",
+                    "language_hint": "",
+                    "bindings": [{"name": "greet", "local": "hello"}],
+                }
+            ],
         },
         {
-            "module": "greeter.js",
-            "names": "",
-            "language_hint": "javascript",
             "node_types": None,
             "refs": None,
-            "bindings": [],
+            "imports": [
+                {
+                    "text": '<script src="greeter.js"></script>',
+                    "module": "greeter.js",
+                    "names": "",
+                    "language_hint": "javascript",
+                    "bindings": [],
+                }
+            ],
         },
     ]
 

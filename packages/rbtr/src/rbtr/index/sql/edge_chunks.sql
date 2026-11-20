@@ -9,10 +9,7 @@ SELECT
   c.name,
   c.scope,
   c.language,
-  c.metadata.module,
-  c.metadata.names,
-  c.metadata.language_hint,
-  c.metadata.bindings,
+  c.metadata.imports,
   c.metadata.refs
 FROM file_snapshots AS fs
 INNER JOIN chunks AS c

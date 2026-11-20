@@ -51,7 +51,15 @@
     "scope": "",
     "language": "hcl",
     "line_start": 31,
-    "line_end": 33
+    "line_end": 33,
+    "imports": [
+      {
+        "module": "./modules/greeter",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "variable name",
@@ -87,7 +95,15 @@
     "scope": "",
     "language": "hcl",
     "line_start": 1,
-    "line_end": 3
+    "line_end": 3,
+    "imports": [
+      {
+        "module": "./b",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "resource null_resource y",

@@ -25,17 +25,19 @@
     "language": "python",
     "line_start": 10,
     "line_end": 10,
-    "metadata": {
-      "module": "greeter",
-      "names": "format_greeting",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "format_greeting",
-          "local": "format_greeting"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "greeter",
+        "names": "format_greeting",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "format_greeting",
+            "local": "format_greeting"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "demo",
@@ -162,12 +164,14 @@
     "language": "html",
     "line_start": 27,
     "line_end": 27,
-    "metadata": {
-      "module": "greeter.css",
-      "names": "",
-      "language_hint": "css",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "greeter.css",
+        "names": "",
+        "language_hint": "css",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "body",
@@ -285,12 +289,14 @@
     "language": "markdown_inline",
     "line_start": 6,
     "line_end": 6,
-    "metadata": {
-      "module": "troubleshooting.md",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "troubleshooting.md",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "Troubleshooting",
@@ -363,12 +369,14 @@
     "language": "markdown_inline",
     "line_start": 7,
     "line_end": 7,
-    "metadata": {
-      "module": "config.md",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "config.md",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "api.md#format-a-greeting-the-helper",
@@ -378,12 +386,14 @@
     "language": "markdown_inline",
     "line_start": 8,
     "line_end": 8,
-    "metadata": {
-      "module": "api.md",
-      "names": "format-a-greeting-the-helper",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "api.md",
+        "names": "format-a-greeting-the-helper",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "config.md#locale",
@@ -393,12 +403,14 @@
     "language": "markdown_inline",
     "line_start": 9,
     "line_end": 9,
-    "metadata": {
-      "module": "config.md",
-      "names": "locale",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "config.md",
+        "names": "locale",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "config.md#install-notes",
@@ -408,12 +420,14 @@
     "language": "markdown_inline",
     "line_start": 10,
     "line_end": 10,
-    "metadata": {
-      "module": "config.md",
-      "names": "install-notes",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "config.md",
+        "names": "install-notes",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "config.md#legacy-options",
@@ -423,12 +437,14 @@
     "language": "markdown_inline",
     "line_start": 11,
     "line_end": 11,
-    "metadata": {
-      "module": "config.md",
-      "names": "legacy-options",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "config.md",
+        "names": "legacy-options",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "Locales",
@@ -447,12 +463,14 @@
     "language": "markdown_inline",
     "line_start": 18,
     "line_end": 18,
-    "metadata": {
-      "module": "locales.md",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "locales.md",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "#usage",
@@ -462,12 +480,14 @@
     "language": "markdown_inline",
     "line_start": 19,
     "line_end": 19,
-    "metadata": {
-      "module": "markdown.md",
-      "names": "usage",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "markdown.md",
+        "names": "usage",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "guides/setup.md",
@@ -477,12 +497,14 @@
     "language": "markdown_inline",
     "line_start": 21,
     "line_end": 21,
-    "metadata": {
-      "module": "guides/setup.md",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "guides/setup.md",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "Release notes",

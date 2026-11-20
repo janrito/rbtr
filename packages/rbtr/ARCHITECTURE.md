@@ -289,10 +289,14 @@ Staging (`staged_chunks`) adds the stable [chunk id](#record-identity),
 [search tokens](#fts-index-lifecycle) and each chunk's extraction serial. A chunk's
 content is exactly its file's bytes from `start_byte` to `end_byte`: trimming whitespace
 moves the span's end, not the text, and the last line is the line of the span's last
-byte. A span two captures make (a declaration of several names, a key that imports) is
-one id, and staging keeps its first capture. Staging keeps the stored chunk columns,
-leaving documentation and placement in the extraction frames. The store receives a
-validated `ChunkStagingRow` frame.
+byte, so a span never ends in whitespace. The chunks of one span are one
+(`one_chunk_per_span`, in `assemble`): its imports are every capture's, in order, and
+its kind the one that narrows every other there (`KIND_NARROWS`), so a JSON `$ref` key
+is one `config_key` that imports, and `import os, sys` one import of two modules. A pair
+of kinds neither narrows takes the first in `ChunkKind` order and is reported as a kind
+overlap (`IndexResult.kind_overlaps`, logged `kind_overlap`): a defect of the language's
+patterns. Staging keeps the stored chunk columns, leaving documentation and placement in
+the extraction frames. The store receives a validated `ChunkStagingRow` frame.
 
 If a batch raises during extraction, `extract_files` halves it and
 retries until it isolates the failing file. That file is logged and
@@ -648,9 +652,11 @@ It runs in polars rather than as recursive SQL: on home-assistant's
 461,105 calls the two gave the same edges, in 0.22 s and 0.84 GB
 against 4–6 s and 7.5 GB.
 
-Two choices keep the answers right. An import's location is its chunk id
-and its path: chunks are content-addressed, so byte-identical files share an
-import chunk, and each copy resolves relative to its own path. And an
+Two choices keep the answers right. An import's location is its chunk id, its
+path, and its place among its chunk's imports (`source_import`): chunks are
+content-addressed, so byte-identical files share an import chunk, and each copy
+resolves relative to its own path; and one chunk can make several imports
+(`import os as o, a as b`), each binding its own module. And an
 import's scope, its resolved files or its hinted language, is chosen
 before candidates are ranked, so an earlier chunk outside the scope cannot
 hide one inside it.
@@ -659,15 +665,17 @@ For example, take three files: `app.py` holding `from pkg.util import greet`,
 `src/pkg/util.py` defining `greet`, and `docs/guide.rst` saying
 ``Call :func:`greet` first.`` Python's resolution row tries the source roots `""` and
 `src`, the extensions `.py` and `.pyi`, and reads modules dotted; rST is prose and
-folds section names. The build reads the two imports as `EdgeChunkRow`s:
+folds section names. The build reads the two importing chunks as `EdgeChunkRow`s, each
+with a list of imports of one here:
 
-| `file_path`      | `name`                       | `language` | `module`   | `names` | `language_hint` |
-| ---------------- | ---------------------------- | ---------- | ---------- | ------- | --------------- |
-| `app.py`         | `from pkg.util import greet` | `python`   | `pkg.util` | `greet` |                 |
-| `docs/guide.rst` | ``:func:`greet` ``           | `rst`      |            | `greet` | `python`        |
+| `file_path`      | `name`                       | `language` | `imports`: `module` | `names` | `language_hint` |
+| ---------------- | ---------------------------- | ---------- | ------------------- | ------- | --------------- |
+| `app.py`         | `from pkg.util import greet` | `python`   | `pkg.util`          | `greet` |                 |
+| `docs/guide.rst` | ``:func:`greet` ``           | `rst`      |                     | `greet` | `python`        |
 
-`requested_imports` classifies them. The Python import names a module; the
-rST role is prose naming a name and no file, so it documents rather than imports:
+`requested_imports` reads every chunk's imports, one row each, and classifies them. The
+Python import names a module; the rST role is prose naming a name and no file, so it
+documents rather than imports:
 
 | `source_path`    | `way`    | `kind`      | `depth` | `module`   | `names`     | `language_hint` |
 | ---------------- | -------- | ----------- | ------- | ---------- | ----------- | --------------- |
@@ -1874,8 +1882,8 @@ opposite of what it is asked for. Each shape is its own type
 rather than one type with an optional body, so the wrong
 payload cannot be assembled by accident.
 
-`metadata` appears only on an import that records something, and
-null `repo_path` is omitted,
+`imports` appears only on a symbol that makes some (an import, or a
+key or section that imports), and null `repo_path` is omitted,
 as is the preview anchor (`match_line_offset`, `matched_terms`)
 when the hit has no literal match; the nine search signals
 collapse to a single `score` unless
@@ -2611,12 +2619,24 @@ values whose roles (`Definition`, `Section`, `Import`, `Comment`,
 `RawSlice`, `Fragment`) carry the data for that kind. Query extraction produces the
 corresponding columns directly. Both paths reach `ChunkRow`: `kind`, `name` and span
 columns support filtering and identity, while `metadata` is a `STRUCT` of role payload
-fields, null where a role has none: an import's module, names, hint and bindings, a
-fragment's node types, what a definition, class or fragment calls, and a class's bases.
-A role that can record calls always stores a list, empty when it records none.
-`chunk_rows` flattens the chunker's values; staging adds the storage columns. Reads keep
+fields: the imports the chunk makes (a list, empty when it makes none, each with its
+module, names, hint and bindings), a fragment's node types, what a definition, class or
+fragment calls, and a class's bases. A role that can record calls always stores a list,
+empty when it records none. `chunk_rows` flattens the chunker's values, an `Import`
+role becoming an import list of one; staging adds the storage columns. Reads keep
 those rows rather than reconstructing write models. A struct passes between DuckDB and
 polars as Arrow; storing metadata as JSON would add per-row encoding and parsing.
+
+**One span, one chunk.** A node two patterns capture is one chunk: a JSON `$ref` is a
+key that imports, an HCL `module` block a key that imports its `source`, `import os,
+sys` one import of two modules. Its kind is the narrowest of its captures
+(`KIND_NARROWS`, the one table of kind precedence: a test narrows a function, every kind
+narrows an import); its imports and calls are every capture's. Indexes that
+cross-reference code hold the same: SCIP gives one occurrence several `symbol_roles`,
+and Kythe hangs several edges off one anchor. Two chunks of one span do not work here:
+the id is the span, so they would share an id and the index would keep either. Search
+weights a chunk by its kind, so a key that imports ranks as a key, and an import's
+lower weight applies only to a chunk that is an import alone.
 
 **Opening the index migrates it.** Migration belongs to the `index`
 layer and reports through the log; the CLI just opens the index, and

@@ -52,21 +52,23 @@ def test_drops_storage_internals(replies: dict[ChunkKind, SymbolOut]) -> None:
 
 
 @pytest.mark.parametrize("kind", [ChunkKind.FUNCTION, ChunkKind.FRAGMENT])
-def test_metadata_is_omitted_on_all_but_imports(
+def test_imports_are_omitted_on_a_symbol_that_makes_none(
     replies: dict[ChunkKind, SymbolOut], kind: ChunkKind
 ) -> None:
     data = json.loads(replies[kind].model_dump_json())
-    assert "metadata" not in data
+    assert "imports" not in data
 
 
-def test_populated_metadata_is_kept(replies: dict[ChunkKind, SymbolOut]) -> None:
+def test_the_imports_a_symbol_makes_are_kept(replies: dict[ChunkKind, SymbolOut]) -> None:
     data = json.loads(replies[ChunkKind.IMPORT].model_dump_json())
-    assert data["metadata"] == {
-        "module": "os",
-        "names": "environ",
-        "language_hint": "",
-        "bindings": [{"name": "environ", "local": "environ"}],
-    }
+    assert data["imports"] == [
+        {
+            "module": "os",
+            "names": "environ",
+            "language_hint": "",
+            "bindings": [{"name": "environ", "local": "environ"}],
+        }
+    ]
 
 
 def test_identity_fields_preserved(replies: dict[ChunkKind, SymbolOut]) -> None:

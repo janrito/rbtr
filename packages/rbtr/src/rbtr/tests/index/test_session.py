@@ -372,7 +372,7 @@ class Order(models.Model):
         (
             row["name"],
             row["metadata"]["refs"],
-            row["metadata"]["bindings"],
+            [binding for imp in row["metadata"]["imports"] for binding in imp["bindings"]],
         )
         for row in read.select("name", "metadata").iter_rows(named=True)
     ] == [
@@ -386,11 +386,11 @@ class Order(models.Model):
                     "type": None,
                 }
             ],
-            None,
+            [],
         ),
         ("from django.db import models", None, [{"name": "models", "local": "models"}]),
         ("import numpy as np", None, [{"name": "numpy", "local": "np"}]),
-        ("run", [{"kind": "calls", "lookup": "member", "path": ["save"], "type": None}], None),
+        ("run", [{"kind": "calls", "lookup": "member", "path": ["save"], "type": None}], []),
     ]
 
 

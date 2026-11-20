@@ -21,28 +21,16 @@ from rbtr.testing.assertions import Referrer, Target, assert_reached
         pytest.param(
             "ref",
             {
-                ("defs.json", "Named"): {
-                    ("schema.json", '"$ref": "defs.json#/definitions/Named"', "imports")
-                },
+                ("defs.json", "Named"): {("schema.json", "$ref", "imports")},
             },
             id="a-ref-reaches-the-key-its-pointer-names",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="a key that imports is one span captured twice, so the index keeps the key "
-                "and loses the import (one-span-one-chunk Phase 5: a chunk lists its imports)",
-            ),
         ),
         pytest.param(
             "ref",
             {
-                ("schema.json", "z"): {("schema.json", '"$ref": "#/z"', "imports")},
+                ("schema.json", "z"): {("schema.json", "$ref", "imports")},
             },
             id="a-pointer-alone-reaches-a-key-of-the-same-document",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="a key that imports is one span captured twice, so the index keeps the key "
-                "and loses the import (one-span-one-chunk Phase 5: a chunk lists its imports)",
-            ),
         ),
     ],
 )

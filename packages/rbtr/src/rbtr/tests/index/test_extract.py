@@ -8,7 +8,7 @@ import dataframely as dy
 import pygit2
 from pytest_mock import MockerFixture
 
-from rbtr.domain.rules import FileRow, PlacedChunkRow
+from rbtr.domain.rules import FileRow
 from rbtr.index.build import build_index
 from rbtr.index.index import Index
 from rbtr.languages import extract
@@ -38,7 +38,7 @@ def test_build_index_extraction_error_is_nonfatal(
     # Make extraction fail for any batch holding bad.py.
     original_extract = extract.extract_batch
 
-    def _patched_extract(files: dy.DataFrame[FileRow]) -> dy.DataFrame[PlacedChunkRow]:
+    def _patched_extract(files: dy.DataFrame[FileRow]) -> extract.Extraction:
         if "bad.py" in files["path"]:
             msg = "parse error"
             raise RuntimeError(msg)

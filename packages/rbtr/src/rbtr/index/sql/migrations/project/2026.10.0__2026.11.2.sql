@@ -1,5 +1,6 @@
 -- A chunk's id becomes the hash of its blob, file language and byte span,
--- and its row stores the span (`start_byte`, `end_byte`).  Every stored id
+-- its row stores the span (`start_byte`, `end_byte`), and its metadata
+-- lists the imports it makes.  Every stored id
 -- and every edge naming one is of an earlier kind, so the project file is
 -- emptied of what a build writes and rebuilt from git: each watched ref's
 -- next build extracts its files again, and their chunks are embedded
@@ -44,21 +45,25 @@ CREATE TABLE chunks (
   end_byte BIGINT NOT NULL,
   line_start INTEGER NOT NULL,
   line_end INTEGER NOT NULL,
-  -- What the chunk's role carries beyond kind and name: an import's
-  -- module, names, target language and bindings; a fragment's syntax node
-  -- types; the calls and bases a definition, class or fragment writes
-  -- (`refs`, each with the edge it makes).
-  -- NULL for a role that carries nothing.
+  -- What the chunk's role carries beyond kind and name: a fragment's
+  -- syntax node types; the calls and bases a definition, class or fragment
+  -- writes (`refs`, each with the edge it makes); the imports the chunk
+  -- makes (`imports`, empty when it makes none: a key or a section can
+  -- import too), each with its text, module, names, target language and
+  -- bindings.
   metadata STRUCT(
-    module TEXT,
-    names TEXT,
-    language_hint TEXT,
     -- Diagnostic: rbtr-eval's index report reads it to find syntax no
     -- query captures; search and the edge graph do not.
     node_types TEXT[],
     refs STRUCT(kind TEXT, lookup TEXT, path TEXT[], type TEXT[])[],
-    bindings STRUCT(name TEXT, local TEXT)[]
-  ),
+    imports STRUCT(
+      text TEXT,
+      module TEXT,
+      names TEXT,
+      language_hint TEXT,
+      bindings STRUCT(name TEXT, local TEXT)[]
+    )[]
+  ) NOT NULL,
   -- Variable-length embedding vector; dimension is determined by
   -- the model (see ARCHITECTURE.md "Embedding column").
   embedding FLOAT[] DEFAULT NULL,

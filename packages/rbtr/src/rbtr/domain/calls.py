@@ -98,6 +98,7 @@ def module_lookup(module: str, depth: str) -> dict[str, pl.Expr | str]:
     return {
         "source_id": pl.col("key").cast(pl.String),
         "source_path": "source_path",
+        "source_import": pl.lit(0),
         "source_language": "language",
         "text": pl.lit(""),
         "way": pl.lit(ImportWay.MODULE.value),
@@ -144,12 +145,13 @@ def exports(
     top-level functions and classes of its directory's other files in
     that language.
     """
-    location = ["source_id", "source_path"]
+    location = ["source_id", "source_path", "source_import"]
     module_imports = (
         imports.filter(pl.col("way") == ImportWay.MODULE)
         .select(
             "source_id",
             "source_path",
+            "source_import",
             "line_start",
             "written",
             "depth",

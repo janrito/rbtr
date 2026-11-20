@@ -34,17 +34,19 @@
     "language": "typescript",
     "line_start": 15,
     "line_end": 15,
-    "metadata": {
-      "module": "./store",
-      "names": "makeStore",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "makeStore",
-          "local": "makeStore"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "./store",
+        "names": "makeStore",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "makeStore",
+            "local": "makeStore"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "store",
@@ -135,17 +137,19 @@
     "language": "javascript",
     "line_start": 2,
     "line_end": 2,
-    "metadata": {
-      "module": "./b",
-      "names": "helper",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "helper",
-          "local": "helper"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "./b",
+        "names": "helper",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "helper",
+            "local": "helper"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "",

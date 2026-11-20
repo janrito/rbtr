@@ -5,8 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import pytest
-
 from rbtr.testing import Indexed
 from rbtr.testing.assertions import assert_every_line_in_a_chunk, assert_reached
 from rbtr.testing.reads import outline
@@ -21,22 +19,11 @@ def test_extraction_matches_snapshot(indexed: Indexed, snapshot_json: SnapshotAs
     assert symbols == snapshot_json
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="a key that imports is one span captured twice, so the index keeps the key "
-    "and loses the import (one-span-one-chunk Phase 5: a chunk lists its imports)",
-)
 def test_every_edge_reaches_what_it_names(indexed: Indexed) -> None:
     """Each target the sample's edges reach is reached by exactly the chunks named, by any edge."""
-    # A module block is an import named by its whole text.
-    greeter = """\
-module "greeter" {
-  source = "./modules/greeter"
-}"""
-    module_x = """\
-module "x" {
-  source = "./b"
-}"""
+    # A module block is a key that imports its `source`.
+    greeter = "module greeter"
+    module_x = "module x"
     reached = {
         ("modules/greeter/main.tf", "output greeting"): {("main.tf", greeter, "imports")},
         ("modules/greeter/main.tf", "variable name"): {("main.tf", greeter, "imports")},

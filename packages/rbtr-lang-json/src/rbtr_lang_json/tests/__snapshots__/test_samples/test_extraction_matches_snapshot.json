@@ -168,7 +168,15 @@
     "scope": "",
     "language": "json",
     "line_start": 5,
-    "line_end": 5
+    "line_end": 5,
+    "imports": [
+      {
+        "module": "defs.json",
+        "names": "Name",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "recipient",

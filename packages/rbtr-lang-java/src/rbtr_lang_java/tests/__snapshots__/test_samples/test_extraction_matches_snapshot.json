@@ -79,17 +79,19 @@
     "language": "java",
     "line_start": 3,
     "line_end": 3,
-    "metadata": {
-      "module": "com.example.format.Formatter",
-      "names": "Formatter",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "Formatter",
-          "local": "Formatter"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "com.example.format.Formatter",
+        "names": "Formatter",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "Formatter",
+            "local": "Formatter"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "Order",
@@ -144,17 +146,19 @@
     "language": "java",
     "line_start": 8,
     "line_end": 8,
-    "metadata": {
-      "module": "java.util.List",
-      "names": "List",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "List",
-          "local": "List"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "java.util.List",
+        "names": "List",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "List",
+            "local": "List"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "import static java.util.Collections.emptyList;",
@@ -164,17 +168,19 @@
     "language": "java",
     "line_start": 9,
     "line_end": 9,
-    "metadata": {
-      "module": "java.util.Collections",
-      "names": "Collections.emptyList",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "Collections.emptyList",
-          "local": "emptyList"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "java.util.Collections",
+        "names": "Collections.emptyList",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "Collections.emptyList",
+            "local": "emptyList"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "import com.example.format.Formatter;",
@@ -184,17 +190,19 @@
     "language": "java",
     "line_start": 11,
     "line_end": 11,
-    "metadata": {
-      "module": "com.example.format.Formatter",
-      "names": "Formatter",
-      "language_hint": "",
-      "bindings": [
-        {
-          "name": "Formatter",
-          "local": "Formatter"
-        }
-      ]
-    }
+    "imports": [
+      {
+        "module": "com.example.format.Formatter",
+        "names": "Formatter",
+        "language_hint": "",
+        "bindings": [
+          {
+            "name": "Formatter",
+            "local": "Formatter"
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "",

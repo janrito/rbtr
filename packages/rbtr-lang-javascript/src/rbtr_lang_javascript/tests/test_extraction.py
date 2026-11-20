@@ -53,7 +53,7 @@ def test_extracts_import_metadata(indexed: Indexed, files: dict[str, str], expec
     """The first import has the expected metadata."""
     with indexed(files) as build:
         reply = outline(build)
-    imports = [s.metadata for s in reply if s.kind == ChunkKind.IMPORT]
+    imports = [meta for s in reply for meta in s.imports]
     assert imports, f"no import extracted from {files!r}"
     assert imports[0] == ImportMeta(**expected)
 
@@ -70,7 +70,7 @@ def test_extracts_multi_import(
     """Multiple imports have correct count and per-import metadata."""
     with indexed(files) as build:
         reply = outline(build)
-    imports = [s.metadata for s in reply if s.kind == ChunkKind.IMPORT]
+    imports = [meta for s in reply for meta in s.imports]
     assert len(imports) == count
     assert imports == [ImportMeta(**expected) for expected in metadata_list]
 
@@ -87,7 +87,7 @@ export { helper } from "./b";
 """
     with indexed({"input.ts": src}) as build:
         chunks = outline(build)
-    imports = [(c.metadata.module, c.name) for c in chunks if c.metadata]
+    imports = [(meta.module, c.name) for c in chunks for meta in c.imports]
     assert ("./c", 'export * from "./c";') in imports
     assert ("./b", 'export { helper } from "./b";') in imports
 

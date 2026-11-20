@@ -16,12 +16,14 @@
     "language": "c",
     "line_start": 8,
     "line_end": 8,
-    "metadata": {
-      "module": "stdio.h",
-      "names": "*",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "stdio.h",
+        "names": "*",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "#include \"greeter.h\"",
@@ -31,12 +33,14 @@
     "language": "c",
     "line_start": 9,
     "line_end": 9,
-    "metadata": {
-      "module": "greeter.h",
-      "names": "*",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "greeter.h",
+        "names": "*",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "MAX_NAME",
@@ -262,12 +266,14 @@
     "language": "c",
     "line_start": 1,
     "line_end": 1,
-    "metadata": {
-      "module": "shop.h",
-      "names": "*",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "shop.h",
+        "names": "*",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "valid",
@@ -304,12 +310,14 @@
     "language": "c",
     "line_start": 1,
     "line_end": 1,
-    "metadata": {
-      "module": "shop.h",
-      "names": "*",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "shop.h",
+        "names": "*",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "use_shop",
@@ -337,12 +345,14 @@
     "language": "c",
     "line_start": 2,
     "line_end": 2,
-    "metadata": {
-      "module": "text.h",
-      "names": "*",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "text.h",
+        "names": "*",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "text_length",

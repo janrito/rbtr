@@ -468,7 +468,7 @@ export interface SearchHitOut {
   line_end: number;
   match_line_offset?: number | null;
   matched_terms?: string[];
-  metadata?: ImportMeta | null;
+  imports?: ImportMeta[];
   repo_path?: string | null;
   score: number;
   signals?: SearchSignals | null;
@@ -567,7 +567,7 @@ export interface SymbolOut {
   content: string;
   line_start: number;
   line_end: number;
-  metadata?: ImportMeta | null;
+  imports?: ImportMeta[];
 }
 /**
  * A file's outline, with the snapshot read and the path outlined.
@@ -594,7 +594,7 @@ export interface SymbolRefOut {
   language?: string;
   line_start: number;
   line_end: number;
-  metadata?: ImportMeta | null;
+  imports?: ImportMeta[];
 }
 /**
  * References to a symbol, with the snapshot read and the paths scoped to.

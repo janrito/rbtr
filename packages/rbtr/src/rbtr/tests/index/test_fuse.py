@@ -43,9 +43,15 @@ def fused(scenario: FuseScenario) -> tuple[FuseScenario, list[ScoredChunk]]:
             "line_end": [1] * n,
             "start_byte": [0] * n,
             "end_byte": [0] * n,
-            # An import is stored with its payload; other kinds with none.
+            # An import is stored with its import; other kinds import nothing.
             "metadata": [
-                s.metadata.model_dump() if s.kind == ChunkKind.IMPORT else None
+                {
+                    "node_types": None,
+                    "refs": None,
+                    "imports": [{"text": s.name, **s.metadata.model_dump()}]
+                    if s.kind == ChunkKind.IMPORT
+                    else [],
+                }
                 for s in scenario.chunks
             ],
             "embedding_state": ["none"] * n,

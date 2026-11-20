@@ -401,15 +401,10 @@ def case_ts_module_const() -> SymbolCase:
 
 @case(
     tags=["symbol"],
-    marks=pytest.mark.xfail(
-        strict=True,
-        reason="a declaration of several names is one span captured once per name, so the "
-        "index keeps the first name (one-span-one-chunk Phase 6: a chunk lists its names)",
-    ),
 )
 def case_js_object_destructure() -> SymbolCase:
     """Object destructuring (shorthand)."""
-    return {"input.js": "const {a, b} = o;\n"}, [("variable", "a", ""), ("variable", "b", "")]
+    return {"input.js": "const {a, b} = o;\n"}, [("variable", "a, b", "")]
 
 
 @case(tags=["symbol"])
@@ -420,60 +415,40 @@ def case_js_object_renamed() -> SymbolCase:
 
 @case(
     tags=["symbol"],
-    marks=pytest.mark.xfail(
-        strict=True,
-        reason="a declaration of several names is one span captured once per name, so the "
-        "index keeps the first name (one-span-one-chunk Phase 6: a chunk lists its names)",
-    ),
 )
 def case_js_array_destructure() -> SymbolCase:
     """Array destructuring."""
-    return {"input.js": "const [x, y] = arr;\n"}, [("variable", "x", ""), ("variable", "y", "")]
+    return {"input.js": "const [x, y] = arr;\n"}, [("variable", "x, y", "")]
 
 
 @case(
     tags=["symbol"],
-    marks=pytest.mark.xfail(
-        strict=True,
-        reason="a declaration of several names is one span captured once per name, so the "
-        "index keeps the first name (one-span-one-chunk Phase 6: a chunk lists its names)",
-    ),
 )
 def case_js_object_rest() -> SymbolCase:
     """Object rest element."""
     return (
         {"input.js": "const {a, ...rest} = o;\n"},
-        [("variable", "a", ""), ("variable", "rest", "")],
+        [("variable", "a, rest", "")],
     )
 
 
 @case(
     tags=["symbol"],
-    marks=pytest.mark.xfail(
-        strict=True,
-        reason="a declaration of several names is one span captured once per name, so the "
-        "index keeps the first name (one-span-one-chunk Phase 6: a chunk lists its names)",
-    ),
 )
 def case_js_exported_destructure() -> SymbolCase:
     """Exported destructuring."""
     return (
         {"input.js": "export const {a, b} = o;\n"},
-        [("variable", "a", ""), ("variable", "b", "")],
+        [("variable", "a, b", "")],
     )
 
 
 @case(
     tags=["symbol"],
-    marks=pytest.mark.xfail(
-        strict=True,
-        reason="a declaration of several names is one span captured once per name, so the "
-        "index keeps the first name (one-span-one-chunk Phase 6: a chunk lists its names)",
-    ),
 )
 def case_ts_object_destructure() -> SymbolCase:
     """TS object destructuring."""
-    return {"input.ts": "const {a, b} = o;\n"}, [("variable", "a", ""), ("variable", "b", "")]
+    return {"input.ts": "const {a, b} = o;\n"}, [("variable", "a, b", "")]
 
 
 @case(tags=["symbol"], marks=_xfail_nested)
@@ -481,7 +456,7 @@ def case_js_nested_array_xfail() -> SymbolCase:
     """Nested array destructuring — only the outer level captured today."""
     return (
         {"input.js": "const [a, [b, c]] = x;\n"},
-        [("variable", "a", ""), ("variable", "b", ""), ("variable", "c", "")],
+        [("variable", "a, b, c", "")],
     )
 
 

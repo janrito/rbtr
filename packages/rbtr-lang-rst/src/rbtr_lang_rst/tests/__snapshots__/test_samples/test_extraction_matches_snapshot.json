@@ -214,12 +214,14 @@
     "language": "rst",
     "line_start": 9,
     "line_end": 9,
-    "metadata": {
-      "module": "config",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "config",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": ":func:`format_greeting`",
@@ -229,12 +231,14 @@
     "language": "rst",
     "line_start": 9,
     "line_end": 9,
-    "metadata": {
-      "module": "",
-      "names": "format_greeting",
-      "language_hint": "python",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "",
+        "names": "format_greeting",
+        "language_hint": "python",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": ":class:`Greeter`",
@@ -244,12 +248,14 @@
     "language": "rst",
     "line_start": 10,
     "line_end": 10,
-    "metadata": {
-      "module": "",
-      "names": "Greeter",
-      "language_hint": "python",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "",
+        "names": "Greeter",
+        "language_hint": "python",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "`the guide <guide.rst>`_",
@@ -259,12 +265,14 @@
     "language": "rst",
     "line_start": 10,
     "line_end": 10,
-    "metadata": {
-      "module": "guide.rst",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "guide.rst",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "intro",
@@ -274,12 +282,14 @@
     "language": "rst",
     "line_start": 16,
     "line_end": 16,
-    "metadata": {
-      "module": "intro",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "intro",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "api/index",
@@ -289,12 +299,14 @@
     "language": "rst",
     "line_start": 17,
     "line_end": 17,
-    "metadata": {
-      "module": "api/index",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "api/index",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "Locales",
@@ -313,12 +325,14 @@
     "language": "rst",
     "line_start": 22,
     "line_end": 22,
-    "metadata": {
-      "module": "greeter.locales",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "greeter.locales",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": ":doc:`topics/intro`",
@@ -328,12 +342,14 @@
     "language": "rst",
     "line_start": 24,
     "line_end": 24,
-    "metadata": {
-      "module": "topics/intro",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "topics/intro",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": ":ref:`the options <greeting-options>`",
@@ -343,12 +359,14 @@
     "language": "rst",
     "line_start": 24,
     "line_end": 24,
-    "metadata": {
-      "module": "",
-      "names": "greeting-options",
-      "language_hint": "rst",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "",
+        "names": "greeting-options",
+        "language_hint": "rst",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": ":ref:`format_greeting`",
@@ -358,12 +376,14 @@
     "language": "rst",
     "line_start": 25,
     "line_end": 25,
-    "metadata": {
-      "module": "",
-      "names": "format_greeting",
-      "language_hint": "rst",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "",
+        "names": "format_greeting",
+        "language_hint": "rst",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": ":ref:`salutations`",
@@ -373,12 +393,14 @@
     "language": "rst",
     "line_start": 25,
     "line_end": 25,
-    "metadata": {
-      "module": "",
-      "names": "salutations",
-      "language_hint": "rst",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "",
+        "names": "salutations",
+        "language_hint": "rst",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": ":ref:`the greetings table <greetings table>`",
@@ -388,12 +410,14 @@
     "language": "rst",
     "line_start": 25,
     "line_end": 25,
-    "metadata": {
-      "module": "",
-      "names": "greetings table",
-      "language_hint": "rst",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "",
+        "names": "greetings table",
+        "language_hint": "rst",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "`the guide's options <guide.rst#greeting-options>`_",
@@ -403,12 +427,14 @@
     "language": "rst",
     "line_start": 26,
     "line_end": 26,
-    "metadata": {
-      "module": "guide.rst",
-      "names": "greeting-options",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "guide.rst",
+        "names": "greeting-options",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "`usage <#usage>`_",
@@ -418,12 +444,14 @@
     "language": "rst",
     "line_start": 26,
     "line_end": 26,
-    "metadata": {
-      "module": "rst.rst",
-      "names": "usage",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "rst.rst",
+        "names": "usage",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   },
   {
     "name": "Detail",
@@ -451,11 +479,13 @@
     "language": "rst",
     "line_start": 7,
     "line_end": 7,
-    "metadata": {
-      "module": "detail",
-      "names": "",
-      "language_hint": "",
-      "bindings": []
-    }
+    "imports": [
+      {
+        "module": "detail",
+        "names": "",
+        "language_hint": "",
+        "bindings": []
+      }
+    ]
   }
 ]

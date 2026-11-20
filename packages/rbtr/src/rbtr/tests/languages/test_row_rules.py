@@ -27,12 +27,17 @@ from rbtr.domain.rules import CaptureRow, ChunkRow
                 "line_start": 1,
                 "line_end": 1,
                 "metadata": {
-                    "module": "os",
-                    "names": "",
-                    "language_hint": "",
                     "node_types": None,
                     "refs": None,
-                    "bindings": [{"name": "os", "local": "os"}],
+                    "imports": [
+                        {
+                            "text": "x",
+                            "module": "os",
+                            "names": "",
+                            "language_hint": "",
+                            "bindings": [{"name": "os", "local": "os"}],
+                        }
+                    ],
                 },
                 "docs": None,
             },
@@ -52,9 +57,6 @@ from rbtr.domain.rules import CaptureRow, ChunkRow
                 "line_start": 1,
                 "line_end": 1,
                 "metadata": {
-                    "module": None,
-                    "names": None,
-                    "language_hint": None,
                     "node_types": None,
                     "refs": [
                         {
@@ -65,7 +67,7 @@ from rbtr.domain.rules import CaptureRow, ChunkRow
                         },
                         {"kind": "calls", "lookup": "unqualified", "path": ["make"], "type": None},
                     ],
-                    "bindings": None,
+                    "imports": [],
                 },
                 "docs": None,
             },
@@ -85,9 +87,6 @@ from rbtr.domain.rules import CaptureRow, ChunkRow
                 "line_start": 1,
                 "line_end": 1,
                 "metadata": {
-                    "module": None,
-                    "names": None,
-                    "language_hint": None,
                     "node_types": None,
                     "refs": [
                         {
@@ -99,7 +98,7 @@ from rbtr.domain.rules import CaptureRow, ChunkRow
                         {"kind": "calls", "lookup": "type", "path": ["f"], "type": None},
                         {"kind": "calls", "lookup": "member", "path": ["run"], "type": None},
                     ],
-                    "bindings": None,
+                    "imports": [],
                 },
                 "docs": None,
             },
@@ -119,12 +118,9 @@ from rbtr.domain.rules import CaptureRow, ChunkRow
                 "line_start": 1,
                 "line_end": 1,
                 "metadata": {
-                    "module": None,
-                    "names": None,
-                    "language_hint": None,
                     "node_types": ["expression_statement"],
                     "refs": [],
-                    "bindings": None,
+                    "imports": [],
                 },
                 "docs": None,
             },
@@ -143,7 +139,7 @@ from rbtr.domain.rules import CaptureRow, ChunkRow
                 "end_byte": 1,
                 "line_start": 1,
                 "line_end": 1,
-                "metadata": None,
+                "metadata": {"node_types": None, "refs": None, "imports": []},
                 "docs": None,
             },
             id="a-section",
@@ -162,32 +158,6 @@ def test_a_chunk_whose_fields_agree_is_accepted(row: dict) -> None:
                 "blob_sha": "b",
                 "file_language": "python",
                 "language": "python",
-                "kind": "function",
-                "name": "x",
-                "scope": "",
-                "content": "x",
-                "start_byte": 0,
-                "end_byte": 1,
-                "line_start": 1,
-                "line_end": 1,
-                "metadata": {
-                    "module": "os",
-                    "names": None,
-                    "language_hint": None,
-                    "node_types": None,
-                    "refs": [],
-                    "bindings": None,
-                },
-                "docs": None,
-            },
-            "import_fields_only_on_imports",
-            id="a-module-on-a-function",
-        ),
-        pytest.param(
-            {
-                "blob_sha": "b",
-                "file_language": "python",
-                "language": "python",
                 "kind": "import",
                 "name": "x",
                 "scope": "",
@@ -196,18 +166,11 @@ def test_a_chunk_whose_fields_agree_is_accepted(row: dict) -> None:
                 "end_byte": 1,
                 "line_start": 1,
                 "line_end": 1,
-                "metadata": {
-                    "module": "os",
-                    "names": "",
-                    "language_hint": "",
-                    "node_types": None,
-                    "refs": None,
-                    "bindings": None,
-                },
+                "metadata": {"node_types": None, "refs": None, "imports": []},
                 "docs": None,
             },
-            "import_fields_only_on_imports",
-            id="an-import-without-bindings",
+            "an_import_imports",
+            id="an-import-that-imports-nothing",
         ),
         pytest.param(
             {
@@ -223,12 +186,9 @@ def test_a_chunk_whose_fields_agree_is_accepted(row: dict) -> None:
                 "line_start": 1,
                 "line_end": 1,
                 "metadata": {
-                    "module": None,
-                    "names": None,
-                    "language_hint": None,
                     "node_types": ["block"],
                     "refs": [],
-                    "bindings": None,
+                    "imports": [],
                 },
                 "docs": None,
             },
@@ -249,12 +209,17 @@ def test_a_chunk_whose_fields_agree_is_accepted(row: dict) -> None:
                 "line_start": 1,
                 "line_end": 1,
                 "metadata": {
-                    "module": "os",
-                    "names": "",
-                    "language_hint": "",
                     "node_types": None,
                     "refs": [],
-                    "bindings": [],
+                    "imports": [
+                        {
+                            "text": "x",
+                            "module": "os",
+                            "names": "",
+                            "language_hint": "",
+                            "bindings": [],
+                        }
+                    ],
                 },
                 "docs": None,
             },
@@ -275,9 +240,6 @@ def test_a_chunk_whose_fields_agree_is_accepted(row: dict) -> None:
                 "line_start": 1,
                 "line_end": 1,
                 "metadata": {
-                    "module": None,
-                    "names": None,
-                    "language_hint": None,
                     "node_types": None,
                     "refs": [
                         {
@@ -287,7 +249,7 @@ def test_a_chunk_whose_fields_agree_is_accepted(row: dict) -> None:
                             "type": None,
                         }
                     ],
-                    "bindings": None,
+                    "imports": [],
                 },
                 "docs": None,
             },
@@ -308,12 +270,9 @@ def test_a_chunk_whose_fields_agree_is_accepted(row: dict) -> None:
                 "line_start": 1,
                 "line_end": 1,
                 "metadata": {
-                    "module": None,
-                    "names": None,
-                    "language_hint": None,
                     "node_types": None,
                     "refs": [{"kind": "calls", "lookup": "member", "path": [], "type": None}],
-                    "bindings": None,
+                    "imports": [],
                 },
                 "docs": None,
             },
@@ -334,14 +293,11 @@ def test_a_chunk_whose_fields_agree_is_accepted(row: dict) -> None:
                 "line_start": 1,
                 "line_end": 1,
                 "metadata": {
-                    "module": None,
-                    "names": None,
-                    "language_hint": None,
                     "node_types": None,
                     "refs": [
                         {"kind": "calls", "lookup": "unqualified", "path": ["f"], "type": ["Order"]}
                     ],
-                    "bindings": None,
+                    "imports": [],
                 },
                 "docs": None,
             },
@@ -362,14 +318,11 @@ def test_a_chunk_whose_fields_agree_is_accepted(row: dict) -> None:
                 "line_start": 1,
                 "line_end": 1,
                 "metadata": {
-                    "module": None,
-                    "names": None,
-                    "language_hint": None,
                     "node_types": None,
                     "refs": [
                         {"kind": "inherits", "lookup": "member", "path": ["Base"], "type": None}
                     ],
-                    "bindings": None,
+                    "imports": [],
                 },
                 "docs": None,
             },
