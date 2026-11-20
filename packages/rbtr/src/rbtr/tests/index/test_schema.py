@@ -26,6 +26,7 @@ from pytest_mock import MockerFixture
 
 from rbtr.config import config, index_dir_of
 from rbtr.domain.models import (
+    EmbeddingState,
     FileSnapshot,
     Import,
     ImportMeta,
@@ -42,7 +43,7 @@ from rbtr.index import load_sql
 from rbtr.index.constants import EMBEDDING_FORMAT_VERSION, SCHEMA_VERSION
 from rbtr.index.index import Index
 from rbtr.index.migrations import BringForward, FileKind, Migrate, chain, parse_calver, run
-from rbtr.index.staging import TokenisedChunk
+from rbtr.index.staging import EmbeddingStagingRow, TokenisedChunk
 
 from .cases_index_versioning import FileAfter, MigrationScenario, VersioningScenario
 from .conftest import make_chunk, make_snap
@@ -93,7 +94,7 @@ def reopened(
                 )
                 ws.add_chunk(tc)
             if before.seeded_chunks:
-                ws.insert_snapshots(
+                ws.replace_snapshots(
                     [
                         FileSnapshot(
                             snapshot_sha="head",
@@ -102,11 +103,19 @@ def reopened(
                         )
                         for c in before.seeded_chunks
                     ],
+                    snapshot_sha="head",
                 )
             if before.seeded_embeddings:
                 ids = list(before.seeded_embeddings.keys())
                 vecs = list(before.seeded_embeddings.values())
-                ws.update_embeddings(ids, vecs)
+                ws.update_embeddings(
+                    EmbeddingStagingRow.validate(
+                        pl.DataFrame({"id": ids, "embedding": vecs}).with_columns(
+                            embedding_truncated=False
+                        ),
+                        cast=True,
+                    )
+                )
         seed.close()
 
         # The schema version is the registry's; the embedding meta, the file's.
@@ -164,7 +173,7 @@ def test_embeddings_survive_matches_scenario(
         return
     [repo] = index.repos()
     chunks = index.chunks(at=repo.at("head"))
-    any_embedded = chunks["has_embedding"].any()
+    any_embedded = (chunks["embedding_state"] != EmbeddingState.NONE).any()
     if scenario.expected_embeddings_survive:
         assert any_embedded, "expected some embedding to survive"
     else:
@@ -192,8 +201,9 @@ def _seed_one_chunk(path: Path) -> None:
     repo = seed.register("/repo")
     with seed.session(repo) as ws:
         ws.add_chunk(make_chunk("c1"))
-        ws.insert_snapshots(
+        ws.replace_snapshots(
             [FileSnapshot(snapshot_sha="head", file_path="f.py", blob_sha="blob_c1")],
+            snapshot_sha="head",
         )
     seed.close()
 
@@ -281,8 +291,9 @@ def test_fts_persists_across_reopen(tmp_path: Path) -> None:
     repo = index1.register("/repo")
     with index1.session(repo) as ws:
         ws.add_chunk(chunk)
-        ws.insert_snapshots(
+        ws.replace_snapshots(
             [FileSnapshot(snapshot_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha)],
+            snapshot_sha="head",
         )
     ref = repo.at("head")
     assert len(index1.fulltext_matches("persist", within=[ref], top_k=5)) == 1
@@ -359,7 +370,7 @@ def test_forgetting_a_projects_last_checkout_deletes_its_file(tmp_path: Path) ->
     forgotten = index.register("/forgotten")
     with index.session(forgotten) as ws:
         ws.add_chunk(make_chunk("c", path="a.py", blob="b"))
-        ws.insert_snapshots([make_snap("head", "a.py", "b")])
+        ws.replace_snapshots([make_snap("head", "a.py", "b")], snapshot_sha="head")
         ws.mark_indexed(snapshot_sha="head")
     query = "SELECT path FROM duckdb_databases() WHERE database_name = current_database()"
     with index.reader(kept) as cur:
@@ -569,7 +580,7 @@ def test_a_project_file_from_2026_10_0_keeps_its_import_metadata(tmp_path: Path)
     with seed.session(repo) as ws:
         ws.add_chunk(imp)
         ws.add_chunk(fn)
-        ws.insert_snapshots([make_snap("head", "app.py", "blob_app")])
+        ws.replace_snapshots([make_snap("head", "app.py", "blob_app")], snapshot_sha="head")
     seed.close()
     (project_file,) = (tmp_path / "index").glob("*.duckdb")
     with duckdb.connect(str(project_file)) as con:

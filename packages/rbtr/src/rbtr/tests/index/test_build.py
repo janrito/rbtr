@@ -422,12 +422,13 @@ def test_build_index_sweeps_residue_from_crashed_builds(
     # Simulate residue: a snapshot for a commit that never finished.
     repo = index.register(repo_path)
     with index.session(repo) as ws:
-        ws.insert_snapshots(
+        ws.replace_snapshots(
             [
                 FileSnapshot(
                     snapshot_sha="crashed_sha", file_path="leftover.py", blob_sha="leftover_blob"
                 )
             ],
+            snapshot_sha="crashed_sha",
         )
     assert index.has_indexed(at=repo.at("crashed_sha")) is False
 

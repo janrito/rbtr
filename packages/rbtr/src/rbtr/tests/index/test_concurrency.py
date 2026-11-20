@@ -5,9 +5,12 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from rbtr.domain.models import Edge, EdgeKind, FileSnapshot
+import polars as pl
+
+from rbtr.domain.models import EdgeKind, FileSnapshot
 from rbtr.index.index import Index
-from rbtr.index.staging import TokenisedChunk
+from rbtr.index.staging import EmbeddingStagingRow, TokenisedChunk
+from rbtr.languages.edges import InferredEdgeRow
 
 from .conftest import make_chunk
 
@@ -28,7 +31,7 @@ def test_commit_makes_writes_visible_during_concurrent_work(
         with index.session(repo) as session:
             for c in [math_func, http_func, string_func]:
                 session.add_chunk(c)
-            session.insert_snapshots(
+            session.replace_snapshots(
                 [
                     FileSnapshot(
                         snapshot_sha="head",
@@ -37,24 +40,51 @@ def test_commit_makes_writes_visible_during_concurrent_work(
                     )
                     for c in [math_func, http_func, string_func]
                 ],
+                snapshot_sha="head",
             )
-            session.insert_edges(
-                [
-                    Edge(
-                        source_id=math_func.id,
-                        target_id=http_func.id,
-                        kind=EdgeKind.IMPORTS,
-                        source_path=math_func.file_path,
-                        target_path=http_func.file_path,
-                    )
-                ],
+            session.replace_edges(
+                InferredEdgeRow.validate(
+                    pl.DataFrame(
+                        [
+                            {
+                                "source_id": math_func.id,
+                                "target_id": http_func.id,
+                                "kind": EdgeKind.IMPORTS,
+                                "source_path": math_func.file_path,
+                                "target_path": http_func.file_path,
+                            }
+                        ]
+                    ),
+                    cast=True,
+                ),
                 snapshot_sha="head",
             )
         first_done.set()
         with index.session(repo) as session:
-            session.update_embeddings([math_func.id], [[0.1, 0.2, 0.3]])
-            session.update_embeddings([http_func.id], [[0.3, 0.4, 0.5]])
-            session.update_embeddings([string_func.id], [[0.5, 0.6, 0.7]])
+            session.update_embeddings(
+                EmbeddingStagingRow.validate(
+                    pl.DataFrame(
+                        {"id": [math_func.id], "embedding": [[0.1, 0.2, 0.3]]}
+                    ).with_columns(embedding_truncated=False),
+                    cast=True,
+                )
+            )
+            session.update_embeddings(
+                EmbeddingStagingRow.validate(
+                    pl.DataFrame(
+                        {"id": [http_func.id], "embedding": [[0.3, 0.4, 0.5]]}
+                    ).with_columns(embedding_truncated=False),
+                    cast=True,
+                )
+            )
+            session.update_embeddings(
+                EmbeddingStagingRow.validate(
+                    pl.DataFrame(
+                        {"id": [string_func.id], "embedding": [[0.5, 0.6, 0.7]]}
+                    ).with_columns(embedding_truncated=False),
+                    cast=True,
+                )
+            )
 
     t = threading.Thread(target=writer)
     t.start()
@@ -83,11 +113,12 @@ def test_concurrent_batch_and_search(tmp_path: Path) -> None:
     with index.session(repo) as session:
         for c in chunks:
             session.add_chunk(c)
-        session.insert_snapshots(
+        session.replace_snapshots(
             [
                 FileSnapshot(snapshot_sha="head", file_path=c.file_path, blob_sha=c.blob_sha)
                 for c in chunks
             ],
+            snapshot_sha="head",
         )
 
     errors: list[str] = []
@@ -102,14 +133,17 @@ def test_concurrent_batch_and_search(tmp_path: Path) -> None:
                 content=f"def extra_{i}(): common_term",
                 path=f"src/extra_{i}.py",
             )
+            # Each batch is a snapshot of its own, as each build is.
+            batch = f"batch_{i}"
             with index.session(repo) as session:
                 session.add_chunk(extra)
-                session.insert_snapshots(
+                session.replace_snapshots(
                     [
                         FileSnapshot(
-                            snapshot_sha="head", file_path=extra.file_path, blob_sha=extra.blob_sha
+                            snapshot_sha=batch, file_path=extra.file_path, blob_sha=extra.blob_sha
                         )
                     ],
+                    snapshot_sha=batch,
                 )
         stop.set()
 
@@ -150,22 +184,24 @@ def test_index_survives_threads_that_write_and_exit(
     repo = index.register("/repo")
     seen: list[int] = []
 
-    def write(chunk: TokenisedChunk) -> None:
+    def write(chunks: list[TokenisedChunk]) -> None:
+        """Write `head` as a build does: the snapshot's every file, replacing the last."""
         with index.session(repo) as session:
-            session.add_chunk(chunk)
-            session.insert_snapshots(
+            for chunk in chunks:
+                session.add_chunk(chunk)
+            session.replace_snapshots(
                 [
-                    FileSnapshot(
-                        snapshot_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha
-                    )
+                    FileSnapshot(snapshot_sha="head", file_path=c.file_path, blob_sha=c.blob_sha)
+                    for c in chunks
                 ],
+                snapshot_sha="head",
             )
 
     def read() -> None:
         seen.append(len(index.chunks(at=repo.at("head"))))
 
-    for chunk in (math_func, http_func):
-        for work in (lambda c=chunk: write(c), read):
+    for chunks in ([math_func], [math_func, http_func]):
+        for work in (lambda c=chunks: write(c), read):
             thread = threading.Thread(target=work)
             thread.start()
             thread.join()

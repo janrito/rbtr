@@ -93,6 +93,18 @@ class EdgeKind(StrEnum):
     CONFIGURES = "configures"
 
 
+class EmbeddingState(StrEnum):
+    """Whether a chunk has an embedding, and whether its text was cut to make it.
+
+    `TRUNCATED` is an embedding of the text's first part only: the
+    chunk was longer than the model's context.
+    """
+
+    NONE = "none"
+    FULL = "full"
+    TRUNCATED = "truncated"
+
+
 class ImportMeta(BaseModel):
     """Structured import data extracted by tree-sitter.
 
@@ -309,7 +321,7 @@ class ScoredChunk(BaseModel, frozen=True):
     line_end: int
     metadata: ImportMeta | None = None
     """An import's metadata when it records any; `None` for every other result."""
-    has_embedding: bool = Field(default=False, exclude=True)
+    embedding_state: EmbeddingState = Field(default=EmbeddingState.NONE, exclude=True)
     score: float
     lexical: float
     semantic: float
@@ -334,23 +346,6 @@ class FileSnapshot(BaseModel, frozen=True):
     file_path: str
     blob_sha: str
     detected_language: str = ""
-
-
-class Edge(BaseModel, frozen=True):
-    """A directed relationship between content at two locations.
-
-    A chunk is content and sits at as many paths as hold those bytes, so
-    the paths are part of the relationship: `docx/helpers.py` importing
-    its sibling and `xlsx/helpers.py` importing a different one are two
-    edges from a single import chunk, distinguished by where each end
-    sits. `find-refs` reports the location that did the referring.
-    """
-
-    source_id: str
-    target_id: str
-    kind: EdgeKind
-    source_path: str
-    target_path: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -516,7 +511,6 @@ class Scope(StrEnum):
 Chunks = TypeAdapter(list[Chunk])
 ScoredChunks = TypeAdapter(list[ScoredChunk])
 FileSnapshots = TypeAdapter(list[FileSnapshot])
-Edges = TypeAdapter(list[Edge])
 
 
 class FileOutcome(StrEnum):

@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import itertools
 import time
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator
 
 import dataframely as dy
+import polars as pl
 import structlog
 
 from rbtr.config import config
@@ -23,12 +24,10 @@ from rbtr.index.embeddings import Embedder, EmbedResult, embedding_text
 from rbtr.index.index import Index
 from rbtr.index.progress import ProgressCallback, _noop_progress
 from rbtr.index.results import ChunkResultRow, EmbedTextRow
+from rbtr.index.staging import EmbeddingStagingRow
 from rbtr.logging import elapsed_ms
 
 log = structlog.get_logger(__name__)
-
-
-type EmbeddingBatch = Sequence[tuple[str, EmbedResult]]
 
 
 def embedding_batches(page: dy.DataFrame[ChunkResultRow]) -> Iterator[dy.DataFrame[EmbedTextRow]]:
@@ -38,18 +37,33 @@ def embedding_batches(page: dy.DataFrame[ChunkResultRow]) -> Iterator[dy.DataFra
         yield EmbedTextRow.validate(batch)
 
 
-def write_embedding_batch(index: Index, repo: Repo, batch: EmbeddingBatch) -> None:
-    """Commit chunk IDs paired with their embedding results in one finite session.
+def embedded(
+    batch: dy.DataFrame[EmbedTextRow], results: list[EmbedResult]
+) -> dy.DataFrame[EmbeddingStagingRow]:
+    """*batch*'s chunk ids, each with its result's vector and truncation flag.
 
-    The caller supplies writer ownership for repo's project. Vectors and
-    truncation flags stay associated with their chunk IDs through this API.
+    *results* are the model's, one per row of *batch* and in its order.
+    Raises if their counts differ, or if the vectors differ in length.
+    """
+    return (
+        batch.select("id")
+        .with_columns(
+            embedding=pl.Series([r.vector for r in results], dtype=pl.List(pl.Float32)),
+            embedding_truncated=pl.Series([r.truncated for r in results], dtype=pl.Boolean),
+        )
+        .pipe(EmbeddingStagingRow.validate)
+    )
+
+
+def write_embedding_batch(
+    index: Index, repo: Repo, embeddings: dy.DataFrame[EmbeddingStagingRow]
+) -> None:
+    """Commit one batch of *embeddings* in its own session.
+
+    The caller supplies writer ownership for repo's project.
     """
     with index.session(repo) as session:
-        session.update_embeddings(
-            [chunk_id for chunk_id, _result in batch],
-            [result.vector for _chunk_id, result in batch],
-            truncated=[result.truncated for _chunk_id, result in batch],
-        )
+        session.update_embeddings(embeddings)
 
 
 def embed_index(
@@ -85,11 +99,7 @@ def embed_index(
             except (RuntimeError, ValueError):
                 log.warning("embedding_batch_failed", exc_info=True)
                 continue
-            write_embedding_batch(
-                index,
-                at.repo,
-                list(zip(batch["id"], results, strict=True)),
-            )
+            write_embedding_batch(index, at.repo, embedded(batch, results))
             done += len(batch)
             on_progress("embedding", done, outstanding)
 

@@ -5,9 +5,13 @@
 — which are facts about the table, so they live with the write path
 that fills them.
 
-Each `staged_*` builder converts a list of domain objects (`Chunk`, `Edge`,
-or `FileSnapshot`) into a typed polars frame whose column names match the
-corresponding SQL staging view (`_stg`).  Registering a frame as a virtual
+Each `staged_*` builder turns what its producer makes into a typed polars
+frame whose column names match the corresponding SQL staging view (`_stg`).
+A producer that makes one item at a time hands over domain objects:
+extraction yields a file's `Chunk`s and its `FileSnapshot`.  A producer
+that works on sets hands over a frame: edge inference returns its edges as
+an `InferredEdgeRow` frame, which staging only scopes to a snapshot, and
+the embed loop builds an `EmbeddingStagingRow` frame from each batch.  Registering a frame as a virtual
 view and running `INSERT INTO ... SELECT` against it is orders of magnitude
 faster than `executemany` for large batches; `duckdb.register` accepts polars
 frames natively (shared Arrow memory, zero-copy).  Validation via dataframely
@@ -25,13 +29,12 @@ from pydantic import TypeAdapter
 from rbtr.domain.models import (
     Chunk,
     ChunkKind,
-    Edge,
     EdgeKind,
-    Edges,
     FileSnapshot,
     FileSnapshots,
     SnapshotRef,
 )
+from rbtr.languages.edges import InferredEdgeRow
 
 
 class TokenisedChunk(Chunk, frozen=True):
@@ -64,7 +67,7 @@ class ChunkStagingRow(dy.Schema):
     content-addressed and shared across checkouts and paths (both live in
     `file_snapshots`, joined on blob_sha + file_language).
     No `embedding` column: embeddings are always NULL on
-    initial insert and set later via `update_embedding(s)`.
+    initial insert and set later via `update_embeddings`.
     """
 
     id = dy.String(nullable=False)
@@ -125,7 +128,10 @@ class FileSnapshotStagingRow(dy.Schema):
 
 
 class EmbeddingStagingRow(dy.Schema):
-    """Matches the `_emb_stg` view columns consumed by `update_embeddings.sql`.
+    """Chunk ids with their embeddings, as `update_embeddings.sql` reads them from `_emb_stg`.
+
+    The embed loop builds it whole from a batch and the model's results,
+    so a vector cannot be paired with the wrong chunk.
 
     `embedding` is a variable-length `List[Float32]`, matching the
     `chunks.embedding FLOAT[]` column.  Its dimension is a runtime
@@ -170,22 +176,18 @@ def staged_chunks(chunks: list[TokenisedChunk]) -> dy.DataFrame[ChunkStagingRow]
     )
 
 
-def staged_edges(edges: list[Edge], *, at: SnapshotRef) -> dy.DataFrame[EdgeStagingRow]:
+def staged_edges(
+    edges: dy.DataFrame[InferredEdgeRow], *, at: SnapshotRef
+) -> dy.DataFrame[EdgeStagingRow]:
     """Build a staging frame of edges scoped to *at*.
 
     Every row in the batch shares *at*, so `repo_id` and `snapshot_sha`
     are broadcast here rather than repeated per edge in SQL.
     """
-    if not edges:
-        return EdgeStagingRow.create_empty()
-    return (
-        pl.DataFrame(Edges.dump_python(edges, mode="json"))
-        .with_columns(
-            repo_id=pl.lit(at.repo.repo_id, dtype=pl.Int32),
-            snapshot_sha=pl.lit(at.snapshot_sha),
-        )
-        .pipe(EdgeStagingRow.validate, cast=True)
-    )
+    return edges.with_columns(
+        repo_id=pl.lit(at.repo.repo_id, dtype=pl.Int32),
+        snapshot_sha=pl.lit(at.snapshot_sha),
+    ).pipe(EdgeStagingRow.validate, cast=True)
 
 
 def staged_file_snapshots(
@@ -199,23 +201,6 @@ def staged_file_snapshots(
         .with_columns(repo_id=pl.lit(repo_id, dtype=pl.Int32))
         .pipe(FileSnapshotStagingRow.validate, cast=True)
     )
-
-
-def staged_embeddings(
-    ids: list[str],
-    embeddings: list[list[float]],
-    truncated: list[bool],
-) -> dy.DataFrame[EmbeddingStagingRow]:
-    """Build a staging frame for `update_embeddings.sql`.
-
-    Paired lists (one embedding per id) -- callers maintain
-    correspondence.  All lists must have equal length.
-    """
-    if not ids:
-        return EmbeddingStagingRow.create_empty()
-    return pl.DataFrame(
-        {"id": ids, "embedding": embeddings, "embedding_truncated": truncated}
-    ).pipe(EmbeddingStagingRow.validate, cast=True)
 
 
 class SerialMapRow(dy.Schema):

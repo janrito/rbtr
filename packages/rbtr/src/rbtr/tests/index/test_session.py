@@ -11,17 +11,18 @@ from collections.abc import Callable
 from pathlib import Path
 
 import duckdb
+import polars as pl
 import pytest
-from dataframely.exc import ValidationError
 from pydantic import ValidationError as ModelValidationError
 from pytest_cases import parametrize_with_cases
 from pytest_mock import MockerFixture
 
 from rbtr.config import config
-from rbtr.domain.models import Edge, EdgeKind, FileSnapshot, Repo, SnapshotRef, Span
+from rbtr.domain.models import EdgeKind, EmbeddingState, FileSnapshot, Repo, SnapshotRef, Span
 from rbtr.errors import RepoNotFoundError
 from rbtr.index.index import Index
-from rbtr.index.staging import TokenisedChunk
+from rbtr.index.staging import EmbeddingStagingRow, TokenisedChunk
+from rbtr.languages.edges import InferredEdgeRow
 
 from .cases_index_repos import RepoSequence
 from .cases_index_watched_refs import WatchedRefScenario
@@ -33,7 +34,7 @@ def test_clean_exit_commits(index: Index) -> None:
     repo = index.register("/repo")
     with index.session(repo) as ws:
         ws.add_chunk(make_chunk("a"))
-        ws.insert_snapshots([make_snap("c1", "f.py", "blob_a")])
+        ws.replace_snapshots([make_snap("c1", "f.py", "blob_a")], snapshot_sha="c1")
 
     chunks = index.chunks(at=repo.at("c1"))
     assert (chunks["name"] == "a").any()
@@ -47,7 +48,7 @@ def test_exception_rolls_back(index: Index) -> None:
     def _failing_session() -> None:
         with index.session(repo) as ws:
             ws.add_chunk(make_chunk("a"))
-            ws.insert_snapshots([make_snap("c1", "f.py", "blob_a")])
+            ws.replace_snapshots([make_snap("c1", "f.py", "blob_a")], snapshot_sha="c1")
             msg = "boom"
             raise RuntimeError(msg)
 
@@ -125,12 +126,14 @@ def test_cleanup_removes_the_repos_unfinished_snapshots(index: Index) -> None:
     repo = index.register("/repo")
     with index.session(repo) as ws:
         ws.add_chunk(make_chunk("good"))
-        ws.insert_snapshots([make_snap("good_sha", "f.py", "blob_good")])
+        ws.replace_snapshots([make_snap("good_sha", "f.py", "blob_good")], snapshot_sha="good_sha")
         ws.mark_indexed(snapshot_sha="good_sha")
 
     with index.session(repo) as ws:
         ws.add_chunk(make_chunk("orphan"))
-        ws.insert_snapshots([make_snap("crashed_sha", "f.py", "blob_orphan")])
+        ws.replace_snapshots(
+            [make_snap("crashed_sha", "f.py", "blob_orphan")], snapshot_sha="crashed_sha"
+        )
         # No mark_indexed — simulates crash.
 
     with index.session(repo) as ws:
@@ -150,7 +153,7 @@ def test_cleanup_leaves_a_sibling_checkouts_residue(project_index: Index) -> Non
     main, worktree = index.repos()
     with index.session(main) as ws:
         ws.add_chunk(make_chunk("wip"))
-        ws.insert_snapshots([make_snap("wip_sha", "f.py", "blob_wip")])
+        ws.replace_snapshots([make_snap("wip_sha", "f.py", "blob_wip")], snapshot_sha="wip_sha")
         # No mark_indexed: the build stopped here.
 
     with index.session(worktree) as ws:
@@ -165,7 +168,7 @@ def test_fts_rebuilt_after_chunk_insert(index: Index) -> None:
     repo = index.register("/repo")
     with index.session(repo) as ws:
         ws.add_chunk(make_chunk("searchable"))
-        ws.insert_snapshots([make_snap("c1", "f.py", "blob_searchable")])
+        ws.replace_snapshots([make_snap("c1", "f.py", "blob_searchable")], snapshot_sha="c1")
         ws.mark_indexed(snapshot_sha="c1")
 
     results = index.fulltext_matches("searchable", within=[repo.at("c1")])
@@ -178,11 +181,12 @@ def test_a_failed_fts_rebuild_keeps_the_previous_index(index: Index, mocker: Moc
     seed_index(index, [make_chunk("before", name="before_check")], ref)
     mocker.patch("rbtr.index.db._NEUTRALISE_FTS_IDF_SQL", "SELECT * FROM no_such_table")
     after = make_chunk("after", name="after_check", path="g.py")
+    later = index.register("/repo").at("c2")
     with pytest.raises(duckdb.CatalogException):
-        seed_index(index, [after], ref)
+        seed_index(index, [after], later)
 
     assert len(index.fulltext_matches("before", within=[ref])) == 1
-    assert len(index.fulltext_matches("after", within=[ref])) == 0
+    assert len(index.fulltext_matches("after", within=[later])) == 0
 
 
 def test_buffer_flushes_at_batch_size(index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -193,8 +197,8 @@ def test_buffer_flushes_at_batch_size(index: Index, monkeypatch: pytest.MonkeyPa
     with index.session(repo) as ws:
         for i in range(12):
             ws.add_chunk(make_chunk(f"c{i}", path=f"f{i}.py"))
-        ws.insert_snapshots(
-            [make_snap("head", f"f{i}.py", f"blob_c{i}") for i in range(12)],
+        ws.replace_snapshots(
+            [make_snap("head", f"f{i}.py", f"blob_c{i}") for i in range(12)], snapshot_sha="head"
         )
 
     chunks = index.chunks(at=repo.at("head"))
@@ -217,9 +221,9 @@ def test_empty_operations_are_noops(index: Index) -> None:
     """Empty lists don't cause errors."""
     repo = index.register("/repo")
     with index.session(repo) as ws:
-        ws.insert_snapshots([])
-        ws.insert_edges([], snapshot_sha="c1")
-        ws.update_embeddings([], [])
+        ws.replace_snapshots([], snapshot_sha="c1")
+        ws.replace_edges(InferredEdgeRow.create_empty(), snapshot_sha="c1")
+        ws.update_embeddings(EmbeddingStagingRow.create_empty())
         ws.delete_chunks_for_blobs(set(), file_language="")
 
 
@@ -275,8 +279,8 @@ def test_replace_snapshots_scoped_to_commit(index: Index) -> None:
     with index.session(repo) as ws:
         ws.add_chunk(make_chunk("a", blob="b1", path="a.py"))
         ws.add_chunk(make_chunk("b", blob="b2", path="b.py"))
-        ws.insert_snapshots([make_snap("c1", "a.py", "b1")])
-        ws.insert_snapshots([make_snap("c2", "b.py", "b2")])
+        ws.replace_snapshots([make_snap("c1", "a.py", "b1")], snapshot_sha="c1")
+        ws.replace_snapshots([make_snap("c2", "b.py", "b2")], snapshot_sha="c2")
 
     with index.session(repo) as ws:
         ws.replace_snapshots([make_snap("c1", "a.py", "b1")], snapshot_sha="c1")
@@ -286,28 +290,28 @@ def test_replace_snapshots_scoped_to_commit(index: Index) -> None:
 
 def test_replace_edges_scoped_to_commit(index: Index) -> None:
     """Replacing edges for one commit doesn't touch another."""
-    e1 = Edge(
-        source_id="a",
-        target_id="b",
-        kind=EdgeKind.IMPORTS,
-        source_path="src/a.py",
-        target_path="src/b.py",
-    )
-    e2 = Edge(
-        source_id="c",
-        target_id="d",
-        kind=EdgeKind.IMPORTS,
-        source_path="src/c.py",
-        target_path="src/d.py",
-    )
+    e1 = {
+        "source_id": "a",
+        "target_id": "b",
+        "kind": EdgeKind.IMPORTS,
+        "source_path": "src/a.py",
+        "target_path": "src/b.py",
+    }
+    e2 = {
+        "source_id": "c",
+        "target_id": "d",
+        "kind": EdgeKind.IMPORTS,
+        "source_path": "src/c.py",
+        "target_path": "src/d.py",
+    }
 
     repo = index.register("/repo")
     with index.session(repo) as ws:
-        ws.insert_edges([e1], snapshot_sha="c1")
-        ws.insert_edges([e2], snapshot_sha="c2")
+        ws.replace_edges(InferredEdgeRow.validate(pl.DataFrame([e1]), cast=True), snapshot_sha="c1")
+        ws.replace_edges(InferredEdgeRow.validate(pl.DataFrame([e2]), cast=True), snapshot_sha="c2")
 
     with index.session(repo) as ws:
-        ws.replace_edges([], snapshot_sha="c1")
+        ws.replace_edges(InferredEdgeRow.create_empty(), snapshot_sha="c1")
 
     assert index.count_edges(at=repo.at("c1")) == 0
     assert index.count_edges(at=repo.at("c2")) == 1
@@ -326,25 +330,37 @@ def test_update_embeddings_round_trip(index: Index) -> None:
         chunk_b = make_chunk("b", blob="blob_b", path="g.py")
         ws.add_chunk(chunk_a)
         ws.add_chunk(chunk_b)
-        ws.insert_snapshots(
+        ws.replace_snapshots(
             [
                 make_snap("c1", "f.py", "blob_a"),
                 make_snap("c1", "g.py", "blob_b"),
             ],
+            snapshot_sha="c1",
         )
 
     # Before embedding — chunks have no embedding.
     chunks = index.chunks(at=repo.at("c1"))
-    assert not chunks["has_embedding"].any()
+    assert not (chunks["embedding_state"] != EmbeddingState.NONE).any()
 
     vec = [0.1, 0.2, 0.3]
     with index.session(repo) as ws:
-        ws.update_embeddings([chunk_a.id, chunk_b.id], [vec, vec], truncated=[True, False])
+        ws.update_embeddings(
+            EmbeddingStagingRow.validate(
+                pl.DataFrame(
+                    {
+                        "id": [chunk_a.id, chunk_b.id],
+                        "embedding": [vec, vec],
+                        "embedding_truncated": [True, False],
+                    }
+                ),
+                cast=True,
+            )
+        )
 
     # After embedding — both flagged as embedded.
     chunks = index.chunks(at=repo.at("c1"))
     assert len(chunks) == 2
-    assert chunks["has_embedding"].all()
+    assert (chunks["embedding_state"] != EmbeddingState.NONE).all()
 
     # Verify truncation flags in the DB.
     with index.reader(repo) as cur:
@@ -352,25 +368,6 @@ def test_update_embeddings_round_trip(index: Index) -> None:
     by_id = {row[0]: row[1] for row in rows}
     assert by_id[chunk_a.id] is True
     assert by_id[chunk_b.id] is False
-
-
-def test_update_embeddings_rejects_mixed_dims(index: Index) -> None:
-    """A batch with vectors of differing lengths is rejected.
-
-    All embeddings come from one model, so they must share a
-    length; the staging frame enforces this.
-    """
-    repo = index.register("/repo")
-    with index.session(repo) as ws:
-        chunk_a = make_chunk("a")
-        chunk_b = make_chunk("b", blob="blob_b", path="g.py")
-        ws.add_chunk(chunk_a)
-        ws.add_chunk(chunk_b)
-        ws.insert_snapshots(
-            [make_snap("head", c.file_path, c.blob_sha) for c in (chunk_a, chunk_b)]
-        )
-        with pytest.raises(ValidationError):
-            ws.update_embeddings(["a", "b"], [[0.1, 0.2, 0.3], [0.4, 0.5]])
 
 
 def test_replacing_a_snapshot_with_nothing_hides_its_chunks(
@@ -381,7 +378,7 @@ def test_replacing_a_snapshot_with_nothing_hides_its_chunks(
     with index.session(repo) as ws:
         ws.add_chunk(math_func)
         ws.add_chunk(http_func)
-        ws.insert_snapshots(
+        ws.replace_snapshots(
             [
                 FileSnapshot(
                     snapshot_sha="head",
@@ -394,6 +391,7 @@ def test_replacing_a_snapshot_with_nothing_hides_its_chunks(
                     blob_sha=http_func.blob_sha,
                 ),
             ],
+            snapshot_sha="head",
         )
     assert len(index.chunks(at=repo.at("head"))) == 2
 
