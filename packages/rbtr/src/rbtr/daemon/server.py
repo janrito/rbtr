@@ -405,6 +405,7 @@ class Daemon:
                 rpc=self.rpc_addr,
                 pub=self.pub_addr,
                 version=get_version(),
+                replaced=index.replaced if index is not None else None,
             )
             log.info("daemon_listening", rpc=self.rpc_addr, pub=self.pub_addr)
             self._ready.set()

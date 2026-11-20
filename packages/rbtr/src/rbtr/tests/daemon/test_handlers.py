@@ -12,6 +12,7 @@ import threading
 from collections.abc import Generator
 from pathlib import Path
 
+import duckdb
 import pygit2
 import pytest
 import structlog
@@ -510,6 +511,24 @@ def test_status_reports_what_the_index_holds(scenario: IndexStateScenario) -> No
         case StatusRequest():
             resp = handle_status(scenario.request, scenario.index)
     assert resp.state is scenario.expected
+
+
+def test_status_says_which_index_opening_replaced(tmp_path: Path) -> None:
+    """Status names the index replaced when the daemon opened its own, for the daemon's lifetime.
+
+    A client that connects after the replacement still learns of it.
+    """
+    path = tmp_path / "index.duckdb"
+    with duckdb.connect(str(path)) as con:
+        con.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        con.execute("INSERT INTO meta VALUES ('schema_version', '2026.8.2')")
+    index = Index(path, writable=True)
+    try:
+        resp = handle_status_all(StatusAllRequest(), index)
+    finally:
+        index.close()
+    assert resp.replaced is not None
+    assert resp.replaced.stored == "2026.8.2"
 
 
 def test_status_unknown_repo(running_daemon: Daemon, second_repo: str) -> None:

@@ -633,6 +633,17 @@ export const PROTOCOL_DEFS = {
     type: "string",
   },
   RefsByRepo: { additionalProperties: { items: { type: "string" }, type: "array" }, type: "object" },
+  ReplacedIndex: {
+    description:
+      "An index replaced on open, because its schema is too old to migrate.\n\n`stored` is the schema version it recorded, `None` when it recorded\nnone; `replaced_at` is when this rbtr replaced it with an empty one.",
+    properties: {
+      stored: { anyOf: [{ type: "string" }, { type: "null" }] },
+      replaced_at: { format: "date-time", type: "string" },
+    },
+    required: ["stored", "replaced_at"],
+    title: "ReplacedIndex",
+    type: "object",
+  },
   ResolvedRef: {
     additionalProperties: false,
     description: "The snapshot a read used: its SHA, and how it was chosen.",
@@ -805,6 +816,7 @@ export const PROTOCOL_DEFS = {
       watched: { default: [], items: { $ref: "#/$defs/WatchedRef" }, type: "array" },
       untracked_not_indexed: { additionalProperties: { type: "integer" }, default: {}, type: "object" },
       active: { default: [], items: { $ref: "#/$defs/ActiveJob" }, type: "array" },
+      replaced: { anyOf: [{ $ref: "#/$defs/ReplacedIndex" }, { type: "null" }], default: null },
     },
     required: ["state", "kind"],
     title: "StatusResponse",
