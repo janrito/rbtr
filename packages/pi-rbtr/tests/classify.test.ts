@@ -1,12 +1,14 @@
 /**
- * Tests for the pure daemon-failure classifier in `classify.ts`.  No pi,
- * daemon or CLI involved; startup's decisions are tested through sessions
- * in `session-startup.test.ts`.
+ * Tests for the pure verdicts in `classify.ts`: the daemon-failure
+ * classifier, and the startup decision for a daemon migrating its
+ * index, which a session test cannot reach without one.  No pi, daemon
+ * or CLI involved; startup's other decisions are tested through
+ * sessions in `session-startup.test.ts`.
  */
 
 import { describe, expect, test } from "vitest";
 
-import { classifyDaemonFailure } from "../extensions/rbtr/classify.js";
+import { classifyDaemonFailure, decideStartupDecision } from "../extensions/rbtr/classify.js";
 
 describe("classifyDaemonFailure", () => {
   const locked = { kind: "error", code: "index_locked", message: "Another process holds the index lock" } as const;
@@ -23,5 +25,11 @@ describe("classifyDaemonFailure", () => {
   test("transient failure carries rbtr's message, or stderr when it printed none", () => {
     expect(classifyDaemonFailure(1, other, "").message).toContain("Daemon failed to start");
     expect(classifyDaemonFailure(1, null, "Traceback …").message).toContain("Traceback");
+  });
+});
+
+describe("decideStartupDecision", () => {
+  test("indexes nothing while the daemon migrates the index", () => {
+    expect(decideStartupDecision({ kind: "status", state: "migrating" }, true)).toEqual({ kind: "migrating" });
   });
 });

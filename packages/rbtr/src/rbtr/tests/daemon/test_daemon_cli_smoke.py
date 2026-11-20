@@ -15,9 +15,10 @@ import time
 from collections.abc import Generator
 from pathlib import Path
 
+import duckdb
 import pytest
 
-from rbtr.config import Config
+from rbtr.config import Config, config
 from rbtr.daemon.messages import ErrorCode, ErrorResponse
 from rbtr.daemon.status import DaemonStatusReport, is_pid_alive, read_status
 from rbtr.index.index import Index
@@ -54,6 +55,36 @@ def test_start_stop_lifecycle(isolated_db: Path) -> None:
             break
         time.sleep(0.1)
     assert read_status(runtime_dir) is None
+
+
+def test_starting_a_daemon_that_replaced_the_index_warns(
+    isolated_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The daemon replaces an index too old to migrate, and the command that started it says so.
+
+    The warning is the one an inline open logs, in the starting
+    command's log on stderr, not only in the daemon's.  `rbtr daemon
+    status` reports it for the daemon's lifetime, from discovery.
+    """
+    monkeypatch.setenv("RBTR_EMBED", "false")
+    with duckdb.connect(str(config.db_path)) as con:
+        con.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        con.execute("INSERT INTO meta VALUES ('schema_version', '2026.8.2')")
+    try:
+        proc = run_cli(["daemon", "start"])
+        status = run_cli(["--json", "daemon", "status"])
+    finally:
+        run_cli(["daemon", "stop"])
+
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(status.stdout)["replaced"]["stored"] == "2026.8.2"
+    [warning] = [
+        entry
+        for line in proc.stderr.splitlines()
+        if line.startswith("{") and (entry := json.loads(line))["event"] == "index_replaced"
+    ]
+    assert warning["level"] == "warning"
+    assert warning["stored"] == "2026.8.2"
 
 
 def test_status_when_not_running() -> None:

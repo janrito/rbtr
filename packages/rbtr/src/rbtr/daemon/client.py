@@ -41,6 +41,7 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.status import DaemonStatus, is_pid_alive, read_status, remove_status
 from rbtr.errors import DaemonBusyError, ExitCode, IndexLockedError, RbtrError
+from rbtr.index.constants import SCHEMA_VERSION
 
 log = structlog.get_logger(__name__)
 
@@ -154,6 +155,14 @@ def start_daemon(*, allow_missing_plugins: bool = False) -> DaemonStatus:
         if status is not None:
             if status.pid != proc.pid and proc.poll() is None:
                 proc.terminate()
+            elif status.pid == proc.pid and (replaced := status.replaced) is not None:
+                # Report the replacement as an open in this process would.
+                log.warning(
+                    "index_replaced",
+                    stored=replaced.stored or "none",
+                    current=SCHEMA_VERSION,
+                    consequence="every repository must be indexed again",
+                )
             return status
         if proc.poll() not in (None, ExitCode.INDEX_LOCKED):
             msg = (

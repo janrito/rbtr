@@ -24,6 +24,7 @@ from rbtr.domain.models import (
     ChunkSplit,
     EdgeKind,
     IndexedSnapshot,
+    ReplacedIndex,
     Repo,
     SnapshotCounts,
     SnapshotRange,
@@ -35,6 +36,8 @@ from rbtr.errors import (
 )
 from rbtr.index import load_sql
 from rbtr.index.db import registered_views
+from rbtr.index.migrations import Migrate
+from rbtr.index.progress import ProgressCallback, _noop_progress
 from rbtr.index.results import (
     ChangedSymbolRow,
     ChunkContentRow,
@@ -100,20 +103,36 @@ class Index:
     Read-only by default: registry writes and `session` require `writable=True`
     or raise `RuntimeError`. The caller owns the handle and closes it after all
     users finish.
+
+    Opening brings every file to this schema version, or replaces an index
+    too old to migrate; a read-only open refuses to change a file.
+    `Migrate.LATER` leaves project files that migrate on a copy for
+    `migrate`; until then they raise `IndexMigratingError`.
     """
 
-    def __init__(self, db_path: Path | str | None = None, *, writable: bool = False) -> None:
-        self._store = Store(db_path, writable=writable)
+    def __init__(
+        self,
+        db_path: Path | str | None = None,
+        *,
+        writable: bool = False,
+        migrate: Migrate = Migrate.ON_OPEN,
+    ) -> None:
+        self._store = Store(db_path, writable=writable, migrate=migrate)
 
     @property
     def db_path(self) -> str | None:
         """The registry's path; `None` for an in-memory index."""
         return self._store.db_path
 
+    @property
+    def replaced(self) -> ReplacedIndex | None:
+        """The index replaced when this one was opened; see `Store.replaced`."""
+        return self._store.replaced
+
     @classmethod
-    def from_config(cls, *, writable: bool = False) -> Index:
+    def from_config(cls, *, writable: bool = False, migrate: Migrate = Migrate.ON_OPEN) -> Index:
         """Open the database at the central DB path."""
-        return cls(config.db_path, writable=writable)
+        return cls(config.db_path, writable=writable, migrate=migrate)
 
     @contextmanager
     def reader(self, repo: Repo, **frames: pl.DataFrame) -> Iterator[duckdb.DuckDBPyConnection]:
@@ -156,6 +175,15 @@ class Index:
     def forget(self, repo: Repo) -> None:
         """Forget a registered repo; see `Store.forget`."""
         self._store.forget(repo)
+
+    @property
+    def migrating(self) -> bool:
+        """Whether any project file waits for `migrate`; see `Store.migrating`."""
+        return self._store.migrating
+
+    def migrate(self, on_progress: ProgressCallback = _noop_progress) -> None:
+        """Migrate the project files `Migrate.LATER` left waiting; see `Store.migrate`."""
+        self._store.migrate(on_progress)
 
     def compact(self, repo: Repo) -> None:
         """Rewrite *repo*'s project file into a fresh one; see `Store.compact`."""

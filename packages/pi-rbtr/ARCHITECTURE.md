@@ -38,9 +38,13 @@ The daemon publishes notifications about its builds.
 pi-rbtr subscribes to them and paints the footer: progress
 while a build runs, the symbol count when it ends. A health
 check every 30 s notices a daemon that stops or comes back.
-A daemon that comes back without this repository, as one
-restarted on a replaced index does, gets the session-start
-decision again: with `autoIndex` on, pi-rbtr indexes it.
+A daemon that comes back without this repository, as after
+replacing an index too old to migrate, gets the
+session-start decision again: with `autoIndex` on, pi-rbtr
+indexes it. The footer shows a migration, and pi-rbtr
+decides on indexing when it ends; a subscriber can miss
+that notification, so the health check asks again while
+the daemon last said it was migrating.
 
 After the model's `bash` searches and its reads of long
 files, pi-rbtr asks the daemon what the index knows and

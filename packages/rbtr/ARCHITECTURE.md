@@ -866,7 +866,9 @@ one registry `UPDATE` naming the new file; that commit is the switch.
 Reads already running finish on the old file, which stays attached for
 `retire_delay_s` (60 s) and is then detached and deleted. A crash
 before the commit leaves the new file unnamed, and a crash after it
-leaves the old one unnamed; the next open deletes either.
+leaves the old one unnamed; the next open deletes either. Compaction
+switches to a plain copy; migrating a project file switches to a copy
+the migrations ran on (see [Migrations](#migrations)).
 
 ![How compaction replaces a project's file: copy, switch the registry,
 and delete the old file after the retire delay](docs/diagrams/file-switch.png)
@@ -1077,28 +1079,17 @@ builds. GC uses it to identify orphans: any
 `meta` is a key-value table that tracks compatibility, in the
 registry and in each project file. Three keys:
 
-- `schema_version`, in the registry — the DDL version of
-  both schemas. A mismatch replaces the index with an empty
-  one on open: it is derived data, so rebuilding is the only
-  migration.
+- `schema_version`, in every file — the `SCHEMA_VERSION` of the
+  rbtr that last migrated it. A file at an older version is
+  migrated on open (see [Migrations](#migrations)).
 - `embedding_model`, in each project file — the GGUF model
   ID used to compute its vectors.
 - `embedding_version`, in each project file — a format
   version for the embedding pipeline.
 
 When the model or version changes, the file's embeddings are
-cleared and recomputed on the next build.
-
-**Replacing the index.** Deleting rows does not shrink a DuckDB
-file, so a stale index is replaced rather than emptied. Its
-registry is unlinked while it is still open, so its lock holds
-until a new file exists at the path, and a new registry is then
-created there. A process that creates one first wins DuckDB's
-lock on it, and this one stops with `IndexLockedError`. The old
-project files, which the new registry does not name, are deleted
-as residue. An older rbtr finds a newer `schema_version` and
-refuses to open the index (`IndexSchemaTooNewError`), changing
-nothing.
+cleared and recomputed on the next build: vectors from two models
+cannot be compared, so no migration keeps them.
 
 A fourth invalidation axis lives outside `meta`, per chunk:
 `chunks.extraction_serial`, the extraction serial of the chunk's
@@ -1107,30 +1098,67 @@ chunk carries TypeScript's serial, not the host svelte plugin's.
 Its only reader is the blob-dedup check, so a plugin can invalidate
 only its own stale extractions (see
 [Content-addressed chunks and blob dedup](#content-addressed-chunks-and-blob-dedup)),
-without the rebuild a `schema_version` bump forces.
+with no schema change.
 
-**Additive vs breaking changes.** `registry.sql` and `schema.sql`
-are applied `CREATE TABLE IF NOT EXISTS` on every writable open,
-to the registry and to every project file, so a purely
-**additive** table (e.g. `watched_refs`) appears in existing
-indexes in place — no `schema_version` bump, no rebuild. Only a
-**breaking** change to an existing table or column bumps
-`schema_version` (and so replaces the index).
+#### Migrations
 
-**Constraints reach only new databases.** DuckDB has no
-`ALTER TABLE ... ADD CONSTRAINT`, and `CREATE TABLE IF NOT
-EXISTS` leaves an existing table untouched. A `CHECK` or
-`FOREIGN KEY` added to `schema.sql` therefore applies to
-databases created after the change and not to those already
-on disk — it will hold on a fresh checkout while being absent
-from every index in the field. Applying one everywhere means
-bumping `schema_version`, so that each database is rebuilt
-with it.
+`registry.sql` and `schema.sql` create new files. Every later schema
+change, a new table included, is a migration under
+`index/sql/migrations/<kind>/` (`registry` or `project`) and bumps
+`SCHEMA_VERSION`. A migration named `<start>__<end>.sql` applies to a
+file recording any version from `<start>` up to `<end>`. Each kind's
+migrations form one chain ordered by version, since rbtr releases from
+one line.
 
-`chunks` carries two: a span ends on or after the line it
-starts on, and truncation describes an embedding that exists.
-Every index has both, because an index built without them has an
-older `schema_version` and is replaced on open.
+Opening the index for writing brings each file forward from the
+version it records; `migrations.plan` decides and `Store` acts:
+
+- current: nothing runs;
+- older: the migrations whose `<end>` is newer run in order, each in
+  its own transaction that records its `<end>`. A failure leaves the
+  file at the last version reached, and the next open resumes;
+- newer: refused with `IndexSchemaTooNewError`, since migrations run
+  forward only;
+- too old: no recorded version, not calver, or older than the oldest
+  `<start>` across all chains (`SCHEMA_VERSION` if none ship), since a
+  release may migrate one kind only. The index is replaced (below).
+  Deleting a migration's file retires it.
+
+A read-only open refuses any file it would change and names
+`rbtr watch`.
+
+The registry migrates first, in place, because it names the other
+files. A project file that migrations change is migrated on a copy,
+which one registry update then names, as compaction does (see
+[Switching a project's file](#index-files)), so a failure or a crash
+leaves the old file live. A copy that grew past
+`compact_growth_ratio` is compacted before the switch.
+
+The copies run during the open. The daemon passes `Migrate.LATER`
+instead, so it can report ready first (see
+[Daemon startup](#daemon-startup)); until `Index.migrate` runs, a read
+or write of a waiting file raises `IndexMigratingError`
+(`index_in_progress`). The open logs `index_file_migrated` and
+`index_replaced`.
+
+A migration keeps every column it does not change, vectors included.
+DuckDB cannot add a constraint with `ALTER`, so such a migration
+rebuilds the table with `INSERT … SELECT`. That is how the two
+`CHECK`s on `chunks` (a span ends on or after its first line;
+truncation implies an embedding) reach existing files. A test runs
+each kind's chain over its base schema (`<start>.base.sql`) and
+compares the result with a new file's.
+
+**Replacing an index too old to migrate.** The index is rebuilt from
+git, so it is replaced with an empty one, at the cost of re-indexing
+every repository. It is replaced, not emptied, because deleting rows
+does not shrink a DuckDB file. The old registry is unlinked while
+still open, so its lock holds until the new one exists; a process that
+creates it first wins the lock, and this one stops with
+`IndexLockedError`. The old project files are deleted as residue. A
+daemon records the replacement in its discovery file, from which the
+command that started it logs the same warning and `rbtr daemon status`
+reports it for the daemon's lifetime.
 
 rbtr declares no foreign keys; see
 [Design decisions](#design-decisions).
@@ -1218,10 +1246,10 @@ that no longer resolves (never purged — forgetting it is a separate,
 explicit action; see below) or an unborn HEAD, which `run_gc` raises on
 and which must not end a pass over every other repo. Each repo is
 reported through `on_progress` as it is collected: inline, as a bar on
-stderr; from the daemon, as a `gc_progress` notification between
-`gc_started` and `gc_ended`, which is sent however gc ends. None of
-the three names a repo, since one gc covers many, and none touches a
-running build's progress.
+stderr; from the daemon, as `progress` notifications whose work is
+`collect`, the first sent as it starts, and then `gc_ended`, which is
+sent however gc ends. None of them names a repo, since one gc covers
+many, and none touches a running build's progress.
 
 **Forgetting a repo** removes it entirely from the index, undoing what
 [registration](#repo-registration) set up (`Store.forget`).
@@ -1278,7 +1306,7 @@ The rebuild writes each index in the loaded FTS extension's format, so
 an index another DuckDB built, which may search far slower, is
 replaced within one pass of an upgrade, without rbtr detecting which
 DuckDB built it. It costs about 1.6 s for an index of eight files. A pass
-is published as a gc (`gc_started`, `gc_progress` per repo,
+is published as a gc (`progress` with `collect` work, per repo, then
 `gc_ended`), which clients already show, and logged as
 `maintenance_started` and `maintenance_finished` with what it
 did. The same task deletes the files compactions replaced, every
@@ -1718,8 +1746,10 @@ background worker is currently trying to do. A build can be selected but
 still waiting for writer access, so an active job is not proof that its
 native computation has begun.
 
-The worker keeps one immutable snapshot of its current run. Run identity,
-start time and progress are replaced together, allowing a status reader on
+The indexer keeps an immutable record of each running job: the build or
+embed it selected, and any gc or migration run through `track`. A gc can
+run beside an embed, which writes only between batches. A record's
+identity, start time and progress are replaced together, allowing a status reader on
 another thread to capture a coherent answer under a short lock. Holding
 that lock only for capture and replacement keeps status independent of
 long database operations. Updates are associated with their originating
@@ -1732,7 +1762,9 @@ to finish. That wait lets shutdown account for both native work and the
 output it can still produce before disposing of the transport.
 
 Indexer reports internal typed values rather than public wire messages.
-Daemon translates them for the notification channel. This boundary lets
+Daemon translates them for the notification channel; each job describes
+its work as the domain's `Work`, which the protocol carries as it is. This
+boundary lets
 background indexing have a different output consumer while leaving the
 public protocol under the runtime's control. The protocol reference below
 defines the external messages.
@@ -1842,11 +1874,10 @@ processes. A losing start can encounter the lock before the winner has
 published discovery. Clients therefore allow the winner time to become
 ready instead of treating that lock failure as immediate startup failure.
 
-Construction performs synchronous writes to seed default HEAD watches.
-It is an exclusive startup operation: the caller constructs before sharing
-the writable Index, or holds its writer semaphore during construction,
-off a UI loop. This keeps initial watch intent established before serving
-without introducing asynchronous component initialisation.
+The indexer belongs to the loop it reports through: its constructor takes
+the running loop, so the daemon creates it, and the RPC that uses it, in
+`serve`. Its `run` seeds a HEAD watch for every registered repo before
+selecting work.
 
 Readiness has a narrower meaning than a fully prepared index. The runtime
 checks required language plugins, binds its sockets and publishes process
@@ -1855,10 +1886,20 @@ snapshots can still need building or embedding. Background selection makes
 an initial pass over stored intent without waiting for the first watcher
 poll.
 
-Discovery records the process identity and connection details, not work in
-progress. Process status consequently differs from a query of index state,
-and a snapshot-ready notification differs from both: it reports a completed
-build's counts, which can still show vectors awaiting computation.
+Migrating project files can take as long as a compaction, longer than
+clients wait for a daemon to start (`daemon_start_timeout`). So the daemon
+opens the index with `Migrate.LATER`, reports ready, then has the indexer
+migrate the waiting files under the writer semaphore before starting its
+other tasks. Meanwhile status says `migrating`, a read of a waiting file
+replies `index_in_progress`, and writes wait. The language check, which
+reads every file, runs after the migration. A failed migration stops the
+daemon.
+
+Discovery records the process identity and connection details, and what its
+open replaced, not work in progress. Process status consequently differs from
+a query of index state, and a snapshot-ready notification differs from both:
+it reports a completed build's counts, which can still show vectors awaiting
+computation.
 
 ### Stopping
 
@@ -1958,17 +1999,22 @@ subdirectory or behind a symlink learns what its paths are relative to. `state`
 (`IndexState`) says what the index holds for the request: no repository at all, not this
 one, this one but not the snapshot a read without a ref would use (`resolve_read_ref`
 falls back to the latest indexed commit), or that snapshot. The daemon computes it where
-the index is read, so the CLI, the footer and the status tool word the same four cases
-alike. Per-ref state is grouped in `IndexedRef` (sha, symbolic names, chunk count, embed
-completeness) — a single list rather than parallel maps. `active_build` and
-`active_embed` share the same `ActiveJob` type; the field name distinguishes them. Both
-are filtered to the requested repo so a status query never leaks activity from unrelated
-repos. Text renderers (CLI, TUI, LLM) derive output solely from the response model —
-never from external state like config. `watched` lists the repo's watch set (each
-`WatchedRef` carries the resolved sha and whether it is indexed yet).
+the index is read, so the CLI, the footer and the status tool word the same cases alike;
+while the daemon migrates the index's files, the state is `migrating`, read from no
+project file. Per-ref state is grouped in `IndexedRef` (sha, symbolic names, chunk
+count, embed completeness) — a single list rather than parallel maps. `active` lists the
+work running now, each an `ActiveJob` whose `work` says what it does and to what: a
+build or an embed names its repo and snapshot, and a gc names none. Work on a snapshot
+is filtered to the requested repo, so a status query never leaks activity from unrelated
+repos; work that names no repo concerns every client and is listed in every status. Text
+renderers (CLI, TUI, LLM) derive output solely from the response model — never from
+external state like config. `watched` lists the repo's watch set (each `WatchedRef`
+carries the resolved sha and whether it is indexed yet).
 
-PUB carries build/embedding progress and completion, automatic rebuilds,
-index errors and collection start/progress/end notifications. The
+PUB carries progress, in one form for all background work (`progress`, whose
+`work` is the same union `ActiveJob` carries), the end of each kind of work
+(`ready` for a build, `embed_ended` for an embed, `gc_ended` for a gc), automatic
+rebuilds and index errors. The
 [`Notification` union](src/rbtr/daemon/messages.py) defines the payloads.
 Snapshot `ready` reports indexed chunks, embedded chunks and edges; it
 establishes snapshot readiness for reads, while its counts can still show
@@ -2001,7 +2047,9 @@ Error responses carry a `code` field:
   `rbtr watch`.
 - `index_in_progress` — the daemon will index what the read
   needs without being asked; retry after the `ready`
-  notification.
+  notification. It also answers a read of a project file
+  the daemon is still migrating; retry after
+  `migration_ended`.
 - `repo_not_found` — the supplied path is not a Git checkout, or the index has not
   registered that checkout.
 - `index_locked` — another process holds the index's write
@@ -2192,11 +2240,22 @@ expression, and it reads registered frames zero-copy, which is
 what lets retrieval and bulk upsert both be single set-based
 statements (see
 [Registered frames as query inputs](#registered-frames-as-query-inputs)).
-The cost is a young file format with no in-place schema
-migration — hence the wipe-and-rebuild policy in
-[Versioning](#versioning) — and one writer at a time. Both are
-acceptable for derived data with a single writing daemon.
-Revisit if the index ever needs concurrent writers.
+The cost is a young file format whose `ALTER TABLE` cannot add a
+constraint, so some migrations rebuild a table (see
+[Migrations](#migrations)), and one writer at a time, which a
+single writing daemon accepts. Revisit if the index ever needs
+concurrent writers.
+
+**Migrations, not rebuilds.** A schema change migrates every file
+from the version it records. Replacing the index on every breaking
+change does not work here: it re-extracts every checkout and
+re-embeds every chunk to change a column.
+
+**Opening the index migrates it.** Migration belongs to the `index`
+layer and reports through the log; the CLI just opens the index, and
+the daemon only chooses when the copies run. Migrating in each command
+instead repeats the work in every interface, and one that forgets opens
+an index it never brought forward.
 
 **One data file per project, named by a registry.** Deleting rows
 never shrinks a DuckDB file, so reclaiming space means writing the
@@ -2402,6 +2461,15 @@ so `--scope all` would fail outside a git repository, and it lets a
 `ref` or a single-repo gc mode ride along unread. The CLI
 keeps its `--scope` flag and pi its `scope` argument; each picks the
 request kind.
+
+**One form for background work, one end per kind.** Status
+(`ActiveJob`) and `progress` notifications carry a `work` union with one
+member per kind, saying what the work does and to what, so a gc on a
+snapshot cannot be expressed. Each kind keeps its own end notification
+(`ready`, `embed_ended`, `gc_ended`, `migration_ended`), because each
+carries that work's result. Separate start and progress notifications
+per kind would need a new form for every kind of work outside a repo,
+and status could not list them.
 
 **pydantic-settings for CLI + config.** Every setting has to
 be reachable three ways — `config.toml`, a `RBTR_` environment

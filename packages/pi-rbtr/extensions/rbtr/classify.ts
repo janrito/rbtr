@@ -8,7 +8,7 @@
  * driven by these verdicts.
  */
 
-import type { ErrorResponse, StatusResponse } from "./generated/protocol.js";
+import type { ErrorResponse, Notification, StatusResponse } from "./generated/protocol.js";
 
 export type DaemonFailureKind =
   | "db-locked" // the index DB is held by another process
@@ -39,6 +39,7 @@ export function classifyDaemonFailure(code: number | null, reply: ErrorResponse 
 
 export type StartupDecision =
   | { kind: "indexed" } // the repo has indexed refs: show the footer
+  | { kind: "migrating" } // the daemon is migrating the index: index nothing until it ends
   | { kind: "empty"; index: boolean } // no index, or not this repo: index if enabled
   | { kind: "no-repo" } // the session is not in a git repository: index nothing
   | { kind: "transient"; index: boolean; message: string }; // status unreadable: warn, index if enabled
@@ -61,5 +62,15 @@ export function decideStartupDecision(
     return { kind: "transient", index: autoIndex, message };
   }
   if (status.state === "indexed" || status.state === "ref_not_indexed") return { kind: "indexed" };
+  if (status.state === "migrating") return { kind: "migrating" };
   return { kind: "empty", index: autoIndex };
+}
+
+/**
+ * The repository a notification concerns, or `null` for work that
+ * concerns every repository, such as a gc or a migration.
+ */
+export function notificationRepo(notification: Notification): string | null {
+  const subject = notification.kind === "progress" ? notification.work : notification;
+  return "repo_path" in subject ? subject.repo_path : null;
 }

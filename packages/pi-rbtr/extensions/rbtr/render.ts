@@ -447,6 +447,10 @@ export function renderStatusResult(result: ToolResult, options: { isPartial: boo
   const crossRepo = new Set(indexed.map((ref) => ref.repo_path)).size > 1;
   if (response?.state === undefined || response.state === "no_index") {
     lines.push(theme.fg("error", "✗ the index does not exist"));
+  } else if (response.state === "migrating") {
+    lines.push(
+      theme.fg("warning", `! migrating the index's files; reads wait until it ends${formatSizeSuffix(response)}`),
+    );
   } else if (response.state === "repo_not_indexed") {
     const subject = response.repo_path == null ? "no repo is" : "this repo is not";
     lines.push(theme.fg("error", `✗ ${subject} indexed${formatSizeSuffix(response)}`));
@@ -493,10 +497,9 @@ export function renderStatusResult(result: ToolResult, options: { isPartial: boo
     );
   }
 
-  const job = response?.active_build;
-  if (job) lines.push(theme.fg("muted", `⟳ ${formatActiveBuild(job)}`));
-  const ej = response?.active_embed;
-  if (ej) lines.push(theme.fg("muted", `\u21BB ${formatActiveEmbed(ej)}`));
+  for (const job of response?.active ?? []) {
+    lines.push(theme.fg("muted", formatActiveJob(job)));
+  }
 
   return new Text(lines.join("\n"), 0, 0);
 }
@@ -507,15 +510,19 @@ export function formatJobCounts(job: ActiveJob): string {
   return `${job.current}/${job.total}${pct}`;
 }
 
-/** Render the running build as one line: ref, phase, progress, elapsed. */
-function formatActiveBuild(job: ActiveJob): string {
-  const progress = `${job.phase} ${formatJobCounts(job)}`;
-  return `Building: ${shortSha(job.ref)} — ${progress} — ${formatElapsed(job.elapsed_seconds)}`;
-}
-
-/** Render the running embed pass as one line: ref, progress, elapsed. */
-function formatActiveEmbed(job: ActiveJob): string {
-  return `Embedding: ${shortSha(job.ref)} — ${formatJobCounts(job)} — ${formatElapsed(job.elapsed_seconds)}`;
+/** Render one piece of running work as one line: what, progress, elapsed. */
+function formatActiveJob(job: ActiveJob): string {
+  const elapsed = formatElapsed(job.elapsed_seconds);
+  switch (job.work.kind) {
+    case "build":
+      return `⟳ Building: ${shortSha(job.work.ref)} — ${job.phase} ${formatJobCounts(job)} — ${elapsed}`;
+    case "embed":
+      return `\u21BB Embedding: ${shortSha(job.work.ref)} — ${formatJobCounts(job)} — ${elapsed}`;
+    case "collect":
+      return `⟳ Collecting: ${formatJobCounts(job)} — ${elapsed}`;
+    case "migrate":
+      return `⟳ Migrating index files: ${formatJobCounts(job)} — ${elapsed}`;
+  }
 }
 
 /** Format a duration for humans: `45s`, `1m05s`. */
@@ -583,6 +590,8 @@ export function statusFooter(
   if (top && (status?.state === "indexed" || !daemon)) return { color: "success", text: footerLabel(top, daemon) };
   if (!daemon) return { color: "muted", text: "rbtr: not running" };
   switch (status?.state) {
+    case "migrating":
+      return { color: "muted", text: "rbtr: migrating index files…" };
     case "ref_not_indexed":
       return { color: "warning", text: "rbtr: ref not indexed" };
     case "repo_not_indexed":

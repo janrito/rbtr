@@ -60,6 +60,7 @@ quote-style = "double"
 [tool.ruff.lint]
 select = [
   "A",
+  "ANN",
   "ASYNC",
   "B",
   "BLE",
