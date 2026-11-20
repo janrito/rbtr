@@ -22,6 +22,8 @@ from rbtr.domain.edge_frames import EdgeChunkRow, InferredEdgeRow
 from rbtr.domain.models import (
     Binding,
     Chunk,
+    ChunkKind,
+    Definition,
     EdgeKind,
     EmbeddingState,
     FileSnapshot,
@@ -31,6 +33,7 @@ from rbtr.domain.models import (
     SnapshotRef,
     Span,
 )
+from rbtr.domain.rules import ChunkRow
 from rbtr.errors import RepoNotFoundError
 from rbtr.index.index import Index
 from rbtr.index.staging import EmbeddingStagingRow, serial_map_view, staged_chunks
@@ -403,23 +406,57 @@ def test_update_embeddings_round_trip(index: Index) -> None:
     assert by_id[chunk_b.id] is False
 
 
-def test_an_imports_bindings_are_read_as_written(index: Index) -> None:
-    """The names an import binds come back from storage whole."""
-    chunk = make_chunk("np", path="f.py", blob="blob").model_copy(
-        update={
-            "role": Import(
-                name="import numpy as np",
-                meta=ImportMeta(module="numpy", bindings=[Binding(name="numpy", local="np")]),
-            )
-        }
-    )
+def test_a_chunks_calls_bases_and_bindings_are_read_as_written(index: Index) -> None:
+    """What a class, a method and an import record of other code comes back from storage whole."""
+    model = {"kind": "inherits", "lookup": "unqualified", "path": ["models", "Model"], "type": None}
+    save = {"kind": "calls", "lookup": "member", "path": ["save"], "type": None}
+    chunks = [
+        make_chunk("Order", path="f.py", blob="blob").model_copy(
+            update={"role": Definition(kind=ChunkKind.CLASS, name="Order")}
+        ),
+        make_chunk("run", path="f.py", blob="blob").model_copy(
+            update={"role": Definition(kind=ChunkKind.METHOD, name="run")}
+        ),
+        make_chunk("np", path="f.py", blob="blob").model_copy(
+            update={
+                "role": Import(
+                    name="import numpy as np",
+                    meta=ImportMeta(module="numpy", bindings=[Binding(name="numpy", local="np")]),
+                )
+            }
+        ),
+    ]
     repo = index.register("/repo")
     with index.session(repo) as ws:
-        ws.add_chunks(staged_chunks(chunk_rows([chunk]), {}))
+        rows = (
+            chunk_rows(chunks)
+            .with_columns(
+                metadata=pl.col("metadata").struct.with_fields(
+                    refs=pl.Series(
+                        [[model], [save], None], dtype=ChunkRow.metadata.inner["refs"].dtype
+                    )
+                )
+            )
+            .pipe(ChunkRow.validate)
+        )
+        ws.add_chunks(staged_chunks(rows, {}))
         ws.replace_snapshots([make_snap("c1", "f.py", "blob")], snapshot_sha="c1")
-    read = index.chunks(at=repo.at("c1"))
-    assert read["metadata"].struct.field("bindings").to_list() == [
-        [{"name": "numpy", "local": "np"}]
+    read = index.chunks(at=repo.at("c1")).sort("name")
+    assert [
+        (
+            row["name"],
+            row["metadata"]["refs"],
+            row["metadata"]["bindings"],
+        )
+        for row in read.select("name", "metadata").iter_rows(named=True)
+    ] == [
+        (
+            "Order",
+            [model],
+            None,
+        ),
+        ("import numpy as np", None, [{"name": "numpy", "local": "np"}]),
+        ("run", [save], None),
     ]
 
 

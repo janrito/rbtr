@@ -602,7 +602,17 @@ UPDATE meta SET value = '2026.10.0' WHERE key = 'schema_version';
     finally:
         index.close()
     assert read.select(pl.col("kind").cast(pl.String), "metadata").sort("kind").rows() == [
-        ("function", None),
+        (
+            "function",
+            {
+                "module": None,
+                "names": None,
+                "language_hint": None,
+                "node_types": None,
+                "refs": [],
+                "bindings": None,
+            },
+        ),
         (
             "import",
             {
@@ -610,19 +620,20 @@ UPDATE meta SET value = '2026.10.0' WHERE key = 'schema_version';
                 "names": "",
                 "language_hint": "",
                 "node_types": None,
+                "refs": None,
                 "bindings": [],
             },
         ),
     ]
 
 
-def test_a_project_file_from_2026_11_0_keeps_its_chunks_and_gives_each_import_empty_bindings(
+def test_a_project_file_from_2026_11_0_keeps_its_chunks_and_gives_each_role_empty_references(
     tmp_path: Path, git_repo: pygit2.Repository, repo_path: str
 ) -> None:
-    """Each import gets no bindings; other roles keep their metadata.
+    """Each definition, class and fragment gets no references, an import no bindings.
 
     The file is written now and forged back to 2026.11.0's metadata,
-    which holds none and an import's `dots`; one chunk carries an embedding, which stays.
+    which holds none of them and an import's `dots`; one chunk carries an embedding, which stays.
     """
     path = tmp_path / "data" / "index.duckdb"
     source = b"import os\n\n\nclass Box:\n    pass\n\n\ndef run():\n    return 1\n\n\nos.environ\n"
@@ -641,7 +652,7 @@ UPDATE chunks SET embedding = [0.5, 0.25] WHERE name = 'run';
 DROP INDEX idx_chunks_blob;
 ALTER TABLE chunks ALTER metadata TYPE STRUCT(
   module TEXT, names TEXT, dots TEXT, language_hint TEXT, node_types TEXT[]
-) USING CASE WHEN metadata IS NOT NULL THEN struct_pack(
+) USING CASE WHEN metadata IS NOT NULL AND kind IN ('import', 'fragment') THEN struct_pack(
   module := metadata.module,
   names := metadata.names,
   dots := CASE WHEN kind = 'import' THEN '' END,
@@ -664,10 +675,15 @@ UPDATE meta SET value = '2026.11.0' WHERE key = 'schema_version';
         index.close()
     assert read.select("id", "kind", "name").sort(pl.all()).equals(chunks)
     payloads = {
-        str(kind): meta and meta["bindings"]
+        str(kind): (meta["refs"], meta["bindings"])
         for kind, meta in read.select("kind", "metadata").iter_rows()
     }
-    assert payloads == {"import": [], "class": None, "function": None, "fragment": None}
+    assert payloads == {
+        "import": (None, []),
+        "class": ([], None),
+        "function": ([], None),
+        "fragment": ([], None),
+    }
     assert vectors == [([0.5, 0.25],)]
 
 

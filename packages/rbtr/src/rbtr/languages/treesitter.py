@@ -27,6 +27,7 @@ from rbtr.config import config
 from rbtr.domain.identity import compose_scope
 from rbtr.domain.models import Chunk, ChunkKind, ImportMeta
 from rbtr.domain.rules import (
+    DEFINITION_KINDS,
     CaptureRow,
     FileRow,
     MetadataCaptureName,
@@ -76,17 +77,11 @@ class ByteSpan(TypedDict):
     end: int
 
 
-class Binding(TypedDict):
-    name: str
-    local: str
-
-
 class Metadata(TypedDict):
     module: str | None
     names: str | None
     language_hint: str | None
     node_types: list[str] | None
-    bindings: list[Binding] | None
 
 
 # A TypedDict, not a dataclass: polars maps a dataclass's fields to a schema by
@@ -451,12 +446,9 @@ def capture(
             names=meta.names,
             language_hint=meta.language_hint,
             node_types=None,
-            bindings=[Binding(name=b.name, local=b.local) for b in meta.bindings],
         )
-    elif node_types is not None:
-        metadata = Metadata(
-            module=None, names=None, language_hint=None, node_types=node_types, bindings=None
-        )
+    elif node_types is not None or kind.value in DEFINITION_KINDS:
+        metadata = Metadata(module=None, names=None, language_hint=None, node_types=node_types)
     return Capture(
         file=source.file,
         source=source.number,
@@ -499,7 +491,8 @@ def captured_nodes(
 
     Also each `MetadataCaptureName` capture of each match. The nodes one
     match captures under one such name are one span, from the first's start
-    to the last's end.
+    to the last's end: a grammar with no single callee node (Java's
+    `method_invocation`, `object` then `name`) captures both parts.
     """
     nodes: list[CapturedNode] = []
     metadata_captures: list[MetadataCapture] = []

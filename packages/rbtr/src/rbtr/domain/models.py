@@ -138,6 +138,19 @@ class ImportMeta(BaseModel):
     """Every name it binds in the importing file; empty when its language records none."""
 
 
+class Lookup(StrEnum):
+    """Where a reference's path is looked up, from how it starts: name lookup, as language standards call it."""
+
+    UNQUALIFIED = "unqualified"
+    """In the enclosing scopes, then the file's imports: `foo()`, `models.CharField()`."""
+    MEMBER = "member"
+    """In the enclosing class's members: `self.save()`, `this.render()`."""
+    BASE = "base"
+    """In the enclosing class's bases: `super().__init__()`."""
+    TYPE = "type"
+    """In the written type of a function's local: `order.save()` with `order: Order`."""
+
+
 class Definition(BaseModel, frozen=True):
     """A construct the code defines: a function, class, method or variable.
 
@@ -197,9 +210,11 @@ class RawSlice(BaseModel, frozen=True):
 
 
 class FragmentMeta(BaseModel, frozen=True):
-    """The syntax a fragment holds: its named nodes' types, in order, once each."""
+    """The syntax a fragment holds, its named nodes' types in order once each."""
 
     node_types: tuple[str, ...]
+    """Diagnostic: nothing in search or the edge graph reads it. rbtr-eval's
+    index report tallies it to find syntax no query captures."""
 
 
 class Fragment(BaseModel, frozen=True):
@@ -214,7 +229,8 @@ class Fragment(BaseModel, frozen=True):
 
 
 type Role = Annotated[
-    Definition | Section | Import | Comment | RawSlice | Fragment, Discriminator("kind")
+    Definition | Section | Import | Comment | RawSlice | Fragment,
+    Discriminator("kind"),
 ]
 """What a chunk is, carrying exactly the data that kind of chunk has."""
 

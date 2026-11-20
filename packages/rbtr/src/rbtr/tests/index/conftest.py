@@ -619,8 +619,8 @@ def ranking_index(
     ranking_edges: list[dict[str, str]],
 ) -> Generator[Index]:
     """An in-memory Index pre-loaded with the ranking dataset."""
-    # Written by hand, not built: `ranking_edges` holds a `calls` edge,
-    # and no build infers `calls` edges yet.
+    # Written by hand, not built: the ranking tests count each kind of
+    # edge a chunk receives, and a build would add the edges its code makes.
     index = Index(writable=True)
     repo = index.register("/repo")
     with index.session(repo) as ws:

@@ -102,7 +102,9 @@ class QueryExtraction:
 
     Capture names in `query` drive the chunk kind (`@function` / `@_fn_name`,
     `@class` / `@_cls_name`, `@method` / `@_method_name`, `@variable` /
-    `@_var_name`, `@import`, `@_scope`). Load `query` from a co-located `.scm`
+    `@_var_name`, `@import`, `@_scope`), and `@_call` (a call's callee),
+    `@_base` (a class's base), `@_self` and `@_super` (the receivers a path
+    may start from) record what a chunk refers to. Load `query` from a co-located `.scm`
     via `load_query` (never inline). For a name/scope/import a query cannot
     express, attach an override on the `LanguageRegistration`.
     """
