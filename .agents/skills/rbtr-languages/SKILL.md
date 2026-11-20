@@ -355,9 +355,15 @@ Curated per-language verdicts (take / modify / ignore) and the
 
 ## Testing
 
-Each language has a sample mini-project under its package's `tests/samples/`
-(one or more files), built as rbtr builds a repository, golden-snapshotted
-(the symbols `read-symbol` returns, the edges, and the lines no chunk spans),
-and parse-clean-checked. See **rbtr-testing**. Samples are
-exempt from the repo's linters/type-checker (they're fixtures) — validated
-only by their own tests.
+How a plugin is tested (its sample, import scenarios, detection, and the
+fixtures `rbtr.testing` provides) is described once, in the `rbtr` README's
+"Testing the plugin" section (`packages/rbtr/README.md`). On top of it, in
+this repository:
+
+- Regenerate every plugin's snapshots with `just snapshots`, and read the
+  diff before committing.
+- A language's behaviour is tested in its plugin, never in core's tests;
+  see **rbtr-testing**.
+- Samples, including `samples/imports/`, are exempt from the repo's
+  linters and type-checker; they are fixtures, validated by their own
+  tests.

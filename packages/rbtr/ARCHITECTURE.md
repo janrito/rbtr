@@ -450,14 +450,19 @@ worked examples of extraction and golden-tested fixtures.
 
 A plugin's `test_samples.py` builds the sample tree with
 `build_index`, as rbtr builds a repository, and compares what the
-index then holds against committed snapshots under `__snapshots__/`:
-the symbols `read-symbol` returns, the edges, and the lines no chunk
-spans. Any drift in extraction output turns the test red. Core's
-pytest plugin (`rbtr.testing`) commits and builds the sample and
-hands the tests what the build holds as plain values
-(`sample_symbols`, `sample_edges`, `sample_uncovered_lines`,
-`sample_parse_errors`), so a plugin needs no `conftest.py` and
-reaches neither the index nor its frames.
+index then holds against committed snapshots under `__snapshots__/`.
+Core's pytest plugin (`rbtr.testing`) commits and builds the sample and
+hands the tests plain values, so a plugin's tests reach neither the
+index nor its frames. The fixtures and what each snapshot shows are
+described for plugin authors in the README's
+[Testing the plugin](README.md#testing-the-plugin).
+
+A language's behaviour is tested in its plugin, and core's rules are
+tested without one: core pins how imports resolve and reach their
+targets on literal rows in neutral languages, and its other tests build
+only languages `rbtr` installs by default. So core's suite passes with
+any set of optional plugins installed, and a change to a plugin fails a
+test in that plugin.
 
 The snapshots record the reply shape, not the write model (`Chunk`),
 so a change to how chunks are written or stored changes no snapshot
@@ -470,10 +475,6 @@ lacks and inferring edges from everything the store holds for the
 snapshot, so such a function would be a path production never takes.
 Revisit that if building a sample becomes too slow to run once per
 test module.
-
-Regenerate every plugin's snapshots after an intended extraction
-change with `just snapshots`, and review the diff before
-committing.
 
 The samples are exempt from the repo's linters and
 type-checker — they are fixtures, validated by their own

@@ -868,14 +868,17 @@ src/rbtr_lang_swift/tests/
   __init__.py
   cases_extraction.py
   test_extraction.py
+  test_detection.py
   test_samples.py
+  test_imports.py
   samples/swift/swift.swift
+  samples/imports/<scenario>/...
   __snapshots__/
 ```
 
-The `snapshot_json` fixture — which serialises chunks to canonical JSON for
-snapshots — is provided automatically by the `rbtr[test]` pytest plugin, so a
-test just takes it as an argument; no `conftest.py` is needed.
+The `rbtr[test]` pytest plugin provides every fixture below, so a test
+just takes them as arguments; no `conftest.py` is needed. `snapshot_json`
+serialises a value to canonical JSON for a snapshot.
 
 Construct tests keep the data (source → expected symbols) in `@case`
 functions and run the pipeline in the test body:
@@ -945,8 +948,50 @@ are the edges, as readable `file::name -> file::name [kind]` lines.
 `sample_uncovered_lines` lists each non-blank line no chunk spans, which
 should be syntax with nothing to search, such as a closing brace.
 `sample_parse_errors` names each file that does not parse in the
-language the build read it as. Regenerate the golden files after an
-intended change with `pytest --snapshot-update`.
+language the build read it as.
+
+Read a change in these snapshots as a change in what a user sees. A
+symbol of kind `fragment` is code no query names: one holding a
+definition is a capture the query is missing. A new uncovered line is
+syntax no chunk reaches. Regenerate the golden files after an intended
+change with `pytest --snapshot-update`, and read the diff before
+committing it.
+
+The sample holds a file referencing a sibling inside a subdirectory, so
+its edge snapshot shows the language's references resolving from where
+they are written. An import form the main sample cannot hold without
+changing what else resolves, such as two packages sharing a path,
+belongs in a small project of its own under `samples/imports/`. One test
+module reads each through the same fixtures:
+
+```python
+# test_imports.py
+from pathlib import Path
+
+import pytest
+
+
+@pytest.fixture(scope="module", params=["relative-import", "two-packages"])
+def sample_dir(request):
+    return Path(__file__).parent / "samples" / "imports" / request.param
+
+
+def test_edges_match_snapshot(sample_edges, snapshot_json):
+    assert sample_edges == snapshot_json
+```
+
+The files the plugin claims are its own facts, tested beside it:
+
+```python
+# test_detection.py
+import pytest
+from rbtr.languages.manager import get_manager
+
+
+@pytest.mark.parametrize(("path", "language"), [("App.swift", "swift")])
+def test_claims_its_files(path, language):
+    assert get_manager().detect_language(path) == language
+```
 
 ### Installing the plugin
 
