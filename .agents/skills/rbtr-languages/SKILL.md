@@ -256,10 +256,13 @@ pattern is the answer. Say why in a comment beside the pattern.
 - **One import per line.** A quantified `@_import_module` names one module
   per line its nodes sit on. An rST `toctree`'s content is word tokens,
   with no node per entry.
-- **Flat sections.** A doc section whose pattern captures its adornments
-  as `@_level` is levelled by the order each style first appears, scoped
-  under the nearest earlier section of a higher level, and holds its text
-  up to the next one. tree-sitter-rst's `section` holds its title alone.
+- **Levelled captures.** A capture whose pattern states its level,
+  `(#set! level "2")` (Markdown's headings) or an `@_level` capture ranked
+  by its style's first use (rST's adornments), holds its text up to the
+  next one and is scoped under the nearest earlier one of a higher level;
+  the rule `rules.levelled` decides, from the rows. tree-sitter-rst's
+  `section` holds its title alone; tree-sitter-markdown gives an
+  underlined heading no section.
 
 Each rule is deleted when its grammar gives the node. A new rule needs the
 same case: a node the grammar does not give, and an exit.

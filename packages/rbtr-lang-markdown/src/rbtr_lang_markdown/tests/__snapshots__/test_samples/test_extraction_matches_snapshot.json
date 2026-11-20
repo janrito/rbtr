@@ -343,6 +343,26 @@
     "line_end": 7
   },
   {
+    "name": "Underlined headings",
+    "kind": "doc_section",
+    "file_path": "headings.md",
+    "scope": "",
+    "language": "markdown",
+    "content": "Underlined headings\n===================\n\nThis section uses an equals-sign underline.",
+    "line_start": 1,
+    "line_end": 4
+  },
+  {
+    "name": "Details",
+    "kind": "doc_section",
+    "file_path": "headings.md",
+    "scope": "Underlined headings",
+    "language": "markdown",
+    "content": "Details\n-------\n\nThis subsection uses a dash underline.",
+    "line_start": 6,
+    "line_end": 9
+  },
+  {
     "name": "Locales",
     "kind": "doc_section",
     "file_path": "locales.md",

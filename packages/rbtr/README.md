@@ -732,6 +732,14 @@ contributes a scope segment that lexical nesting cannot reach (a Go
 method's receiver type), and `@_docstring` marks an interior docstring.
 Any capture starting with `_` is read but never becomes a chunk.
 
+**Headings a grammar leaves flat.** Where a grammar gives a heading no
+node holding its text, state the heading's level and the engine nests it:
+`(#set! level "2")` gives its level as a number (Markdown's `##`, or a
+`-` underline), and an `@_level` capture gives it as a style, ranked by
+the order in which each style is first used in the file (rST's
+adornments). The heading then holds its text up to the next one and is
+scoped under the nearest earlier one of a higher level.
+
 **Calls and bases.** Capture a call's callee as `@_call` and each of a
 class's bases as `@_base`; the engine records them on the innermost
 chunk around them (a call in a method is the method's, a module-level

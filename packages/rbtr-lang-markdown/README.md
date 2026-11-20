@@ -10,9 +10,11 @@ rbtr itself (`pip install rbtr`).
 Two tree-sitter query plugins, one for each half of the grammar:
 `markdown` reads the blocks, `markdown_inline` the text inside them.
 
-- **Sections** — headings → doc sections holding their text up to their
-  first subsection; `scope` is the `::` chain of enclosing headings. Text
-  under no heading becomes fragments.
+- **Sections** — headings, `#` or underlined with `=` or `-` → doc
+  sections holding their text up to the next heading; `scope` is the `::`
+  chain of the headings above of a higher level (`===` is level 1, `---`
+  level 2). A heading inside a list item or block quote is a section within
+  the one around it. Text under no heading becomes fragments.
 - **Links** — local `[text](path.md)`, `[text](path.md#fragment)` and
   `[text](#fragment)` → imports (the fragment becomes `names`). A fragment
   reaches the section whose heading it is, as renderers write it
@@ -48,6 +50,14 @@ service: greeter       <!-- doc_section "service" (yaml)               -->
 </main>
 ```
 ````
+
+## Limitations
+
+Each is a strict expected failure, so fixing one fails its test.
+
+| What happens                                                                             | Why                                                                                                              | Pinned by                                                       |
+| ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| A heading inside a list item or block quote has an empty scope, not the heading above it | Its scope is read from the grammar's sections around it, and a top-level heading is read flat, naming no section | `test_md_a_nested_heading_is_scoped_under_the_heading_above_it` |
 
 ## Grammar & dependencies
 

@@ -24,6 +24,7 @@ from rbtr.domain.rules import (
     PlacedChunkRow,
     assemble,
     capture_chunks,
+    levelled,
     line_windows,
     with_metadata,
 )
@@ -78,7 +79,8 @@ def extract_batch(
     # Each rule is one lazy plan, its result checked within it, collected
     # before the next rule reads it: a plan copies a frame it reads twice into
     # each use, and `with_metadata` reads its inputs many times.
-    described = with_metadata(captures.lazy(), metadata_captures.lazy()).collect()
+    settled = levelled(captures.lazy(), files).collect()
+    described = with_metadata(settled.lazy(), metadata_captures.lazy()).collect()
     return assemble(
         files,
         capture_chunks(files, described.lazy()),

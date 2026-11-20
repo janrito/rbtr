@@ -244,6 +244,25 @@ become searchable `COMMENT` chunks. Scope paths join enclosing names
 with `::`, so a nested class would give a method a scope such as
 `Outer::Client`.
 
+**Where a scope comes from.** A container the syntax tree does not nest is
+still one container: its pieces share an address, and every reader treats
+chunks of that address as its members. The address has three sources:
+
+| Source                                        | Example                                                                        | Stated by                                                          |
+| --------------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| The enclosing node                            | Rust's `impl Order { fn save }`, a Ruby `class Order` reopened in another file | `scope_types`, read by the adapter                                 |
+| A name the match states                       | Go's `func (o *Order) Save()`, C++'s `void Order::save()`                      | an `@_scope` capture, read by the adapter                          |
+| The nearest earlier capture of a higher level | a Markdown or rST heading, which its grammar leaves flat                       | the query's level (`#set! level`, or `@_level`), decided by a rule |
+
+The first two are facts the tree holds. The third follows from the order
+and level of many rows, so the adapter records each capture's stated level
+(or `@_level` style) and its source's end, and `rules.levelled` decides:
+it ranks each levelled capture (its stated level, or its style's first
+use in its source), ends its text at the next one or its source's end,
+scopes it under the earlier ones of a lower rank still open, and drops
+the fragments that start in its text: a fragment never spans a captured
+node, so none crosses into the next heading's.
+
 Staging (`staged_chunks`) adds the stable [chunk id](#record-identity),
 [search tokens](#fts-index-lifecycle) and each chunk's extraction
 serial. Staging keeps the stored chunk columns, leaving documentation
@@ -2404,7 +2423,8 @@ or query, not a bigger fallback.
 **A section that ends in subsections holds its own text.** A captured
 section node spans what nests in it, as a class spans its methods. A
 section that ends in captured sections, nothing else after the first,
-holds only the text before them: that is a Markdown heading's own text.
+holds only the text before them, as a levelled heading holds its text up
+to the next heading.
 Spanning the subsections does not work here: on the eval repositories'
 Markdown it stores 2.5 times the text, and 135 chunks run past the
 embedding context against 3. An HTML element's own content continues past
@@ -2435,14 +2455,17 @@ way around writing a pattern:
   on. tree-sitter-rst tokenises a `toctree`'s content by word, so no node
   holds an entry; a pattern capturing whole entries would make one import
   per match, as Python's `import os, sys` does.
-- A doc section whose match captures `@_level` is flat: its level is the
-  order in which its style (the `@_level` texts, joined) first appears,
-  it is scoped under the nearest earlier section of a higher level, and it
-  holds its text up to the next one. tree-sitter-rst's section holds its
-  title alone, "to avoid guessing the level of subtitles" (its README).
+- A capture whose pattern states a level is levelled ("Where a scope
+  comes from"): `#set! level "2"` states it as a number, as Markdown does
+  (`#` to `######` are 1 to 6, an `=` underline 1, a `-` underline 2);
+  an `@_level` capture states it as a style ranked by its first use in the
+  source, docutils' rule, as rST does. tree-sitter-rst's section holds
+  its title alone, "to avoid guessing the level of subtitles" (its
+  README); tree-sitter-markdown nests sections for `#` headings only.
 
-Each rule is deleted when tree-sitter-rst gives the node: entries in a
-`toctree`'s content, sections nesting their body.
+Each rule is deleted when its grammar gives the node: entries in a
+`toctree`'s content, sections nesting their body, a section for every
+Markdown heading.
 
 **Section references use captured names and a comparison rule.** Queries
 capture author-defined ids and labels; an enum lets core compare names
@@ -2478,6 +2501,11 @@ plugin callbacks. The adapter resolves them while each source's tree
 is alive and passes plain rows onwards. Keeping nodes in the frames
 would retain every tree until the batch finished and couple the domain
 rules to the parser. Value-only rules instead use polars expressions.
+Levelling headings reads only rows, so it is a rule after `read`: the
+adapter makes fragments of a heading's body, as it reads the heading's
+span alone, and the rule drops them, at some cost for documents of many
+headings. Levelling in the adapter, before its fragments, needed every
+tree of a batch at once.
 
 **Store lookups follow the streaming batch.** A query per file repeats planning and
 serial-map preparation; one lookup per batch checks all its blobs against a serial map

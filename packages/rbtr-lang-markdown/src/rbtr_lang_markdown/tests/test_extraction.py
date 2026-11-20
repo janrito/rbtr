@@ -7,6 +7,7 @@ headingless text as fragments), fenced-code injection/delegation, and link extra
 
 from __future__ import annotations
 
+import pytest
 from pytest_cases import parametrize_with_cases
 
 from rbtr.domain.models import ChunkKind, Import
@@ -202,3 +203,77 @@ Call do_stuff to process the data.
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
     imports = [c.role for c in chunks if isinstance(c.role, Import)]
     assert imports == []
+
+
+def test_md_headings_of_either_style_nest_by_level() -> None:
+    """Each heading style states its level: `#` 1, `##` 2, an `=` underline 1, a `-` underline 2.
+
+    So `---` is a sibling of `##` and `===` closes both, whichever style
+    each is written in.
+    """
+    src = """\
+# Guide
+
+Intro.
+
+Install
+-------
+
+Install text.
+
+## Configure
+
+Configure text.
+
+Reference
+=========
+
+Reference text.
+"""
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
+    assert [
+        (c.name, c.scope, c.span.start, c.span.end)
+        for c in chunks
+        if c.kind == ChunkKind.DOC_SECTION
+    ] == [
+        ("Guide", "", 1, 3),
+        ("Install", "Guide", 5, 8),
+        ("Configure", "Guide", 10, 12),
+        ("Reference", "", 14, 17),
+    ]
+
+
+def test_md_a_heading_in_a_block_quote_is_a_section_of_its_own() -> None:
+    """A heading inside a block quote or list item is a section within the one around it."""
+    src = """\
+# Notes
+
+> # Quoted
+>
+> Text.
+"""
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
+    assert [
+        (c.name, c.span.start, c.span.end) for c in chunks if c.kind == ChunkKind.DOC_SECTION
+    ] == [
+        ("Notes", 1, 5),
+        ("Quoted", 3, 5),
+    ]
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="a nested heading is scoped by the grammar's sections around it, and a "
+    "top-level heading is read flat, naming no section: the scope is empty",
+)
+def test_md_a_nested_heading_is_scoped_under_the_heading_above_it() -> None:
+    """`# Notes` then a heading in a list item: the item's heading is scoped `Notes`."""
+    src = """\
+# Notes
+
+- # Item
+
+  Text.
+"""
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
+    assert ("Item", "Notes") in [(c.name, c.scope) for c in chunks]

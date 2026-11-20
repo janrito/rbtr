@@ -106,6 +106,9 @@ class Capture(TypedDict):
     line_start: int
     line_end: int
     metadata: Metadata | None
+    level: int | None
+    level_style: str | None
+    source_end: int
 
 
 type Languages = Callable[[str], tuple[LanguageRegistration, Language | None] | None]
@@ -208,7 +211,8 @@ def read(
                 case QueryExtraction() as extraction if content:
                     captured, named, found = query_captures(source, extraction)
                     captures += captured
-                    captures += fragments(source, extraction, captured, named)
+                    spans = [(c["line_start"], c["line_end"]) for c in captured]
+                    captures += fragments(source, extraction, spans, named)
                     metadata_captures += found
     return (
         pl.LazyFrame(captures, schema=CaptureRow.create_empty().schema)
@@ -361,8 +365,7 @@ def query_captures(
     Names, scopes and import metadata come from the registration's
     resolvers, `#strip!` applied. Each span is settled here: a captured
     section that ends in captured sections ends where the first of them
-    begins (`section_end`), a flat section at the next one
-    (`flat_sections`), and a quantified `@_import_module` makes one
+    begins (`section_end`), and a quantified `@_import_module` makes one
     import per line (`line_imports`). Whether a capture's nearest scope is
     class-like, and the column it starts at, are recorded for the rules.
     A node captured more than once (`a, b = …`) names the scope it opens
@@ -377,7 +380,6 @@ def query_captures(
         if captured.capture != "comment":
             named.setdefault(captured.node.id, directives.name(captured))
     sections = {captured.node.id for captured in nodes if captured.capture == "doc_section"}
-    flat = flat_sections(nodes, directives, source.content, source.tree.root_node.end_byte)
     rows: list[Capture] = []
     for captured in nodes:
         node = captured.node
@@ -395,11 +397,9 @@ def query_captures(
             *scope_names(scopes, named),
             *source.registration.resolve_scope(captured.capture, node, captured.captures),
         ]
+        level, level_style = directives.level(captured)
         end: tuple[int, int] | None = None
-        if node.id in flat:
-            end_byte, line_end, scope = flat[node.id]
-            end = (end_byte, line_end)
-        elif captured.capture == "doc_section":
+        if captured.capture == "doc_section" and level is None and level_style is None:
             end = section_end(node, sections, source.content)
         rows.append(
             capture(
@@ -418,6 +418,8 @@ def query_captures(
                 ],
                 meta=directives.import_meta(captured) if captured.capture == "import" else None,
                 match=captured.match,
+                level=level,
+                level_style=level_style,
             )
         )
     return rows, named, metadata_captures
@@ -437,12 +439,15 @@ def capture(
     meta: ImportMeta | None = None,
     node_types: list[str] | None = None,
     match: int | None = None,
+    level: int | None = None,
+    level_style: str | None = None,
 ) -> Capture:
     """A row for *source*'s span from *first*'s start to *last*'s end, numbered next in its file.
 
     *end*, when given, is where a section's own text ends: its end byte
     and last line. *meta* is an import's metadata, *node_types* a
-    fragment's, *match* the query match that captured it.
+    fragment's, *match* the query match that captured it, *level* and
+    *level_style* the level its pattern states.
     """
     end_byte, line_end = end if end is not None else (last.end_byte, last_line(last))
     metadata: Metadata | None = None
@@ -472,6 +477,9 @@ def capture(
         line_start=first.start_point[0] + 1,
         line_end=line_end,
         metadata=metadata,
+        level=level,
+        level_style=level_style,
+        source_end=source.tree.root_node.end_byte,
     )
 
 
@@ -577,6 +585,19 @@ class Directives:
         key = NAME_CAPTURE_KEY.get(captured.capture)
         return self.strip(captured.pattern, key, name) if key else name
 
+    def level(self, captured: CapturedNode) -> tuple[int | None, str | None]:
+        """The level *captured*'s pattern states: its `#set! level`, or its `@_level` texts, `#strip!` applied, joined."""
+        stated = self.query.pattern_settings(captured.pattern).get("level")
+        if stated is not None:
+            return int(stated), None
+        if "_level" not in captured.captures:
+            return None, None
+        return None, "".join(
+            self.strip(captured.pattern, "_level", node.text.decode())
+            for node in captured.captures["_level"]
+            if node.text
+        )
+
     def import_meta(self, captured: CapturedNode) -> ImportMeta:
         """The import *captured* records: its module (`read_import`) as written, `#strip!`ped, and its pattern's `#set!` names and language hint.
 
@@ -601,49 +622,6 @@ class Directives:
                 "language_hint": settings.get("import.language_hint") or meta.language_hint,
             }
         )
-
-
-def flat_sections(
-    nodes: list[CapturedNode], directives: Directives, content: bytes, end: int
-) -> dict[int, tuple[int, int, list[str]]]:
-    """Each flat section's end byte, 1-based last line and scope, by node id.
-
-    A flat section is one whose match captures `@_level`: its grammar gives
-    it no body to nest in (tree-sitter-rst's `section` holds its title
-    alone). Its level is the order in which its style (its `@_level` texts,
-    `#strip!` applied, joined) first appears; it is scoped under the nearest
-    earlier flat section of a higher level, and holds its text up to the
-    next flat section, or to *end*, less trailing whitespace.
-    """
-    flat = [
-        captured
-        for captured in nodes
-        if captured.capture == "doc_section" and "_level" in captured.captures
-    ]
-    ranks: dict[str, int] = {}
-    above: list[tuple[int, str]] = []
-    spans: dict[int, tuple[int, int, list[str]]] = {}
-    for at, captured in enumerate(flat):
-        style = "".join(
-            directives.strip(captured.pattern, "_level", node.text.decode())
-            for node in captured.captures["_level"]
-            if node.text
-        )
-        rank = ranks.setdefault(style, len(ranks))
-        while above and above[-1][0] >= rank:
-            above.pop()
-        scope = [name for _, name in above]
-        above.append((rank, directives.name(captured)))
-        stop = flat[at + 1].node.start_byte if at + 1 < len(flat) else end
-        while stop > captured.node.start_byte and content[stop - 1 : stop] in (
-            b" ",
-            b"\t",
-            b"\r",
-            b"\n",
-        ):
-            stop -= 1
-        spans[captured.node.id] = (stop, content.count(b"\n", 0, stop) + 1, scope)
-    return spans
 
 
 def section_end(node: Node, sections: set[int], content: bytes) -> tuple[int, int]:
@@ -725,9 +703,12 @@ def scope_names(scopes: list[Node], named: Mapping[int, str]) -> list[str]:
 
 
 def fragments(
-    source: Source, extraction: QueryExtraction, captured: list[Capture], named: Mapping[int, str]
+    source: Source,
+    extraction: QueryExtraction,
+    spans: list[tuple[int, int]],
+    named: Mapping[int, str],
 ) -> list[Capture]:
-    """Fragment rows for the code *captured* leaves, so every line reaches a chunk.
+    """Fragment rows for the code the captured *spans* (first and last lines) leave, so every line reaches a chunk.
 
     A line is covered by a captured span, or by a node holding a block
     another language reads (`Source.holders`). The runs of uncovered
@@ -738,9 +719,7 @@ def fragments(
     if not extraction.fragments:
         return []
     covered = bytearray(source.content.count(b"\n") + 2)
-    lines = [(c["line_start"], c["line_end"]) for c in captured] + [
-        (holder.start_point[0] + 1, last_line(holder)) for holder in source.holders
-    ]
+    lines = [*spans, *((holder.start_point[0] + 1, last_line(holder)) for holder in source.holders)]
     for start, end in lines:
         covered[start : end + 1] = b"\x01" * (end - start + 1)
     rows: list[Capture] = []

@@ -19,7 +19,7 @@ from rbtr.git import FileEntry
 from rbtr.languages.extract import extract_batch, extract_file, extract_symbols, file_rows
 from rbtr.languages.manager import get_manager
 from rbtr.languages.registration import LanguageRegistration, QueryExtraction
-from rbtr.languages.treesitter import runs
+from rbtr.languages.treesitter import read, runs
 
 
 @pytest.mark.parametrize("lang", sorted(get_manager().all_language_ids()))
@@ -202,18 +202,33 @@ def test_a_quantified_import_capture_names_one_module_per_line() -> None:
     ]
 
 
-def test_flat_sections_are_levelled_by_their_level_captures() -> None:
-    """Sections a grammar leaves flat nest by `@_level`, ranked by first appearance.
-
-    Each holds its text up to the next such section, under the nearest
-    earlier one of a higher level. An overlined `=` is a style of its own.
-    """
-    grammar = get_manager().grammar("rst")
-    assert grammar is not None
-    query = """\
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        pytest.param(
+            """\
 ((section "adornment"? @_level (title) @_section_name "adornment" @_level
   (#strip! @_level "(?<=^.).*")) @doc_section)
-"""
+""",
+            [("Guide", None, "=="), ("Install", None, "="), ("Pip", None, "-"), ("Use", None, "=")],
+            id="a-style-its-adornments-make",
+        ),
+        pytest.param(
+            """\
+((section (title) @_section_name) @doc_section
+  (#set! level "2"))
+""",
+            [("Guide", 2, None), ("Install", 2, None), ("Pip", 2, None), ("Use", 2, None)],
+            id="a-level-its-pattern-states",
+        ),
+    ],
+)
+def test_a_capture_records_the_level_its_pattern_states(
+    query: str, expected: list[tuple[str, int | None, str | None]]
+) -> None:
+    """The adapter records a stated level, or the `@_level` texts `#strip!`ped and joined; ranking them is the rule's."""
+    grammar = get_manager().grammar("rst")
+    assert grammar is not None
     reg = LanguageRegistration(id="faketest", extraction=QueryExtraction(query=query))
     src = b"""\
 =====
@@ -237,17 +252,14 @@ Use
 
 Call it.
 """
-    sections = [
-        (c.role.name, c.scope, c.span.start, c.span.end)
-        for c in extract_symbols(reg, "doc.rst", "sha1", src, grammar)
-        if c.role.kind == ChunkKind.DOC_SECTION
-    ]
-    assert sections == [
-        ("Guide", "", 1, 5),
-        ("Install", "Guide", 7, 10),
-        ("Pip", "Guide::Install", 12, 15),
-        ("Use", "Guide", 17, 20),
-    ]
+    files = file_rows([(FileEntry("doc.rst", "sha1", src), "faketest")])
+    captures, *_ = read(files, {"faketest": (reg, grammar)}.get)
+    assert (
+        captures.filter(pl.col("kind") == ChunkKind.DOC_SECTION)
+        .select("name", "level", "level_style")
+        .rows()
+        == expected
+    )
 
 
 def test_set_directive_names_where_an_import_finds_its_name() -> None:

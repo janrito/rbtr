@@ -174,6 +174,10 @@ class CaptureRow(dy.Schema):
     `metadata` is an import's module and names, as resolved (its `#` not
     yet read), a fragment's node types, or what a definition calls.
     `match` is the query match that captured it, null for a fragment.
+    A levelled capture (`levelled`) states its level as a number (`level`,
+    from its pattern's `#set! level`) or as a style ranked by first use
+    (`level_style`, its `@_level` texts). `source_end` is where its source
+    ends: its file's, or the block's that a language read.
     """
 
     file = dy.Int64(nullable=False)
@@ -195,6 +199,13 @@ class CaptureRow(dy.Schema):
     line_start = dy.Int64(nullable=False)
     line_end = dy.Int64(nullable=False)
     metadata = ChunkRow.metadata
+    level = dy.Int32(nullable=True)
+    level_style = dy.String(nullable=True)
+    source_end = dy.Int64(nullable=False)
+
+    @dy.rule()
+    def one_level_statement(cls) -> pl.Expr:
+        return cls.level.col.is_null() | cls.level_style.col.is_null()
 
     @dy.rule()
     def a_match_except_on_fragments(cls) -> pl.Expr:
@@ -479,6 +490,132 @@ def all_names(path: pl.Expr) -> pl.Expr:
     return (path.list.len() > 0) & path.list.eval(
         pl.element().str.contains(r"^(?:[^\W\d]|\$)[\w$]*$")
     ).list.all()
+
+
+def level_rank() -> pl.Expr:
+    """A levelled capture's rank: its stated `level`, else the order in which its `level_style` is first used in its source.
+
+    Over a source's levelled captures.
+    """
+    first_use = pl.col("order").min().over("file", "source", "level_style")
+    return pl.coalesce(
+        "level",
+        pl.when(pl.col("level_style").is_not_null()).then(
+            first_use.rank("dense").over("file", "source")
+        ),
+    )
+
+
+def next_levelled_start() -> pl.Expr:
+    """Where the next levelled capture of the source starts, else where the source ends.
+
+    Over a source's levelled captures, in order.
+    """
+    return pl.coalesce(pl.col("start_byte").shift(-1).over("file", "source"), "source_end")
+
+
+def end_before_trailing_whitespace() -> pl.Expr:
+    """The end of the text from `start_byte` to `stop`, less the whitespace it ends with."""
+    return (
+        pl.col("start_byte")
+        + text(pl.col("start_byte"), pl.col("stop"))
+        .str.strip_chars_end(ASCII_WHITESPACE)
+        .str.len_bytes()
+    )
+
+
+def last_line_of_span() -> pl.Expr:
+    """The line `end_byte` falls on, from `line_start` and the newlines in between."""
+    return pl.col("line_start") + text(pl.col("start_byte"), pl.col("end_byte")).str.count_matches(
+        "\n", literal=True
+    )
+
+
+def fragment_in_levelled_text() -> pl.Expr:
+    """A fragment starting before the nearest levelled capture at or before it ends (`levelled_end`).
+
+    False before a source's first levelled capture. Over a source's rows in
+    byte order.
+    """
+    held_to = pl.col("levelled_end").forward_fill().over("file", "source")
+    return (pl.col("kind") == ChunkKind.FRAGMENT) & (pl.col("start_byte") < held_to).fill_null(
+        value=False
+    )
+
+
+def levelled(
+    captures: dy.LazyFrame[CaptureRow], files: dy.DataFrame[FileRow]
+) -> dy.LazyFrame[CaptureRow]:
+    """*captures* with each levelled capture's text ended at the next and scoped under the ones above.
+
+    A levelled capture is one whose row states a level: a number
+    (`level`), or a style (`level_style`) ranked by the order in which
+    it is first used in its source. Within a source, a levelled capture
+    holds its text up to the next one, or to its source's end, less
+    trailing whitespace. A later capture of the same or a lower rank
+    closes it; it is scoped under every earlier one of a lower rank not
+    closed before it, outermost first. A fragment starting inside a
+    levelled capture's text is that text, and is dropped: a fragment never
+    spans a captured node, so it ends before the next levelled capture.
+    Other captures are unchanged.
+    """
+    key = ["file", "source"]
+    rows = (
+        captures.filter(pl.col("level").is_not_null() | pl.col("level_style").is_not_null())
+        .sort(*key, "order")
+        .with_columns(rank=level_rank(), stop=next_levelled_start())
+    )
+    # Each capture's closer: the first later one of the same or a lower rank.
+    closers = (
+        rows.select(*key, "order", "rank")
+        .join(rows.select(*key, later="order", later_rank="rank"), on=key)
+        .filter((pl.col("later") > pl.col("order")) & (pl.col("later_rank") <= pl.col("rank")))
+        .group_by(*key, "order")
+        .agg(closer=pl.col("later").min())
+    )
+    # Each capture's scope: the earlier ones of a lower rank still open at it.
+    scopes = (
+        rows.select(*key, "order", "rank")
+        .join(
+            rows.join(closers, on=[*key, "order"], how="left").select(
+                *key, above="order", above_name="name", above_rank="rank", closer="closer"
+            ),
+            on=key,
+        )
+        .filter(
+            (pl.col("above") < pl.col("order"))
+            & (pl.col("above_rank") < pl.col("rank"))
+            & (pl.col("closer").is_null() | (pl.col("closer") > pl.col("order")))
+        )
+        .group_by(*key, "order")
+        .agg(chain=pl.col("above_name").sort_by("above").str.join("::"))
+    )
+    spans = (
+        rows.join(files.select("file", "content").rechunk().lazy(), on="file")
+        .with_columns(end_byte=end_before_trailing_whitespace())
+        .with_columns(line_end=last_line_of_span())
+        .join(scopes, on=[*key, "order"], how="left")
+        .select(
+            *key,
+            "order",
+            levelled_end="end_byte",
+            levelled_line_end="line_end",
+            levelled_scope=pl.col("chain").fill_null(""),
+        )
+    )
+    return (
+        captures.join(spans, on=[*key, "order"], how="left")
+        .with_columns(
+            end_byte=pl.coalesce("levelled_end", "end_byte"),
+            line_end=pl.coalesce("levelled_line_end", "line_end"),
+            scope=pl.coalesce("levelled_scope", "scope"),
+        )
+        .sort(*key, "start_byte")
+        .filter(~fragment_in_levelled_text())
+        .sort("file", "order")
+        .select(CaptureRow.column_names())
+        .pipe(CaptureRow.validate, cast=True)
+    )
 
 
 def with_metadata(
