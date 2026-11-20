@@ -47,11 +47,12 @@ _REJECT_PREFIXES = (
 )
 
 
-def first_sentence(doc_text: str) -> str | None:
-    """Return the first sentence of *doc_text*, or None if unusable.
+def first_sentence(text: str) -> str | None:
+    """Return the first sentence of *text*, or None if unusable.
 
-    Turns a raw docstring (comment markers and all) into a
-    search-friendly query string.  Comment markers -- line
+    Turns a chunk's raw text — its whole content for a `body` query,
+    its documentation for a `docstring` one, comment markers and all —
+    into a search-friendly query string.  Comment markers -- line
     comments, triple-quotes, block-comment delimiters, `*`
     gutters -- are kept in the returned text: stripping them
     means re-implementing per-language comment syntax, which
@@ -68,7 +69,7 @@ def first_sentence(doc_text: str) -> str | None:
     boilerplate / scaffolding prefix (`todo`, `@param`, etc.)
     after skipping leading comment-marker noise.
     """
-    cleaned = doc_text.strip()
+    cleaned = text.strip()
     if not cleaned:
         return None
     parts = _SENTENCE_SPLIT_RE.split(cleaned, maxsplit=1)
@@ -76,33 +77,6 @@ def first_sentence(doc_text: str) -> str | None:
     if len(candidate) > _QUERY_MAX_LEN:
         candidate = candidate[:_QUERY_MAX_LEN].rstrip()
     if len(candidate) < _QUERY_MIN_LEN:
-        return None
-    post_noise = _REJECT_LOOKAHEAD_RE.sub("", candidate).lower()
-    if any(post_noise.startswith(p) for p in _REJECT_PREFIXES):
-        return None
-    return candidate
-
-
-_BODY_MIN_LEN = 15
-_BODY_MAX_LEN = 200
-_BODY_LINE_RE = re.compile(r"[.!?]\s+|\n\s*\n")
-
-
-def _body_sentence(body_text: str) -> str | None:
-    """Return the first substantial sentence from *body_text*, or None.
-
-    Strips leading / trailing whitespace and comment markers, then
-    picks the first sentence that is at least `_BODY_MIN_LEN`
-    characters long and doesn't start with a boilerplate prefix.
-    """
-    cleaned = body_text.strip()
-    if not cleaned:
-        return None
-    parts = _BODY_LINE_RE.split(cleaned, maxsplit=1)
-    candidate = parts[0].strip() if parts else cleaned
-    if len(candidate) > _BODY_MAX_LEN:
-        candidate = candidate[:_BODY_MAX_LEN].rstrip()
-    if len(candidate) < _BODY_MIN_LEN:
         return None
     post_noise = _REJECT_LOOKAHEAD_RE.sub("", candidate).lower()
     if any(post_noise.startswith(p) for p in _REJECT_PREFIXES):
@@ -140,7 +114,7 @@ def symbol_queries(symbols: pl.DataFrame, slug: str) -> dy.DataFrame[QueryRow]:
     )
     by_body = targets.with_columns(
         provenance=pl.lit("body"),
-        text=pl.col("content").map_elements(_body_sentence, return_dtype=pl.String),
+        text=pl.col("content").map_elements(first_sentence, return_dtype=pl.String),
     )
     by_docstring = targets.with_columns(
         provenance=pl.lit("docstring"),
