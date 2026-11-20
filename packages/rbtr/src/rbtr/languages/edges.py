@@ -24,8 +24,6 @@ are `DOCUMENTS`; every other edge is `IMPORTS`.
 
 from __future__ import annotations
 
-import re
-from collections.abc import Callable
 from enum import StrEnum
 from pathlib import PurePosixPath
 
@@ -53,26 +51,6 @@ class EdgeChunkRow(dy.Schema):
     names = dy.String(nullable=True)
     dots = dy.String(nullable=True)
     language_hint = dy.String(nullable=True)
-
-
-def _build_stem_index(repo_files: set[str], index_stems: set[str]) -> dict[str, list[str]]:
-    """Map a file stem a word of an import may name to the files with that stem.
-
-    Left out: the stems of *index_stems*, the files languages declare as
-    a directory's stand-in (`__init__`, `index`, `mod`), which name their
-    directory rather than a module; and stems shorter than three
-    characters (`a`, `io`), which too many words would match.
-    """
-    stem_to_files: dict[str, list[str]] = {}
-    for f in repo_files:
-        stem = PurePosixPath(f).stem
-        if stem not in index_stems and len(stem) >= 3:
-            stem_to_files.setdefault(stem, []).append(f)
-    return stem_to_files
-
-
-# Pre-compiled word tokeniser — splits on non-alphanumeric/underscore.
-_WORD_RE = re.compile(r"[A-Za-z_]\w*")
 
 
 class ImportWay(StrEnum):
@@ -175,13 +153,23 @@ def _edge_kind(prose: pl.Expr) -> pl.Expr:
 def _imports(
     chunks: dy.DataFrame[EdgeChunkRow],
     prose: pl.Expr,
-    module_targets: Callable[[dict[str, str]], list[str]],
+    repo_files: set[str],
+    rules: dict[str, ImportResolution],
 ) -> dy.DataFrame[ImportRow]:
-    """*chunks*' imports, each with its way, its edge kind and, for a `MODULE` import, its module's files."""
+    """*chunks*' imports, each with its way, its edge kind and, for a `MODULE` import, its module's files.
+
+    A module resolves to files of *repo_files* with `import_files`, by
+    the rules *rules* holds for each language.
+    """
     imports = chunks.filter(pl.col("kind") == ChunkKind.IMPORT).with_columns(_way(prose))
     by_module = imports.filter(pl.col("way") == ImportWay.MODULE).with_columns(
         pl.struct(pl.all())
-        .map_elements(module_targets, return_dtype=pl.List(pl.String))
+        .map_elements(
+            lambda row: import_files(
+                ImportMeta.model_validate(row), row["file_path"], row["language"], repo_files, rules
+            ),
+            return_dtype=pl.List(pl.String),
+        )
         .alias("target_paths")
     )
     return (
@@ -284,19 +272,30 @@ def _name_edges(
 def _text_edges(
     imports: dy.DataFrame[ImportRow],
     symbols: dy.DataFrame[EdgeChunkRow],
-    stem_targets: Callable[[str], list[str]],
+    repo_files: set[str],
+    index_stems: set[str],
 ) -> dy.DataFrame[InferredEdgeRow]:
-    """A `TEXT` import reaches the first symbol of each file whose stem is one of its words."""
+    """A `TEXT` import reaches the first symbol of each file of *repo_files* whose stem is one of its words.
+
+    No word reaches a stem of *index_stems*, the files languages declare
+    as a directory's stand-in (`__init__`, `index`, `mod`), which name
+    their directory rather than a module; nor a stem shorter than three
+    characters (`a`, `io`), which too many words would match.
+    """
+    paths = sorted(repo_files)
+    stems = pl.DataFrame(
+        {"target_path": paths, "word": [PurePosixPath(path).stem for path in paths]},
+        schema={"target_path": pl.String, "word": pl.String},
+    ).filter(~pl.col("word").is_in(index_stems) & (pl.col("word").str.len_chars() >= 3))
     first_by_file = symbols.unique("file_path", keep="first", maintain_order=True)
     return (
         imports.filter(pl.col("way") == ImportWay.TEXT)
         .with_columns(
-            pl.col("name")
-            .map_elements(stem_targets, return_dtype=pl.List(pl.String))
-            .alias("target_path"),
+            pl.col("name").str.extract_all(r"[A-Za-z_]\w*").list.unique().alias("word"),
             kind=pl.lit(EdgeKind.IMPORTS),
         )
-        .explode("target_path")
+        .explode("word")
+        .join(stems, on="word")
         .join(
             first_by_file.select(
                 pl.col("file_path").alias("target_path"), pl.col("id").alias("target_id")
@@ -337,27 +336,13 @@ def infer_import_edges(
     rules = resolution_map or {}
     prose = pl.col("language").is_in([language for language, r in rules.items() if r.prose])
     index_stems = {PurePosixPath(f).stem for r in rules.values() for f in r.index_files}
-    stem_index = _build_stem_index(repo_files, index_stems)
-
-    def module_targets(row: dict[str, str]) -> list[str]:
-        return import_files(
-            ImportMeta.model_validate(row),
-            row["file_path"],
-            row["language"],
-            repo_files,
-            rules,
-        )
-
-    def stem_targets(name: str) -> list[str]:
-        return [f for word in set(_WORD_RE.findall(name)) for f in stem_index.get(word, ())]
-
-    imports = _imports(chunks, prose, module_targets)
+    imports = _imports(chunks, prose, repo_files, rules)
     edges = pl.concat(
         [
             _bare_edges(imports, importable),
             _named_edges(imports, symbols, sections),
             _name_edges(imports, symbols),
-            _text_edges(imports, symbols, stem_targets),
+            _text_edges(imports, symbols, repo_files, index_stems),
         ]
     )
     return Edges.validate_python(edges.to_dicts())
