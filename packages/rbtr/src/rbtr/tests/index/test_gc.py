@@ -16,20 +16,17 @@ import pytest
 
 from rbtr.config import config
 from rbtr.domain.models import (
-    ChunkKind,
-    Definition,
     FileSnapshot,
     GcMode,
     Repo,
-    Span,
 )
 from rbtr.errors import RbtrError
 from rbtr.git import normalise_repo_path, worktree_tree_sha
-from rbtr.index.build import drop_stale_worktree_shas
+from rbtr.index.build import build_index, drop_stale_worktree_shas
 from rbtr.index.gc import run_gc, run_gc_all
 from rbtr.index.index import Index
-from rbtr.index.staging import TokenisedChunk
 
+from ..conftest import make_commit
 from .conftest import make_chunk, make_snap
 
 
@@ -89,25 +86,13 @@ def gc_repo(
 def gc(
     gc_repo: tuple[pygit2.Repository, str, str, str],
 ) -> Generator[GcFixture]:
-    """Index all three commits into a fresh in-memory store."""
+    """Build all three commits into a fresh in-memory store."""
     repo, c1, c2, c3 = gc_repo
     index = Index(writable=True)
     repo_path = normalise_repo_path(repo.workdir)
+    for sha in (c1, c2, c3):
+        build_index(repo_path, sha, index)
     registered = index.register(repo_path)
-    for i, sha in enumerate((c1, c2, c3)):
-        chunk = TokenisedChunk(
-            blob_sha=f"b{i}",
-            file_path="a.py",
-            role=Definition(kind=ChunkKind.FUNCTION, name="f"),
-            content="",
-            span=Span(start=1, end=1),
-        )
-        with index.session(registered) as ws:
-            ws.add_chunk(chunk)
-            ws.insert_snapshots(
-                [FileSnapshot(snapshot_sha=sha, file_path="a.py", blob_sha=f"b{i}")],
-            )
-            ws.mark_indexed(snapshot_sha=sha)
     yield GcFixture(
         repo=repo, index=index, repo_path=repo_path, registered=registered, c1=c1, c2=c2, c3=c3
     )
@@ -211,16 +196,12 @@ def test_gc_frees_only_unshared_chunks(gc: GcFixture, tmp_path: Path) -> None:
     """
     worktree = tmp_path / "other"
     gc.repo.add_worktree("other", str(worktree))
-    other = gc.index.register(normalise_repo_path(str(worktree)))
-    with gc.index.session(other) as ws:
-        ws.insert_snapshots(
-            [FileSnapshot(snapshot_sha="other_head", file_path="a.py", blob_sha="b0")],
-        )
-        ws.mark_indexed(snapshot_sha="other_head")
+    other_path = normalise_repo_path(str(worktree))
+    build_index(other_path, gc.c1, gc.index)
 
     counts = run_gc(gc.index, gc.repo_path, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
     assert counts.chunks == 1  # only c2's unshared chunk freed
-    other_head = other.at("other_head")
+    other_head = gc.index.register(other_path).at(gc.c1)
     assert gc.index.chunk_counts_for_snapshot(at=other_head).total > 0  # shared chunk survives
 
 
@@ -277,10 +258,8 @@ def test_gc_preserves_current_worktree_tree_sha(gc: GcFixture) -> None:
     tree_sha = worktree_tree_sha(gc.repo.workdir, max_untracked_files=config.max_untracked_files)
     assert tree_sha is not None
 
-    # Index HEAD and the tree SHA.
-    with gc.index.session(gc.registered) as ws:
-        ws.mark_indexed(snapshot_sha=gc.c3)  # HEAD
-        ws.mark_indexed(snapshot_sha=tree_sha)
+    # HEAD is built by `gc`; build the tree SHA as a worktree build does.
+    build_index(gc.repo_path, tree_sha, gc.index)
 
     run_gc(gc.index, gc.repo_path, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
 
@@ -304,11 +283,9 @@ def test_gc_drops_stale_worktree_tree_sha(gc: GcFixture) -> None:
     assert current_sha is not None
     assert stale_sha != current_sha
 
-    # Index all three.
-    with gc.index.session(gc.registered) as ws:
-        ws.mark_indexed(snapshot_sha=gc.c3)  # HEAD
-        ws.mark_indexed(snapshot_sha=stale_sha)
-        ws.mark_indexed(snapshot_sha=current_sha)
+    # HEAD is built by `gc`; build both tree SHAs as worktree builds do.
+    build_index(gc.repo_path, stale_sha, gc.index)
+    build_index(gc.repo_path, current_sha, gc.index)
 
     run_gc(gc.index, gc.repo_path, mode=GcMode.HEAD_ONLY, refs=[], dry_run=False)
 
@@ -346,58 +323,48 @@ class GlobalGcFixture:
 
 
 @pytest.fixture
-def global_gc(tmp_path: Path, gc_signature: pygit2.Signature) -> Generator[GlobalGcFixture]:
-    def build(name: str) -> tuple[pygit2.Repository, str, str]:
-        repo = pygit2.init_repository(str(tmp_path / name), bare=False, initial_head="main")
-        shas: list[str] = []
-        for i in range(2):
-            tb = repo.TreeBuilder()
-            tb.insert("a.py", repo.create_blob(f"{name}{i}\n".encode()), pygit2.GIT_FILEMODE_BLOB)
-            parents = [repo.head.target] if not repo.head_is_unborn else []
-            shas.append(
-                str(
-                    repo.create_commit(
-                        "refs/heads/main", gc_signature, gc_signature, f"c{i}", tb.write(), parents
-                    )
-                )
-            )
-        return repo, shas[0], shas[1]
+def global_gc(tmp_path: Path) -> Generator[GlobalGcFixture]:
+    """Two repositories, each with a droppable commit and a HEAD, all four built.
 
-    repo_a, a0, a1 = build("a")
-    repo_b, b0, b1 = build("b")
+    Two repositories are two projects, so each file holds its own copy of
+    the chunk both reference: `b.py`, in repo A's droppable commit and in
+    repo B's HEAD.
+    """
+    a_old = b"""\
+def a_old():
+    pass
+"""
+    a_head = b"""\
+def a_head():
+    pass
+"""
+    b_old = b"""\
+def b_old():
+    pass
+"""
+    b_head = b"""\
+def b_head():
+    pass
+"""
+    shared = b"""\
+def shared():
+    pass
+"""
+    repo_a = pygit2.init_repository(str(tmp_path / "a"), bare=False, initial_head="main")
+    a0_oid = make_commit(repo_a, {"a.py": a_old, "b.py": shared})
+    a1_oid = make_commit(repo_a, {"a.py": a_head}, parents=[a0_oid])
+    repo_b = pygit2.init_repository(str(tmp_path / "b"), bare=False, initial_head="main")
+    b0_oid = make_commit(repo_b, {"a.py": b_old})
+    b1_oid = make_commit(repo_b, {"a.py": b_head, "b.py": shared}, parents=[b0_oid])
+    a0, a1, b0, b1 = str(a0_oid), str(a1_oid), str(b0_oid), str(b1_oid)
+
     index = Index(writable=True)
-
-    a = index.register(repo_a.workdir)
-    b = index.register(repo_b.workdir)
-    # Two repositories are two projects, so each file holds its own copy of
-    # the chunk both reference. A chunk is referenced by a snapshot only
-    # when (blob_sha, file_path) match, so the shared chunk lives on b.py —
-    # as do its snapshots.
-    shared = make_chunk("k_shared", path="b.py", blob="shared")
-    with index.session(a) as ws:
-        for c in (
-            make_chunk("k_a_old", path="a.py", blob="a_old"),
-            make_chunk("k_a_head", path="a.py", blob="a_head"),
-            shared,
-        ):
-            ws.add_chunk(c)
-        # Repo A: c0 references a_old + shared; HEAD references a_head.
-        ws.insert_snapshots([make_snap(a0, "a.py", "a_old"), make_snap(a0, "b.py", "shared")])
-        ws.insert_snapshots([make_snap(a1, "a.py", "a_head")])
-        ws.mark_indexed(snapshot_sha=a0)
-        ws.mark_indexed(snapshot_sha=a1)
-    with index.session(b) as ws:
-        for c in (
-            make_chunk("k_b_old", path="a.py", blob="b_old"),
-            make_chunk("k_b_head", path="a.py", blob="b_head"),
-            shared,
-        ):
-            ws.add_chunk(c)
-        # Repo B: c0 references b_old; HEAD references shared + b_head.
-        ws.insert_snapshots([make_snap(b0, "a.py", "b_old")])
-        ws.insert_snapshots([make_snap(b1, "a.py", "b_head"), make_snap(b1, "b.py", "shared")])
-        ws.mark_indexed(snapshot_sha=b0)
-        ws.mark_indexed(snapshot_sha=b1)
+    path_a = normalise_repo_path(repo_a.workdir)
+    path_b = normalise_repo_path(repo_b.workdir)
+    for path, sha in ((path_a, a0), (path_a, a1), (path_b, b0), (path_b, b1)):
+        build_index(path, sha, index)
+    a = index.register(path_a)
+    b = index.register(path_b)
     yield GlobalGcFixture(index=index, a=a, b=b, a0=a0, a1=a1, b0=b0, b1=b1)
     index.close()
 
@@ -479,10 +446,8 @@ def test_post_build_cleanup_drops_a_stale_worktree_whose_object_is_gone(
     current_sha = worktree_tree_sha(gc.repo.workdir, max_untracked_files=config.max_untracked_files)
     assert current_sha is not None
 
-    with gc.index.session(gc.registered) as ws:
-        ws.mark_indexed(snapshot_sha=gc.c3)
-        ws.mark_indexed(snapshot_sha=stale_sha)
-        ws.mark_indexed(snapshot_sha=current_sha)
+    build_index(gc.repo_path, stale_sha, gc.index)
+    build_index(gc.repo_path, current_sha, gc.index)
 
     # What `git gc` does to an unreferenced loose object.
     loose = Path(gc.repo.path) / "objects" / stale_sha[:2] / stale_sha[2:]
