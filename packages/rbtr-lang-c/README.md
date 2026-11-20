@@ -13,6 +13,10 @@ itself (`pip install rbtr`).
 - **Variables** — top-level variables and enum constants (C enum constants
   leak into the enclosing scope, so they are file-scope variables).
 - **Imports** — `#include <system>` and `#include "local"` headers.
+- **Calls** — each function's calls. A call reaching the prototype a header
+  declares also reaches the definition in a `.c` or `.cpp` file, which no
+  include brings in, and every other function of that name: one defined
+  in two programs of a repository reaches both.
 
 ## Chunks produced
 

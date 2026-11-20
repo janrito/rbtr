@@ -221,3 +221,46 @@ void run(Engine& e) {
 def case_cpp_global() -> SymbolCase:
     """File-scope global with initialiser."""
     return "cpp", "int g = 5;\n", [("variable", "g", "")]
+
+
+type ReferencesCase = tuple[str, str, list[tuple[str, str, list[str], list[str]]]]
+
+
+@case(tags=["references"])
+def case_cpp_calls_and_bases() -> ReferencesCase:
+    """Each call shape and the bases after their access specifiers; an out-of-class member is scoped by its class."""
+    src = """\
+namespace shop {
+class Order : public Base, private mixins::Logged {
+    int check() { return 1; }
+};
+void Order::save() {
+    Base::save();
+    this->check();
+    check();
+    util::log();
+    make<int>();
+    new Foo();
+}
+}
+"""
+    return (
+        "cpp",
+        src,
+        [
+            ("class", "Order", [], ["unqualified:Base", "unqualified:mixins.Logged"]),
+            (
+                "function",
+                "save",
+                [
+                    "unqualified:Base.save",
+                    "member:check",
+                    "unqualified:check",
+                    "unqualified:util.log",
+                    "unqualified:make",
+                    "unqualified:Foo",
+                ],
+                [],
+            ),
+        ],
+    )

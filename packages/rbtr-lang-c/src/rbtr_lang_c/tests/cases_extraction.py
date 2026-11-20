@@ -135,3 +135,31 @@ static void cleanup(void) {
 def case_c_global() -> SymbolCase:
     """File-scope global with initialiser."""
     return "c", "int g = 5;\n", [("variable", "g", "")]
+
+
+type ReferencesCase = tuple[str, str, list[tuple[str, str, list[str], list[str]]]]
+
+
+@case(tags=["references"])
+def case_c_calls() -> ReferencesCase:
+    """A call by name, and calls through a struct's field, which start at a value."""
+    src = """\
+int run(struct shop *s) {
+    helper(1);
+    s->check();
+    s->items.size();
+    return 0;
+}
+"""
+    return (
+        "c",
+        src,
+        [
+            (
+                "function",
+                "run",
+                ["unqualified:helper", "unqualified:s.check", "unqualified:s.items.size"],
+                [],
+            )
+        ],
+    )

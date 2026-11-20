@@ -292,6 +292,78 @@
     "line_end": 21
   },
   {
+    "name": "#include \"shop.h\"",
+    "kind": "import",
+    "file_path": "shop/shop.c",
+    "scope": "",
+    "language": "c",
+    "content": "#include \"shop.h\"\n",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "shop.h",
+      "names": "*",
+      "language_hint": "",
+      "bindings": []
+    }
+  },
+  {
+    "name": "valid",
+    "kind": "function",
+    "file_path": "shop/shop.c",
+    "scope": "",
+    "language": "c",
+    "content": "static int valid(int n) {\n    return n > 0;\n}",
+    "line_start": 3,
+    "line_end": 5
+  },
+  {
+    "name": "shop_total",
+    "kind": "function",
+    "file_path": "shop/shop.c",
+    "scope": "",
+    "language": "c",
+    "content": "int shop_total(int n) {\n    return valid(n) ? n : 0;\n}",
+    "line_start": 7,
+    "line_end": 9
+  },
+  {
+    "name": "shop_total",
+    "kind": "function",
+    "file_path": "shop/shop.h",
+    "scope": "",
+    "language": "c",
+    "content": "/* The shop's API. */\nint shop_total(int n);",
+    "line_start": 1,
+    "line_end": 2
+  },
+  {
+    "name": "#include \"shop.h\"",
+    "kind": "import",
+    "file_path": "shop/use.c",
+    "scope": "",
+    "language": "c",
+    "content": "#include \"shop.h\"\n",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "shop.h",
+      "names": "*",
+      "language_hint": "",
+      "bindings": []
+    }
+  },
+  {
+    "name": "use_shop",
+    "kind": "function",
+    "file_path": "shop/use.c",
+    "scope": "",
+    "language": "c",
+    "content": "int use_shop(void) {\n    return shop_total(3);\n}",
+    "line_start": 3,
+    "line_end": 5
+  },
+  {
     "name": "",
     "kind": "comment",
     "file_path": "util/text.c",

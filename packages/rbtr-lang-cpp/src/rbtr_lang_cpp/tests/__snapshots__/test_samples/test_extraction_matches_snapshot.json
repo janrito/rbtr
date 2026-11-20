@@ -298,6 +298,234 @@
     "line_end": 22
   },
   {
+    "name": "#include \"model.hpp\"",
+    "kind": "import",
+    "file_path": "shop/model.cpp",
+    "scope": "",
+    "language": "cpp",
+    "content": "#include \"model.hpp\"\n",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "model.hpp",
+      "names": "*",
+      "language_hint": "",
+      "bindings": []
+    }
+  },
+  {
+    "name": "shop",
+    "kind": "class",
+    "file_path": "shop/model.cpp",
+    "scope": "",
+    "language": "cpp",
+    "content": "namespace shop {\n\nbool Model::check() { return true; }\n\nbool Model::save() { return check(); }\n\n}",
+    "line_start": 3,
+    "line_end": 9
+  },
+  {
+    "name": "check",
+    "kind": "function",
+    "file_path": "shop/model.cpp",
+    "scope": "shop::Model",
+    "language": "cpp",
+    "content": "bool Model::check() { return true; }",
+    "line_start": 5,
+    "line_end": 5
+  },
+  {
+    "name": "save",
+    "kind": "function",
+    "file_path": "shop/model.cpp",
+    "scope": "shop::Model",
+    "language": "cpp",
+    "content": "bool Model::save() { return check(); }",
+    "line_start": 7,
+    "line_end": 7
+  },
+  {
+    "name": "",
+    "kind": "comment",
+    "file_path": "shop/model.cpp",
+    "scope": "",
+    "language": "cpp",
+    "content": "// namespace shop",
+    "line_start": 9,
+    "line_end": 9
+  },
+  {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "shop/model.hpp",
+    "scope": "",
+    "language": "cpp",
+    "content": "#pragma once",
+    "line_start": 1,
+    "line_end": 1
+  },
+  {
+    "name": "shop",
+    "kind": "class",
+    "file_path": "shop/model.hpp",
+    "scope": "",
+    "language": "cpp",
+    "content": "namespace shop {\n\nclass Model {\npublic:\n    bool check();\n    bool save();\n};\n\n}",
+    "line_start": 3,
+    "line_end": 11
+  },
+  {
+    "name": "Model",
+    "kind": "class",
+    "file_path": "shop/model.hpp",
+    "scope": "shop",
+    "language": "cpp",
+    "content": "class Model {\npublic:\n    bool check();\n    bool save();\n}",
+    "line_start": 5,
+    "line_end": 9
+  },
+  {
+    "name": "check",
+    "kind": "method",
+    "file_path": "shop/model.hpp",
+    "scope": "shop::Model",
+    "language": "cpp",
+    "content": "bool check();",
+    "line_start": 7,
+    "line_end": 7
+  },
+  {
+    "name": "save",
+    "kind": "method",
+    "file_path": "shop/model.hpp",
+    "scope": "shop::Model",
+    "language": "cpp",
+    "content": "bool save();",
+    "line_start": 8,
+    "line_end": 8
+  },
+  {
+    "name": "",
+    "kind": "comment",
+    "file_path": "shop/model.hpp",
+    "scope": "",
+    "language": "cpp",
+    "content": "// namespace shop",
+    "line_start": 11,
+    "line_end": 11
+  },
+  {
+    "name": "#include \"order.hpp\"",
+    "kind": "import",
+    "file_path": "shop/order.cpp",
+    "scope": "",
+    "language": "cpp",
+    "content": "#include \"order.hpp\"\n",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "order.hpp",
+      "names": "*",
+      "language_hint": "",
+      "bindings": []
+    }
+  },
+  {
+    "name": "shop",
+    "kind": "class",
+    "file_path": "shop/order.cpp",
+    "scope": "",
+    "language": "cpp",
+    "content": "namespace shop {\n\nbool Order::save() {\n    Model::save();\n    return this->check();\n}\n\n}",
+    "line_start": 3,
+    "line_end": 10
+  },
+  {
+    "name": "save",
+    "kind": "function",
+    "file_path": "shop/order.cpp",
+    "scope": "shop::Order",
+    "language": "cpp",
+    "content": "bool Order::save() {\n    Model::save();\n    return this->check();\n}",
+    "line_start": 5,
+    "line_end": 8
+  },
+  {
+    "name": "",
+    "kind": "comment",
+    "file_path": "shop/order.cpp",
+    "scope": "",
+    "language": "cpp",
+    "content": "// namespace shop",
+    "line_start": 10,
+    "line_end": 10
+  },
+  {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "shop/order.hpp",
+    "scope": "",
+    "language": "cpp",
+    "content": "#pragma once",
+    "line_start": 1,
+    "line_end": 1
+  },
+  {
+    "name": "#include \"model.hpp\"",
+    "kind": "import",
+    "file_path": "shop/order.hpp",
+    "scope": "",
+    "language": "cpp",
+    "content": "#include \"model.hpp\"\n",
+    "line_start": 3,
+    "line_end": 3,
+    "metadata": {
+      "module": "model.hpp",
+      "names": "*",
+      "language_hint": "",
+      "bindings": []
+    }
+  },
+  {
+    "name": "shop",
+    "kind": "class",
+    "file_path": "shop/order.hpp",
+    "scope": "",
+    "language": "cpp",
+    "content": "namespace shop {\n\nclass Order : public Model {\npublic:\n    bool save();\n};\n\n}",
+    "line_start": 5,
+    "line_end": 12
+  },
+  {
+    "name": "Order",
+    "kind": "class",
+    "file_path": "shop/order.hpp",
+    "scope": "shop",
+    "language": "cpp",
+    "content": "class Order : public Model {\npublic:\n    bool save();\n}",
+    "line_start": 7,
+    "line_end": 10
+  },
+  {
+    "name": "save",
+    "kind": "method",
+    "file_path": "shop/order.hpp",
+    "scope": "shop::Order",
+    "language": "cpp",
+    "content": "bool save();",
+    "line_start": 9,
+    "line_end": 9
+  },
+  {
+    "name": "",
+    "kind": "comment",
+    "file_path": "shop/order.hpp",
+    "scope": "",
+    "language": "cpp",
+    "content": "// namespace shop",
+    "line_start": 12,
+    "line_end": 12
+  },
+  {
     "name": "",
     "kind": "comment",
     "file_path": "util/text.cpp",

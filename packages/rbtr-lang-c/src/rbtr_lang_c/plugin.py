@@ -28,8 +28,9 @@ c = LanguageRegistration(
     extensions=frozenset({".c", ".h"}),
     grammar_module="tree_sitter_c",
     extraction=QueryExtraction(
-        query=load_query(__package__, "c"),
+        query=load_query(__package__, "c") + load_query(__package__, "references"),
     ),
     source_roots=("", "include", "src"),
-    extraction_serial=6,
+    linked_functions=True,
+    extraction_serial=7,
 )

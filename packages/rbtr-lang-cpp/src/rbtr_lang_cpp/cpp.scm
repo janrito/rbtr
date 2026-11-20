@@ -13,6 +13,22 @@
   declarator: (function_declarator
     declarator: (operator_name) @_fn_name)) @function
 
+; A member defined outside its class (`void Order::save() { … }`), scoped by
+; the class it names; `shop::Order::save` is scoped by both, `shop::Order`.
+(function_definition
+  declarator: (function_declarator
+    declarator: (qualified_identifier
+      scope: (_) @_scope
+      name: (identifier) @_fn_name))) @function
+
+(function_definition
+  declarator: (function_declarator
+    declarator: (qualified_identifier
+      scope: (_) @_scope
+      name: (qualified_identifier
+        scope: (_) @_scope
+        name: (identifier) @_fn_name)))) @function
+
 (field_declaration
   declarator: (function_declarator
     declarator: (field_identifier) @_method_name)) @method
