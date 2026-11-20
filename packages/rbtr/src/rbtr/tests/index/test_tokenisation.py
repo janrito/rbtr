@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Generator
-
+import pygit2
 import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.domain.models import FileSnapshot
+from rbtr.domain.models import SnapshotRef
 from rbtr.domain.tokenise import tokenise_code
+from rbtr.index.build import build_index
 from rbtr.index.index import Index
 
+from ..conftest import make_commit
 from .cases_tokenise_keywords import KeywordScenario
-from .conftest import make_chunk
 
 
 @pytest.mark.parametrize(
@@ -185,31 +185,27 @@ def test_keywords_survive_tokenisation(code: str, expected_keywords: set[str]) -
     cases=".cases_tokenise_keywords",
     prefix="case_",
 )
-def keyword_index_and_case(case: KeywordScenario) -> Generator[tuple[Index, KeywordScenario]]:
-    """Seed a fresh store with the single chunk the case describes."""
-    chunk = make_chunk(
-        case.chunk_id,
-        name=case.name,
-        content=case.content,
-        path=f"src/{case.chunk_id}.py",
-    )
-    index = Index(writable=True)
-    repo = index.register("/repo")
-    with index.session(repo) as ws:
-        ws.add_chunk(chunk)
-        ws.insert_snapshots(
-            [FileSnapshot(snapshot_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha)],
-        )
-    yield index, case
-    index.close()
+def keyword_case(case: KeywordScenario) -> KeywordScenario:
+    return case
+
+
+@pytest.fixture
+def keyword_ref(
+    keyword_case: KeywordScenario, index: Index, git_repo: pygit2.Repository, repo_path: str
+) -> SnapshotRef:
+    """The case's one file, built."""
+    files = {keyword_case.path: keyword_case.content.encode()}
+    sha = str(make_commit(git_repo, files, ref="refs/heads/case"))
+    build_index(repo_path, sha, index)
+    return index.register(repo_path).at(sha)
 
 
 def test_keyword_searchable_via_fts(
-    keyword_index_and_case: tuple[Index, KeywordScenario],
+    keyword_case: KeywordScenario, keyword_ref: SnapshotRef, index: Index
 ) -> None:
     """Every keyword the case declares is findable via FTS."""
-    index, case = keyword_index_and_case
-    [repo] = index.repos()
-    results = index.fulltext_matches(case.keyword, within=[repo.at("head")], top_k=5)
-    assert len(results) > 0, f"FTS miss for keyword {case.keyword!r} in chunk {case.chunk_id!r}"
-    assert results["name"].to_list()[0] == case.name
+    results = index.fulltext_matches(keyword_case.keyword, within=[keyword_ref], top_k=5)
+    assert len(results) > 0, (
+        f"FTS miss for keyword {keyword_case.keyword!r} in {keyword_case.path!r}"
+    )
+    assert results["name"].to_list()[0] == keyword_case.name

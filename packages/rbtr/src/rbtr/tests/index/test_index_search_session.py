@@ -12,10 +12,10 @@ import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.domain.models import SnapshotRef
+from rbtr.git import normalise_repo_path
 from rbtr.index.build import build_index
 from rbtr.index.index import Index
 from rbtr.index.search import search
-from rbtr.index.staging import TokenisedChunk
 
 from ..conftest import make_commit
 from .cases_search import SearchScenario
@@ -24,79 +24,121 @@ from .conftest import make_chunk, seed_index
 
 @fixture
 @parametrize_with_cases("scenario", cases=".cases_search", has_tag="fts_hit")
-def fts_hit(scenario: SearchScenario, index: Index, head_ref: SnapshotRef) -> SearchScenario:
-    seed_index(index, scenario.chunks, head_ref)
+def fts_hit(scenario: SearchScenario) -> SearchScenario:
     return scenario
 
 
-def test_fts_finds_hit(fts_hit: SearchScenario, index: Index, head_ref: SnapshotRef) -> None:
-    matched = index.fulltext_matches(fts_hit.query, within=[head_ref])
+@pytest.fixture
+def fts_hit_ref(
+    fts_hit: SearchScenario, index: Index, git_repo: pygit2.Repository, repo_path: str
+) -> SnapshotRef:
+    sha = str(make_commit(git_repo, fts_hit.files, ref="refs/heads/case"))
+    build_index(repo_path, sha, index)
+    return index.register(repo_path).at(sha)
+
+
+def test_fts_finds_hit(fts_hit: SearchScenario, fts_hit_ref: SnapshotRef, index: Index) -> None:
+    matched = index.fulltext_matches(fts_hit.query, within=[fts_hit_ref])
     assert len(matched) > 0
     assert matched["name"].to_list()[0] == fts_hit.expected_hit_names[0]
 
 
 @fixture
 @parametrize_with_cases("scenario", cases=".cases_search", has_tag="fts_empty")
-def fts_empty(scenario: SearchScenario, index: Index, head_ref: SnapshotRef) -> SearchScenario:
-    seed_index(index, scenario.chunks, head_ref)
+def fts_empty(scenario: SearchScenario) -> SearchScenario:
     return scenario
 
 
-def test_fts_returns_empty(fts_empty: SearchScenario, index: Index, head_ref: SnapshotRef) -> None:
-    assert len(index.fulltext_matches(fts_empty.query, within=[head_ref])) == 0
+@pytest.fixture
+def fts_empty_ref(
+    fts_empty: SearchScenario, index: Index, git_repo: pygit2.Repository, repo_path: str
+) -> SnapshotRef:
+    sha = str(make_commit(git_repo, fts_empty.files, ref="refs/heads/case"))
+    build_index(repo_path, sha, index)
+    return index.register(repo_path).at(sha)
+
+
+def test_fts_returns_empty(
+    fts_empty: SearchScenario, fts_empty_ref: SnapshotRef, index: Index
+) -> None:
+    assert len(index.fulltext_matches(fts_empty.query, within=[fts_empty_ref])) == 0
 
 
 @fixture
 @parametrize_with_cases("scenario", cases=".cases_search", has_tag="name_hit")
-def name_hit(scenario: SearchScenario, index: Index, head_ref: SnapshotRef) -> SearchScenario:
-    seed_index(index, scenario.chunks, head_ref)
+def name_hit(scenario: SearchScenario) -> SearchScenario:
     return scenario
 
 
+@pytest.fixture
+def name_hit_ref(
+    name_hit: SearchScenario, index: Index, git_repo: pygit2.Repository, repo_path: str
+) -> SnapshotRef:
+    sha = str(make_commit(git_repo, name_hit.files, ref="refs/heads/case"))
+    build_index(repo_path, sha, index)
+    return index.register(repo_path).at(sha)
+
+
 def test_name_search_finds_hit(
-    name_hit: SearchScenario, index: Index, head_ref: SnapshotRef
+    name_hit: SearchScenario, name_hit_ref: SnapshotRef, index: Index
 ) -> None:
-    names = index.name_matches(name_hit.query, within=[head_ref])["name"].to_list()
+    names = index.name_matches(name_hit.query, within=[name_hit_ref])["name"].to_list()
     assert names[:1] == name_hit.expected_hit_names[:1]
 
 
 @fixture
 @parametrize_with_cases("scenario", cases=".cases_search", has_tag="name_empty")
-def name_empty(scenario: SearchScenario, index: Index, head_ref: SnapshotRef) -> SearchScenario:
-    seed_index(index, scenario.chunks, head_ref)
+def name_empty(scenario: SearchScenario) -> SearchScenario:
     return scenario
 
 
+@pytest.fixture
+def name_empty_ref(
+    name_empty: SearchScenario, index: Index, git_repo: pygit2.Repository, repo_path: str
+) -> SnapshotRef:
+    sha = str(make_commit(git_repo, name_empty.files, ref="refs/heads/case"))
+    build_index(repo_path, sha, index)
+    return index.register(repo_path).at(sha)
+
+
 def test_name_search_returns_empty(
-    name_empty: SearchScenario, index: Index, head_ref: SnapshotRef
+    name_empty: SearchScenario, name_empty_ref: SnapshotRef, index: Index
 ) -> None:
-    assert index.name_matches(name_empty.query, within=[head_ref]).is_empty()
+    assert index.name_matches(name_empty.query, within=[name_empty_ref]).is_empty()
 
 
 @pytest.fixture
-def repo_one_ref(index: Index) -> SnapshotRef:
-    """`/repo_one` at `head`, holding `alpha_func`.
+def repo_one_ref(index: Index, git_repo: pygit2.Repository, repo_path: str) -> SnapshotRef:
+    """`git_repo` built holding `alpha_func`.
 
-    Its name shares the token `func` with `repo_two_ref`'s chunk, so one
-    query reaches both repos; the rest of the name is distinct, so a
+    Its name shares the token `func` with `repo_two_ref`'s function, so
+    one query reaches both repos; the rest of the name is distinct, so a
     result says which repo it came from.
     """
-    repo = index.register("/repo_one")
-    ref = repo.at("head")
-    seed_index(index, [make_chunk("r1_a", name="alpha_func", path="a.py", blob="b_r1")], ref)
-    return ref
+    a = b"""\
+def alpha_func():
+    pass
+"""
+    sha = str(make_commit(git_repo, {"a.py": a}, ref="refs/heads/alpha"))
+    build_index(repo_path, sha, index)
+    return index.register(repo_path).at(sha)
 
 
 @pytest.fixture
-def repo_two_ref(index: Index) -> SnapshotRef:
-    """`/repo_two` at `head`, holding `beta_func` — see `repo_one_ref`."""
-    repo = index.register("/repo_two")
-    ref = repo.at("head")
-    seed_index(index, [make_chunk("r2_b", name="beta_func", path="b.py", blob="b_r2")], ref)
-    return ref
+def repo_two_ref(index: Index, second_repo: str) -> SnapshotRef:
+    """`second_repo` built holding `beta_func` — see `repo_one_ref`."""
+    b = b"""\
+def beta_func():
+    pass
+"""
+    sha = str(make_commit(pygit2.Repository(second_repo), {"b.py": b}, ref="refs/heads/beta"))
+    build_index(second_repo, sha, index)
+    return index.register(second_repo).at(sha)
 
 
-def test_shared_chunk_found_via_fts_from_both_repos(shared_chunk_index: Index) -> None:
+def test_shared_chunk_found_via_fts_from_both_repos(
+    shared_chunk_index: Index, shared_sha: str
+) -> None:
     """A chunk shared by two repos is found by FTS from either repo.
 
     One physical row, two snapshot references: the id-keyed FTS index
@@ -104,36 +146,37 @@ def test_shared_chunk_found_via_fts_from_both_repos(shared_chunk_index: Index) -
     """
     index = shared_chunk_index
     repo1, repo2 = index.repos()
-    r1 = index.fulltext_matches("shared", within=[repo1.at("head")])
-    r2 = index.fulltext_matches("shared", within=[repo2.at("head")])
+    r1 = index.fulltext_matches("shared", within=[repo1.at(shared_sha)])
+    r2 = index.fulltext_matches("shared", within=[repo2.at(shared_sha)])
     assert r1["name"].to_list() == ["shared_fn"]
     assert r2["name"].to_list() == ["shared_fn"]
 
 
 def test_shared_chunk_found_via_semantic_from_both_repos(
-    shared_chunk_index: Index, shared_chunk: TokenisedChunk
+    shared_chunk_index: Index, shared_sha: str, shared_chunk_id: str
 ) -> None:
     """A shared chunk's single embedding is reachable by semantic search from either repo."""
     index = shared_chunk_index
     repo1, repo2 = index.repos()
     with index.session(repo1) as ws:
-        ws.update_embeddings([shared_chunk.id], [[1.0, 0.0, 0.0, 0.0]])
+        ws.update_embeddings([shared_chunk_id], [[1.0, 0.0, 0.0, 0.0]])
     query_vec = [1.0, 0.0, 0.0, 0.0]
-    r1 = index.similar_matches([query_vec], within=[repo1.at("head")], top_k=5)
-    r2 = index.similar_matches([query_vec], within=[repo2.at("head")], top_k=5)
+    r1 = index.similar_matches([query_vec], within=[repo1.at(shared_sha)], top_k=5)
+    r2 = index.similar_matches([query_vec], within=[repo2.at(shared_sha)], top_k=5)
     assert r1["name"].to_list() == ["shared_fn"]
     assert r2["name"].to_list() == ["shared_fn"]
 
 
 def test_cross_repo_search_attributes_shared_chunk_to_each_repo(
     shared_chunk_index: Index,
+    shared_sha: str,
 ) -> None:
     """Cross-repo search keeps a shared chunk as one row per repo, each attributed."""
     index = shared_chunk_index
     repo1, repo2 = index.repos()
     refs = [
-        repo1.at("head"),
-        repo2.at("head"),
+        repo1.at(shared_sha),
+        repo2.at(shared_sha),
     ]
     results = search(index, "shared", within=refs, top_k=10, attribute_repos=True)
     shared = [r for r in results if r.name == "shared_fn"]
@@ -187,18 +230,29 @@ def test_similar_matches_picks_best_score(index: Index, semantic_ref: SnapshotRe
     assert scores["close_match"] > scores["far_match"]  # vec_a boosts "close" more
 
 
-def test_similar_matches_empty(index: Index, head_ref: SnapshotRef) -> None:
+@pytest.fixture(scope="module")
+def unembedded_ref(module_index: Index, module_repo: pygit2.Repository) -> SnapshotRef:
+    """A snapshot of one function, built into `module_index` and never embedded."""
+    a = b"""\
+def a():
+    pass
+"""
+    sha = str(make_commit(module_repo, {"a.py": a}, ref="refs/heads/unembedded"))
+    path = normalise_repo_path(module_repo.workdir)
+    build_index(path, sha, module_index)
+    return module_index.register(path).at(sha)
+
+
+def test_similar_matches_empty(module_index: Index, unembedded_ref: SnapshotRef) -> None:
     """No embeddings in store — returns empty frame."""
-    s = SearchScenario(chunks=[make_chunk("x")], query="")
-    seed_index(index, s.chunks, head_ref)
     vec = [1.0, 0.0, 0.0, 0.0]
-    assert len(index.similar_matches([vec], within=[head_ref], top_k=5)) == 0
+    assert len(module_index.similar_matches([vec], within=[unembedded_ref], top_k=5)) == 0
 
 
-def test_unseeded_chunks_have_no_embedding(index: Index, head_ref: SnapshotRef) -> None:
-    s = SearchScenario(chunks=[make_chunk("a")], query="")
-    seed_index(index, s.chunks, head_ref)
-    assert index.chunks(at=head_ref)["has_embedding"].to_list() == [False]
+def test_unseeded_chunks_have_no_embedding(
+    module_index: Index, unembedded_ref: SnapshotRef
+) -> None:
+    assert module_index.chunks(at=unembedded_ref)["has_embedding"].to_list() == [False]
 
 
 def test_seeded_chunks_have_embedding_flag(index: Index, head_ref: SnapshotRef) -> None:
@@ -211,17 +265,16 @@ def test_seeded_chunks_have_embedding_flag(index: Index, head_ref: SnapshotRef) 
 
 
 @pytest.fixture
-def idf_ref(index: Index, head_ref: SnapshotRef) -> SnapshotRef:
-    """`head_ref`, seeded with many chunks sharing a common term."""
-    s = SearchScenario(
-        chunks=[
-            make_chunk(f"c{i}", name=f"config_{i}", content=f"config = load_{i}()", path=f"c{i}.py")
-            for i in range(10)
-        ],
-        query="config",
-    )
-    seed_index(index, s.chunks, head_ref)
-    return head_ref
+def idf_ref(index: Index, git_repo: pygit2.Repository, repo_path: str) -> SnapshotRef:
+    """A built snapshot of many files sharing a common term."""
+    template = """\
+def config_{i}():
+    config = load_{i}()
+"""
+    files = {f"c{i}.py": template.format(i=i).encode() for i in range(10)}
+    sha = str(make_commit(git_repo, files, ref="refs/heads/idf"))
+    build_index(repo_path, sha, index)
+    return index.register(repo_path).at(sha)
 
 
 def test_idf_neutralised_common_term(index: Index, idf_ref: SnapshotRef) -> None:
@@ -231,17 +284,21 @@ def test_idf_neutralised_common_term(index: Index, idf_ref: SnapshotRef) -> None
 
 @pytest.fixture
 def unified_ref(index: Index, git_repo: pygit2.Repository, repo_path: str) -> SnapshotRef:
-    """`git_repo` built at a commit where `b.py` imports the class `a.py` defines."""
-    sha = make_commit(
-        git_repo,
-        {
-            "a.py": b"class AppConfig:\n    pass\n",
-            "b.py": b"from a import AppConfig\n\n\ndef load_config():\n    return AppConfig()\n",
-        },
-        ref="refs/heads/unified",
-    )
-    build_index(repo_path, str(sha), index)
-    return index.register(repo_path).at(str(sha))
+    """A built snapshot where `b.py` imports the class `a.py` defines."""
+    a = b"""\
+class AppConfig:
+    pass
+"""
+    b = b"""\
+from a import AppConfig
+
+
+def load_config():
+    return AppConfig()
+"""
+    sha = str(make_commit(git_repo, {"a.py": a, "b.py": b}, ref="refs/heads/unified"))
+    build_index(repo_path, sha, index)
+    return index.register(repo_path).at(sha)
 
 
 def test_unified_search_returns_results_with_breakdown(
@@ -260,17 +317,23 @@ def test_unified_search_returns_results_with_breakdown(
 
 @fixture
 @parametrize_with_cases("scenario", cases=".cases_search", has_tag="unified_no_embed")
-def unified_no_embed(
-    scenario: SearchScenario, index: Index, head_ref: SnapshotRef
-) -> SearchScenario:
-    seed_index(index, scenario.chunks, head_ref)
+def unified_no_embed(scenario: SearchScenario) -> SearchScenario:
     return scenario
 
 
+@pytest.fixture
+def unified_no_embed_ref(
+    unified_no_embed: SearchScenario, index: Index, git_repo: pygit2.Repository, repo_path: str
+) -> SnapshotRef:
+    sha = str(make_commit(git_repo, unified_no_embed.files, ref="refs/heads/case"))
+    build_index(repo_path, sha, index)
+    return index.register(repo_path).at(sha)
+
+
 def test_unified_search_without_embeddings(
-    unified_no_embed: SearchScenario, index: Index, head_ref: SnapshotRef
+    unified_no_embed: SearchScenario, unified_no_embed_ref: SnapshotRef, index: Index
 ) -> None:
     """search() works when no embeddings exist (semantic weight redistributed)."""
-    results = search(index, unified_no_embed.query, within=[head_ref])
+    results = search(index, unified_no_embed.query, within=[unified_no_embed_ref])
     assert len(results) > 0
     assert all(r.score >= 0.0 for r in results)

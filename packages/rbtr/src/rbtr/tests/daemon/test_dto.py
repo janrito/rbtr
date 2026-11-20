@@ -7,49 +7,38 @@ consumers get a clean, low-noise payload.
 
 import json
 
+import pygit2
 import pytest
 
 from rbtr.config import config
 from rbtr.daemon.dto import RefOut, SearchHitOut, SearchSignals, SymbolOut, symbols
 from rbtr.domain.models import (
     ChunkKind,
-    Definition,
-    Import,
-    ImportMeta,
     QueryKind,
     ScoredChunk,
-    Span,
 )
+from rbtr.git import normalise_repo_path
+from rbtr.index.build import build_index
 from rbtr.index.index import Index
-from rbtr.index.staging import TokenisedChunk
 
-from ..index.conftest import seed_index
+from ..conftest import make_commit
 
 
-@pytest.fixture
-def replies(index: Index) -> dict[ChunkKind, SymbolOut]:
-    """A function and an import, written to an index and read back as replies."""
-    written = [
-        TokenisedChunk(
-            blob_sha="deadbeef",
-            file_path="src/app.py",
-            role=Definition(kind=ChunkKind.FUNCTION, name="load_config"),
-            language="python",
-            content="def load_config(): ...",
-            span=Span(start=10, end=20),
-        ),
-        TokenisedChunk(
-            blob_sha="deadbeef",
-            file_path="src/app.py",
-            role=Import(name="os", meta=ImportMeta(module="os", names="os")),
-            language="python",
-            content="import os",
-            span=Span(start=1, end=1),
-        ),
-    ]
-    at = index.register("/repo").at("head")
-    seed_index(index, written, at)
-    return {reply.kind: reply for reply in symbols(index.chunks(at=at))}
+@pytest.fixture(scope="module")
+def replies(module_index: Index, module_repo: pygit2.Repository) -> dict[ChunkKind, SymbolOut]:
+    """A function and an import, built into an index and read back as replies."""
+    source = b"""\
+from os import environ
+
+
+def load_config():
+    return environ
+"""
+    sha = str(make_commit(module_repo, {"src/app.py": source}, ref="refs/heads/replies"))
+    path = normalise_repo_path(module_repo.workdir)
+    build_index(path, sha, module_index)
+    at = module_index.register(path).at(sha)
+    return {reply.kind: reply for reply in symbols(module_index.chunks(at=at))}
 
 
 def test_drops_storage_internals(replies: dict[ChunkKind, SymbolOut]) -> None:
@@ -68,7 +57,7 @@ def test_populated_metadata_is_kept(replies: dict[ChunkKind, SymbolOut]) -> None
     data = json.loads(replies[ChunkKind.IMPORT].model_dump_json())
     assert data["metadata"] == {
         "module": "os",
-        "names": "os",
+        "names": "environ",
         "dots": "",
         "language_hint": "",
     }
@@ -80,8 +69,8 @@ def test_identity_fields_preserved(replies: dict[ChunkKind, SymbolOut]) -> None:
         "load_config",
         ChunkKind.FUNCTION,
         "src/app.py",
-        10,
-        20,
+        4,
+        5,
     )
 
 

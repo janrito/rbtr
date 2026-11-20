@@ -11,20 +11,21 @@ the symbol whose module and scope end with the qualifier.
 
 from __future__ import annotations
 
+import pygit2
 import pytest
 
 from rbtr.config import config
-from rbtr.domain.models import ChunkKind, SnapshotRef
+from rbtr.domain.models import SnapshotRef
+from rbtr.git import normalise_repo_path
+from rbtr.index.build import build_index
 from rbtr.index.index import Index
 
-from .conftest import make_chunk, seed_index
-
-COMMIT = "head"
+from ..conftest import make_commit
 
 
-@pytest.fixture
-def name_index(index: Index, head_ref: SnapshotRef) -> Index:
-    """Store with chunks that create name ambiguity.
+@pytest.fixture(scope="module")
+def name_ref(module_index: Index, module_repo: pygit2.Repository) -> SnapshotRef:
+    """A snapshot, built into `module_index`, whose symbols create name ambiguity.
 
     - `Chunk` (class) in models.py
     - `make_chunk` (function) in conftest.py
@@ -32,43 +33,36 @@ def name_index(index: Index, head_ref: SnapshotRef) -> Index:
     - `fuse_scores` (function) in search.py
     - `fuse` (function) in fuse.py — prefix collision
     """
-    seed_index(
-        index,
-        [
-            make_chunk(
-                "c_chunk_class",
-                name="Chunk",
-                kind=ChunkKind.CLASS,
-                path="src/models.py",
-            ),
-            make_chunk(
-                "c_make_chunk",
-                name="make_chunk",
-                kind=ChunkKind.FUNCTION,
-                path="tests/conftest.py",
-            ),
-            make_chunk(
-                "c_chunk_sql",
-                name="_CHUNK_SQL",
-                kind=ChunkKind.VARIABLE,
-                path="src/store.py",
-            ),
-            make_chunk(
-                "c_fuse_scores",
-                name="fuse_scores",
-                kind=ChunkKind.FUNCTION,
-                path="src/search.py",
-            ),
-            make_chunk(
-                "c_fuse",
-                name="fuse",
-                kind=ChunkKind.FUNCTION,
-                path="src/fuse.py",
-            ),
-        ],
-        head_ref,
-    )
-    return index
+    models = b"""\
+class Chunk:
+    pass
+"""
+    conftest = b"""\
+def make_chunk():
+    pass
+"""
+    store = b"""\
+_CHUNK_SQL = "SELECT 1"
+"""
+    search = b"""\
+def fuse_scores():
+    pass
+"""
+    fuse = b"""\
+def fuse():
+    pass
+"""
+    files = {
+        "src/models.py": models,
+        "tests/conftest.py": conftest,
+        "src/store.py": store,
+        "src/search.py": search,
+        "src/fuse.py": fuse,
+    }
+    sha = str(make_commit(module_repo, files, ref="refs/heads/names"))
+    path = normalise_repo_path(module_repo.workdir)
+    build_index(path, sha, module_index)
+    return module_index.register(path).at(sha)
 
 
 @pytest.mark.parametrize(
@@ -97,60 +91,53 @@ def name_index(index: Index, head_ref: SnapshotRef) -> Index:
     ],
 )
 def test_name_matches_tiering(
-    name_index: Index,
+    module_index: Index,
+    name_ref: SnapshotRef,
     pattern: str,
     expected_names: set[str],
 ) -> None:
-    [repo] = name_index.repos()
-    assert set(name_index.name_matches(pattern, within=[repo.at(COMMIT)])["name"]) == expected_names
+    assert set(module_index.name_matches(pattern, within=[name_ref])["name"]) == expected_names
 
 
-@pytest.fixture
-def qualified_index(index: Index, head_ref: SnapshotRef) -> Index:
-    """Store whose symbols are told apart only by where they are.
+@pytest.fixture(scope="module")
+def qualified_ref(module_index: Index, module_repo: pygit2.Repository) -> SnapshotRef:
+    """A snapshot, built into `module_index`, whose symbols are told apart only by where they are.
 
     - `add_cli_args` in `EngineArgs` and in `AsyncEngineArgs`, two files
     - `m` in the nested scope `Outer::Inner`
     - the doc heading `Release 1.2`, whose own name holds a separator
     """
-    seed_index(
-        index,
-        [
-            make_chunk(
-                "c_engine_add",
-                name="add_cli_args",
-                scope="EngineArgs",
-                kind=ChunkKind.METHOD,
-                path="pkg/engine/arg_utils.py",
-                language="python",
-            ),
-            make_chunk(
-                "c_async_add",
-                name="add_cli_args",
-                scope="AsyncEngineArgs",
-                kind=ChunkKind.METHOD,
-                path="pkg/engine/async_args.py",
-                language="python",
-            ),
-            make_chunk(
-                "c_inner_m",
-                name="m",
-                scope="Outer::Inner",
-                kind=ChunkKind.METHOD,
-                path="pkg/models.py",
-                language="python",
-            ),
-            make_chunk(
-                "c_release",
-                name="Release 1.2",
-                kind=ChunkKind.DOC_SECTION,
-                path="CHANGES.md",
-                language="markdown",
-            ),
-        ],
-        head_ref,
-    )
-    return index
+    arg_utils = b"""\
+class EngineArgs:
+    def add_cli_args(self):
+        pass
+"""
+    async_args = b"""\
+class AsyncEngineArgs:
+    def add_cli_args(self):
+        pass
+"""
+    models = b"""\
+class Outer:
+    class Inner:
+        def m(self):
+            pass
+"""
+    changes = b"""\
+# Release 1.2
+
+Notes.
+"""
+    files = {
+        "pkg/engine/arg_utils.py": arg_utils,
+        "pkg/engine/async_args.py": async_args,
+        "pkg/models.py": models,
+        "CHANGES.md": changes,
+    }
+    sha = str(make_commit(module_repo, files, ref="refs/heads/qualified"))
+    path = normalise_repo_path(module_repo.workdir)
+    build_index(path, sha, module_index)
+    return module_index.register(path).at(sha)
 
 
 @pytest.mark.parametrize(
@@ -182,12 +169,12 @@ def qualified_index(index: Index, head_ref: SnapshotRef) -> Index:
     ],
 )
 def test_name_matches_qualified(
-    qualified_index: Index,
+    module_index: Index,
+    qualified_ref: SnapshotRef,
     pattern: str,
     expected: set[tuple[str, str]],
 ) -> None:
-    [repo] = qualified_index.repos()
-    found = qualified_index.name_matches(pattern, within=[repo.at(COMMIT)])
+    found = module_index.name_matches(pattern, within=[qualified_ref])
     assert set(found.select("scope", "name").iter_rows()) == expected
 
 
@@ -201,28 +188,39 @@ def test_name_matches_qualified(
     ids=["configured-separator", "unconfigured-separator", "scope-separator-always"],
 )
 def test_qualifier_separators_decide_what_qualifies(
-    qualified_index: Index,
+    module_index: Index,
+    qualified_ref: SnapshotRef,
     monkeypatch: pytest.MonkeyPatch,
     separators: list[str],
     pattern: str,
     expected: set[tuple[str, str]],
 ) -> None:
     monkeypatch.setattr(config, "qualifier_separators", separators)
-    [repo] = qualified_index.repos()
-    found = qualified_index.name_matches(pattern, within=[repo.at(COMMIT)])
+    found = module_index.name_matches(pattern, within=[qualified_ref])
     assert set(found.select("scope", "name").iter_rows()) == expected
 
 
+@pytest.fixture(scope="module")
+def other_project_ref(module_index: Index, tmp_path_factory: pytest.TempPathFactory) -> SnapshotRef:
+    """Another project, built into `module_index`, holding only `chunk_size`."""
+    size = b"""\
+def chunk_size():
+    pass
+"""
+    repo = pygit2.init_repository(str(tmp_path_factory.mktemp("other-project")), bare=False)
+    sha = str(make_commit(repo, {"size.py": size}, ref="refs/heads/main"))
+    path = normalise_repo_path(repo.workdir)
+    build_index(path, sha, module_index)
+    return module_index.register(path).at(sha)
+
+
 def test_name_matches_across_projects_keep_the_best_tier(
-    name_index: Index, head_ref: SnapshotRef
+    module_index: Index, name_ref: SnapshotRef, other_project_ref: SnapshotRef
 ) -> None:
     """Each project's file returns its own best tier; the search keeps the best of those.
 
     The other project holds only a prefix match, which its file returns as
     its best; the first project's case-insensitive exact match outranks it.
     """
-    other = name_index.register("/other").at(COMMIT)
-    seed_index(name_index, [make_chunk("c_chunk_size", name="chunk_size", path="size.py")], other)
-
-    within = [head_ref, other]
-    assert set(name_index.name_matches("chunk", within=within)["name"]) == {"Chunk"}
+    within = [name_ref, other_project_ref]
+    assert set(module_index.name_matches("chunk", within=within)["name"]) == {"Chunk"}
