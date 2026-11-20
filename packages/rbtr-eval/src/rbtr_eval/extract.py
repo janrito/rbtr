@@ -148,17 +148,7 @@ def symbol_queries(symbols: pl.DataFrame, slug: str) -> dy.DataFrame[QueryRow]:
     comment a `docstring` query. Unnamed chunks (comments, raw slices,
     heading-less paragraphs) yield body and docstring queries only.
     """
-    targets = symbols.select(
-        pl.lit(slug).alias("slug"),
-        "file_path",
-        "scope",
-        "name",
-        pl.col("kind").alias("symbol_kind"),
-        "line_start",
-        "line_end",
-        "language",
-        "content",
-    )
+    targets = symbols.with_columns(slug=pl.lit(slug), symbol_kind=pl.col("kind"))
     by_name = targets.filter(pl.col("name") != "").with_columns(
         provenance=pl.lit("name"),
         text=pl.when(pl.col("scope") != "")

@@ -215,13 +215,16 @@ def test_a_read_leaves_the_cursor_free_for_the_next(index: Index, head_ref: Snap
 
 @pytest.fixture
 def script_import() -> TokenisedChunk:
-    """An HTML `<script src>`, whose metadata names the language it imports."""
+    """An import with every metadata field set, so a field storage drops shows."""
     content = '<script src="greeter.js"></script>'
     return TokenisedChunk(
         blob_sha="blob_page",
         file_path="page.html",
         role=Import(
-            name="greeter.js", meta=ImportMeta(module="greeter.js", language_hint="javascript")
+            name="greeter.js",
+            meta=ImportMeta(
+                module="greeter.js", names="greet", dots="1", language_hint="javascript"
+            ),
         ),
         content=content,
         content_tokens=tokenise_code(content),
@@ -234,7 +237,7 @@ def test_an_import_reads_back_as_written(
 ) -> None:
     seed_index(index, [script_import], head_ref)
     assert index.chunks(at=head_ref)["metadata"].to_list() == [
-        {"module": "greeter.js", "names": "", "dots": "", "language_hint": "javascript"}
+        {"module": "greeter.js", "names": "greet", "dots": "1", "language_hint": "javascript"}
     ]
 
 
