@@ -10,7 +10,6 @@ a time through `extract_files`.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
 
 import dataframely as dy
 import polars as pl
@@ -29,9 +28,6 @@ from rbtr.domain.rules import (
 from rbtr.git import FileEntry
 from rbtr.languages.plaintext import PLAINTEXT
 from rbtr.languages.treesitter import read
-
-if TYPE_CHECKING:
-    pass
 
 log = structlog.get_logger(__name__)
 
