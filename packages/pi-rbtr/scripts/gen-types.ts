@@ -53,20 +53,13 @@ function runSchemaDump(): ProtocolSchema {
 
 async function main(): Promise<void> {
   // `rbtr schema-dump` runs one `models_json_schema` pass, so every
-  // model is already a single shared `$defs` entry (no duplication to
-  // merge).  The three message unions live under the bundle wrapper's
-  // properties; lift them to named `$defs` so the compiler emits
-  // `Request` / `Response` / `Notification` as union types.
-  const { ProtocolSchema: bundle, ...memberDefs } = runSchemaDump().$defs;
-  const bundleProps = (bundle.properties ?? {}) as Record<string, JSONSchema>;
+  // model, and every named union (`Request`, `Response`,
+  // `Notification`, `Work`, each a `type` alias), is already a single
+  // shared `$defs` entry.  Only the bundle wrapper is dropped.
+  const { ProtocolSchema: _bundle, ...memberDefs } = runSchemaDump().$defs;
 
   const combined: JSONSchema = {
-    $defs: {
-      ...memberDefs,
-      Request: bundleProps.request,
-      Response: bundleProps.response,
-      Notification: bundleProps.notification,
-    },
+    $defs: memberDefs,
     type: "object",
     properties: {
       request: { $ref: "#/$defs/Request" },

@@ -26,6 +26,11 @@ export type Request =
   | UnwatchStaleAllRequest
   | ForgetRequest
   | ForgetStaleRequest;
+export type Ref = string;
+export type RefList = Ref[];
+export type OptStrList = string[] | null;
+export type RepoRelativePaths = string[] | null;
+export type RepoRelativePath = string;
 export type KindFilter = IncludeKinds | ExcludeKinds;
 /**
  * Kind of indexed chunk.
@@ -48,6 +53,10 @@ export type ChunkKind =
  */
 export type GcMode = "head_only" | "keep" | "orphans" | "watched" | "watched_only";
 export type EveryRepoGcMode = "watched" | "watched_only";
+/**
+ * @minItems 1
+ */
+export type NonEmptyRefList = [Ref, ...Ref[]];
 export type Response =
   | ErrorResponse
   | OkResponse
@@ -119,6 +128,7 @@ export type ChangeKind = "added" | "modified" | "removed";
  *                      until it ends.
  */
 export type IndexState = "no_index" | "repo_not_indexed" | "ref_not_indexed" | "indexed" | "migrating";
+export type Work = BuildWork | EmbedWork | CollectWork | MigrateWork;
 export type JsonValue = unknown;
 export type Notification =
   | ProgressNotification
@@ -148,7 +158,7 @@ export interface ShutdownRequest {
 export interface WatchRequest {
   kind: "watch";
   repo_path: string;
-  refs?: string[];
+  refs?: RefList;
 }
 /**
  * Search the repo at `repo_path`, at `ref` or its latest indexed snapshot.
@@ -159,8 +169,8 @@ export interface SearchRequest {
   weights?: WeightTriple | null;
   reranker_pool?: number | null;
   reranker_blend_weight?: number | null;
-  keywords?: string[] | null;
-  variants?: string[] | null;
+  keywords?: OptStrList;
+  variants?: OptStrList;
   explain?: boolean;
   /**
    * Lines of each hit's body to preview; a longer body is clipped and says so. None uses `search_preview_lines` from the config.
@@ -202,8 +212,8 @@ export interface SearchAllRequest {
   weights?: WeightTriple | null;
   reranker_pool?: number | null;
   reranker_blend_weight?: number | null;
-  keywords?: string[] | null;
-  variants?: string[] | null;
+  keywords?: OptStrList;
+  variants?: OptStrList;
   explain?: boolean;
   /**
    * Lines of each hit's body to preview; a longer body is clipped and says so. None uses `search_preview_lines` from the config.
@@ -220,12 +230,12 @@ export interface ReadSymbolRequest {
   repo_path: string;
   symbol: string;
   ref?: string | null;
-  file_paths?: string[] | null;
+  file_paths?: RepoRelativePaths;
 }
 export interface ListSymbolsRequest {
   kind: "list_symbols";
   repo_path: string;
-  file_path: string;
+  file_path: RepoRelativePath;
   ref?: string | null;
   kinds?: KindFilter | null;
 }
@@ -252,14 +262,14 @@ export interface FindRefsRequest {
   repo_path: string;
   symbol: string;
   ref?: string | null;
-  file_paths?: string[] | null;
+  file_paths?: RepoRelativePaths;
 }
 export interface ChangedSymbolsRequest {
   kind: "changed_symbols";
   repo_path: string;
   base: string;
   head: string;
-  file_paths?: string[] | null;
+  file_paths?: RepoRelativePaths;
 }
 /**
  * Report the index for the repo at `repo_path`.
@@ -318,10 +328,7 @@ export interface GcAllRequest {
 export interface UnwatchRequest {
   kind: "unwatch";
   repo_path: string;
-  /**
-   * @minItems 1
-   */
-  refs: [string, ...string[]];
+  refs: NonEmptyRefList;
   dry_run?: boolean;
 }
 /**
@@ -665,7 +672,7 @@ export interface IndexedRef {
  * CLI doesn't need to reason about clock boundaries.
  */
 export interface ActiveJob {
-  work: BuildWork | EmbedWork | CollectWork | MigrateWork;
+  work: Work;
   phase: string;
   current: number;
   total: number;
@@ -771,7 +778,7 @@ export interface ForgetResponse {
  */
 export interface ProgressNotification {
   kind: "progress";
-  work: BuildWork | EmbedWork | CollectWork | MigrateWork;
+  work: Work;
   phase: string;
   current: number;
   total: number;
