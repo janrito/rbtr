@@ -182,7 +182,7 @@ def _load_symbol_content(
     return index.chunk_contents(at=repo.at(sha))
 
 
-def _excluded_identifiers(name: str, scope: str) -> list[str]:
+def excluded_identifiers(name: str, scope: str) -> list[str]:
     """Build the list of identifiers the LLM must not use.
 
     The symbol's name and the parts of its scope — what search can
@@ -228,7 +228,7 @@ async def _paraphrase_one(
     semaphore: asyncio.Semaphore,
 ) -> None:
     """Call the LLM for one symbol; append a QueryRow dict on success."""
-    excluded = _excluded_identifiers(name, scope)
+    excluded = excluded_identifiers(name, scope)
     deps = SymbolContext(language=language, symbol_kind=symbol_kind, excluded_identifiers=excluded)
     async with semaphore:
         try:
@@ -407,14 +407,13 @@ def _concept_counts(concepts: dy.DataFrame[QueryRow]) -> dy.DataFrame[ConceptCou
     )
 
 
-def _paraphrase_examples(
-    sampled: dy.DataFrame[QueryRow],
-    content: dy.DataFrame[SymbolContent],
+def paraphrase_examples(
+    index: Index, sampled: dy.DataFrame[QueryRow]
 ) -> dy.DataFrame[ParaphraseExample]:
-    """*sampled* with each target's source text from *content*, in sampled order."""
+    """*sampled* with each target's source text, read from its own repo, in sampled order."""
     return (
         sampled.join(
-            content,
+            _sampled_content(index, sampled),
             on=["slug", *IDENTITY_COLUMNS],
             how="left",
             maintain_order="left",
@@ -515,12 +514,10 @@ class ParaphraseReportCmd(BaseModel):
             [pl.read_parquet(f) for f in sorted(self.concept_dir.glob("*.parquet"))]
         ).pipe(QueryRow.validate, cast=True)
         sampled = concepts.sample(self.examples, seed=self.seed).pipe(QueryRow.validate, cast=True)
-        content = _sampled_content(Index(str(config.db_path)), sampled)
+        examples = paraphrase_examples(Index(str(config.db_path)), sampled)
 
         self.report.parent.mkdir(parents=True, exist_ok=True)
         self.report.write_text(
-            _render_paraphrase_report(
-                _concept_counts(concepts), _paraphrase_examples(sampled, content), self.model
-            ),
+            _render_paraphrase_report(_concept_counts(concepts), examples, self.model),
             encoding="utf-8",
         )

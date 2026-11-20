@@ -116,7 +116,7 @@ class SearchQuery(dy.Schema):
 
 
 class SearchBatch(SearchQuery):
-    """Raw output of `_run_searches` before `_score_outcomes` runs.
+    """Raw output of `_run_searches` before `score_outcomes` runs.
 
     `hits` carries the top-10 results from the daemon as a
     list-of-struct; ranking turns this into `SearchOutcome` with
@@ -278,7 +278,7 @@ def _run_searches(
     Each query is searched once per arm, the arm controlling
     which expansion channels (keywords / variants) are passed
     to the daemon.  Returns an un-scored outcome frame with a
-    `hits: list[struct]` column.  `_score_outcomes` expands
+    `hits: list[struct]` column.  `score_outcomes` expands
     that into typed `SearchOutcome` rows with declarative
     ranking.  Progress is reported via rbtr's shared
     `progress_reporter`; a live rich bar on interactive
@@ -342,7 +342,7 @@ def _run_searches(
     return pl.DataFrame(rows, infer_schema_length=None).pipe(SearchBatch.validate, cast=True)
 
 
-def _score_outcomes(
+def score_outcomes(
     batch: dy.DataFrame[SearchBatch],
     truncated: dy.DataFrame[TruncatedTarget],
 ) -> dy.DataFrame[SearchOutcome]:
@@ -407,7 +407,7 @@ def _score_outcomes(
     )
 
 
-def _arm_metrics(outcomes: dy.DataFrame[SearchOutcome]) -> dy.DataFrame[ArmMetrics]:
+def arm_metrics(outcomes: dy.DataFrame[SearchOutcome]) -> dy.DataFrame[ArmMetrics]:
     """Each arm's figures over every query."""
     return (
         outcomes.group_by("arm")
@@ -421,7 +421,7 @@ def _arm_metrics(outcomes: dy.DataFrame[SearchOutcome]) -> dy.DataFrame[ArmMetri
     )
 
 
-def _breakdowns(outcomes: dy.DataFrame[SearchOutcome]) -> dy.DataFrame[Breakdown]:
+def breakdowns(outcomes: dy.DataFrame[SearchOutcome]) -> dy.DataFrame[Breakdown]:
     """Each arm's figures per value of every `Dimension`."""
     return (
         pl.concat(
@@ -444,7 +444,7 @@ def _breakdowns(outcomes: dy.DataFrame[SearchOutcome]) -> dy.DataFrame[Breakdown
     )
 
 
-def _target_shapes(outcomes: dy.DataFrame[SearchOutcome]) -> dy.DataFrame[TargetShape]:
+def target_shapes(outcomes: dy.DataFrame[SearchOutcome]) -> dy.DataFrame[TargetShape]:
     """Each arm's figures per target kind and request shape."""
     return (
         outcomes.group_by("arm", pl.col("symbol_kind").cast(pl.String), "query_kind")
@@ -469,7 +469,7 @@ def _truncation_impact(
     )
 
 
-def _metrics_file(
+def metrics_file(
     arm_metrics: dy.DataFrame[ArmMetrics],
     breakdowns: dy.DataFrame[Breakdown],
     headers: dy.DataFrame[RepoHeader],
@@ -714,9 +714,9 @@ class MeasureCmd(BaseModel):
         index = Index(str(config.db_path))
         truncated = truncated_targets(index, corpus_refs(index))
         index.close()
-        outcomes = _score_outcomes(batch, truncated)
-        arm_metrics = _arm_metrics(outcomes)
-        breakdowns = _breakdowns(outcomes)
+        outcomes = score_outcomes(batch, truncated)
+        by_arm = arm_metrics(outcomes)
+        by_dimension = breakdowns(outcomes)
 
         self.report.parent.mkdir(parents=True, exist_ok=True)
         self.report.write_text(
@@ -724,19 +724,17 @@ class MeasureCmd(BaseModel):
                 headers=headers,
                 n_queries=queries.height,
                 elapsed_seconds=elapsed_seconds,
-                arm_metrics=arm_metrics,
-                breakdowns=breakdowns,
-                target_shapes=_target_shapes(outcomes),
+                arm_metrics=by_arm,
+                breakdowns=by_dimension,
+                target_shapes=target_shapes(outcomes),
                 truncation=_truncation_impact(outcomes),
             ),
             encoding="utf-8",
         )
-        for name, spec in _charts(breakdowns).items():
+        for name, spec in _charts(by_dimension).items():
             render_vl_to_png(spec, self.report.parent / f"{name}.png")
         self.metrics.parent.mkdir(parents=True, exist_ok=True)
         self.metrics.write_text(
-            _metrics_file(arm_metrics, breakdowns, headers, elapsed_seconds).model_dump_json(
-                indent=2
-            ),
+            metrics_file(by_arm, by_dimension, headers, elapsed_seconds).model_dump_json(indent=2),
             encoding="utf-8",
         )

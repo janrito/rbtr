@@ -349,7 +349,7 @@ class ExpandCmd(BaseModel):
         self.report.write_text(
             _render_expansion_report(
                 _expansion_counts(result),
-                _expansion_examples(
+                expansion_examples(
                     result, queries, per_kind=self.examples_per_kind, seed=self.seed
                 ),
                 self.model,
@@ -406,7 +406,7 @@ def _expansion_counts(expansions: dy.DataFrame[ExpansionRow]) -> dy.DataFrame[Ex
     )
 
 
-def _expansion_examples(
+def expansion_examples(
     expansions: dy.DataFrame[ExpansionRow],
     queries: dy.DataFrame[QueryRow],
     *,

@@ -256,7 +256,7 @@ def _collect_scored_candidates(
     return candidates, meta
 
 
-def _pool_recall(
+def pool_recall(
     candidates: dy.DataFrame[ScoredCandidate],
     queries: dy.DataFrame[QueryMeta],
 ) -> float:
@@ -280,7 +280,7 @@ def _pool_recall(
     )
 
 
-def _rescore_and_rank(
+def rescore_and_rank(
     candidates: dy.DataFrame[ScoredCandidate],
     queries: dy.DataFrame[QueryMeta],
     weights: tuple[float, float, float],
@@ -321,7 +321,7 @@ def _rescore_and_rank(
     )
 
 
-def _mean_mrr(ranks: dy.DataFrame[DetailedOutcome]) -> float:
+def mean_mrr(ranks: dy.DataFrame[DetailedOutcome]) -> float:
     """Micro-averaged MRR over all queries, reusing `search_metric_aggs`.
 
     One value per query kind's whole query set — the mean reciprocal
@@ -331,7 +331,7 @@ def _mean_mrr(ranks: dy.DataFrame[DetailedOutcome]) -> float:
     return ranks.select(*search_metric_aggs()).get_column("mrr").item()
 
 
-def _paired_delta_se(
+def paired_delta_se(
     baseline: dy.DataFrame[DetailedOutcome],
     best: dy.DataFrame[DetailedOutcome],
 ) -> float:
@@ -363,7 +363,7 @@ def _paired_delta_se(
     return float(spread) / math.sqrt(paired.height)
 
 
-def _top_trial_spread(trials: list[TrialRow]) -> dy.DataFrame[TrialSpread]:
+def top_trial_spread(trials: list[TrialRow]) -> dy.DataFrame[TrialSpread]:
     """Per-kind weight ranges over the ten best-scoring trials.
 
     Each kind is its own study, so trials are ranked within a kind and
@@ -395,7 +395,7 @@ def _top_trial_spread(trials: list[TrialRow]) -> dy.DataFrame[TrialSpread]:
     )
 
 
-def _verdict(delta: float, delta_se: float) -> Verdict:
+def verdict(delta: float, delta_se: float) -> Verdict:
     """Whether *delta* clears twice its own standard error.
 
     Strict, so a delta exactly twice its error withholds: a tie is not
@@ -404,7 +404,7 @@ def _verdict(delta: float, delta_se: float) -> Verdict:
     return Verdict.RECOMMEND if delta > 2 * delta_se else Verdict.WITHHOLD
 
 
-def _simplex_from_unit_square(u: float, v: float) -> tuple[float, float, float]:
+def simplex_from_unit_square(u: float, v: float) -> tuple[float, float, float]:
     """Map `(u, v) ∈ [0, 1]²` to `(alpha, beta, gamma)` on the simplex."""
     alpha = u
     beta = v * (1.0 - u)
@@ -412,7 +412,7 @@ def _simplex_from_unit_square(u: float, v: float) -> tuple[float, float, float]:
     return (alpha, beta, gamma)
 
 
-def _render_tuning_report(
+def render_tuning_report(
     report: dy.DataFrame[TuneReport],
     spread: dy.DataFrame[TrialSpread],
     impact_overall: dy.DataFrame[ImpactOverall],
@@ -527,7 +527,7 @@ def _impact_overall(
     )
 
 
-def _impact_breakdowns(
+def impact_breakdowns(
     baseline: dy.DataFrame[DetailedOutcome],
     best: dy.DataFrame[DetailedOutcome],
 ) -> dy.DataFrame[ImpactBreakdown]:
@@ -638,16 +638,16 @@ def _run_study(
         trial = study.ask()
         u = trial.suggest_float("u", 0.0, 1.0)
         v = trial.suggest_float("v", 0.0, 1.0)
-        weights = _simplex_from_unit_square(u, v)
+        weights = simplex_from_unit_square(u, v)
 
-        trial_ranks = _rescore_and_rank(candidates, meta, weights)
+        trial_ranks = rescore_and_rank(candidates, meta, weights)
         mrr_per_provenance = (
             trial_ranks.group_by("provenance")
             .agg(*search_metric_aggs())
             .select("provenance", "mrr")
             .sort("provenance")
         )
-        mrr = _mean_mrr(trial_ranks)
+        mrr = mean_mrr(trial_ranks)
 
         study.tell(trial, mrr)
 
@@ -744,8 +744,8 @@ class TuneCmd(BaseModel):
 
         for kind, (candidates, meta) in collected.items():
             t = rbtr_config.search_weights[QueryKind(kind)]
-            baseline_ranks = _rescore_and_rank(candidates, meta, (t.alpha, t.beta, t.gamma))
-            baseline_mrr = _mean_mrr(baseline_ranks)
+            baseline_ranks = rescore_and_rank(candidates, meta, (t.alpha, t.beta, t.gamma))
+            baseline_mrr = mean_mrr(baseline_ranks)
 
             best_weights, best_mrr, best_ranks, trials_data = _run_study(
                 candidates,
@@ -762,7 +762,7 @@ class TuneCmd(BaseModel):
 
             best_alpha, best_beta, best_gamma = best_weights
             delta = best_mrr - baseline_mrr
-            delta_se = _paired_delta_se(baseline_ranks, best_ranks)
+            delta_se = paired_delta_se(baseline_ranks, best_ranks)
             report_rows.append(
                 {
                     "kind": kind,
@@ -776,8 +776,8 @@ class TuneCmd(BaseModel):
                     "score_current": baseline_mrr,
                     "delta": delta,
                     "delta_se": delta_se,
-                    "verdict": _verdict(delta, delta_se),
-                    "pool_recall": _pool_recall(candidates, meta),
+                    "verdict": verdict(delta, delta_se),
+                    "pool_recall": pool_recall(candidates, meta),
                     "metric": "MRR",
                     "n_trials": self.n_trials,
                     "n_queries": meta.height,
@@ -799,11 +799,11 @@ class TuneCmd(BaseModel):
 
         self.report.parent.mkdir(parents=True, exist_ok=True)
         self.report.write_text(
-            _render_tuning_report(
+            render_tuning_report(
                 report,
-                _top_trial_spread(all_trials_data),
+                top_trial_spread(all_trials_data),
                 _impact_overall(combined_baseline, combined_best),
-                _impact_breakdowns(combined_baseline, combined_best),
+                impact_breakdowns(combined_baseline, combined_best),
                 sample_distribution(
                     pl.concat(list(kind_queries.values())).pipe(QueryRow.validate, cast=True),
                     strat_keys=("slug", "language", "provenance"),

@@ -295,7 +295,7 @@ def _breakdowns(ranked: dy.DataFrame[BlendRank]) -> dy.DataFrame[RerankerBreakdo
     )
 
 
-def _tolerance_sweep(
+def tolerance_sweep(
     grid: dy.DataFrame[GridMetrics], breakdowns: dy.DataFrame[RerankerBreakdown]
 ) -> dy.DataFrame[ToleranceChoice]:
     """The fastest config within each MRR tolerance, per query kind and overall.
@@ -497,7 +497,7 @@ class TuneRerankerCmd(BaseModel):
         report_text = _render_report(
             grid,
             breakdowns,
-            _tolerance_sweep(grid, breakdowns),
+            tolerance_sweep(grid, breakdowns),
             sample_distribution(queries, strat_keys=("slug", "language", "provenance")),
             n_queries=queries.height,
             elapsed_seconds=elapsed,

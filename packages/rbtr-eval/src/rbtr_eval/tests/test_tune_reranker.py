@@ -1,7 +1,7 @@
 """Behaviour test for the reranker's latency-aware selection.
 
 The report is a manual decision aid, and the pick it offers comes from
-`_tolerance_sweep`: as the MRR tolerance loosens it walks to smaller —
+`tolerance_sweep`: as the MRR tolerance loosens it walks to smaller —
 and therefore faster — pools. Latency is monotonic in pool.
 """
 
@@ -11,7 +11,7 @@ import dataframely as dy
 import polars as pl
 import pytest
 
-from rbtr_eval.tune_reranker import GridMetrics, RerankerBreakdown, _tolerance_sweep
+from rbtr_eval.tune_reranker import GridMetrics, RerankerBreakdown, tolerance_sweep
 
 
 @pytest.fixture
@@ -63,7 +63,7 @@ def test_the_sweep_walks_to_faster_pools(
     expected_pool: int,
 ) -> None:
     """Looser MRR tolerance selects a smaller, faster pool, at its best blend."""
-    sweep = _tolerance_sweep(reranker_configs, one_kind)
+    sweep = tolerance_sweep(reranker_configs, one_kind)
     [pick] = sweep.filter(
         pl.col("scope") == "all", (pl.col("tolerance_pct") - tolerance_pct).abs() < 1e-9
     ).rows(named=True)

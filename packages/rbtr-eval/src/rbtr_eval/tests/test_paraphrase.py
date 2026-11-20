@@ -31,10 +31,9 @@ from rbtr.index.index import Index
 from rbtr.tests.conftest import make_commit
 from rbtr_eval.paraphrase import (
     SymbolContext,
-    _excluded_identifiers,
-    _paraphrase_examples,
-    _sampled_content,
+    excluded_identifiers,
     paraphrase_agent,
+    paraphrase_examples,
     paraphrase_symbols,
 )
 from rbtr_eval.shared_schemas import QueryRow
@@ -58,7 +57,7 @@ def test_excluded_identifiers_derivation(name: str, scope: str, expected: set[st
     followed by the content. An anonymous chunk withholds nothing,
     having no name to give away.
     """
-    assert set(_excluded_identifiers(name, scope)) == expected
+    assert set(excluded_identifiers(name, scope)) == expected
 
 
 def test_symbol_context_drops_the_empty_identifier() -> None:
@@ -324,7 +323,7 @@ def test_example_content_comes_from_the_sampled_repo(two_repos: Index) -> None:
         ]
     ).pipe(QueryRow.validate, cast=True)
 
-    joined = _paraphrase_examples(sampled, _sampled_content(two_repos, sampled)).sort("slug")
+    joined = paraphrase_examples(two_repos, sampled).sort("slug")
 
     assert joined.height == 2
     assert 'f"hi {name}"' in joined["content"][0]
