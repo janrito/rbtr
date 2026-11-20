@@ -326,3 +326,45 @@ const (
 )
 """
     return "go", src, [("variable", "A", ""), ("variable", "B", "")]
+
+
+type ReferencesCase = tuple[str, str, list[tuple[str, str, list[str], list[str]]]]
+
+
+@case(tags=["references"])
+def case_go_calls_and_bases() -> ReferencesCase:
+    """Each call shape and a generic callee; an embedded field is a base, a named one none."""
+    src = """\
+package shop
+
+type Order struct {
+    Model
+    *Base
+    name string
+}
+
+func (o *Order) Save() {
+    helper()
+    f.Println()
+    exec.Command("x").Run()
+    pkg.New[int]()
+}
+"""
+    return (
+        "go",
+        src,
+        [
+            ("class", "Order", [], ["unqualified:Model", "unqualified:Base"]),
+            (
+                "method",
+                "Save",
+                [
+                    "unqualified:helper",
+                    "unqualified:f.Println",
+                    "unqualified:exec.Command",
+                    "unqualified:pkg.New",
+                ],
+                [],
+            ),
+        ],
+    )
