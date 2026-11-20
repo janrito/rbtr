@@ -24,8 +24,27 @@ Return a friendly greeting.
     [
         (PYTHON, "python", '"""Return a friendly greeting."""'),
         (PROSE, "markdown", None),
+        (
+            """\
+/**
+ * Return a friendly greeting.
+ */
+function greet(name: string): string {
+    return name;
+}
+""",
+            "typescript",
+            """\
+/**
+ * Return a friendly greeting.
+ */""",
+        ),
     ],
-    ids=["python-docstring", "no-query"],
+    ids=[
+        "python-docstring",
+        "no-query",
+        "typescript-jsdoc",
+    ],
 )
 def test_docstring_is_the_first_documented_symbols_documentation(
     content: str, language: str, expected: str | None
