@@ -340,8 +340,7 @@ def import_metadata() -> pl.Expr:
     Null for every other row: the `metadata` struct also holds other
     roles' payloads, which no reply shows.
     """
-    names = SymbolRefRow.create_empty()["metadata"].struct.fields
-    fields = [pl.col("metadata").struct.field(name) for name in names]
+    fields = [pl.col("metadata").struct.field(name) for name in SymbolRefRow.metadata.inner]
     recorded = pl.any_horizontal(field != "" for field in fields)
     return (
         pl.when((pl.col("kind") == ChunkKind.IMPORT) & recorded)
