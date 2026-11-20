@@ -20,6 +20,16 @@
     "line_end": 6
   },
   {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "go.go",
+    "scope": "",
+    "language": "go",
+    "content": "import",
+    "line_start": 8,
+    "line_end": 8
+  },
+  {
     "name": "\"fmt\"",
     "kind": "import",
     "file_path": "go.go",
@@ -60,6 +70,16 @@
         }
       ]
     }
+  },
+  {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "go.go",
+    "scope": "",
+    "language": "go",
+    "content": ")",
+    "line_start": 12,
+    "line_end": 12
   },
   {
     "name": "",

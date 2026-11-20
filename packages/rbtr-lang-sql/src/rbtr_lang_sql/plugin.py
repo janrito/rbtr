@@ -45,5 +45,5 @@ sql = LanguageRegistration(
     extraction=QueryExtraction(
         query=load_query(__package__, "sql"),
     ),
-    extraction_serial=4,
+    extraction_serial=5,
 )

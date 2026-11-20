@@ -41,7 +41,7 @@ markdown = LanguageRegistration(
     # ATX headings and fenced code.
     content_signals=(re.compile(r"^#{1,6}\s+", re.MULTILINE), re.compile(r"^```", re.MULTILINE)),
     section_names=SectionNames.FOLDED,
-    extraction_serial=7,
+    extraction_serial=8,
 )
 
 # The grammar's inline half: emphasis, code spans, links and HTML tags

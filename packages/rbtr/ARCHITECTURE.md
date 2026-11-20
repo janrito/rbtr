@@ -2379,9 +2379,12 @@ chunk, and no search could find it. After the query's chunks, the engine walks t
 by lines: a node no chunk touches is left over, a node one touches in part, or a
 left-over one longer than `chunk_lines`, is looked into, and left-over siblings join one
 `FRAGMENT` chunk until a blank line, a covered node or `chunk_lines` lines separate
-them. A run of punctuation alone makes none, and a node holding a block the host's
-injection query delegates (an HTML `<script>` element) belongs to that block, unless the
-block's language makes no fragments (`QueryExtraction.fragments`): Markdown hands every
+them. A run of anonymous syntax alone (a `try:` around captured imports, an `#endif`) is
+a fragment too, so every line of code reaches a chunk, as is a leaf touched only in
+part. A block the host's injection query delegates (an HTML `<script>`'s content)
+belongs to the language reading it, and the host's syntax around it (the `</script>`
+tag, a code fence, a section's other blocks) is the host's own, unless the block's
+language makes no fragments (`QueryExtraction.fragments`): Markdown hands every
 paragraph to its inline half for links, and that half's text is Markdown's. Each
 fragment records the types of the named nodes it holds, so what a language leaves to
 fragments is counted, and a frequent type is a pattern its query should name. Lines, not

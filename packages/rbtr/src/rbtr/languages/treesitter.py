@@ -285,11 +285,12 @@ def injections(
     *languages* finds no grammar for, is not read. The blocks are in
     source order.
 
-    A node holding a block counts as covered when fragments are found: an
-    HTML `<script>` element's tags belong to the javascript it holds. A
-    block handed to a language that makes no fragments is not held: that
-    language does not reach its every line (Markdown's text, handed to its
-    inline half for links).
+    A block counts as covered when fragments are found: its lines are the
+    language's that reads it. The host's syntax around it (an HTML
+    `<script>` tag, a Markdown code fence, a section's other blocks) is
+    the host's own. A block handed to a language that makes no fragments
+    is not held: that language does not reach its every line (Markdown's
+    text, handed to its inline half for links).
     """
     if registration.injection_query is None:
         return [], []
@@ -301,7 +302,7 @@ def injections(
         static, _ = languages(settings.get("injection.language") or "") or (None, None)
         extraction = static.extraction if static is not None else None
         if not (isinstance(extraction, QueryExtraction) and not extraction.fragments):
-            holders.extend(block.parent or block for block in captures.get("injection.content", []))
+            holders.extend(captures.get("injection.content", []))
         target = settings.get("injection.language") or injection_language(captures)
         if target is None:
             continue
@@ -726,8 +727,9 @@ def fragments(
 
     A line is covered by a captured span, or by a node holding a block
     another language reads (`Source.holders`). The runs of uncovered
-    nodes (`runs`) are fragments, scoped like a capture at their start; a
-    run of anonymous syntax alone (a closing brace) makes none.
+    nodes (`runs`) are fragments, scoped like a capture at their start. A
+    run of anonymous syntax alone (`try:` around captured imports, the
+    `#endif` closing a guard) is a fragment too, with no node types.
     """
     if not extraction.fragments:
         return []
@@ -740,13 +742,10 @@ def fragments(
     rows: list[Capture] = []
     for run in runs(source.tree.root_node, covered, source.content):
         node_types = list(dict.fromkeys(node.type for node in run if node.is_named))
-        if node_types:
-            scope = scope_names(enclosing_scopes(run[0], extraction.scope_types), named)
-            rows.append(
-                capture(
-                    source, ChunkKind.FRAGMENT, run[0], run[-1], scope=scope, node_types=node_types
-                )
-            )
+        scope = scope_names(enclosing_scopes(run[0], extraction.scope_types), named)
+        rows.append(
+            capture(source, ChunkKind.FRAGMENT, run[0], run[-1], scope=scope, node_types=node_types)
+        )
     return rows
 
 
@@ -755,7 +754,7 @@ def runs(node: Node, covered: bytearray, content: bytes) -> Iterator[list[Node]]
 
     A child no covered line touches is left over; a child one touches only
     in part, or a left-over one longer than `config.chunk_lines`, is
-    looked into. Left-over siblings join one run until a blank line, a
+    looked into, and a leaf touched only in part is a run of its own. Left-over siblings join one run until a blank line, a
     covered node or `config.chunk_lines` lines separate them.
     """
     run: list[Node] = []
@@ -766,8 +765,13 @@ def runs(node: Node, covered: bytearray, content: bytes) -> Iterator[list[Node]]
             if run:
                 yield run
             run = []
-            if 0 in lines:
+            if 0 in lines and child.child_count:
                 yield from runs(child, covered, content)
+            elif 0 in lines:
+                # A leaf has nothing to look into: it is its own run, and its lines
+                # are covered from here on.
+                yield [child]
+                covered[child.start_point[0] + 1 : last_line(child) + 1] = b"\x01" * len(lines)
             continue
         if run and (
             not contiguous(content, run[-1].end_byte, child.start_byte)

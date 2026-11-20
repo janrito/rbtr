@@ -41,6 +41,16 @@
     "line_end": 6
   },
   {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "cli.py",
+    "scope": "",
+    "language": "python",
+    "content": "try:",
+    "line_start": 8,
+    "line_end": 8
+  },
+  {
     "name": "import readline",
     "kind": "import",
     "file_path": "cli.py",

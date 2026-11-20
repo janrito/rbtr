@@ -1031,14 +1031,14 @@ def test_edges_match_snapshot(sample_edges, snapshot_json):
     assert sample_edges == snapshot_json
 
 
-def test_uncovered_lines_match_snapshot(sample_uncovered_lines, snapshot_json):
-    assert sample_uncovered_lines == snapshot_json
+def test_every_line_is_in_a_chunk(sample_uncovered_lines):
+    assert sample_uncovered_lines == []
 ```
 
 `sample_symbols` are the symbols `read-symbol` returns. `sample_edges`
 are the edges, as readable `file::name -> file::name [kind]` lines.
-`sample_uncovered_lines` lists each non-blank line no chunk spans, which
-should be syntax with nothing to search, such as a closing brace.
+`sample_uncovered_lines` lists each non-blank line no chunk spans, and
+must be empty: every line of code belongs to a chunk.
 `sample_parse_errors` names each file that does not parse in the
 language the build read it as.
 

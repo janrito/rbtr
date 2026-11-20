@@ -29,5 +29,5 @@ json = LanguageRegistration(
     extraction=QueryExtraction(
         query=load_query(__package__, "json"),
     ),
-    extraction_serial=5,
+    extraction_serial=6,
 )

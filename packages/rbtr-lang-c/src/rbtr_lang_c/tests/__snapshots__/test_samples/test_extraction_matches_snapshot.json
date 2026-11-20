@@ -272,6 +272,16 @@
     "line_end": 21
   },
   {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "greeter.h",
+    "scope": "",
+    "language": "c",
+    "content": "#endif",
+    "line_start": 23,
+    "line_end": 23
+  },
+  {
     "name": "#include \"shop.h\"",
     "kind": "import",
     "file_path": "shop/shop.c",
@@ -418,5 +428,15 @@
     "content": "int text_length(const char *s);",
     "line_start": 6,
     "line_end": 6
+  },
+  {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "util/text.h",
+    "scope": "",
+    "language": "c",
+    "content": "#endif",
+    "line_start": 8,
+    "line_end": 8
   }
 ]

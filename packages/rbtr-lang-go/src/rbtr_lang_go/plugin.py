@@ -45,7 +45,7 @@ go = LanguageRegistration(
     package_directory=True,
     directory_scope=True,
     member_order=MemberOrder.NEAREST,
-    extraction_serial=7,
+    extraction_serial=8,
     manifest="go.mod",
 )
 

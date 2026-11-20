@@ -44,5 +44,5 @@ rst = LanguageRegistration(
         re.compile(r":\w+:`[^`]+`"),
     ),
     section_names=SectionNames.FOLDED,
-    extraction_serial=6,
+    extraction_serial=7,
 )

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import polars as pl
 import pytest
+from tree_sitter import Parser
 
 from rbtr.config import config
 from rbtr.domain.models import ChunkKind, Fragment, Import
@@ -18,6 +19,7 @@ from rbtr.git import FileEntry
 from rbtr.languages.extract import extract_batch, extract_file, extract_symbols, file_rows
 from rbtr.languages.manager import get_manager
 from rbtr.languages.registration import LanguageRegistration, QueryExtraction
+from rbtr.languages.treesitter import runs
 
 
 @pytest.mark.parametrize("lang", sorted(get_manager().all_language_ids()))
@@ -451,7 +453,7 @@ c()
 
 
 def test_a_block_left_to_its_injection_is_not_a_fragment() -> None:
-    """An HTML `<script>` belongs to the javascript its injection extracts."""
+    """An HTML `<script>`'s content belongs to the javascript its injection extracts; a tag on a line of its own is the page's."""
     manager = get_manager()
     html = manager.get_registration("html")
     grammar = manager.grammar("html")
@@ -467,7 +469,7 @@ run();
     fragments = [
         (c.line_start, c.line_end, c.content) for c in chunks if c.kind == ChunkKind.FRAGMENT
     ]
-    assert fragments == [(1, 1, "<p>intro</p>")]
+    assert fragments == [(1, 1, "<p>intro</p>"), (4, 4, "</script>")]
 
 
 def test_a_callee_becomes_the_path_it_names() -> None:
@@ -808,3 +810,16 @@ def test_a_query_states_an_imports_names_and_bindings(
         if isinstance(c.role, Import)
     ]
     assert imports == expected
+
+
+def test_a_partly_covered_leaf_is_a_run_of_its_own() -> None:
+    """A leaf spanning lines, one of them covered, has no children to look into: it is its own run."""
+    grammar = get_manager().grammar("python")
+    assert grammar is not None
+    src = b'x = """a\nb\nc"""\n'
+    tree = Parser(grammar).parse(src)
+    covered = bytearray(src.count(b"\n") + 2)
+    covered[1] = 1
+    assert [[node.type for node in run] for run in runs(tree.root_node, covered, src)] == [
+        ["string_content"]
+    ]

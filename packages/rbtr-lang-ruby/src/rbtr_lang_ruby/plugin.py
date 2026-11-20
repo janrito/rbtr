@@ -44,5 +44,5 @@ ruby = LanguageRegistration(
     source_roots=("", "lib"),
     members_in_scope=True,
     member_order=MemberOrder.REVERSED,
-    extraction_serial=10,
+    extraction_serial=13,
 )

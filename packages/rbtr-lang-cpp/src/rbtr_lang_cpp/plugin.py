@@ -37,5 +37,5 @@ cpp = LanguageRegistration(
     source_roots=("", "include", "src"),
     members_in_scope=True,
     linked_functions=True,
-    extraction_serial=10,
+    extraction_serial=14,
 )

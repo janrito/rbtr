@@ -46,5 +46,5 @@ java = LanguageRegistration(
     package_directory=True,
     members_in_scope=True,
     directory_scope=True,
-    extraction_serial=7,
+    extraction_serial=9,
 )
