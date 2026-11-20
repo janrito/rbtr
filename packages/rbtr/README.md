@@ -710,6 +710,13 @@ reach (a Go method's receiver type), and `@_docstring` marks an
 interior docstring. Any capture starting with `_` is read but never
 becomes a chunk.
 
+**Shaping a capture.** Where the grammar leaves syntax inside one leaf,
+strip it in the query with tree-sitter's `#strip!` directive, which the
+engine applies to the name and import values a capture gives:
+`` (#strip! @_import_names "^`~[^`]*\\.|^`|`$") `` names the rST role
+`` :func:`~pkg.greet` `` `greet`. Put `#set!` before a pattern's
+predicates (py-tree-sitter 0.26.1 crashes otherwise).
+
 **Imports.** `@_import_module` populates `ImportMeta.module` straight
 from the query, stripping `<>` and `"` delimiters. Each `@import`
 match then passes through the language's import resolver, which reads

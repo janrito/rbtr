@@ -213,13 +213,13 @@ class LanguageRegistration:
         Custom chunker without tree-sitter (prose, or a language with no
         grammar)::
 
-            rst = LanguageRegistration(
-                id="rst",
-                extensions=frozenset({".rst"}),
+            svelte = LanguageRegistration(
+                id="svelte",
+                extensions=frozenset({".svelte"}),
             )
 
-            @rst.chunker
-            def chunk_rst(file_path, blob_sha, content, grammar, ranges):
+            @svelte.chunker
+            def chunk_sfc(file_path, blob_sha, content, grammar, ranges):
                 ...
 
         Grammar but no query (parse tree available, no symbol extraction

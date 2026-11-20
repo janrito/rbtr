@@ -89,12 +89,12 @@ from core's own `pyproject`. `build_index` routes extraction down one of
 three paths:
 
 1. **Chunker** — a chunker attached via `@reg.chunker`, for what a query cannot express:
-   rST's sections and SFCs' markup (svelte, vue). The chunker owns extraction. It takes
+   SFCs' markup (svelte, vue). The chunker owns extraction. It takes
    an optional `ranges` and must set `parser.included_ranges` when given it, so it can
    also serve as an injection target for an embedded block (see below).
 2. **Query** — `reg.grammar_module` + a `QueryExtraction`: code, plus config/data
-   whose scope a query can express (python, rust, …, markdown, json, css,
-   html, toml, yaml, hcl, tree_sitter_query). Goes through `extract_symbols`.
+   whose scope a query can express (python, rust, …, markdown, rst, json,
+   css, html, toml, yaml, hcl, tree_sitter_query). Goes through `extract_symbols`.
    HTML captures its semantic elements (`head`, `body`, sectioning content,
    landmarks) as doc sections, named by `id` else tag via a `name_extractor`.
    The `tree_sitter_query` plugin indexes `.scm` files themselves: each
@@ -262,6 +262,27 @@ sample, add the pattern to its `.scm`, regenerate the snapshots (the fragment
 becomes a named chunk), and bump `extraction_serial`. A node type with no
 searchable identity (a Go `package` clause, `#pragma once`, a parse error)
 stays a fragment: that is what fragments are for.
+
+## Shaping captures, and grammar gaps
+
+Syntax a grammar leaves inside one leaf (backticks, `<target>`, a `~`)
+is stripped in the query with `#strip!`, which the engine applies; never
+in Python. `#set!` comes before a pattern's predicates (see Gotchas).
+
+Two engine rules stand in for nodes a grammar does not give. Use one only
+where the grammar lacks the node; where it gives the node, an ordinary
+pattern is the answer. Say why in a comment beside the pattern.
+
+- **One import per line.** A quantified `@_import_module` names one module
+  per line its nodes sit on. An rST `toctree`'s content is word tokens,
+  with no node per entry.
+- **Flat sections.** A doc section whose pattern captures its adornments
+  as `@_level` is levelled by the order each style first appears, scoped
+  under the nearest earlier section of a higher level, and holds its text
+  up to the next one. tree-sitter-rst's `section` holds its title alone.
+
+Each rule is deleted when its grammar gives the node. A new rule needs the
+same case: a node the grammar does not give, and an exit.
 
 ## Scope & promotion (engine layers — already generic)
 

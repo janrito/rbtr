@@ -10,10 +10,11 @@ resolution back to it.
 from __future__ import annotations
 
 import dataclasses
+import re
 from collections.abc import Iterator, Mapping
 from functools import lru_cache
 from pathlib import PurePosixPath
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from tree_sitter import Language, Parser, Query, QueryCursor, Range
 
@@ -270,24 +271,72 @@ def extract_symbols(
     if included_ranges is not None:
         parser.included_ranges = included_ranges
     tree = parser.parse(content)
-    items = _capture_items(tree, extraction)
+    directives = _Directives(registered_language, _get_query(tree.language, extraction.query))
+    items = _capture_items(tree, directives)
     # A node captured more than once (`a, b = …`) names a scope by its first capture.
     named: dict[int, str] = {}
-    for node, capture_name, capture_dict in items:
-        if capture_name != "comment":
-            named.setdefault(
-                node.id, registered_language.resolve_name(capture_name, node, capture_dict)
-            )
-    sections = {node.id for node, capture_name, _ in items if capture_name == "doc_section"}
+    for item in items:
+        if item.capture != "comment":
+            named.setdefault(item.node.id, directives.name(item))
+    sections = {item.node.id for item in items if item.capture == "doc_section"}
+    flat = _flat_sections(items, directives, content, tree.root_node.end_byte)
     captured = list(
         _captured(
-            registered_language, file_path, blob_sha, content, items, named, sections, extraction
+            registered_language,
+            file_path,
+            blob_sha,
+            content,
+            items,
+            directives,
+            named,
+            sections,
+            flat,
+            extraction,
         )
     )
     yield from captured
     yield from _fragments(
         registered_language, file_path, blob_sha, content, tree, extraction, captured, named
     )
+
+
+def _flat_sections(
+    items: list[_Capture], directives: _Directives, content: bytes, end: int
+) -> dict[int, tuple[int, int, list[str]]]:
+    """Each flat section's end byte, 1-based last line and scope, by node id.
+
+    A flat section is one whose match captures `@_level`: its grammar gives
+    it no body to nest in (tree-sitter-rst's `section` holds its title
+    alone). Its level is the order in which its style (its `@_level` texts,
+    `#strip!` applied, joined) first appears; it is scoped under the nearest
+    earlier flat section of a higher level, and holds its text up to the
+    next flat section, or to *end*, less trailing whitespace.
+    """
+    flat = [item for item in items if item.capture == "doc_section" and "_level" in item.captures]
+    ranks: dict[str, int] = {}
+    above: list[tuple[int, str]] = []
+    spans: dict[int, tuple[int, int, list[str]]] = {}
+    for at, item in enumerate(flat):
+        style = "".join(
+            directives.strip(item.pattern, "_level", node.text.decode())
+            for node in item.captures["_level"]
+            if node.text
+        )
+        rank = ranks.setdefault(style, len(ranks))
+        while above and above[-1][0] >= rank:
+            above.pop()
+        scope = [name for _, name in above]
+        above.append((rank, directives.name(item)))
+        stop = flat[at + 1].node.start_byte if at + 1 < len(flat) else end
+        while stop > item.node.start_byte and content[stop - 1 : stop] in (
+            b" ",
+            b"\t",
+            b"\r",
+            b"\n",
+        ):
+            stop -= 1
+        spans[item.node.id] = (stop, content.count(b"\n", 0, stop) + 1, scope)
+    return spans
 
 
 def _section_end(node: Node, sections: set[int], content: bytes) -> tuple[int, int]:
@@ -326,13 +375,110 @@ def _fragment_named(meta: ImportMeta, file_path: str) -> ImportMeta:
     )
 
 
-def _capture_items(
-    tree: Tree, extraction: QueryExtraction
-) -> list[tuple[Node, str, dict[str, list[Node]]]]:
+@dataclasses.dataclass(frozen=True)
+class _Capture:
+    """A chunk-producing capture: its *node*, its *capture* name, and the match it is in.
+
+    *pattern* is the index of the query pattern that matched; *captures* is
+    the match's every capture, helpers included.
+    """
+
+    pattern: int
+    node: Node
+    capture: str
+    captures: dict[str, list[Node]]
+
+
+@dataclasses.dataclass
+class _Directives:
+    """A query's directives, and the values a capture gives under them.
+
+    tree-sitter leaves directives to its bindings, and py-tree-sitter applies
+    `#set!` only (`Query.pattern_settings`). `#strip! @capture "regex"`
+    removes what the regex matches from the capture's text (tree-sitter's
+    query documentation, "Predicates and Directives"); the engine applies it
+    to the name and import values read from a capture.
+    """
+
+    language: LanguageRegistration
+    query: Query
+    strips: dict[int, dict[str, re.Pattern[str]]] = dataclasses.field(default_factory=dict)
+
+    def record(
+        self,
+        predicate: str,
+        args: list[tuple[str, Literal["capture", "string"]]],
+        pattern_index: int,
+        captures: dict[str, list[Node]],  # unused; `QueryPredicate` passes it
+    ) -> bool:
+        """Note a `#strip!` while matching; every match is kept (`QueryCursor.matches`)."""
+        if predicate == "strip!":
+            (capture, _), (regex, _) = args
+            self.strips.setdefault(pattern_index, {})[capture] = re.compile(regex)
+        return True
+
+    def strip(self, pattern: int, capture: str, text: str) -> str:
+        """*text* with *pattern*'s `#strip!` for *capture* applied."""
+        regex = self.strips.get(pattern, {}).get(capture)
+        return regex.sub("", text) if regex else text
+
+    def name(self, item: _Capture) -> str:
+        """The name *item* gives, its name capture's `#strip!` applied."""
+        name = self.language.resolve_name(item.capture, item.node, item.captures)
+        key = NAME_CAPTURE_KEY.get(item.capture)
+        return self.strip(item.pattern, key, name) if key else name
+
+    def import_meta(self, item: _Capture) -> ImportMeta:
+        """The import *item* records, its captures' `#strip!` applied."""
+        meta = self.language.resolve_import(item.node, item.captures)
+        return meta.model_copy(
+            update={
+                "module": self.strip(item.pattern, "_import_module", meta.module),
+                "names": self.strip(item.pattern, "_import_names", meta.names),
+            }
+        )
+
+
+def _line_imports(
+    item: _Capture,
+    modules: list[Node],
+    directives: _Directives,
+    registered_language: LanguageRegistration,
+    file_path: str,
+    blob_sha: str,
+    content: bytes,
+) -> Iterator[Chunk]:
+    """One import per line of a quantified `@_import_module`'s nodes, named and spanned by it.
+
+    For a grammar that gives a list's entries no node of their own (an rST
+    `toctree`'s content is word tokens): a line's module is its text from
+    its first captured node to its last, `#strip!` applied.
+    """
+    lines: dict[int, list[Node]] = {}
+    for module in modules:
+        lines.setdefault(module.start_point[0], []).append(module)
+    base = directives.import_meta(item)
+    for row, nodes in lines.items():
+        text = content[nodes[0].start_byte : nodes[-1].end_byte].decode("utf-8", errors="replace")
+        meta = base.model_copy(
+            update={"module": directives.strip(item.pattern, "_import_module", text)}
+        )
+        yield Chunk(
+            blob_sha=blob_sha,
+            file_path=file_path,
+            role=Import(name=text, meta=_fragment_named(meta, file_path)),
+            language=registered_language.id,
+            content=text,
+            span=Span(start=row + 1, end=row + 1),
+        )
+
+
+def _capture_items(tree: Tree, directives: _Directives) -> list[_Capture]:
     """Each chunk-producing capture of the query, with its match, in source order."""
-    query = _get_query(tree.language, extraction.query)
-    items: list[tuple[Node, str, dict[str, list[Node]]]] = []
-    for _pattern_idx, capture_dict in QueryCursor(query).matches(tree.root_node):
+    items: list[_Capture] = []
+    for pattern, capture_dict in QueryCursor(directives.query).matches(
+        tree.root_node, directives.record
+    ):
         for capture_name, nodes in capture_dict.items():
             if capture_name.startswith("_"):
                 continue
@@ -342,8 +488,8 @@ def _capture_items(
             except ValueError:
                 continue
             for node in nodes:
-                items.append((node, capture_name, capture_dict))
-    items.sort(key=lambda it: it[0].start_byte)
+                items.append(_Capture(pattern, node, capture_name, capture_dict))
+    items.sort(key=lambda item: item.node.start_byte)
     return items
 
 
@@ -352,16 +498,20 @@ def _captured(
     file_path: str,
     blob_sha: str,
     content: bytes,
-    items: list[tuple[Node, str, dict[str, list[Node]]]],
+    items: list[_Capture],
+    directives: _Directives,
     named: Mapping[int, str],
     sections: set[int],
+    flat: Mapping[int, tuple[int, int, list[str]]],
     extraction: QueryExtraction,
 ) -> Iterator[Chunk]:
     """The chunks *items*, the query's captures in source order, make.
 
-    *named* maps each captured node's id to a name, for the scopes it opens.
+    *directives* gives each capture's name and import values. *named* maps
+    each captured node's id to a name, for the scopes it opens.
     A captured section, one of *sections*, that ends in captured sections
-    holds only the text before them (`_section_end`).
+    holds only the text before them (`_section_end`); a flat section, one of
+    *flat*, has the end and scope `_flat_sections` gives it.
     """
 
     seen: list[tuple[int, int]] = []  # emitted symbol node spans (for interior comments)
@@ -385,7 +535,8 @@ def _captured(
             span=Span(start=block[0].start_point[0] + 1, end=last_line(block[-1])),
         )
 
-    for node, capture_name, capture_dict in items:
+    for item in items:
+        node, capture_name, capture_dict = item.node, item.capture, item.captures
         if capture_name == "comment":
             if not _starts_line(content, node.start_byte):
                 # A comment trailing code documents the preceding statement,
@@ -425,7 +576,14 @@ def _captured(
             *_scope_names(scopes, named),
             *registered_language.resolve_scope(capture_name, node, capture_dict),
         ]
-        name = registered_language.resolve_name(capture_name, node, capture_dict)
+        modules = capture_dict.get("_import_module", [])
+        if capture_name == "import" and len(modules) > 1:
+            yield from _line_imports(
+                item, modules, directives, registered_language, file_path, blob_sha, content
+            )
+            seen.append((node.start_byte, node.end_byte))
+            continue
+        name = directives.name(item)
         role: Role
         match _resolve_kind(
             ChunkKind(capture_name),
@@ -433,10 +591,7 @@ def _captured(
         ):
             case ChunkKind.IMPORT:
                 role = Import(
-                    name=name,
-                    meta=_fragment_named(
-                        registered_language.resolve_import(node, capture_dict), file_path
-                    ),
+                    name=name, meta=_fragment_named(directives.import_meta(item), file_path)
                 )
             case ChunkKind.DOC_SECTION | ChunkKind.CONFIG_KEY as kind:
                 role = Section(kind=kind, name=name)
@@ -449,7 +604,9 @@ def _captured(
             case kind:
                 role = Definition(kind=kind, name=name)
         end_byte, line_end = node.end_byte, last_line(node)
-        if capture_name == "doc_section":
+        if node.id in flat:
+            end_byte, line_end, scope_names = flat[node.id]
+        elif capture_name == "doc_section":
             end_byte, line_end = _section_end(node, sections, content)
         seen.append((node.start_byte, end_byte))
         yield Chunk.model_validate(

@@ -80,7 +80,7 @@ def test_grammar_cached() -> None:
 
 @pytest.mark.parametrize(
     "lang_id",
-    ["rst", "nonexistent"],
+    ["svelte", "nonexistent"],
     ids=["chunker-no-query", "unknown"],
 )
 def test_query_none_for_chunker_or_unknown(lang_id: str) -> None:

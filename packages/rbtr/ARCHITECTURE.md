@@ -266,8 +266,7 @@ by the language plugin:
 - **Tree-sitter** - grammar + query → functions, classes,
   methods, variables, imports as structured `Chunk` objects.
 - **Custom chunker** - plugin-provided, for what a query cannot
-  express (rST's sections, whose level is the order adornments
-  first appear in a document).
+  express (an SFC's markup).
 - **Plaintext fallback** - fixed-size overlapping line
   chunks.
 
@@ -283,8 +282,9 @@ enclosing named scopes, outermost-first, joined by `::` (e.g.
 parse tree's scope-bearing nodes (per the plugin's
 `QueryExtraction.scope_types`). A scope node is named by its `name`
 field, or, when the query captures it, as its capture names it: a
-Markdown `section` by its heading. RST composes its heading hierarchy
-the same way in its chunker. A function becomes a `METHOD` only when its
+Markdown `section` by its heading. A grammar that leaves sections flat
+nests them by their `@_level` captures instead (see
+[Grammar gaps](#git-and-extraction)). A function becomes a `METHOD` only when its
 nearest enclosing scope is class-like
 (`QueryExtraction.class_scope_types`), so a closure inside a function
 or method stays a function.
@@ -339,10 +339,10 @@ order:
 
 1. **Primary extraction** - a registered `chunker` if the
    language has one (`chunker(path, sha, content, grammar,
-   ranges)`; rst, svelte, vue), else tree-sitter
+   ranges)`; svelte, vue), else tree-sitter
    `extract_symbols` for a `grammar` + `query` (python,
-   rust, go, ...; markdown; json, css, html, toml, yaml, hcl;
-   and `tree_sitter_query` itself, indexing `.scm` files).
+   rust, go, ...; markdown, rst; json, css, html, toml, yaml,
+   hcl; and `tree_sitter_query` itself, indexing `.scm` files).
    After the query's chunks, `extract_symbols` walks the
    same tree for the code they leave and emits it as
    `FRAGMENT` chunks (see
@@ -2310,6 +2310,34 @@ holds `#` names what follows in the file before it (`page.html#intro`),
 or in its own file when nothing precedes it (`#intro`). `#` is URL
 syntax in every language a fragment appears in, and the engine holds
 the file path the second form needs.
+
+**Directives shape what a capture gives.** tree-sitter leaves a query's
+directives to its bindings, and py-tree-sitter applies `#set!` alone. The
+engine applies `#strip! @capture "regex"` too, as tree-sitter's query
+documentation defines it, to the name and import values read from a
+capture: `` (#strip! @_import_names "^`~[^`]*\\.|^`|`$") `` names the
+rST role `` :func:`~pkg.greet` `` `greet`. Text a grammar leaves inside
+one leaf (backticks, `<target>`, a `~`) is shaped this way in the
+query, not in plugin code. In py-tree-sitter 0.26.1 a pattern's `#set!` must come
+before its predicates: after one, the query frees that predicate twice
+and a later query crashes.
+
+**Grammar gaps.** Two rules stand in for nodes a grammar lacks. Each use
+says why beside its pattern, so a new use is a decision rather than a
+way around writing a pattern:
+
+- A quantified `@_import_module` names one module per line its nodes sit
+  on. tree-sitter-rst tokenises a `toctree`'s content by word, so no node
+  holds an entry; a pattern capturing whole entries would make one import
+  per match, as Python's `import os, sys` does.
+- A doc section whose match captures `@_level` is flat: its level is the
+  order in which its style (the `@_level` texts, joined) first appears,
+  it is scoped under the nearest earlier section of a higher level, and it
+  holds its text up to the next one. tree-sitter-rst's section holds its
+  title alone, "to avoid guessing the level of subtitles" (its README).
+
+Each rule is deleted when tree-sitter-rst gives the node: entries in a
+`toctree`'s content, sections nesting their body.
 
 ### Storage
 

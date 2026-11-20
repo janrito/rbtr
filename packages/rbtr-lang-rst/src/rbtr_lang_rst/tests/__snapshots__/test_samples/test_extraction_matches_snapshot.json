@@ -57,7 +57,7 @@
     "language": "rst",
     "content": "Release notes\n=============\n\nA ``.txt`` file whose content is reStructuredText, read as reStructuredText.",
     "line_start": 1,
-    "line_end": 5
+    "line_end": 4
   },
   {
     "name": "Upgrading",
@@ -71,7 +71,7 @@
   },
   {
     "name": "",
-    "kind": "doc_section",
+    "kind": "fragment",
     "file_path": "readme.rst",
     "scope": "",
     "language": "rst",
@@ -81,7 +81,7 @@
   },
   {
     "name": "",
-    "kind": "doc_section",
+    "kind": "fragment",
     "file_path": "readme.rst",
     "scope": "",
     "language": "rst",
@@ -91,7 +91,7 @@
   },
   {
     "name": "",
-    "kind": "doc_section",
+    "kind": "fragment",
     "file_path": "readme.rst",
     "scope": "",
     "language": "rst",
@@ -101,7 +101,7 @@
   },
   {
     "name": "",
-    "kind": "doc_section",
+    "kind": "fragment",
     "file_path": "readme.rst",
     "scope": "",
     "language": "rst",
@@ -111,7 +111,7 @@
   },
   {
     "name": "",
-    "kind": "doc_section",
+    "kind": "fragment",
     "file_path": "readme.rst",
     "scope": "",
     "language": "rst",
@@ -121,7 +121,7 @@
   },
   {
     "name": "",
-    "kind": "doc_section",
+    "kind": "fragment",
     "file_path": "readme.rst",
     "scope": "",
     "language": "rst",
@@ -131,22 +131,12 @@
   },
   {
     "name": "",
-    "kind": "doc_section",
+    "kind": "fragment",
     "file_path": "readme.rst",
     "scope": "",
     "language": "rst",
-    "content": ".. _ReST: https://docutils.sourceforge.io/rst.html",
+    "content": ".. _ReST: https://docutils.sourceforge.io/rst.html\n.. _Sphinx: https://www.sphinx-doc.org/",
     "line_start": 15,
-    "line_end": 15
-  },
-  {
-    "name": "",
-    "kind": "doc_section",
-    "file_path": "readme.rst",
-    "scope": "",
-    "language": "rst",
-    "content": ".. _Sphinx: https://www.sphinx-doc.org/",
-    "line_start": 16,
     "line_end": 16
   },
   {
@@ -157,7 +147,7 @@
     "language": "rst",
     "content": "Greeter\n=======\n\nA small library for formatting greetings for named recipients.",
     "line_start": 1,
-    "line_end": 5
+    "line_end": 4
   },
   {
     "name": "Usage",
@@ -167,7 +157,7 @@
     "language": "rst",
     "content": "Usage\n-----\n\nConfigure via :doc:`config` and call :func:`format_greeting`.\nSee the :class:`Greeter` class and `the guide <guide.rst>`_ for more,\nor `an external page <https://example.com>`_ (not a cross-reference).\n\n.. toctree::\n   :maxdepth: 2\n\n   intro\n   api/index",
     "line_start": 6,
-    "line_end": 18
+    "line_end": 17
   },
   {
     "name": ":doc:`config`",
@@ -234,32 +224,32 @@
     }
   },
   {
-    "name": "toctree:api/index",
-    "kind": "import",
-    "file_path": "rst.rst",
-    "scope": "",
-    "language": "rst",
-    "content": "api/index",
-    "line_start": 16,
-    "line_end": 17,
-    "metadata": {
-      "module": "api/index",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
-    }
-  },
-  {
-    "name": "toctree:intro",
+    "name": "intro",
     "kind": "import",
     "file_path": "rst.rst",
     "scope": "",
     "language": "rst",
     "content": "intro",
     "line_start": 16,
-    "line_end": 17,
+    "line_end": 16,
     "metadata": {
       "module": "intro",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "name": "api/index",
+    "kind": "import",
+    "file_path": "rst.rst",
+    "scope": "",
+    "language": "rst",
+    "content": "api/index",
+    "line_start": 17,
+    "line_end": 17,
+    "metadata": {
+      "module": "api/index",
       "names": "",
       "dots": "",
       "language_hint": ""
