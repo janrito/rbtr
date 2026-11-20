@@ -21,7 +21,7 @@ from rbtr.config import config
 from rbtr.domain.identity import SCOPE_SEPARATOR
 from rbtr.domain.models import SnapshotRef
 from rbtr.index.index import Index
-from rbtr.languages.extract import docstring
+from rbtr.languages.extract import docstrings
 from rbtr_eval.corpus import corpus_ref
 from rbtr_eval.kinds import EXCLUDED_KINDS
 from rbtr_eval.queries import subsample
@@ -84,17 +84,6 @@ def first_sentence(text: str) -> str | None:
     return candidate
 
 
-def docstring_query(content: str, language: str) -> str | None:
-    """The `docstring` query of a chunk: the first usable sentence of its documentation.
-
-    The documentation is `rbtr.languages.extract.docstring`'s: that of
-    the first symbol in *content* that has any.  None when there is
-    none, or when `first_sentence` finds no usable sentence in it.
-    """
-    doc = docstring(content, language)
-    return None if doc is None else first_sentence(doc)
-
-
 def symbol_queries(symbols: pl.DataFrame, slug: str) -> dy.DataFrame[QueryRow]:
     """The queries each of *symbols* yields: by its name, its body and its docstring.
 
@@ -116,11 +105,12 @@ def symbol_queries(symbols: pl.DataFrame, slug: str) -> dy.DataFrame[QueryRow]:
         provenance=pl.lit("body"),
         text=pl.col("content").map_elements(first_sentence, return_dtype=pl.String),
     )
+    documentation = pl.Series(
+        docstrings(targets.select("content", "language").rows()), dtype=pl.String
+    )
     by_docstring = targets.with_columns(
         provenance=pl.lit("docstring"),
-        text=pl.struct("content", "language").map_elements(
-            lambda chunk: docstring_query(**chunk), return_dtype=pl.String
-        ),
+        text=documentation.map_elements(first_sentence, return_dtype=pl.String),
     )
     return (
         pl.concat([by_name, by_body, by_docstring])

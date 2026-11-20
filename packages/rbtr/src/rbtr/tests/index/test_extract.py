@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import dataframely as dy
 import pygit2
 from pytest_mock import MockerFixture
 
-from rbtr.git import FileEntry
+from rbtr.domain.rules import FileRow, PlacedChunkRow
 from rbtr.index.build import build_index
 from rbtr.index.index import Index
-from rbtr.languages.extract import extract_file
+from rbtr.languages import extract
 
 
 def test_build_index_extraction_error_is_nonfatal(
@@ -34,16 +35,16 @@ def test_build_index_extraction_error_is_nonfatal(
     repo.create_commit("HEAD", sig, sig, "init", tree_oid, [])
     sha = str(repo.head.target)
 
-    # Make extraction fail for bad.py only.
-    original_extract = extract_file
+    # Make extraction fail for any batch holding bad.py.
+    original_extract = extract.extract_batch
 
-    def _patched_extract(entry: FileEntry, language: str) -> list:
-        if entry.path == "bad.py":
+    def _patched_extract(files: dy.DataFrame[FileRow]) -> dy.DataFrame[PlacedChunkRow]:
+        if "bad.py" in files["path"]:
             msg = "parse error"
             raise RuntimeError(msg)
-        return list(original_extract(entry, language))
+        return original_extract(files)
 
-    mocker.patch("rbtr.index.build.extract_file", side_effect=_patched_extract)
+    mocker.patch.object(extract, "extract_batch", side_effect=_patched_extract)
 
     result = build_index(repo.workdir, sha, index)
 

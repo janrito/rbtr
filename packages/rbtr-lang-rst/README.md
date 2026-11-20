@@ -7,18 +7,18 @@ with rbtr itself (`pip install rbtr`).
 
 ## What it ingests
 
-A custom chunker: it reconstructs the section hierarchy from the *order of
-adornment characters* (RST has no fixed heading levels), each section a chunk
-scoped by its ancestors. Cross-references are extracted as imports.
+A tree-sitter query plugin (`rst.scm`). RST has no fixed heading levels, so
+a section's level is the order in which its adornment style first appears,
+as docutils reads it. Cross-references are extracted as imports.
 
-- **Sections** — headings (underline and overline adornments) → doc sections,
-  with `scope` the `::` chain of enclosing sections. A document with no
-  heading at all — a README, a changelog — gives each top-level block its own
-  section instead: paragraphs, lists, directives, literal blocks, link
-  targets.
+- **Sections** — headings (underline and overline adornments) → doc sections
+  holding their text up to the next heading, with `scope` the `::` chain of
+  enclosing sections. A document with no heading at all — a README, a
+  changelog — gives each top-level block a fragment of its own.
 - **References** — the `:func:` / `:class:` / `:meth:` / `:mod:` / `:doc:`
   roles, `` `text <target>`_ `` references, and `.. toctree::` entries →
-  imports. External URLs and same-file anchors are skipped.
+  imports; a `#fragment` names a part of its document. External URLs are
+  skipped.
 
 ## Chunks produced
 

@@ -7,7 +7,7 @@ description: >-
   package or core's bundled `rbtr/languages/`), editing a `.scm` query, a
   `LanguageRegistration`, an `import_extractor`, or a chunker;
   when adding support for a new construct or language; or when reviewing
-  extraction behaviour. Also trigger on tree-sitter queries, `extract_symbols`,
+  extraction behaviour. Also trigger on tree-sitter queries, `query_captures`,
   `tags.scm`, or `@definition`/`@function`/`@_scope` captures.
 user-invocable: false
 ---
@@ -43,11 +43,10 @@ it, it should be a chunk. Bias toward **over-capture**, not under-capture.
   licence headers, section notes — and module docstrings are captured as
   `COMMENT` chunks so their text is searchable, not dropped; a comment above
   a definition folds into it as documentation. See *Comment handling*.
-- Legitimate skips: truly anonymous nodes with no name a human would search
-  (a `tree_sitter_query` pattern with no outer label — captured only as an
-  anonymous section), pure metadata (`COMMENT ON`), usage/references (which
-  belong to edges, not symbol chunks), and **runtime-generated symbols**
-  (per above).
+- Anonymous constructs remain searchable as unnamed chunks: a
+  `tree_sitter_query` pattern with no outer label is an anonymous section.
+  Pure metadata (`COMMENT ON`), usage/references and runtime-generated
+  symbols have no definition chunk of their own; references belong to edges.
 - When unsure, capture it. A spurious chunk is cheaper than an invisible
   symbol.
 
@@ -80,57 +79,32 @@ data definitions invisible.
 
 ## Architecture
 
-A plugin is a package (`rbtr-lang-<lang>`) exposing one or more
-module-level `LanguageRegistration` values — each named by its language id
-— through the `rbtr.languages` entry-point group; the `LanguageManager`
-discovers them via `importlib.metadata` (no pluggy — languages are
-single-dispatch by id). Core's bundled languages register the same way,
-from core's own `pyproject`. `build_index` routes extraction down one of
-three paths:
+Each plugin is an `rbtr-lang-*` package exposing module-level
+`LanguageRegistration` values through the `rbtr.languages` entry-point
+group. Default and optional languages use the same registration path.
+The [plugin guide][plugin-guide] describes the public API; the
+[extraction architecture][extraction-architecture] explains how core
+uses those declarations.
 
-1. **Chunker** — a chunker attached via `@reg.chunker`: prose (markdown,
-   rst) and SFCs' markup
-   (svelte, vue). The chunker owns extraction. It takes an optional `ranges`
-   and must set `parser.included_ranges` when given it, so it can also serve
-   as an injection target for an embedded block (see below).
-2. **Query** — `reg.grammar_module` + a `QueryExtraction`: code, plus config/data
-   whose scope a query can express (python, rust, …, json, css, html, toml,
-   yaml, hcl, tree_sitter_query). Goes through `extract_symbols`.
-   HTML captures its semantic elements (`head`, `body`, sectioning content,
-   landmarks) as doc sections, named by `id` else tag via a `name_extractor`.
-   The `tree_sitter_query` plugin indexes `.scm` files themselves: each
-   top-level pattern is a `@doc_section`, named by its own outer capture else
-   anonymous.
-3. **Plaintext fallback** — no grammar/detection: fixed-size raw chunks.
+Prefer `QueryExtraction` with a grammar and query. Use `@reg.chunker`
+when queries and resolver overrides cannot describe the units. A chunker
+that receives `ranges` must set `parser.included_ranges`, so an embedded
+block is read within its original file. Plugins declare language facts
+and return tree-derived values or chunks; batch frame processing belongs
+to core.
 
-`extract_symbols` is the query engine: *parse → run query → captures →
-`Chunk`s*. It takes the `LanguageRegistration` and delegates naming,
-scoping, and imports to it (`reg.resolve_name` / `resolve_scope` /
-`resolve_import`), each calling the language's resolver — the built-in, or an
-override composed over it.
+For embedded languages, an `injection_query` captures each block as
+`@injection.content`. Name its target with static
+`(#set! injection.language "<id>")`, or capture a hint as
+`@injection.language` for registry resolution (`python` and `py` both
+reach Python). Use `injection.priority` when a specific rule must beat a
+fallback. Keep this mapping in queries and the registry rather than
+adding per-language tables to core. The [dispatch description][dispatch]
+covers target extraction, nested blocks and host-language presence.
 
-**Injection (embedded languages)** is an orthogonal capability that runs *in
-addition* to the primary path. To extract code embedded in a host file (an
-SFC's `<script>`/`<style>`, a Markdown fenced block, an HTML inline
-`<script>`/`<style>`), set `reg.injection_query`: a tree-sitter query over the
-host grammar that captures each embedded block as `@injection.content` and
-names its target language one of two ways:
-
-- **Static** — `(#set! injection.language "<id>")`, for a closed set (SFC/HTML
-  `<script>`→js/ts, `<style>`→css), with an optional
-  `(#set! injection.priority "<n>")` so a `lang`-tagged rule beats a bare one.
-- **Dynamic** — capture the language name as `@injection.language` (a Markdown
-  fence's info string). The engine resolves the captured text via the
-  registry's own id and extension maps (`python`/`py` both reach python); an
-  unknown hint is left unparsed. No per-language mapping table.
-
-The engine delegates each block's range to the target's *full* primary
-extraction (`extract_primary` — chunker or query, so a chunker target like
-yaml/toml works, not just query targets) and *recurses* into the target's own
-injection (an HTML block containing an inline `<script>` yields its js), all
-at absolute line numbers. Every file also gets a host-language chunk (a
-content-less presence chunk if it would produce none), so dedup works. See
-ARCHITECTURE “Dispatch chain” for the mechanism and rationale.
+[plugin-guide]: ../../../packages/rbtr/README.md#writing-a-language-plugin
+[extraction-architecture]: ../../../packages/rbtr/ARCHITECTURE.md#extraction
+[dispatch]: ../../../packages/rbtr/ARCHITECTURE.md#dispatch-chain
 
 ### Where queries live
 
@@ -155,7 +129,7 @@ change — the `extraction_serial` bump rule (below) applies.
 
 ## Capture conventions
 
-The query's capture names drive the chunk kind (see `_CAPTURE_KINDS` in
+The query's capture names drive the chunk kind (see `CAPTURE_KINDS` in
 `languages/treesitter.py`):
 
 - `@function` / `@_fn_name` — functions
@@ -232,20 +206,19 @@ inside a function body stays part of that body's chunk:
 - Python also captures its module docstring:
   `(module (expression_statement (string) @comment))`.
 
-The engine does the rest, identically for every language: it groups top-level
-comment runs into blank-line-delimited blocks, folds a block flush above a
-definition into that definition, leaves interior comments in their body, and
-emits everything else as a standalone `COMMENT` chunk. You only declare the
-node types. A comment trailing code on its line documents that statement and
-never folds forward. The routing rules and their rationale live in ARCHITECTURE.
+Core groups and routes these comments as described in the
+[extraction architecture][extraction-architecture]. Declare the node types
+rather than implementing comment folding in the plugin.
 
 ## Fragments: code no pattern names
 
-The engine gives every line of a file a chunk. After the query's chunks, it
-emits what they leave as `FRAGMENT` chunks: unnamed, each recording the types
-of the named syntax nodes it holds (`role.meta.node_types`). You declare
-nothing for this; the grouping rules live in ARCHITECTURE ("Fragments for code
-no query names").
+Searchable code left outside query captures becomes unnamed `FRAGMENT`
+chunks, each recording its named syntax-node types (`role.meta.node_types`).
+Blank lines and punctuation alone need no chunk. `QueryExtraction.fragments`
+controls this behaviour and is enabled by default. See
+[Git and extraction][fragment-rationale] for the grouping rationale.
+
+[fragment-rationale]: ../../../packages/rbtr/ARCHITECTURE.md#git-and-extraction
 
 A fragment is a gap report, not a target. Read the gaps two ways:
 
@@ -264,10 +237,31 @@ becomes a named chunk), and bump `extraction_serial`. A node type with no
 searchable identity (a Go `package` clause, `#pragma once`, a parse error)
 stays a fragment: that is what fragments are for.
 
+## Shaping captures, and grammar gaps
+
+Syntax a grammar leaves inside one leaf (backticks, `<target>`, a `~`)
+is stripped in the query with `#strip!`, which the engine applies; never
+in Python. `#set!` comes before a pattern's predicates (see Gotchas).
+
+Two engine rules stand in for nodes a grammar does not give. Use one only
+where the grammar lacks the node; where it gives the node, an ordinary
+pattern is the answer. Say why in a comment beside the pattern.
+
+- **One import per line.** A quantified `@_import_module` names one module
+  per line its nodes sit on. An rST `toctree`'s content is word tokens,
+  with no node per entry.
+- **Flat sections.** A doc section whose pattern captures its adornments
+  as `@_level` is levelled by the order each style first appears, scoped
+  under the nearest earlier section of a higher level, and holds its text
+  up to the next one. tree-sitter-rst's `section` holds its title alone.
+
+Each rule is deleted when its grammar gives the node. A new rule needs the
+same case: a node the grammar does not give, and an exit.
+
 ## Scope & promotion (engine layers — already generic)
 
 Set on the language's `QueryExtraction` (the `extraction` field);
-`extract_symbols` applies them to every captured node:
+the adapter (`query_captures`) reads them for every captured node:
 
 - `scope_types` — node types that open a naming scope; composed into the
   `::` address. Include nesting containers (classes, namespaces, modules,
@@ -295,7 +289,7 @@ Set on the language's `QueryExtraction` (the `extraction` field);
    changes, and never bump it for a package-only release or pure move.
 5. `just check`. (Samples are exempt from lint/type/format — see below.)
 
-## Gotchas (all learned the hard way; verified)
+## Gotchas
 
 - **Require a body on type captures.** `(struct_specifier name: …)` matches
   *references* too (e.g. inside `typedef struct G G;`, or a parameter type),
@@ -304,24 +298,26 @@ Set on the language's `QueryExtraction` (the `extraction` field);
 - **Take a span's last line from `last_line`.** Tree-sitter rows are
   0-based, so `end_point[0] + 1` is right for a node ending mid-line and
   one too many for a node that consumes its trailing newline and ends at
-  column 0 of the next row. Ten sites once computed this three ways: a
-  toml table claimed the next table's header line, a rust comment block
-  lost its last line, and a heading-less rst paragraph ran backwards
-  (line 7 to line 6). Import `last_line` from `rbtr.languages.chunks`
+  column 0 of the next row. Import `last_line` from `rbtr.languages.chunks`
   and delete any local trailing-newline correction — a compensation left
   beside it decrements twice.
-- **Non-lexical scope → `@_scope`.** Scope is otherwise lexical-ancestry only
-  (`_enclosing_scopes` walks parents). A Go method's receiver is a *child*, so
-  capture it as `@_scope`.
-- **Determinism in test helpers.** `next(iter(reg.extensions))` over a
-  `frozenset` varies with `PYTHONHASHSEED`; the chunk id hashes `file_path`,
-  so derive paths deterministically (`sorted(...)`, or pass an explicit path).
-- **Imports are always bespoke.** `tags.scm` has no imports; the edge system
-  depends on them. Keep per-language `import_extractor`s.
-- **SQL / multi-dialect: don't gate on parse-clean.** One generic SQL grammar
-  serves all `.sql`. Tree-sitter error recovery is *local* — a dialect
-  construct it can't parse breaks only its own subtree; surrounding
-  statements still extract. Treat `has_error` as informational, not a gate.
+- **Non-lexical scope → `@_scope`.** Scope otherwise follows tree ancestry.
+  A Go method's receiver is a child, so capture it as `@_scope`.
+- **Deterministic test paths.** `next(iter(reg.extensions))` over a
+  `frozenset` varies with `PYTHONHASHSEED`. Choose test paths
+  deterministically with `sorted(...)`, or pass an explicit path.
+- **Imports need their own patterns.** `tags.scm` has no imports. Read
+  metadata from captures first; add an `import_extractor` only for
+  information those captures cannot supply.
+- **SQL / multi-dialect: extract through parse errors.** One generic SQL
+  grammar serves all `.sql`. Tree-sitter recovers locally from a dialect
+  construct it cannot parse, so surrounding statements still extract.
+  Treat `has_error` as informational rather than refusing the file.
+- **Put `#set!` before a pattern's predicates.** In py-tree-sitter 0.26.1,
+  putting it after a predicate can double-free that predicate and crash a
+  later query. Write `(#set! …)` first, then `#eq?`, `#match?`, `#any-of?`
+  or `#strip!`. Remove this restriction when the installed binding fixes
+  its predicate reference handling.
 - **Known-unsupported constructs → strict xfail.** Record a construct that
   *should* extract but can't (grammar/plugin limit) as an `xfail(strict=True)`
   case, so closing the gap flips the test and prompts an update. Reserve for

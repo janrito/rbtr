@@ -54,11 +54,12 @@ produces a test that passes and proves nothing. Two traps in
 this codebase have cost hours each:
 
 - **Cache and dedup bugs need two builds, or two commits.**
-  `add_chunk` buffers, so within a single build the chunks of
-  an earlier file are not yet committed and a gate that reads
-  committed state cannot see them. Anything about "the second
-  occurrence is skipped" must put the first occurrence in a
-  *previous* build — which is also what a real repo does.
+  A write session buffers chunks (`replace_chunks`), so within a
+  single build the chunks of an earlier batch are not yet
+  committed and a check that reads committed state cannot see
+  them. Anything about "the second occurrence is skipped" must
+  put the first occurrence in a *previous* build — which is also
+  what a real repo does.
 - **Ranking tests need candidate spread.** `_normalise_col`
   min-max normalises each signal and *returns 0.0 when every
   candidate ties*. A fixture with only the two chunks under

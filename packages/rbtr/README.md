@@ -16,35 +16,6 @@ rbtr watch                   # watch HEAD and index it
 rbtr search "retry logic"    # search it
 ```
 
-### Hardware acceleration
-
-The default installation builds `llama-cpp-python` from PyPI for the local
-machine. To use a prebuilt accelerator backend, select one of the upstream
-indexes. Their URLs follow
-`https://abetlen.github.io/llama-cpp-python/whl/<backend>`.
-
-For example, install the CUDA 12.4 wheel:
-
-```bash
-uv tool install \
-  --index https://abetlen.github.io/llama-cpp-python/whl/cu124 \
-  "rbtr[languages]"
-```
-
-Or install the Vulkan wheel:
-
-```bash
-uv tool install \
-  --index https://abetlen.github.io/llama-cpp-python/whl/vulkan \
-  "rbtr[languages]"
-```
-
-Choose a backend compatible with the machine's drivers and platform. See the
-[llama-cpp-python installation documentation][llama-install] for the current
-backend names and requirements.
-
-[llama-install]: https://github.com/abetlen/llama-cpp-python#installation
-
 A background daemon starts automatically and keeps every
 watched ref current (`HEAD` by default; add more with
 `rbtr watch <ref>`). Subsequent builds are incremental —
@@ -558,6 +529,35 @@ that repository's working tree unchanged.
 
 [platformdirs]: https://platformdirs.readthedocs.io/
 
+## Hardware acceleration
+
+The default installation builds `llama-cpp-python` from PyPI for the local
+machine. To use a prebuilt accelerator backend, select one of the upstream
+indexes. Their URLs follow
+`https://abetlen.github.io/llama-cpp-python/whl/<backend>`.
+
+For example, install the CUDA 12.4 wheel:
+
+```bash
+uv tool install \
+  --index https://abetlen.github.io/llama-cpp-python/whl/cu124 \
+  "rbtr[languages]"
+```
+
+Or install the Vulkan wheel:
+
+```bash
+uv tool install \
+  --index https://abetlen.github.io/llama-cpp-python/whl/vulkan \
+  "rbtr[languages]"
+```
+
+Choose a backend compatible with the machine's drivers and platform. See the
+[llama-cpp-python installation documentation][llama-install] for the current
+backend names and requirements.
+
+[llama-install]: https://github.com/abetlen/llama-cpp-python#installation
+
 ## Supported languages
 
 Languages with tree-sitter grammars get structural
@@ -645,9 +645,9 @@ And the entry point tells rbtr where to find it:
 swift = "rbtr_lang_swift.plugin:swift"
 ```
 
-That is a complete plugin. The generic `extract_symbols` pipeline does
-the rest: parsing, capture matching, scope detection, chunk
-construction, and comment grouping. Everything below is for languages
+That is a complete plugin. The generic extraction does the rest:
+parsing, capture matching, scope detection, chunk construction, and
+comment grouping. Everything below is for languages
 that need more than this.
 
 ### The package
@@ -709,6 +709,13 @@ Two helper captures do not produce chunks of their own:
 reach (a Go method's receiver type), and `@_docstring` marks an
 interior docstring. Any capture starting with `_` is read but never
 becomes a chunk.
+
+**Shaping a capture.** Where the grammar leaves syntax inside one leaf,
+strip it in the query with tree-sitter's `#strip!` directive, which the
+engine applies to the name and import values a capture gives:
+`` (#strip! @_import_names "^`~[^`]*\\.|^`|`$") `` names the rST role
+`` :func:`~pkg.greet` `` `greet`. Put `#set!` before a pattern's
+predicates (py-tree-sitter 0.26.1 crashes otherwise).
 
 **Imports.** `@_import_module` populates `ImportMeta.module` straight
 from the query, stripping `<>` and `"` delimiters. Each `@import`
@@ -801,10 +808,9 @@ reference to a sibling from a reference from the root.
 
 ### Chunker-based plugin
 
-When the language's structural units can't be expressed
-as query captures (heading hierarchies, composed names,
-content-minus-children), write a custom chunker. The
-chunker receives the grammar from the manager:
+Use a custom chunker when extraction must combine syntax nodes into
+units a query cannot describe, such as a component's markup template.
+The chunker receives the grammar from the manager:
 
 ```python
 # src/rbtr_lang_example/plugin.py
@@ -869,12 +875,10 @@ example = LanguageRegistration(
 
 ### Testing the plugin
 
-Tests exercise the **real** pipeline, so there is no test-only code
-path: construct tests call `rbtr.languages.extract.extract_file`, the
-per-file entry point the indexer uses, and sample tests build a sample
-project as rbtr builds a repository. The `rbtr[test]` extra (in your
-`dev` group) provides `syrupy` and `pytest-cases`. Lay the tests out
-beside the code:
+Construct tests call `rbtr.languages.extract.extract_file`, which runs one file through
+the same extraction process the indexer uses for a batch. Sample tests build an example
+project as rbtr builds a repository. The `rbtr[test]` extra (in your `dev` group)
+provides `syrupy` and `pytest-cases`. Lay the tests out beside the code:
 
 ```text
 src/rbtr_lang_swift/tests/
@@ -1023,10 +1027,10 @@ Installing the package is all it takes — the entry point auto-registers.
 
 When you change a plugin's extraction logic — its query, chunker, or
 anything that shapes the chunks it emits — bump
-`extraction_serial` on the registration. Indexed chunks are keyed
-by this serial, so a bump triggers re-extraction of every blob stored
-at a different serial on the next build; leaving it unchanged keeps the
-existing (now stale) chunks. It is independent of the package version —
+`extraction_serial` on the registration. Each stored chunk records its
+own language's serial. On the next build, a file whose chunks carry an
+different contributor serial needs re-extraction; leaving the serial
+unchanged keeps the existing chunks. It is independent of the package version —
 bump it whenever extraction output changes, including during development
 before a release. See
 [ARCHITECTURE.md][arch-dedup]

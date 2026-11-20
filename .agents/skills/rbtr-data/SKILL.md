@@ -31,6 +31,86 @@ to a schema class are banned — the schema is the one source of
 shape. `dict[str, object]` / `dict[str, Any]` as a row
 annotation is the same mistake.
 
+## Write a process over frames as a list of steps
+
+**The rule.** The function that runs a process over polars frames should
+read top to bottom as the list of its steps. Put the logic of each step
+in a small function that returns a `pl.Expr`. Give every frame that leaves
+a function a `dataframely` schema.
+
+What that means in practice:
+
+1. **One function per process, and its body is the steps.** Filter, add
+   columns, join, aggregate, validate. A reader sees the whole process in
+   one place, without opening other functions to learn what happens.
+2. **How a column is computed goes in an expression function.** It returns
+   a `pl.Expr`, its name says what it computes, it has a docstring, and it
+   can be tested on its own.
+3. **No helper that takes a frame and returns the next frame.** Such a
+   helper hides a step behind a name, and the frame it returns has no
+   declared columns, so the reader must open it to learn what comes back.
+4. **A frame crosses a function boundary only when it is a thing in its own
+   right**, such as "the three largest files of each language". It then has
+   a `dataframely` schema, the signature says `dy.DataFrame[ThatSchema]`,
+   and the function ends with `.pipe(ThatSchema.validate, cast=True)`.
+
+An example: the three largest files of each language, with each file's
+share of its language's bytes.
+
+**Wrong.** Each step is a helper that takes a frame and returns an
+anonymous one. `largest_files` names no step, and nothing says what
+columns come back.
+
+```python
+def _with_shares(files: dy.DataFrame[FileRow]) -> pl.DataFrame:
+    return files.with_columns(
+        share=pl.col("size_bytes") / pl.col("size_bytes").sum().over("language")
+    )
+
+
+def _top_three(frame: pl.DataFrame) -> pl.DataFrame:
+    return (
+        frame.sort("size_bytes", descending=True).group_by("language", maintain_order=True).head(3)
+    )
+
+
+def largest_files(files: dy.DataFrame[FileRow]) -> pl.DataFrame:
+    return _top_three(_with_shares(files.filter(pl.col("language") != "")))
+```
+
+**Right.** `largest_files` reads as the steps. The logic of each is a
+named expression, and the result is named by a schema.
+
+```python
+class LargestFileRow(dy.Schema):
+    """A file among the three largest of its language, and its share of that language's bytes."""
+
+    path = dy.String(nullable=False)
+    language = dy.String(nullable=False)
+    share = dy.Float64(nullable=False)
+
+
+def _share_of_language() -> pl.Expr:
+    """A file's bytes as a share of all the bytes of its language."""
+    return pl.col("size_bytes") / pl.col("size_bytes").sum().over("language")
+
+
+def _rank_in_language() -> pl.Expr:
+    """1 for the largest file of its language, 2 for the next, and so on."""
+    return pl.col("size_bytes").rank("ordinal", descending=True).over("language")
+
+
+def largest_files(files: dy.DataFrame[FileRow]) -> dy.DataFrame[LargestFileRow]:
+    """The three largest files of each language, with their share of its bytes."""
+    return (
+        files.filter(pl.col("language") != "")
+        .with_columns(share=_share_of_language(), rank=_rank_in_language())
+        .filter(pl.col("rank") <= 3)
+        .select("path", "language", "share")
+        .pipe(LargestFileRow.validate, cast=True)
+    )
+```
+
 ## Declarative polars aggregations
 
 Never accumulate rows via parallel `dict[str, list]` +

@@ -151,6 +151,10 @@ class QueryExtraction:
     class_scope_types: frozenset[str] = frozenset()
     """Subset of `scope_types` that is class-like — a function directly inside
     one is promoted to a method. Defaults to `scope_types` when unset."""
+    fragments: bool = True
+    """Whether code no capture covers becomes `fragment` chunks. `False` for
+    a grammar whose text another language's chunks already hold: Markdown's
+    inline half, whose text lies in Markdown's sections."""
 
     def __post_init__(self) -> None:
         if not self.class_scope_types:
@@ -209,13 +213,13 @@ class LanguageRegistration:
         Custom chunker without tree-sitter (prose, or a language with no
         grammar)::
 
-            markdown = LanguageRegistration(
-                id="markdown",
-                extensions=frozenset({".md"}),
+            svelte = LanguageRegistration(
+                id="svelte",
+                extensions=frozenset({".svelte"}),
             )
 
-            @markdown.chunker
-            def chunk_markdown(file_path, blob_sha, content, grammar, ranges):
+            @svelte.chunker
+            def chunk_sfc(file_path, blob_sha, content, grammar, ranges):
                 ...
 
         Grammar but no query (parse tree available, no symbol extraction
@@ -289,9 +293,8 @@ class LanguageRegistration:
     and set its language with `(#set! injection.language "<id>")` — to a
     canonical rbtr language id — plus an optional
     `(#set! injection.priority "<n>")` (default 0) to disambiguate overlapping
-    matches. The engine runs it after the primary extraction and delegates
-    each captured range via `extract_query`. `None` means no embedded
-    delegation."""
+    matches. The engine reads each captured range as that language, as
+    another source of the same file. `None` means no embedded delegation."""
     index_files: frozenset[str] = frozenset()
     """Directory entry-point filenames: an import of a *directory* resolves
     to one of these inside it — e.g. `{"__init__.py"}` (Python),

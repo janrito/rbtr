@@ -7,7 +7,7 @@
     "language": "markdown",
     "content": "# API",
     "line_start": 1,
-    "line_end": 23
+    "line_end": 1
   },
   {
     "name": "format-greeting",
@@ -216,7 +216,7 @@
     "kind": "import",
     "file_path": "guides/setup.md",
     "scope": "",
-    "language": "markdown",
+    "language": "markdown_inline",
     "content": "troubleshooting.md",
     "line_start": 6,
     "line_end": 6,
@@ -235,7 +235,7 @@
     "language": "markdown",
     "content": "# Troubleshooting\n\nLinked from `guides/setup.md` as a bare sibling.",
     "line_start": 1,
-    "line_end": 7
+    "line_end": 3
   },
   {
     "name": "A step failed",
@@ -265,7 +265,7 @@
     "language": "markdown",
     "content": "# Greeter\n\nA small library for formatting greetings for named recipients.",
     "line_start": 1,
-    "line_end": 18
+    "line_end": 3
   },
   {
     "name": "Usage",
@@ -275,14 +275,14 @@
     "language": "markdown",
     "content": "## Usage\n\nConfigure it via [the config file](config.md), then call the\n[format helper](api.md#format-greeting).\n\nFor background, see [an external guide](https://example.com), which is\nnot treated as a cross-reference.",
     "line_start": 5,
-    "line_end": 18
+    "line_end": 11
   },
   {
     "name": "config.md",
     "kind": "import",
     "file_path": "markdown.md",
     "scope": "",
-    "language": "markdown",
+    "language": "markdown_inline",
     "content": "config.md",
     "line_start": 7,
     "line_end": 7,
@@ -298,7 +298,7 @@
     "kind": "import",
     "file_path": "markdown.md",
     "scope": "",
-    "language": "markdown",
+    "language": "markdown_inline",
     "content": "api.md#format-greeting",
     "line_start": 8,
     "line_end": 8,
@@ -324,7 +324,7 @@
     "kind": "import",
     "file_path": "markdown.md",
     "scope": "",
-    "language": "markdown",
+    "language": "markdown_inline",
     "content": "locales.md",
     "line_start": 15,
     "line_end": 15,
@@ -340,7 +340,7 @@
     "kind": "import",
     "file_path": "markdown.md",
     "scope": "",
-    "language": "markdown",
+    "language": "markdown_inline",
     "content": "guides/setup.md",
     "line_start": 18,
     "line_end": 18,
@@ -359,7 +359,7 @@
     "language": "markdown",
     "content": "# Release notes\n\nA `.txt` file whose content is Markdown, read as Markdown.",
     "line_start": 1,
-    "line_end": 9
+    "line_end": 3
   },
   {
     "name": "Upgrading",

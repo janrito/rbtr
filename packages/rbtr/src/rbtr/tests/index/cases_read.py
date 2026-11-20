@@ -1,6 +1,6 @@
 """Cases for read-side store behaviours.
 
-Scenarios for `chunks`, `edges`, `blob_is_current`,
+Scenarios for `chunks`, `edges`, `current_blobs`,
 upsert, and multi-repo isolation.
 """
 
@@ -11,10 +11,9 @@ from dataclasses import dataclass, field
 
 from pytest_cases import case
 
-from rbtr.domain.models import ChunkKind, FileSnapshot, SnapshotRef
+from rbtr.domain.models import Chunk, ChunkKind, FileSnapshot, SnapshotRef
 from rbtr.index.index import Index
 from rbtr.index.search import search
-from rbtr.index.staging import TokenisedChunk
 
 from .conftest import make_chunk, make_snap
 
@@ -41,14 +40,17 @@ class EmbedOrderScenario:
 
 @dataclass(frozen=True)
 class BlobCurrentScenario:
-    """Seed data + blob_is_current(serial map) query + expected result."""
+    """Seed data, requested blobs, and their current host-language extractions.
 
-    chunks: list[TokenisedChunk]
+    *stored_serials* are the serials the chunks were stored at, by language.
+    """
+
+    chunks: list[Chunk]
     snapshots: list[FileSnapshot]
-    query_blob: str
-    query_language: str
+    query_blobs: list[str]
     serial_map: dict[str, int]
-    expected: bool
+    expected: set[tuple[str, str]]
+    stored_serials: dict[str, int] = field(default_factory=dict)
 
 
 @case(tags=["chunks"])
@@ -140,129 +142,147 @@ def shared():
     )
 
 
-@case(tags=["blob_is_current"])
-def case_blob_is_current_same_language() -> BlobCurrentScenario:
+@case(tags=["current_blobs"])
+def case_current_blobs_same_language() -> BlobCurrentScenario:
     """Blob exists with matching language."""
     c = make_chunk("fn1")
     return BlobCurrentScenario(
         chunks=[c],
         snapshots=[make_snap("head", "f.py", c.blob_sha)],
-        query_blob=c.blob_sha,
-        query_language="",
+        query_blobs=[c.blob_sha],
         serial_map={"": 1},
-        expected=True,
+        expected={(c.blob_sha, "")},
     )
 
 
-@case(tags=["blob_is_current"])
-def case_blob_is_current_different_language() -> BlobCurrentScenario:
-    """Blob exists but with different language → False."""
+@case(tags=["current_blobs"])
+def case_current_blobs_different_language() -> BlobCurrentScenario:
+    """A stored language absent from the serial map is stale."""
     c = make_chunk("fn1")
     return BlobCurrentScenario(
         chunks=[c],
         snapshots=[make_snap("head", "f.py", c.blob_sha)],
-        query_blob=c.blob_sha,
-        query_language="swift",
+        query_blobs=[c.blob_sha],
         serial_map={"swift": 1},
-        expected=False,
+        expected=set(),
     )
 
 
-@case(tags=["blob_is_current"])
-def case_blob_is_current_same_language_and_serial() -> BlobCurrentScenario:
+@case(tags=["current_blobs"])
+def case_current_blobs_same_language_and_serial() -> BlobCurrentScenario:
     """Blob stored as 'markdown' v1, queried with same → True."""
     c = make_chunk("doc1", kind=ChunkKind.DOC_SECTION, language="markdown")
     return BlobCurrentScenario(
         chunks=[c],
         snapshots=[make_snap("head", "f.py", c.blob_sha, "markdown")],
-        query_blob=c.blob_sha,
-        query_language="markdown",
+        query_blobs=[c.blob_sha],
         serial_map={"markdown": 1},
-        expected=True,
+        expected={(c.blob_sha, "markdown")},
     )
 
 
-@case(tags=["blob_is_current"])
-def case_blob_is_current_different_serial() -> BlobCurrentScenario:
+@case(tags=["current_blobs"])
+def case_current_blobs_different_serial() -> BlobCurrentScenario:
     """Blob stored at serial 1, queried with serial 2 → False."""
     c = make_chunk("doc1", kind=ChunkKind.DOC_SECTION, language="markdown")
     return BlobCurrentScenario(
         chunks=[c],
         snapshots=[make_snap("head", "f.py", c.blob_sha, "markdown")],
-        query_blob=c.blob_sha,
-        query_language="markdown",
+        query_blobs=[c.blob_sha],
         serial_map={"markdown": 2},
-        expected=False,
+        expected=set(),
     )
 
 
-@case(tags=["blob_is_current"])
-def case_blob_is_current_nonexistent() -> BlobCurrentScenario:
+@case(tags=["current_blobs"])
+def case_current_blobs_nonexistent() -> BlobCurrentScenario:
     """Blob doesn't exist at all → False."""
     c = make_chunk("fn1")
     return BlobCurrentScenario(
         chunks=[c],
         snapshots=[make_snap("head", "f.py", c.blob_sha)],
-        query_blob="no_such_blob",
-        query_language="",
+        query_blobs=["no_such_blob"],
         serial_map={"": 1},
-        expected=False,
+        expected=set(),
     )
 
 
-@case(tags=["blob_is_current"])
-def case_blob_is_current_detected_language_changed() -> BlobCurrentScenario:
-    """Plaintext blob, now detected as python (plugin registered) → False.
-
-    The stored chunk is at a current serial, but there is no chunk in the
-    newly detected language, so the file must re-extract.
-    """
+@case(tags=["current_blobs"])
+def case_current_blobs_reports_stored_language() -> BlobCurrentScenario:
+    """A current plaintext extraction reports only its stored host language."""
     c = make_chunk("raw1")  # language "", serial 1
     return BlobCurrentScenario(
         chunks=[c],
         snapshots=[make_snap("head", "mod.py", c.blob_sha)],
-        query_blob=c.blob_sha,
-        query_language="python",
+        query_blobs=[c.blob_sha],
         serial_map={"python": 4, "": 1},
-        expected=False,
+        expected={(c.blob_sha, "")},
     )
 
 
-@case(tags=["blob_is_current"])
-def case_blob_is_current_multilanguage_all_current() -> BlobCurrentScenario:
+@case(tags=["current_blobs"])
+def case_current_blobs_multilanguage_all_current() -> BlobCurrentScenario:
     """SFC blob: host + embedded chunks all at current serials → True."""
-    host = make_chunk("tpl", blob="sfc", language="svelte").model_copy(
-        update={"extraction_serial": 2}
-    )
-    ts = make_chunk("fn", blob="sfc", language="typescript", file_language="svelte").model_copy(
-        update={"extraction_serial": 7}
-    )
+    host = make_chunk("tpl", blob="sfc", language="svelte")
+    ts = make_chunk("fn", blob="sfc", language="typescript", file_language="svelte")
     return BlobCurrentScenario(
         chunks=[host, ts],
         snapshots=[make_snap("head", "C.svelte", "sfc", "svelte")],
-        query_blob="sfc",
-        query_language="svelte",
+        query_blobs=["sfc"],
         serial_map={"svelte": 2, "typescript": 7, "": 1},
-        expected=True,
+        expected={("sfc", "svelte")},
+        stored_serials={"svelte": 2, "typescript": 7},
     )
 
 
-@case(tags=["blob_is_current"])
-def case_blob_is_current_multilanguage_embedded_bump() -> BlobCurrentScenario:
+@case(tags=["current_blobs"])
+def case_current_blobs_multilanguage_embedded_bump() -> BlobCurrentScenario:
     """SFC blob: a delegated chunk stale vs the current embedded serial → False."""
-    host = make_chunk("tpl", blob="sfc", language="svelte").model_copy(
-        update={"extraction_serial": 2}
-    )
-    ts = make_chunk("fn", blob="sfc", language="typescript", file_language="svelte").model_copy(
-        update={"extraction_serial": 7}
-    )
+    host = make_chunk("tpl", blob="sfc", language="svelte")
+    ts = make_chunk("fn", blob="sfc", language="typescript", file_language="svelte")
     return BlobCurrentScenario(
         chunks=[host, ts],
         snapshots=[make_snap("head", "C.svelte", "sfc", "svelte")],
-        query_blob="sfc",
-        query_language="svelte",
+        query_blobs=["sfc"],
         serial_map={"svelte": 2, "typescript": 8, "": 1},
-        expected=False,
+        expected=set(),
+        stored_serials={"svelte": 2, "typescript": 7},
+    )
+
+
+@case(tags=["current_blobs"])
+def case_current_blobs_empty_request() -> BlobCurrentScenario:
+    """An empty request returns nothing even when current chunks are stored."""
+    c = make_chunk("fn1")
+    return BlobCurrentScenario(
+        chunks=[c],
+        snapshots=[make_snap("head", "f.py", c.blob_sha)],
+        query_blobs=[],
+        serial_map={"": 1},
+        expected=set(),
+    )
+
+
+@case(tags=["current_blobs"])
+def case_current_blobs_batch_filters_requested_and_stale() -> BlobCurrentScenario:
+    """Only requested, current host extractions return, even for shared blobs."""
+    python = make_chunk("fn", blob="shared", language="python")
+    host = make_chunk("tpl", blob="shared", language="svelte")
+    embedded = make_chunk("script", blob="shared", language="typescript", file_language="svelte")
+    markdown = make_chunk("doc", blob="doc", language="markdown")
+    unrequested = make_chunk("other", blob="other", language="python")
+    return BlobCurrentScenario(
+        chunks=[python, host, embedded, markdown, unrequested],
+        snapshots=[
+            make_snap("head", "module.py", "shared", "python"),
+            make_snap("head", "Component.svelte", "shared", "svelte"),
+            make_snap("head", "README.md", "doc", "markdown"),
+            make_snap("head", "other.py", "other", "python"),
+        ],
+        query_blobs=["shared", "doc", "shared", "missing"],
+        serial_map={"python": 4, "svelte": 2, "typescript": 8, "markdown": 1},
+        expected={("shared", "python"), ("doc", "markdown")},
+        stored_serials={"python": 4, "svelte": 2, "typescript": 7, "markdown": 1},
     )
 
 

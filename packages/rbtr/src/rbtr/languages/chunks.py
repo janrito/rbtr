@@ -1,21 +1,20 @@
-"""Chunking helpers and fallback for unsupported content.
+"""Chunking helpers: the span arithmetic every chunker shares, and chunks as rows.
 
-Provides the span arithmetic every chunker shares, the host-presence
-sentinel, and the line-based fallback chunker used when no language
-plugin matches.
-
-Actual chunker implementations live in their language plugin
-files under `rbtr/languages/`.
+`chunk_rows` and `chunk_models` convert between `Chunk`s and their rows
+(`rbtr.domain.rules.ChunkRow`). Actual chunker implementations live in
+their language plugin files under `rbtr/languages/`.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from rbtr.config import config
-from rbtr.domain.models import Chunk, RawSlice, Span
-from rbtr.languages.plaintext import PLAINTEXT
+import dataframely as dy
+import polars as pl
+
+from rbtr.domain.models import Chunk, Chunks
+from rbtr.domain.rules import ChunkRow
 
 if TYPE_CHECKING:
     from tree_sitter import Node
@@ -39,70 +38,42 @@ def last_line(node: Node) -> int:
     return end_row + 1
 
 
-def _raw_chunks(file_path: str, blob_sha: str, content: str) -> Iterator[Chunk]:
-    """Split into fixed-size line-based chunks with overlap.
-
-    Chunk size and overlap come from `config.index`. A slice of lines
-    has no name — `line_start`/`line_end` locate it, and readers label
-    it from those and the path they read it at.
-    """
-    chunk_lines = config.chunk_lines
-    overlap = config.chunk_overlap
-    lines = content.split("\n")
-    # A file ending in a newline splits to a final empty string, which is not a
-    # line the chunk occupies. Splitting on "\n" rather than by line keeps `\r`
-    # in the content of a CRLF file, so only the count needs correcting.
-    if lines and lines[-1] == "":
-        lines.pop()
-    start = 0
-
-    while start < len(lines):
-        end = min(start + chunk_lines, len(lines))
-        text = "\n".join(lines[start:end]).strip()
-        if text:
-            yield Chunk(
-                blob_sha=blob_sha,
-                file_path=file_path,
-                role=RawSlice(),
-                content=text,
-                span=Span(start=start + 1, end=end),
-            )
-        start += chunk_lines - overlap
+# A dumped chunk's `role`, every role's fields present: chunks without an
+# import would otherwise infer a struct with no `meta`.
+ROLE = pl.Struct({"kind": pl.String, "name": pl.String, "meta": ChunkRow.metadata.dtype})
 
 
-def chunk_plaintext(file_path: str, blob_sha: str, content: str) -> Iterator[Chunk]:
-    """Chunk plain text or unsupported file types.
+def chunk_rows(chunks: Sequence[Chunk]) -> dy.DataFrame[ChunkRow]:
+    """*chunks* as rows, each role spread over `kind`, `name` and `metadata`."""
+    if not chunks:
+        return ChunkRow.create_empty()
+    return (
+        pl.DataFrame(Chunks.dump_python(list(chunks), mode="json"), schema_overrides={"role": ROLE})
+        .with_columns(
+            pl.col("role").struct.field("kind"),
+            pl.col("role").struct.field("name").fill_null(""),
+            pl.col("role").struct.field("meta").alias("metadata"),
+            pl.col("span").struct.field("start").alias("line_start"),
+            pl.col("span").struct.field("end").alias("line_end"),
+            docs=pl.lit(None, dtype=pl.String),
+        )
+        .pipe(ChunkRow.validate, cast=True)
+    )
 
-    The chunks carry `PLAINTEXT`, which is the language they are in:
-    that is what stops `extract_file` deciding the file produced nothing
-    in its own language and appending a presence chunk to every one.
-    """
-    for chunk in _raw_chunks(file_path, blob_sha, content):
-        yield chunk.model_copy(update={"language": PLAINTEXT})
 
-
-def host_presence_chunk(file_path: str, blob_sha: str, language: str) -> Chunk:
-    """A content-less chunk recording a file's host language for dedup.
-
-    Emitted when extraction produced no chunk in the file's own language:
-    an empty file (an empty `__init__.py`), or a multi-language file whose
-    host contributes no content (a script-only SFC). It carries the host
-    language so the blob-dedup gate records that version and skips the file
-    on later builds instead of re-parsing it every time. Empty content
-    never ranks in search, and it has no name for the same reason a raw
-    chunk has none: nothing about it is a symbol.
-
-    Both language fields are *language*: the chunk stands for the file
-    itself, so the file's language and the chunk's own are the same one.
-    That also makes it complete without `extract_file`, which is how the
-    build's extraction-failure fallback can emit one directly.
-    """
-    return Chunk(
-        blob_sha=blob_sha,
-        file_path=file_path,
-        role=RawSlice(),
-        content="",
-        language=language,
-        file_language=language,
-        span=Span(start=1, end=1),
+def chunk_models(rows: dy.DataFrame[ChunkRow], file_path: str) -> list[Chunk]:
+    """The rows of one file at *file_path* as `Chunk`s, in order."""
+    return Chunks.validate_python(
+        [
+            row | {"file_path": file_path}
+            for row in rows.select(
+                "blob_sha",
+                "file_language",
+                "language",
+                "scope",
+                "content",
+                role=pl.struct("kind", "name", meta="metadata"),
+                span=pl.struct(start="line_start", end="line_end"),
+            ).to_dicts()
+        ]
     )

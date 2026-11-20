@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from types import TracebackType
 
 import dataframely as dy
@@ -14,18 +15,17 @@ from rbtr.domain.models import FileSnapshot, GcCounts, Repo
 from rbtr.index import load_sql
 from rbtr.index.db import build_fts, registered_views
 from rbtr.index.staging import (
+    ChunkStagingRow,
     EmbeddingStagingRow,
-    TokenisedChunk,
-    serial_map_view,
-    staged_chunks,
+    SerialMapRow,
     staged_edges,
     staged_file_snapshots,
 )
 from rbtr.languages.edges import InferredEdgeRow
 
-_BLOB_IS_CURRENT_SQL = load_sql("blob_is_current.sql")
+CURRENT_BLOBS_SQL = load_sql("current_blobs.sql")
 _COUNT_UNCLAIMED_BLOBS_SQL = load_sql("count_unclaimed_blobs.sql")
-_GET_SNAPSHOT_LANGUAGE_SQL = load_sql("get_snapshot_language.sql")
+SNAPSHOT_LANGUAGES_SQL = load_sql("snapshot_languages.sql")
 _DELETE_CHUNKS_FOR_BLOBS_SQL = load_sql("delete_chunks_for_blobs.sql")
 _ADD_WATCHED_REFS_SQL = load_sql("insert_watched_refs.sql")
 _REMOVE_WATCHED_REFS_SQL = load_sql("delete_watched_refs.sql")
@@ -53,15 +53,15 @@ class WriteSession:
 
     ```python
     with index.session(repo) as ws:
-        ws.add_chunk(chunk)                        # buffered, content-addressed
+        ws.add_chunks(staged)                      # buffered, content-addressed
         ws.replace_edges(edges, snapshot_sha=sha)  # immediate, under the repo
     # exit: flush buffer + commit + FTS rebuild; rollback on exception
     ```
 
     Every row a write adds belongs to the session's repo, so no method
     takes one.  Chunks are the project's: its checkouts share them.  The
-    reads the transaction depends on (`blob_is_current`,
-    `get_snapshot_language`) run on the session's cursor, so they see
+    reads the transaction depends on (`current_blobs`,
+    `snapshot_languages`) run on the session's cursor, so they see
     what it has written.
 
     Every method raises `RuntimeError` outside the `with` block.  The
@@ -82,7 +82,8 @@ class WriteSession:
         self._inserted_blobs: set[tuple[str, str]] = set()
         # Chunks are content-addressed (keyed by id, no repo_id); the
         # buffer holds repo-independent content flushed via upsert.
-        self._chunk_buffer: list[TokenisedChunk] = []
+        self._chunk_buffer: list[dy.DataFrame[ChunkStagingRow]] = []
+        self._buffered = 0
 
     def __enter__(self) -> WriteSession:
         self._cursor.begin()
@@ -154,64 +155,39 @@ class WriteSession:
         with registered_views(self._cursor, _stg=frame) as cur:
             cur.execute(sql)
 
-    def blob_is_current(self, blob_sha: str, language: str, serials: dict[str, int]) -> bool:
-        """Check whether *blob_sha* is up to date for host *language*.
+    def current_blobs(
+        self, blob_shas: Sequence[str], serials: dy.DataFrame[SerialMapRow]
+    ) -> set[tuple[str, str]]:
+        """The current `(blob_sha, file_language)` extractions of *blob_shas*.
 
-        This is the blob-dedup check: the build calls it before extracting
-        a file.  If True, the blob's chunks are current and valid — skip.
-        If False, the file needs (re-)extraction.  The check spans the
-        session's project (its chunks are content-addressed and shared by
-        its checkouts), so a blob already parsed by any of them is reused —
-        no re-parse when a linked worktree indexes it.  It runs on the
-        session's cursor, so it sees chunks this transaction deleted.
-
-        *language* is the file's currently detected host language;
-        *serials* maps language id → current extraction serial (the
-        full registry, plus `""` for plaintext).  The blob is up to
-        date iff it has ≥1 chunk in *language* **and** every chunk's
-        `(language, extraction_serial)` matches a row in
-        *serials*.  Either condition failing triggers re-extraction:
-
-        - Detected language changed — a blob indexed as plaintext
-          (`language=""`), then a plugin registered for the
-          extension → no chunk in the new language → re-extract.
-          (Every file leaves a host-language chunk, so this check
-          is reliable.)
-        - A language's extraction serial is bumped → chunks stored at
-          the old serial no longer match → re-extracted.
-        - A multi-language file (SFC) lists every embedded language
-          plus the host, so bumping *any* contributor (the svelte
-          host or the delegated typescript) re-extracts the file;
-          when none change, it is skipped like any other blob.
-
-        When `blob_is_current` returns False and old chunks exist for
-        the blob (language change), the caller must delete old
-        chunks before inserting new ones — the new extraction
-        may produce different chunk IDs that the upsert can't
-        reconcile.
+        Each returned pair has stored chunks and every chunk's language
+        and extraction serial matches *serials*, including embedded
+        languages. Results span the session's project and reflect
+        transaction-local deletions. An absent blob has no result.
         """
+        if not blob_shas:
+            return set()
         self._require_active()
-        with registered_views(self._cursor, _serial_map=serial_map_view(serials)) as cur:
-            rows = cur.sql(
-                _BLOB_IS_CURRENT_SQL, params={"blob_sha": blob_sha, "language": language}
-            ).fetchall()
-        return bool(rows[0][0])
+        with registered_views(self._cursor, _serial_map=serials) as cur:
+            rows = cur.sql(CURRENT_BLOBS_SQL, params={"blob_shas": list(blob_shas)}).fetchall()
+            return {(blob_sha, language) for blob_sha, language in rows}
 
-    def get_snapshot_language(self, file_path: str) -> str:
-        """Return the language *file_path* was detected as in any of the repo's snapshots.
+    def snapshot_languages(self, file_paths: Sequence[str]) -> dict[str, str]:
+        """Each of *file_paths*' language, as one of the repo's snapshots recorded it.
 
-        Returns `''` if the file has never been indexed or was
-        indexed as plaintext.
+        A path no snapshot of the repo holds is absent.
         """
+        if not file_paths:
+            return {}
         self._require_active()
         rows = self._cursor.sql(
-            _GET_SNAPSHOT_LANGUAGE_SQL,
-            params={"repo_id": self._repo.repo_id, "file_path": file_path},
+            SNAPSHOT_LANGUAGES_SQL,
+            params={"repo_id": self._repo.repo_id, "file_paths": list(file_paths)},
         ).fetchall()
-        return str(rows[0][0]) if rows else ""
+        return dict(rows)
 
-    def add_chunk(self, chunk: TokenisedChunk) -> None:
-        """Buffer a content-addressed chunk for insertion.
+    def add_chunks(self, chunks: dy.DataFrame[ChunkStagingRow]) -> None:
+        """Buffer content-addressed chunks for insertion.
 
         Chunks are accumulated and flushed to DuckDB in batches —
         on commit/exit, when the buffer reaches
@@ -223,18 +199,33 @@ class WriteSession:
         its blob in the same transaction, which `_commit` requires.
         """
         self._require_active()
-        self._chunk_buffer.append(chunk)
-        if len(self._chunk_buffer) >= config.insert_batch_size:
+        self._chunk_buffer.append(chunks)
+        self._buffered += chunks.height
+        if self._buffered >= config.insert_batch_size:
             self._flush_chunks()
 
     def _flush_chunks(self) -> None:
         """Write buffered chunks to DuckDB in one batch."""
         if not self._chunk_buffer:
             return
-        self._bulk_insert(_UPSERT_CHUNKS_SQL, staged_chunks(self._chunk_buffer))
+        chunks = pl.concat(self._chunk_buffer)
+        self._bulk_insert(_UPSERT_CHUNKS_SQL, chunks)
         self._chunks_modified = True
-        self._inserted_blobs.update((c.blob_sha, c.file_language) for c in self._chunk_buffer)
+        self._inserted_blobs.update(chunks.select("blob_sha", "file_language").unique().rows())
         self._chunk_buffer.clear()
+        self._buffered = 0
+
+    def replace_chunks(self, chunks: dy.DataFrame[ChunkStagingRow]) -> None:
+        """Buffer *chunks* in place of what is stored for their blobs, as their file languages.
+
+        A blob extracted again may give chunks with other ids than before
+        (its language may have changed), so the chunks stored for each
+        blob and file language in *chunks* are deleted first.
+        """
+        blobs = chunks.group_by("file_language").agg(pl.col("blob_sha").unique())
+        for file_language, blob_shas in blobs.iter_rows():
+            self.delete_chunks_for_blobs(set(blob_shas), file_language)
+        self.add_chunks(chunks)
 
     def delete_chunks_for_blobs(self, blob_shas: set[str], file_language: str) -> None:
         """Delete the given blobs' chunks extracted as *file_language*.

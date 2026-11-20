@@ -2,7 +2,7 @@
 
 The symbol cases (`cases_extraction.py`) drive the shared heading-hierarchy
 check; the functions below pin Markdown's chunker behaviour (section content,
-headingless fallback), fenced-code injection/delegation, and link extraction.
+headingless text as fragments), fenced-code injection/delegation, and link extraction.
 """
 
 from __future__ import annotations
@@ -41,15 +41,16 @@ Child body.
 
 
 def test_md_headingless_paragraphs() -> None:
-    """Markdown without headings falls back to plaintext chunking."""
+    """Markdown without headings is held by fragments of its text."""
     src = """\
 First paragraph.
 
 Second paragraph.
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "markdown")
-    assert len(chunks) >= 1
-    assert all(c.kind == ChunkKind.RAW_CHUNK for c in chunks)
+    assert [(c.kind, c.content) for c in chunks] == [
+        (ChunkKind.FRAGMENT, "First paragraph.\n\nSecond paragraph.")
+    ]
 
 
 def test_md_chunker_target_extracted() -> None:

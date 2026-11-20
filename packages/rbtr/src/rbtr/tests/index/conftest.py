@@ -33,12 +33,12 @@ from rbtr.domain.models import (
     SnapshotRef,
     Span,
 )
-from rbtr.domain.tokenise import tokenise_code
 from rbtr.git import normalise_repo_path
 from rbtr.index.build import build_index
 from rbtr.index.index import Index
 from rbtr.index.refs import latest_ref
-from rbtr.index.staging import TokenisedChunk
+from rbtr.index.staging import staged_chunks
+from rbtr.languages.chunks import chunk_rows
 from rbtr.languages.edges import InferredEdgeRow
 
 from ..conftest import make_commit
@@ -59,8 +59,8 @@ def make_chunk(
     scope: str = "",
     language: str = "",
     file_language: str | None = None,
-) -> TokenisedChunk:
-    """Build a minimal `TokenisedChunk` with auto-tokenised fields.
+) -> Chunk:
+    """Build a minimal `Chunk` with auto-tokenised fields.
 
     *handle* is a short label for the chunk within a test: it seeds the
     default `name` and `blob_sha`, which is what keeps two fixture chunks
@@ -79,15 +79,13 @@ def make_chunk(
     """
     name = name or handle
     content = content or f"def {name}(): pass"
-    return TokenisedChunk.model_validate(
+    return Chunk.model_validate(
         {
             "blob_sha": blob or f"blob_{handle}",
             "file_path": path,
             "role": {"kind": kind, "name": name, "meta": {}},
             "scope": scope,
             "content": content,
-            "content_tokens": tokenise_code(content),
-            "name_tokens": tokenise_code(name),
             "span": {"start": 1, "end": 1},
             "language": language,
             "file_language": language if file_language is None else file_language,
@@ -104,7 +102,7 @@ def make_snap(sha: str, path: str, blob: str, language: str = "") -> FileSnapsho
     return FileSnapshot(snapshot_sha=sha, file_path=path, blob_sha=blob, detected_language=language)
 
 
-def seed_index(index: Index, chunks: list[TokenisedChunk], ref: SnapshotRef) -> None:
+def seed_index(index: Index, chunks: list[Chunk], ref: SnapshotRef) -> None:
     """Insert chunks, and snapshots referencing their blobs, under *ref*.
 
     *ref* is marked indexed, so the seeded snapshot is one a read can
@@ -118,8 +116,7 @@ def seed_index(index: Index, chunks: list[TokenisedChunk], ref: SnapshotRef) -> 
     models content shared across worktrees or clones.
     """
     with index.session(ref.repo) as ws:
-        for c in chunks:
-            ws.add_chunk(c)
+        ws.add_chunks(staged_chunks(chunk_rows(chunks), {}))
         ws.replace_snapshots(
             [
                 FileSnapshot(
@@ -436,13 +433,11 @@ class AppConfig:
     max_retries: int = 3
     timeout: float = 30.0
 """
-    return TokenisedChunk(
+    return Chunk(
         blob_sha="blob_config",
         file_path="src/config.py",
         role=Definition(kind=ChunkKind.CLASS, name=name),
         content=content,
-        content_tokens=tokenise_code(content),
-        name_tokens=tokenise_code(name),
         span=Span(start=1, end=5),
     )
 
@@ -456,13 +451,11 @@ def load_config(path: str) -> AppConfig:
         data = json.load(f)
     return AppConfig(**data)
 """
-    return TokenisedChunk(
+    return Chunk(
         blob_sha="blob_config",
         file_path="src/config.py",
         role=Definition(kind=ChunkKind.FUNCTION, name=name),
         content=content,
-        content_tokens=tokenise_code(content),
-        name_tokens=tokenise_code(name),
         span=Span(start=10, end=14),
     )
 
@@ -471,13 +464,11 @@ def load_config(path: str) -> AppConfig:
 def ranking_import_config() -> Chunk:
     name = "from config import AppConfig"
     content = "from config import AppConfig, load_config"
-    return TokenisedChunk(
+    return Chunk(
         blob_sha="blob_server",
         file_path="src/server.py",
         role=Import(name=name, meta=ImportMeta()),
         content=content,
-        content_tokens=tokenise_code(content),
-        name_tokens=tokenise_code(name),
         span=Span(start=1, end=1),
     )
 
@@ -490,13 +481,11 @@ def start_server(config: AppConfig) -> None:
     app = create_app(config)
     app.run(host="0.0.0.0", port=config.port)
 """
-    return TokenisedChunk(
+    return Chunk(
         blob_sha="blob_server",
         file_path="src/server.py",
         role=Definition(kind=ChunkKind.FUNCTION, name=name),
         content=content,
-        content_tokens=tokenise_code(content),
-        name_tokens=tokenise_code(name),
         span=Span(start=5, end=8),
     )
 
@@ -513,13 +502,11 @@ def test_load_config():
     assert config.timeout == 30.0
     config = load_config("empty.json")
 """
-    return TokenisedChunk(
+    return Chunk(
         blob_sha="blob_test_config",
         file_path="tests/test_config.py",
         role=Definition(kind=ChunkKind.FUNCTION, name=name),
         content=content,
-        content_tokens=tokenise_code(content),
-        name_tokens=tokenise_code(name),
         span=Span(start=1, end=7),
     )
 
@@ -533,13 +520,11 @@ def ranking_doc_section() -> Chunk:
 Use `load_config` to load an `AppConfig` from a JSON file.
 Set `database_url` and `max_retries` as needed.
 """
-    return TokenisedChunk(
+    return Chunk(
         blob_sha="blob_docs",
         file_path="docs/setup.md",
         role=Section(kind=ChunkKind.DOC_SECTION, name=name),
         content=content,
-        content_tokens=tokenise_code(content),
-        name_tokens=tokenise_code(name),
         span=Span(start=1, end=5),
     )
 
@@ -629,9 +614,7 @@ def ranking_index(
     index = Index(writable=True)
     repo = index.register("/repo")
     with index.session(repo) as ws:
-        for c in ranking_chunks:
-            tc = c if isinstance(c, TokenisedChunk) else TokenisedChunk(**c.model_dump())
-            ws.add_chunk(tc)
+        ws.add_chunks(staged_chunks(chunk_rows(ranking_chunks), {}))
         ws.replace_snapshots(
             [
                 FileSnapshot(
@@ -655,8 +638,8 @@ def ranking_index(
 
 
 @pytest.fixture
-def math_func() -> TokenisedChunk:
-    return TokenisedChunk(
+def math_func() -> Chunk:
+    return Chunk(
         blob_sha="blob_math",
         file_path="src/math_utils.py",
         role=Definition(kind=ChunkKind.FUNCTION, name="calculate_standard_deviation"),
@@ -671,8 +654,8 @@ def calculate_standard_deviation(values: list[float]) -> float:
 
 
 @pytest.fixture
-def http_func() -> TokenisedChunk:
-    return TokenisedChunk(
+def http_func() -> Chunk:
+    return Chunk(
         blob_sha="blob_http",
         file_path="src/api/client.py",
         role=Definition(kind=ChunkKind.FUNCTION, name="fetch_json_from_endpoint"),
@@ -688,8 +671,8 @@ async def fetch_json_from_endpoint(url: str, headers: dict) -> dict:
 
 
 @pytest.fixture
-def string_func() -> TokenisedChunk:
-    return TokenisedChunk(
+def string_func() -> Chunk:
+    return Chunk(
         blob_sha="blob_string",
         file_path="src/text/normalize.py",
         role=Definition(kind=ChunkKind.FUNCTION, name="normalize_whitespace"),

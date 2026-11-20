@@ -1,10 +1,10 @@
-"""`docstring`: the documentation a chunk's text carries, as written."""
+"""`docstrings`: the documentation each chunk's text carries, as written."""
 
 from __future__ import annotations
 
 import pytest
 
-from rbtr.languages.extract import docstring
+from rbtr.languages.extract import docstrings
 
 PYTHON = '''\
 def greet(name):
@@ -31,4 +31,4 @@ def test_docstring_is_the_first_documented_symbols_documentation(
     content: str, language: str, expected: str | None
 ) -> None:
     """A symbol's docstring or the doc comment above it, as written; none when there is none."""
-    assert docstring(content, language) == expected
+    assert docstrings([(content, language)]) == [expected]

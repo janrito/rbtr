@@ -7,12 +7,12 @@ rbtr itself (`pip install rbtr`).
 
 ## What it ingests
 
-A custom chunker (not a tree-sitter query): it splits a document by its
-**heading hierarchy** — each section is a chunk, scoped by its ancestor
-headings. Links and fenced code blocks are extracted on top.
+Two tree-sitter query plugins, one for each half of the grammar:
+`markdown` reads the blocks, `markdown_inline` the text inside them.
 
-- **Sections** — headings → doc sections; `scope` is the `::` chain of
-  enclosing headings. A headingless document falls back to plaintext chunks.
+- **Sections** — headings → doc sections holding their text up to their
+  first subsection; `scope` is the `::` chain of enclosing headings. Text
+  under no heading becomes fragments.
 - **Links** — local `[text](path.md)` and `[text](path.md#fragment)` →
   imports (the fragment becomes `names`). External and fragment-only links
   are skipped.

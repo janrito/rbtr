@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -21,7 +20,7 @@ from pydantic import (
     model_validator,
 )
 
-from rbtr.domain.identity import compose_scope
+from rbtr.domain.identity import chunk_id, compose_scope
 
 
 class ChunkKind(StrEnum):
@@ -290,27 +289,10 @@ class Chunk(BaseModel, frozen=True):
     @computed_field  # type: ignore[prop-decorator]  # pydantic needs the property last
     @property
     def id(self) -> str:
-        """A hash of what this chunk is: content, language, role, span.
-
-        Byte-identical files share every chunk, so a copy of an indexed
-        file resolves to the row already there. Location is the province
-        of `file_snapshots`, which holds every path a chunk is reachable
-        at.
-
-        `file_language` — the language the file was read as — is part of
-        it because the same bytes read as two languages are two
-        extractions: the empty blob is one chunk under python and
-        another under html, and the dedup gate asks after each
-        separately. `kind` and `line_end` are part of it because a chunk
-        is a span with a role, and an rst `doc_section` and a `:mod:`
-        reference can share a name and a starting line while spanning
-        different lines and meaning different things.
-        """
-        raw = (
-            f"{self.blob_sha}:{self.file_language}:{self.kind}:"
-            f"{self.name}:{self.line_start}:{self.line_end}"
+        """This chunk's `chunk_id`: location is the province of `file_snapshots`."""
+        return chunk_id(
+            self.blob_sha, self.file_language, self.kind, self.name, self.line_start, self.line_end
         )
-        return hashlib.blake2b(raw.encode(), digest_size=8).hexdigest()
 
 
 class ScoredChunk(BaseModel, frozen=True):

@@ -40,12 +40,12 @@ To create an HTML version of the docs:
 * Install Sphinx (using ``python -m pip install Sphinx`` or some other method).
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
-    spans = [(c.line_start, c.line_end) for c in chunks if c.kind == ChunkKind.DOC_SECTION]
+    spans = [(c.line_start, c.line_end) for c in chunks if c.kind == ChunkKind.FRAGMENT]
     assert spans == [(1, 2), (4, 4), (6, 6), (8, 8)]
 
 
 def test_rst_headingless_file_yields_every_top_level_block() -> None:
-    """Without headings, each top-level block is its own section.
+    """Without headings, each top-level block is a fragment of its own.
 
     A bullet list, a link target and a directive are content someone
     searches for, so none is dropped for want of a heading above it.
@@ -64,13 +64,29 @@ An opening paragraph.
 .. _ReST: https://docutils.sourceforge.io/rst.html
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
-    sections = [c.content.split("\n")[0] for c in chunks if c.kind == ChunkKind.DOC_SECTION]
-    assert sections == [
+    blocks = [c.content.split("\n")[0] for c in chunks if c.kind == ChunkKind.FRAGMENT]
+    assert blocks == [
         "An opening paragraph.",
         "* a bullet item",
         "1. an enumerated item",
         ".. note::",
         ".. _ReST: https://docutils.sourceforge.io/rst.html",
+    ]
+
+
+def test_rst_reference_fragment_names_an_anchor() -> None:
+    """RST `text <path#id>`_ names an anchor in that file; `text <#id>`_ one in this file."""
+    src = """\
+Title
+=====
+
+See `the setup <guide.rst#setup>`_ and `the title <#title>`_.
+"""
+    chunks = extract_file(FileEntry("docs/index.rst", "sha1", src.encode()), "rst")
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
+    assert [(i.meta.module, i.meta.names) for i in imports] == [
+        ("guide.rst", "setup"),
+        ("index.rst", "title"),
     ]
 
 

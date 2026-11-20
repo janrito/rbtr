@@ -9,7 +9,7 @@ Each subcommand has three layers.
   the report, its charts and `metrics.json`. Nothing else does. The
   index is read only through `Index`'s read methods and their read
   models (`chunks`, `edges`, `chunk_counts_by_snapshot`, …) and
-  rbtr's public functions (`rbtr.languages.extract.docstring`); an
+  rbtr's public functions (`rbtr.languages.extract.docstrings`); an
   import-linter contract forbids rbtr's storage and extraction-engine
   modules.
 - **Statistics.** Pure functions from typed frames to one typed frame

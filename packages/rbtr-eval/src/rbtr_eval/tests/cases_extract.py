@@ -3,7 +3,7 @@
 Each case returns `(content, language, name, expected_provenances)`
 where `expected_provenances` is the set of provenance values the
 symbol should produce.  Docstring detection is
-`rbtr.languages.extract.docstring` — tested through the
+`rbtr.languages.extract.docstrings` — tested through the
 observable output (presence or absence of the `docstring`
 provenance).
 """

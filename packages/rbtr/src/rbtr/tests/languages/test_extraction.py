@@ -12,12 +12,11 @@ from __future__ import annotations
 import pytest
 
 from rbtr.config import config
-from rbtr.domain.models import ChunkKind, Fragment
+from rbtr.domain.models import ChunkKind, Fragment, Import
 from rbtr.git import FileEntry
-from rbtr.languages.extract import extract_file
+from rbtr.languages.extract import extract_file, extract_symbols
 from rbtr.languages.manager import get_manager
 from rbtr.languages.registration import LanguageRegistration, QueryExtraction
-from rbtr.languages.treesitter import extract_symbols
 
 
 @pytest.mark.parametrize("lang", sorted(get_manager().all_language_ids()))
@@ -62,8 +61,194 @@ def test_scope_extractor_owns_scope_address() -> None:
     assert chunks[0].scope == "a::b"
 
 
+def test_an_enclosing_scope_is_named_by_its_own_capture() -> None:
+    """A scope node with no `name` field takes the name its capture gave it.
+
+    A Markdown `section` has no `name` field; its heading names it.
+    """
+    grammar = get_manager().grammar("markdown")
+    assert grammar is not None
+    query = "(section (atx_heading (inline) @_section_name)) @doc_section\n"
+    reg = LanguageRegistration(
+        id="faketest",
+        extraction=QueryExtraction(query=query, scope_types=frozenset({"section"})),
+    )
+    src = b"# Title\n\n## Install\n\n### Pip\n\npip.\n\n## Use\n\nCall it.\n"
+    chunks = list(extract_symbols(reg, "doc.md", "sha1", src, grammar))
+    assert [(c.role.name, c.scope) for c in chunks if c.role.kind == ChunkKind.DOC_SECTION] == [
+        ("Title", ""),
+        ("Install", "Title"),
+        ("Pip", "Title::Install"),
+        ("Use", "Title"),
+    ]
+
+
+def test_a_captured_reference_names_its_fragment() -> None:
+    """`path#fragment` names `fragment` in `path`; a fragment alone names it in the file itself."""
+    grammar = get_manager().grammar("python")
+    assert grammar is not None
+    query = """\
+(call
+  function: (identifier) @_f
+  arguments: (argument_list (string (string_content) @_import_module))
+  (#eq? @_f "load")) @import
+"""
+    reg = LanguageRegistration(id="faketest", extraction=QueryExtraction(query=query))
+    src = b'load("page.html#intro")\nload("#usage")\nload("plain.html")\n'
+    chunks = list(extract_symbols(reg, "docs/guide.html", "sha1", src, grammar))
+    assert [
+        (c.role.meta.module, c.role.meta.names) for c in chunks if isinstance(c.role, Import)
+    ] == [("page.html", "intro"), ("guide.html", "usage"), ("plain.html", "")]
+
+
+def test_a_section_ends_where_its_first_subsection_begins() -> None:
+    """A captured section's chunk holds its own text; each subsection is a chunk of its own."""
+    grammar = get_manager().grammar("markdown")
+    assert grammar is not None
+    query = "(section (atx_heading (inline) @_section_name)) @doc_section\n"
+    reg = LanguageRegistration(
+        id="faketest",
+        extraction=QueryExtraction(query=query, scope_types=frozenset({"section"})),
+    )
+    src = b"# Title\n\nIntro.\n\n## Install\n\nRun it.\n"
+    chunks = list(extract_symbols(reg, "doc.md", "sha1", src, grammar))
+    assert [(c.role.name, c.content, c.span.start, c.span.end) for c in chunks] == [
+        ("Title", "# Title\n\nIntro.", 1, 3),
+        ("Install", "## Install\n\nRun it.", 5, 7),
+    ]
+
+
+def test_a_long_left_over_node_is_split_into_its_children(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A node no capture covers, longer than `chunk_lines`, becomes fragments of its children."""
+    monkeypatch.setattr(config, "chunk_lines", 4)
+    grammar = get_manager().grammar("markdown")
+    assert grammar is not None
+    query = "(section (atx_heading (inline) @_section_name)) @doc_section\n"
+    reg = LanguageRegistration(id="faketest", extraction=QueryExtraction(query=query))
+    src = b"One.\n\nTwo.\n\nThree.\n\nFour.\n"
+    chunks = list(extract_symbols(reg, "doc.md", "sha1", src, grammar))
+    assert [(c.content, c.span.start) for c in chunks if isinstance(c.role, Fragment)] == [
+        ("One.", 1),
+        ("Two.", 3),
+        ("Three.", 5),
+        ("Four.", 7),
+    ]
+
+
+def test_strip_directive_strips_a_captured_name() -> None:
+    """`#strip!` removes what its regex matches from the name a capture gives."""
+    grammar = get_manager().grammar("python")
+    assert grammar is not None
+    query = """\
+((function_definition name: (identifier) @_fn_name) @function
+  (#strip! @_fn_name "^_+"))
+"""
+    reg = LanguageRegistration(id="faketest", extraction=QueryExtraction(query=query))
+    chunks = list(extract_symbols(reg, "a.py", "sha1", b"def __hidden():\n    pass\n", grammar))
+    assert [c.role.name for c in chunks if c.role.kind == ChunkKind.FUNCTION] == ["hidden"]
+
+
+def test_strip_directive_shapes_an_import() -> None:
+    """`#strip!` on `@_import_module` and `@_import_names` shapes the import's module and names."""
+    grammar = get_manager().grammar("python")
+    assert grammar is not None
+    query = """\
+((call
+  function: (identifier) @_f
+  arguments: (argument_list
+    (string (string_content) @_import_module)
+    (string (string_content) @_import_names))) @import
+  (#eq? @_f "ref")
+  (#strip! @_import_module "^pkg:")
+  (#strip! @_import_names "^~"))
+"""
+    reg = LanguageRegistration(id="faketest", extraction=QueryExtraction(query=query))
+    src = b'ref("pkg:guide", "~intro")\n'
+    [meta] = [
+        c.role.meta
+        for c in extract_symbols(reg, "a.py", "sha1", src, grammar)
+        if isinstance(c.role, Import)
+    ]
+    assert (meta.module, meta.names) == ("guide", "intro")
+
+
+def test_a_quantified_import_capture_names_one_module_per_line() -> None:
+    """Nodes of a quantified `@_import_module` make one import per line they sit on.
+
+    For a grammar that gives a list's entries no node of their own; each
+    line's import is named and spanned by that line, its `#strip!` applied.
+    """
+    grammar = get_manager().grammar("python")
+    assert grammar is not None
+    query = """\
+((list ((string (string_content) @_import_module) ","?)+) @import
+  (#strip! @_import_module "^x:"))
+"""
+    reg = LanguageRegistration(id="faketest", extraction=QueryExtraction(query=query))
+    src = b'LINKS = [\n    "x:topics/intro",\n    "x:api/index",\n]\n'
+    imports = [
+        (c.role, c.span)
+        for c in extract_symbols(reg, "a.py", "sha1", src, grammar)
+        if isinstance(c.role, Import)
+    ]
+    assert [(role.name, role.meta.module, span.start, span.end) for role, span in imports] == [
+        ("x:topics/intro", "topics/intro", 2, 2),
+        ("x:api/index", "api/index", 3, 3),
+    ]
+
+
+def test_flat_sections_are_levelled_by_their_level_captures() -> None:
+    """Sections a grammar leaves flat nest by `@_level`, ranked by first appearance.
+
+    Each holds its text up to the next such section, under the nearest
+    earlier one of a higher level. An overlined `=` is a style of its own.
+    """
+    grammar = get_manager().grammar("rst")
+    assert grammar is not None
+    query = """\
+((section "adornment"? @_level (title) @_section_name "adornment" @_level
+  (#strip! @_level "(?<=^.).*")) @doc_section)
+"""
+    reg = LanguageRegistration(id="faketest", extraction=QueryExtraction(query=query))
+    src = b"""\
+=====
+Guide
+=====
+
+Intro text.
+
+Install
+=======
+
+Run it.
+
+Pip
+---
+
+pip.
+
+Use
+===
+
+Call it.
+"""
+    sections = [
+        (c.role.name, c.scope, c.span.start, c.span.end)
+        for c in extract_symbols(reg, "doc.rst", "sha1", src, grammar)
+        if c.role.kind == ChunkKind.DOC_SECTION
+    ]
+    assert sections == [
+        ("Guide", "", 1, 5),
+        ("Install", "Guide", 7, 10),
+        ("Pip", "Guide::Install", 12, 15),
+        ("Use", "Guide", 17, 20),
+    ]
+
+
 def test_unknown_capture_name_ignored() -> None:
-    """Captures not in _CAPTURE_KINDS are silently skipped."""
+    """Captures not in CAPTURE_KINDS are silently skipped."""
     grammar = get_manager().grammar("python")
     assert grammar is not None
     query_unknown = """\

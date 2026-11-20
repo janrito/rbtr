@@ -140,7 +140,7 @@ class LanguageManager:
         `None` if:
 
         - No registration exists for *language_id*.
-        - The registration has no `grammar_module`.
+        - The registration has neither `grammar_module` nor `grammar_factory`.
         - The grammar package is not installed.
 
         Results are cached — repeated calls return the same object.
@@ -148,7 +148,7 @@ class LanguageManager:
         Examples:
 
             `grammar("python")` → `Language` (if installed)
-            `grammar("markdown")` → `None` (no grammar)
+            `grammar("plaintext")` → `None` (no grammar)
         """
         if language_id in self._grammar_cache:
             return self._grammar_cache[language_id]
@@ -177,13 +177,12 @@ class LanguageManager:
 
         Returns `True` only when the registration specifies a
         `grammar_module` but loading it fails.  Languages that
-        intentionally have no grammar (e.g. Markdown with a custom
-        chunker) return `False`.
+        intentionally have no grammar, such as plaintext, return `False`.
 
         Examples:
 
             `missing_grammar("python")` → `False` (installed)
-            `missing_grammar("markdown")` → `False` (custom chunker, no grammar needed)
+            `missing_grammar("plaintext")` → `False` (no grammar needed)
         """
         reg = self._registrations.get(language_id)
         if reg is None or reg.grammar_module is None:
