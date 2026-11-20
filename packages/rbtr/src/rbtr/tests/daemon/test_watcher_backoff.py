@@ -23,18 +23,21 @@ from .conftest import serving
 
 
 @pytest.fixture
-def service(empty_index: Index) -> Indexer:
+def service(empty_index: Index, indexer_loop: asyncio.AbstractEventLoop) -> Indexer:
     async def output(_event: IndexerOutput) -> None:
         pass
 
-    return Indexer(
-        empty_index,
-        embedder=None,
-        gpu_lock=asyncio.Lock(),
-        write_sem=asyncio.Semaphore(1),
-        stop=threading.Event(),
-        on_output=output,
-    )
+    async def build() -> Indexer:
+        return Indexer(
+            empty_index,
+            embedder=None,
+            gpu_lock=asyncio.Lock(),
+            write_sem=asyncio.Semaphore(1),
+            stop=threading.Event(),
+            on_output=output,
+        )
+
+    return asyncio.run_coroutine_threadsafe(build(), indexer_loop).result(timeout=10)
 
 
 def test_idle_interval_when_no_job_is_active(service: Indexer) -> None:

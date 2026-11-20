@@ -332,12 +332,30 @@ def indexer_outputs() -> list[IndexerOutput]:
 
 
 @pytest.fixture
+def indexer_loop() -> Generator[asyncio.AbstractEventLoop]:
+    """An event loop running on a thread of its own, to own a test's `Indexer`.
+
+    A test runs the indexer's coroutines on it with
+    `asyncio.run_coroutine_threadsafe`.
+    """
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever)
+    thread.start()
+    yield loop
+    loop.call_soon_threadsafe(loop.stop)
+    thread.join(timeout=10)
+    assert not thread.is_alive(), "indexer loop did not stop"
+    loop.close()
+
+
+@pytest.fixture
 def indexer(
     index_for_indexer: Index,
     indexer_outputs: list[IndexerOutput],
+    indexer_loop: asyncio.AbstractEventLoop,
     stub_embedding_model: None,
 ) -> Generator[Indexer]:
-    """A standalone service over the caller's dataset, stopping after one embed run."""
+    """A standalone service over the caller's dataset, on `indexer_loop`, stopping after one embed run."""
     stop = threading.Event()
     gpu_lock = asyncio.Lock()
     embedder = Embedder(gpu_lock=gpu_lock, abort=stop)
@@ -347,14 +365,17 @@ def indexer(
         if isinstance(event, EmbeddingEnded):
             service.request_shutdown()
 
-    service = Indexer(
-        index_for_indexer,
-        embedder=embedder,
-        gpu_lock=gpu_lock,
-        write_sem=asyncio.Semaphore(1),
-        stop=stop,
-        on_output=output,
-    )
+    async def build() -> Indexer:
+        return Indexer(
+            index_for_indexer,
+            embedder=embedder,
+            gpu_lock=gpu_lock,
+            write_sem=asyncio.Semaphore(1),
+            stop=stop,
+            on_output=output,
+        )
+
+    service = asyncio.run_coroutine_threadsafe(build(), indexer_loop).result(timeout=10)
     try:
         yield service
     finally:

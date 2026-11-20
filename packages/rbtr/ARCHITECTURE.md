@@ -1842,11 +1842,9 @@ processes. A losing start can encounter the lock before the winner has
 published discovery. Clients therefore allow the winner time to become
 ready instead of treating that lock failure as immediate startup failure.
 
-Construction performs synchronous writes to seed default HEAD watches.
-It is an exclusive startup operation: the caller constructs before sharing
-the writable Index, or holds its writer semaphore during construction,
-off a UI loop. This keeps initial watch intent established before serving
-without introducing asynchronous component initialisation.
+The indexer belongs to the loop it reports through: its constructor takes
+the running loop, so the daemon creates it, and the RPC that uses it, in
+`serve`. Its constructor seeds a HEAD watch for every registered repo.
 
 Readiness has a narrower meaning than a fully prepared index. The runtime
 checks required language plugins, binds its sockets and publishes process
