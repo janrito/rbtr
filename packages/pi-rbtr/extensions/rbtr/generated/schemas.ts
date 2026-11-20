@@ -67,7 +67,7 @@ export const PROTOCOL_DEFS = {
       repo_path: { type: "string" },
       base: { type: "string" },
       head: { type: "string" },
-      file_paths: { anyOf: [{ items: { type: "string" }, type: "array" }, { type: "null" }], default: null },
+      file_paths: { $ref: "#/$defs/RepoRelativePaths" },
     },
     required: ["repo_path", "base", "head", "kind"],
     title: "ChangedSymbolsRequest",
@@ -246,7 +246,7 @@ export const PROTOCOL_DEFS = {
       repo_path: { type: "string" },
       symbol: { type: "string" },
       ref: { anyOf: [{ type: "string" }, { type: "null" }], default: null },
-      file_paths: { anyOf: [{ items: { type: "string" }, type: "array" }, { type: "null" }], default: null },
+      file_paths: { $ref: "#/$defs/RepoRelativePaths" },
     },
     required: ["repo_path", "symbol", "kind"],
     title: "FindRefsRequest",
@@ -449,7 +449,7 @@ export const PROTOCOL_DEFS = {
     properties: {
       kind: { const: "list_symbols", default: "list_symbols", type: "string" },
       repo_path: { type: "string" },
-      file_path: { type: "string" },
+      file_path: { $ref: "#/$defs/RepoRelativePath" },
       ref: { anyOf: [{ type: "string" }, { type: "null" }], default: null },
       kinds: { anyOf: [{ $ref: "#/$defs/KindFilter" }, { type: "null" }], default: null },
     },
@@ -486,6 +486,7 @@ export const PROTOCOL_DEFS = {
     type: "object",
     required: ["kind"],
   },
+  NonEmptyRefList: { items: { $ref: "#/$defs/Ref" }, minItems: 1, type: "array" },
   Notification: {
     discriminator: {
       mapping: {
@@ -516,6 +517,7 @@ export const PROTOCOL_DEFS = {
     type: "object",
     required: ["kind"],
   },
+  OptStrList: { anyOf: [{ items: { type: "string" }, type: "array" }, { type: "null" }] },
   PluginInfo: {
     additionalProperties: false,
     description:
@@ -567,7 +569,7 @@ export const PROTOCOL_DEFS = {
       repo_path: { type: "string" },
       symbol: { type: "string" },
       ref: { anyOf: [{ type: "string" }, { type: "null" }], default: null },
-      file_paths: { anyOf: [{ items: { type: "string" }, type: "array" }, { type: "null" }], default: null },
+      file_paths: { $ref: "#/$defs/RepoRelativePaths" },
     },
     required: ["repo_path", "symbol", "kind"],
     title: "ReadSymbolRequest",
@@ -602,6 +604,8 @@ export const PROTOCOL_DEFS = {
     title: "ReadyNotification",
     type: "object",
   },
+  Ref: { pattern: "^\\S+$", type: "string" },
+  RefList: { items: { $ref: "#/$defs/Ref" }, type: "array" },
   RefOut: {
     additionalProperties: false,
     description:
@@ -636,6 +640,8 @@ export const PROTOCOL_DEFS = {
     title: "ReplacedIndex",
     type: "object",
   },
+  RepoRelativePath: { type: "string" },
+  RepoRelativePaths: { anyOf: [{ items: { type: "string" }, type: "array" }, { type: "null" }] },
   Request: {
     discriminator: {
       mapping: {
@@ -735,8 +741,8 @@ export const PROTOCOL_DEFS = {
       weights: { anyOf: [{ $ref: "#/$defs/WeightTriple" }, { type: "null" }], default: null },
       reranker_pool: { anyOf: [{ type: "integer" }, { type: "null" }], default: null },
       reranker_blend_weight: { anyOf: [{ type: "number" }, { type: "null" }], default: null },
-      keywords: { anyOf: [{ items: { type: "string" }, type: "array" }, { type: "null" }], default: null },
-      variants: { anyOf: [{ items: { type: "string" }, type: "array" }, { type: "null" }], default: null },
+      keywords: { $ref: "#/$defs/OptStrList" },
+      variants: { $ref: "#/$defs/OptStrList" },
       explain: { default: false, type: "boolean" },
       preview_lines: {
         anyOf: [{ minimum: 1, type: "integer" }, { type: "null" }],
@@ -788,8 +794,8 @@ export const PROTOCOL_DEFS = {
       weights: { anyOf: [{ $ref: "#/$defs/WeightTriple" }, { type: "null" }], default: null },
       reranker_pool: { anyOf: [{ type: "integer" }, { type: "null" }], default: null },
       reranker_blend_weight: { anyOf: [{ type: "number" }, { type: "null" }], default: null },
-      keywords: { anyOf: [{ items: { type: "string" }, type: "array" }, { type: "null" }], default: null },
-      variants: { anyOf: [{ items: { type: "string" }, type: "array" }, { type: "null" }], default: null },
+      keywords: { $ref: "#/$defs/OptStrList" },
+      variants: { $ref: "#/$defs/OptStrList" },
       explain: { default: false, type: "boolean" },
       preview_lines: {
         anyOf: [{ minimum: 1, type: "integer" }, { type: "null" }],
@@ -939,7 +945,7 @@ export const PROTOCOL_DEFS = {
     properties: {
       kind: { const: "unwatch", default: "unwatch", type: "string" },
       repo_path: { type: "string" },
-      refs: { items: { pattern: "^\\S+$", type: "string" }, minItems: 1, type: "array" },
+      refs: { $ref: "#/$defs/NonEmptyRefList" },
       dry_run: { default: false, type: "boolean" },
     },
     required: ["repo_path", "refs", "kind"],
@@ -991,7 +997,7 @@ export const PROTOCOL_DEFS = {
     properties: {
       kind: { const: "watch", default: "watch", type: "string" },
       repo_path: { type: "string" },
-      refs: { default: ["HEAD"], items: { pattern: "^\\S+$", type: "string" }, type: "array" },
+      refs: { $ref: "#/$defs/RefList" },
     },
     required: ["repo_path", "kind"],
     title: "WatchRequest",
