@@ -7,11 +7,11 @@ from pathlib import Path
 
 import polars as pl
 
+from rbtr.domain.edge_frames import InferredEdgeRow
 from rbtr.domain.models import Chunk, EdgeKind, FileSnapshot
 from rbtr.index.index import Index
 from rbtr.index.staging import EmbeddingStagingRow, staged_chunks
 from rbtr.languages.chunks import chunk_rows
-from rbtr.languages.edges import InferredEdgeRow
 
 from .conftest import make_chunk
 

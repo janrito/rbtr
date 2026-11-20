@@ -16,19 +16,18 @@ Extracted chunks::
     from pathlib import Path
                             → import, metadata {module: "pathlib", names: "Path"}
     from ..core import engine
-                            → import, metadata {dots: "2", module: "core",
-                                                names: "engine"}
+                            → import, metadata {module: "../core", names: "engine"}
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from rbtr.domain.edge_frames import ModuleStyle
 from rbtr.domain.models import ImportMeta
 from rbtr.languages.registration import (
     ImportResolver,
     LanguageRegistration,
-    ModuleStyle,
     QueryExtraction,
     load_query,
 )
@@ -49,7 +48,8 @@ def extract_import_meta(
 
     Reads query captures (`@_import_module`, `@_import_dots`)
     and walks the node for multi-valued import names (which
-    the query can't capture).
+    the query can't capture). A relative module is written as a
+    path prefix: one dot is `./`, each further dot one `../`.
 
     Examples:
 
@@ -60,21 +60,20 @@ def extract_import_meta(
             module="pathlib", names="Path"
 
         `from ..core import engine`:
-            dots="2", module="core", names="engine"
+            module="../core", names="engine"
 
         `from .models import Chunk as C`:
-            dots="1", module="models", names="Chunk"
+            module="./models", names="Chunk"
 
         `from . import utils`:
-            dots="1", names="utils"
+            module="./", names="utils"
     """
     meta = resolver(node, captures)
 
-    # Convert @_import_dots from raw import_prefix (e.g. "..")
-    # to a count string.
     dots_nodes = captures.get("_import_dots", [])
     if dots_nodes and dots_nodes[0].text:
-        meta.dots = str(dots_nodes[0].text.decode().count("."))
+        up = dots_nodes[0].text.decode().count(".") - 1
+        meta.module = ("../" * up or "./") + meta.module
 
     if node.type == "import_from_statement":
         # Imported names.  The `name` field can be dotted_name
@@ -107,7 +106,7 @@ python = LanguageRegistration(
     index_files=frozenset({"__init__.py"}),
     source_roots=("", "src"),
     module_style=ModuleStyle.DOTTED,
-    extraction_serial=7,
+    extraction_serial=9,
 )
 
 python.import_extractor(extract_import_meta)

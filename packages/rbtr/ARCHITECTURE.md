@@ -326,16 +326,16 @@ on a small, stable surface of core symbols. This is the
 contract that survives packaging each language as its own
 distribution:
 
-- `rbtr.languages.registration` — `LanguageRegistration`,
-  `ModuleStyle`, the wrap-override resolver type aliases
-  (`NameResolver` / `ScopeResolver` / `ImportResolver`), and the
-  capture/import helpers `collect_scoped_path`,
-  `enclosing_nodes_of_type`, `build_quoted_import`,
-  `parse_path_relative`, and `load_query` (loads a plugin's co-located
-  `.scm` query as package data). (Overrides receive the built-in resolver
-  as their wrap `resolver` argument and delegate to it, so plugins never
-  import the built-ins; those built-ins live in the private
-  `rbtr.languages._resolvers`.)
+- `rbtr.domain.edge_frames` — `ModuleStyle`, `SectionNames` and
+  `MemberOrder`, the declared resolution policies, and the frames edge
+  inference exchanges.
+- `rbtr.languages.registration` — `LanguageRegistration`, the wrap-override resolver
+  type aliases (`NameResolver` / `ScopeResolver` / `ImportResolver`), and the
+  capture/import helpers `collect_scoped_path`, `enclosing_nodes_of_type`,
+  `build_quoted_import`, and `load_query` (loads a plugin's co-located `.scm` query as
+  package data). (Overrides receive the built-in resolver as their wrap `resolver`
+  argument and delegate to it, so plugins never import the built-ins; those built-ins
+  live in the private `rbtr.languages._resolvers`.)
 - `rbtr.domain.models` — `Chunk`, its roles (`Definition`, `Section`,
   `Import`, `Comment`, `RawSlice`, `Fragment`), `Span`, `ChunkKind` and
   `ImportMeta`.
@@ -392,7 +392,7 @@ tests rather than held to product-code standards.
 
 ## Dependency graph
 
-Edge inference (`languages/edges.py`) records what each import
+Reference calculations (`domain/edges.py`) record what each import
 reaches:
 
 - **Import edges** - from an import to the symbols it names in
@@ -407,25 +407,31 @@ reaches:
   document it reaches, as a Markdown link's fragment names a
   heading, so a data language's keys are in the symbol index.
 
-Import resolution (`languages/resolution.py`) maps a module
-string to repo files, by the rules each language plugin declares
-on its registration. A reference carrying its own depth — `../b`,
-or a `dots` the extractor set — is anchored to the importing file
-and has one place to look. Anything else is looked for from the
-repository root: under each source root, then as a *suffix* of a
-candidate file path (so `rbtr.index.index` →
-`…/rbtr/index/index.py`, which lets a single index span a
-monorepo), then as a package directory. A `ModuleStyle.PATH`
-reference found nowhere from the root is tried beside the
-importing file: `@import "b.css"` in `css/a.css` means
-`css/b.css`, and the root comes first so a reference that already
-resolves keeps the file it resolved to. `module_style` and
-`source_roots` tune the mapping per language; ambiguous matches
-are dropped rather than guessed, and a file resolves to itself only
-for a reference that names that file and something in it (`#usage`,
-or `guide.md#usage` in `guide.md`): `from . import x` in an
-`__init__.py` reaches it through its directory's stand-in, which names
-the directory, not the file.
+File resolution (`domain/resolution.py`) maps a module string to repo files, by the
+rules each language plugin declares on its registration. A relative import is anchored
+to the importing file and has one place to look. The query captures a module as written,
+with any prefix its pattern states (`import.prefix`: Ruby's `require_relative` writes
+`./`, Rust's `mod util;` writes `self::`). Each import's module is then read once, by
+its writing language's style, into the levels it climbs (`ImportRow.depth`) and the
+rest: a path starts `./` or `../`, or is `.` or `..` alone; a dotted module starts with
+one dot per level (Python's `..core`). A language's module words read from the importing
+module: the current word (`current_module`, Rust's `self::`) stays in it, and each
+parent word (`parent_module`, Rust's `super::`) climbs one level. A file named in
+`directory_module_files` (Rust's `mod.rs`, `lib.rs`, `main.rs`) is its directory's
+module; any other file is a module of its own, its children in the directory named by
+its stem. Anything else is looked for from the repository root: under each source root,
+then as a *suffix* of a candidate file path (so `rbtr.index.index` →
+`…/rbtr/index/index.py`, which lets a single index span a monorepo), then as a package
+directory. A `ModuleStyle.PATH` reference found nowhere from the root is tried beside
+the importing file: `@import "b.css"` in `css/a.css` means `css/b.css`, and the root
+comes first so a reference that already resolves keeps the file it resolved to. Source
+roots are tried in the order the plugin declares them. When two candidates differ only
+by extension, the importer's own extension wins, then another of its language's, then
+the first in the language's compiled extension list. A suffix that matches files in
+different directories is ambiguous and resolves to nothing. A file resolves to itself
+only for a reference that names that file and something in it (`#usage`, or
+`guide.md#usage` in `guide.md`): `from . import x` in an `__init__.py` reaches it
+through its directory's stand-in, which names the directory, not the file.
 
 Some references name a directory rather than a file. Where the
 language names a directory's stand-in — `__init__.py`,
@@ -442,7 +448,7 @@ repository rather than in the language: `go.mod` states `module
 example.com/m`, which makes `example.com/m/b` the directory `b`.
 A registration names such a file as its `manifest`, the
 extraction loop reads it while the content is in hand, and
-`build_resolution_map` turns it into path substitutions — the
+`language_resolutions` turns it into path substitutions — the
 edge pass itself reads no files.
 
 References reach sections by their names. Queries capture explicit HTML
@@ -475,6 +481,72 @@ IDs, not names), then a single `inbound_refs` query joins the
 inbound edges to their *source* chunk so the response names
 the referring symbol (`RefOut`) rather than exposing an opaque
 hash.
+
+### Computing a snapshot's edges
+
+The build's edge phase (`index.build`) compiles each language's registration into a
+`LanguageResolutionRow` frame (`languages.resolution.language_resolutions`), reads the
+snapshot's chunks as `EdgeChunkRow`, infers the edges of every file
+(`domain.edges.infer_edges`), and replaces the snapshot's edges in one write session.
+
+`infer_edges` runs three steps over every reference of the snapshot at once.
+Each is a polars process with a typed result, declared in
+`domain.edge_frames`; a language's resolution reaches a step as columns joined from
+that frame.
+
+| Step                | Result                                                                          | Read by                  |
+| ------------------- | ------------------------------------------------------------------------------- | ------------------------ |
+| `requested_imports` | `ImportRow`: source location/language, text, way, names, module, depth and hint | File resolution, targets |
+| `resolved_files`    | `FileMatchRow`: source location and a file it reaches                           | Targets                  |
+| `reached_targets`   | `InferredEdgeRow`: located source-to-target edge                                | Writer                   |
+
+`resolved_files` finds module files through `module_files`, which turns
+`ModulePathRow` lookups into `ModuleFileRow` files. Qualified-name lookup
+calls it too ([Symbol name resolution](#symbol-name-resolution)).
+
+Two choices keep the answers right. A reference's location is its chunk id
+and its path: chunks are content-addressed, so byte-identical files share an
+import chunk, and each copy resolves relative to its own path. And an
+import's scope, its resolved files or its hinted language, is chosen
+before candidates are ranked, so an earlier chunk outside the scope cannot
+hide one inside it.
+
+For example, take three files: `app.py` holding `from pkg.util import greet`,
+`src/pkg/util.py` defining `greet`, and `docs/guide.rst` saying
+``Call :func:`greet` first.`` Python's resolution row tries the source roots `""` and
+`src`, the extensions `.py` and `.pyi`, and reads modules dotted; rST is prose and
+folds section names. The build reads the two imports as `EdgeChunkRow`s:
+
+| `file_path`      | `name`                       | `language` | `module`   | `names` | `language_hint` |
+| ---------------- | ---------------------------- | ---------- | ---------- | ------- | --------------- |
+| `app.py`         | `from pkg.util import greet` | `python`   | `pkg.util` | `greet` |                 |
+| `docs/guide.rst` | ``:func:`greet` ``           | `rst`      |            | `greet` | `python`        |
+
+`requested_imports` classifies them. The Python import names a module; the
+rST role is prose naming a name and no file, so it documents rather than imports:
+
+| `source_path`    | `way`    | `kind`      | `depth` | `module`   | `names`     | `language_hint` |
+| ---------------- | -------- | ----------- | ------- | ---------- | ----------- | --------------- |
+| `app.py`         | `module` | `imports`   | 0       | `pkg.util` | `["greet"]` |                 |
+| `docs/guide.rst` | `name`   | `documents` | 0       |            | `["greet"]` | `python`        |
+
+`resolved_files` looks for `pkg.util` as `pkg/util`. Under the root `""`, none of
+`pkg/util`, `pkg/util.py`, `pkg/util.pyi` or `pkg/util/__init__.py` exists; under
+`src`, `src/pkg/util.py` does. The name import resolves no file:
+
+| `source_path` | `target_path`     |
+| ------------- | ----------------- |
+| `app.py`      | `src/pkg/util.py` |
+
+`reached_targets` reads the target chunks: `run` in `app.py`, the `Guide` section
+of `docs/guide.rst`, and `greet` in `src/pkg/util.py`. The import reaches `greet`
+in its resolved file. The role looks only at Python, its hint, where `greet` is the
+first symbol of that name:
+
+| `source_path`    | `target_path`     | target  | `kind`      |
+| ---------------- | ----------------- | ------- | ----------- |
+| `app.py`         | `src/pkg/util.py` | `greet` | `imports`   |
+| `docs/guide.rst` | `src/pkg/util.py` | `greet` | `documents` |
 
 ## Working-tree indexing
 
@@ -1450,7 +1522,7 @@ symbol is, as rows of the `_qualifiers` view that
 - read whole as a scope, the symbol's scope must end with it
   (`EngineArgs.add_cli_args`, `Inner.m` for `Outer::Inner`);
 - its leading parts may name a module, resolved as an import
-  would be (`module_files` in `rbtr.languages.edges`, for each
+  would be (`module_files` in `rbtr.domain.resolution`, for each
   language in the snapshot: source roots, `index_files`,
   `path_substitutions`, a path suffix of two or more parts);
   the symbol must then be in a file they name, with the
@@ -2179,7 +2251,16 @@ imports resolve by matching the module path as a suffix
 of candidate file paths, not by per-repo module-root
 configuration. This supports monorepos transparently;
 genuinely ambiguous matches are dropped rather than
-guessed.
+guessed. A build matches every import's suffix lookups in
+one join of the names against each file's path tails
+(`module_files`). Scanning the repository's files for each
+lookup does not work here: its cost is the repository's size
+times its imports, and on a large repository it was most of
+the edge phase. The rest of resolution is joins too: candidate
+paths are source roots × extensions × index files, and first
+match is a rank. Resolving each reference in a Python callback
+made resolution the largest edge step (0.25s of Django's
+14,358 module references); as joins it takes 0.05s.
 
 **Standalone comments as their own `COMMENT` kind.** A comment
 that isn't a symbol's documentation — a banner, licence header,

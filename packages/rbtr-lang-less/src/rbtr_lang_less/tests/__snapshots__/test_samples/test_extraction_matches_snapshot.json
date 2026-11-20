@@ -41,7 +41,6 @@
     "metadata": {
       "module": "base",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -137,7 +136,6 @@
     "metadata": {
       "module": "partials/dark.less",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -163,7 +161,6 @@
     "metadata": {
       "module": "tokens.less",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   },

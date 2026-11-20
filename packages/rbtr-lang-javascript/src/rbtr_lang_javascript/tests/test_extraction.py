@@ -76,5 +76,5 @@ export { helper } from "./b";
 """
     chunks = list(extract_file(FileEntry("input.ts", "sha1", src.encode()), "typescript"))
     imports = [(c.role.meta.module, c.content) for c in chunks if isinstance(c.role, Import)]
-    assert ("c", 'export * from "./c";') in imports
-    assert ("b", 'export { helper } from "./b";') in imports
+    assert ("./c", 'export * from "./c";') in imports
+    assert ("./b", 'export { helper } from "./b";') in imports

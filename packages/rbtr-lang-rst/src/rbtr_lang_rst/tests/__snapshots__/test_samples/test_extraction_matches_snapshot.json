@@ -241,7 +241,6 @@
     "metadata": {
       "module": "config",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -257,7 +256,6 @@
     "metadata": {
       "module": "",
       "names": "format_greeting",
-      "dots": "",
       "language_hint": "python"
     }
   },
@@ -273,7 +271,6 @@
     "metadata": {
       "module": "",
       "names": "Greeter",
-      "dots": "",
       "language_hint": "python"
     }
   },
@@ -289,7 +286,6 @@
     "metadata": {
       "module": "guide.rst",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -305,7 +301,6 @@
     "metadata": {
       "module": "intro",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -321,7 +316,6 @@
     "metadata": {
       "module": "api/index",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -347,7 +341,6 @@
     "metadata": {
       "module": "greeter.locales",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -363,7 +356,6 @@
     "metadata": {
       "module": "topics/intro",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -379,7 +371,6 @@
     "metadata": {
       "module": "",
       "names": "greeting-options",
-      "dots": "",
       "language_hint": "rst"
     }
   },
@@ -395,7 +386,6 @@
     "metadata": {
       "module": "",
       "names": "format_greeting",
-      "dots": "",
       "language_hint": "rst"
     }
   },
@@ -411,7 +401,6 @@
     "metadata": {
       "module": "",
       "names": "salutations",
-      "dots": "",
       "language_hint": "rst"
     }
   },
@@ -427,7 +416,6 @@
     "metadata": {
       "module": "",
       "names": "greetings table",
-      "dots": "",
       "language_hint": "rst"
     }
   },
@@ -443,7 +431,6 @@
     "metadata": {
       "module": "guide.rst",
       "names": "greeting-options",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -459,7 +446,6 @@
     "metadata": {
       "module": "rst.rst",
       "names": "usage",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -495,7 +481,6 @@
     "metadata": {
       "module": "detail",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   }

@@ -21,7 +21,6 @@
     "metadata": {
       "module": "sys",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -47,7 +46,6 @@
     "metadata": {
       "module": "readline",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -133,7 +131,6 @@
     "metadata": {
       "module": "pkg.b",
       "names": "helper",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -189,7 +186,6 @@
     "metadata": {
       "module": "os",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -205,7 +201,6 @@
     "metadata": {
       "module": "os.path",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -221,7 +216,6 @@
     "metadata": {
       "module": "functools",
       "names": "lru_cache",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -237,7 +231,6 @@
     "metadata": {
       "module": "pathlib",
       "names": "Path",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -251,9 +244,8 @@
     "line_start": 21,
     "line_end": 21,
     "metadata": {
-      "module": "config",
+      "module": "./config",
       "names": "LOCALE",
-      "dots": "1",
       "language_hint": ""
     }
   },

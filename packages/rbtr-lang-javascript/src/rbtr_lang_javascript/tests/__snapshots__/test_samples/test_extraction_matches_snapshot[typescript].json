@@ -29,9 +29,8 @@
     "line_start": 1,
     "line_end": 1,
     "metadata": {
-      "module": "b",
+      "module": "./b",
       "names": "helper",
-      "dots": "1",
       "language_hint": ""
     }
   },
@@ -85,9 +84,8 @@
     "line_start": 10,
     "line_end": 10,
     "metadata": {
-      "module": "config",
+      "module": "./config",
       "names": "LOCALE",
-      "dots": "1",
       "language_hint": ""
     }
   },
@@ -101,9 +99,8 @@
     "line_start": 11,
     "line_end": 11,
     "metadata": {
-      "module": "types",
+      "module": "./types",
       "names": "Formatter",
-      "dots": "1",
       "language_hint": ""
     }
   },
@@ -347,9 +344,8 @@
     "line_start": 67,
     "line_end": 67,
     "metadata": {
-      "module": "types",
+      "module": "./types",
       "names": "",
-      "dots": "1",
       "language_hint": ""
     }
   },
@@ -363,9 +359,8 @@
     "line_start": 68,
     "line_end": 68,
     "metadata": {
-      "module": "config",
+      "module": "./config",
       "names": "",
-      "dots": "1",
       "language_hint": ""
     }
   },

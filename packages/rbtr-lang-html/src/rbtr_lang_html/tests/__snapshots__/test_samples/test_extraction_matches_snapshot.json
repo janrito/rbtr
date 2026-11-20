@@ -71,7 +71,6 @@
     "metadata": {
       "module": "styles.css",
       "names": "",
-      "dots": "",
       "language_hint": "css"
     }
   },
@@ -87,7 +86,6 @@
     "metadata": {
       "module": "greeter.js",
       "names": "",
-      "dots": "",
       "language_hint": "javascript"
     }
   },
@@ -153,7 +151,6 @@
     "metadata": {
       "module": "pages/about.html",
       "names": "team",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -169,7 +166,6 @@
     "metadata": {
       "module": "pages/about.html",
       "names": "contributors",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -185,7 +181,6 @@
     "metadata": {
       "module": "pages/about.html",
       "names": "schedule",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -201,7 +196,6 @@
     "metadata": {
       "module": "pages/about.html",
       "names": "history",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -277,7 +271,6 @@
     "metadata": {
       "module": "about.js",
       "names": "",
-      "dots": "",
       "language_hint": "javascript"
     }
   },
@@ -343,7 +336,6 @@
     "metadata": {
       "module": "../html.html",
       "names": "intro",
-      "dots": "",
       "language_hint": ""
     }
   },

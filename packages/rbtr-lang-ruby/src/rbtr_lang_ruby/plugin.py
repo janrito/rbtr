@@ -19,7 +19,7 @@ Extracted chunks::
     require "json"
         → import, metadata {module: "json"}
     require_relative "helpers"
-        → import, metadata {module: "helpers", dots: "1"}
+        → import, metadata {module: "./helpers"}
 """
 
 from __future__ import annotations
@@ -32,7 +32,6 @@ from rbtr.languages.registration import (
     LanguageRegistration,
     QueryExtraction,
     load_query,
-    parse_path_relative,
 )
 
 if TYPE_CHECKING:
@@ -45,8 +44,8 @@ def extract_import_meta(
     """Extract import data from a Ruby `require` / `require_relative` node.
 
     Reads `@_import_module` from captures (the query captures
-    the string argument), then sets `dots` for
-    `require_relative` (always relative to the current file).
+    the string argument). `require_relative` is relative to the current
+    file even without a `./`, so a bare path is written as one.
 
     Examples:
 
@@ -54,23 +53,19 @@ def extract_import_meta(
             module="json"
 
         `require_relative "helpers"`:
-            module="helpers", dots="1"
+            module="./helpers"
 
         `require_relative "./config"`:
-            module="config", dots="1"
+            module="./config"
 
         `require_relative "../lib/utils"`:
-            module="lib/utils", dots="2"
+            module="../lib/utils"
     """
     meta = resolver(node, captures)
     method = node.child_by_field_name("method")
-    if method and method.text == b"require_relative":
-        # `require_relative` is always relative to the current file. Strip any
-        # `./`/`../` prefix into `dots` (a bare path is the current dir, dots=1)
-        # so the resolver doesn't see a leftover `./` it can't match.
-        dots, cleaned = parse_path_relative(meta.module)
-        meta.module = cleaned
-        meta.dots = str(dots or 1)
+    relative = method is not None and method.text == b"require_relative"
+    if relative and meta.module and not meta.module.startswith(("./", "../")):
+        meta.module = f"./{meta.module}"
     return meta
 
 
@@ -83,7 +78,7 @@ ruby = LanguageRegistration(
         scope_types=frozenset({"class", "module"}),
     ),
     source_roots=("", "lib"),
-    extraction_serial=6,
+    extraction_serial=7,
 )
 
 ruby.import_extractor(extract_import_meta)

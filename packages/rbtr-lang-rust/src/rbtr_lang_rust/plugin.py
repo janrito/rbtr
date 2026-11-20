@@ -19,7 +19,7 @@ Extracted chunks::
     use crate::models::{Chunk, Edge}
         → import, metadata {module: "crate/models", names: "Chunk,Edge"}
     use super::utils
-        → import, metadata {names: "utils", dots: "2"}
+        → import, metadata {module: "../", names: "utils"}
 """
 
 from __future__ import annotations
@@ -40,22 +40,16 @@ if TYPE_CHECKING:
 
 
 def _path_to_meta(parts: list[str], meta: ImportMeta) -> None:
-    """Convert collected Rust path segments into module/dots metadata.
+    """Convert collected Rust path segments into module metadata.
 
-    Leading `super` segments are counted as relative dots using
-    the unified convention (each `super` = one extra level up,
-    plus 1 for the file itself).  `crate` is kept as a literal
+    Each leading `super` is one `../`.  `crate` is kept as a literal
     path segment — it's root-relative, not parent-relative.
     """
-    dots = 0
+    up = 0
     while parts and parts[0] == "super":
-        dots += 1
+        up += 1
         parts = parts[1:]
-    if dots:
-        meta.dots = str(dots + 1)  # +1: super = parent dir = 2 levels from file
-
-    if parts:
-        meta.module = "/".join(parts)
+    meta.module = "../" * up + "/".join(parts)
 
 
 def extract_import_meta(
@@ -66,7 +60,7 @@ def extract_import_meta(
     Walks the node's `argument` field for module path and names.
     The query only captures `@import` — module extraction needs
     `collect_scoped_path` to flatten `scoped_identifier` trees
-    and `_path_to_meta` to convert `super` segments to dots.
+    and `_path_to_meta` to convert `super` segments to `../`.
 
     Examples:
 
@@ -77,7 +71,7 @@ def extract_import_meta(
             module="crate/models", names="Chunk,Edge"
 
         `use super::utils;`:
-            names="utils", dots="2"
+            module="../", names="utils"
 
         `use std::io::{self, Read};`:
             module="std/io", names="self,Read"
@@ -133,7 +127,7 @@ rust = LanguageRegistration(
     ),
     index_files=frozenset({"mod.rs"}),
     path_substitutions=(("crate/", "src/"),),
-    extraction_serial=7,
+    extraction_serial=10,
 )
 
 rust.import_extractor(extract_import_meta)

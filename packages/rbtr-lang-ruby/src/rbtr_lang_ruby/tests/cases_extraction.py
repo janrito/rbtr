@@ -206,25 +206,25 @@ def case_ruby_require_nested() -> ImportCase:
 @case(tags=["import"])
 def case_ruby_require_relative() -> ImportCase:
     """require_relative "helpers"."""
-    return "ruby", 'require_relative "helpers"\n', {"module": "helpers", "dots": "1"}
+    return "ruby", 'require_relative "helpers"\n', {"module": "./helpers"}
 
 
 @case(tags=["import"])
 def case_ruby_require_relative_nested() -> ImportCase:
     """require_relative "lib/utils"."""
-    return "ruby", 'require_relative "lib/utils"\n', {"module": "lib/utils", "dots": "1"}
+    return "ruby", 'require_relative "lib/utils"\n', {"module": "./lib/utils"}
 
 
 @case(tags=["import"])
 def case_ruby_require_relative_dot_prefix() -> ImportCase:
-    """require_relative "./config" — the `./` is stripped into dots."""
-    return "ruby", 'require_relative "./config"\n', {"module": "config", "dots": "1"}
+    """require_relative "./config" — already written relative."""
+    return "ruby", 'require_relative "./config"\n', {"module": "./config"}
 
 
 @case(tags=["import"])
 def case_ruby_require_relative_parent() -> ImportCase:
-    """require_relative "../lib/utils" — `../` becomes dots=2."""
-    return "ruby", 'require_relative "../lib/utils"\n', {"module": "lib/utils", "dots": "2"}
+    """require_relative "../lib/utils" — already written relative."""
+    return "ruby", 'require_relative "../lib/utils"\n', {"module": "../lib/utils"}
 
 
 @case(tags=["import"])
@@ -243,7 +243,7 @@ def case_ruby_multiple_requires() -> MultiImportCase:
 require "json"
 require_relative "helpers"
 """
-    return "ruby", src, 2, [{"module": "json"}, {"module": "helpers", "dots": "1"}]
+    return "ruby", src, 2, [{"module": "json"}, {"module": "./helpers"}]
 
 
 @case(tags=["mixed"])

@@ -29,9 +29,8 @@
     "line_start": 15,
     "line_end": 15,
     "metadata": {
-      "module": "store",
+      "module": "./store",
       "names": "makeStore",
-      "dots": "1",
       "language_hint": ""
     }
   },
@@ -105,9 +104,8 @@
     "line_start": 2,
     "line_end": 2,
     "metadata": {
-      "module": "b",
+      "module": "./b",
       "names": "helper",
-      "dots": "1",
       "language_hint": ""
     }
   },

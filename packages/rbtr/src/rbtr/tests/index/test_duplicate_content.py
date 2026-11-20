@@ -121,3 +121,9 @@ def test_an_import_records_which_copy_it_came_from(dup_index: Index, dup_ref: Sn
         f"no edge from the caller: {sorted(edges['source_path'].unique().to_list())}"
     )
     assert set(from_caller["target_path"].to_list()) <= {"src/dup.py", "node_modules/dup.py"}
+    relatives = edges.filter(pl.col("source_path").is_in(["src/referrer.py", "lib/referrer.py"]))
+    assert relatives["source_id"].n_unique() == 1
+    assert relatives.select("source_path", "target_path").sort("source_path").rows() == [
+        ("lib/referrer.py", "lib/shared.py"),
+        ("src/referrer.py", "src/shared.py"),
+    ]

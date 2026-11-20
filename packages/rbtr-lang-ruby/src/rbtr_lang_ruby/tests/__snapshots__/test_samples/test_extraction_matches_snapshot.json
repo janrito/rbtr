@@ -29,9 +29,8 @@
     "line_start": 1,
     "line_end": 1,
     "metadata": {
-      "module": "b",
+      "module": "./b",
       "names": "",
-      "dots": "1",
       "language_hint": ""
     }
   },
@@ -77,7 +76,6 @@
     "metadata": {
       "module": "json",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -91,9 +89,8 @@
     "line_start": 12,
     "line_end": 12,
     "metadata": {
-      "module": "config",
+      "module": "./config",
       "names": "",
-      "dots": "1",
       "language_hint": ""
     }
   },

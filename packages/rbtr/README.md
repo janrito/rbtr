@@ -769,9 +769,8 @@ Unset ones fall back to the engine defaults.
 
 ### How your language's references resolve
 
-An `@import` capture gives the edge graph a module string. Turning that
-into a file is the registration's job, and every language spells it
-differently:
+An `@import` capture gives the edge graph a module string. The registration
+declares how that string names files for its language:
 
 | Field                | Says                                                                                                |
 | -------------------- | --------------------------------------------------------------------------------------------------- |
@@ -783,8 +782,14 @@ differently:
 | `manifest`           | a repository file whose text supplies further substitutions, read per repository                    |
 | `section_names`      | how a link's fragment compares with a section's name: as written, or folded like a heading's anchor |
 
-A path-style reference naming no directory is resolved beside the file
-making it, so `@import "b.css"` in `css/a.css` reaches `css/b.css`. Set
+Import `ModuleStyle` and `SectionNames` from `rbtr.domain.edge_frames`.
+Record a relative module as a path prefix (`./b`, `../lib/b`) in every
+language: Python's `from ..core import x` is `../core`. Resolution reads the
+prefix as a depth from the file.
+
+A path-style reference is tried beside its source after root lookup, so
+`@import "b.css"` in `css/a.css` reaches `css/b.css` when root lookup finds
+nothing. Set
 `package_directory` only where the language means the whole directory — a
 Go package, a Terraform module — since it otherwise makes a link to a
 directory reach every file inside.

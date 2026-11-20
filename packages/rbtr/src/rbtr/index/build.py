@@ -24,11 +24,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-import dataframely as dy
-import polars as pl
 import structlog
 
 from rbtr.config import config
+from rbtr.domain.edges import infer_edges
 from rbtr.domain.models import (
     FileOutcome,
     FileSnapshot,
@@ -39,13 +38,11 @@ from rbtr.errors import BuildStopped
 from rbtr.git import FileEntry, changed_files, list_files, non_commit_shas, normalise_repo_path
 from rbtr.index.index import Index
 from rbtr.index.progress import ProgressCallback, _noop_progress
-from rbtr.index.results import ChunkResultRow
 from rbtr.index.staging import serial_map_view, staged_chunks
-from rbtr.languages.edges import EdgeChunkRow, infer_import_edges
 from rbtr.languages.extract import BATCH_FILES, extract_files, file_rows
 from rbtr.languages.manager import get_manager
 from rbtr.languages.plaintext import PLAINTEXT
-from rbtr.languages.resolution import build_resolution_map
+from rbtr.languages.resolution import language_resolutions
 from rbtr.rbtrignore import load_ignore
 
 log = structlog.get_logger(__name__)
@@ -259,27 +256,21 @@ def _extract_and_store_chunks(
 def _infer_and_store_edges(
     *,
     index: Index,
-    chunks: dy.DataFrame[ChunkResultRow],
     repo_files: set[str],
     manifests: dict[str, str],
     snapshot_sha: str,
     repo: Repo,
     on_progress: ProgressCallback,
-) -> int:
-    """Infer cross-file edges and write them. Returns edge count."""
+) -> tuple[int, int]:
+    """Infer the snapshot's edges and replace its stored ones; return edge and chunk counts."""
     on_progress("edges", 0, 0)
-    mgr = get_manager()
-    resolution_map = build_resolution_map(mgr, manifests=manifests)
-    rows = chunks.with_columns(pl.col("metadata").struct.unnest()).pipe(
-        EdgeChunkRow.validate, cast=True
-    )
-    edges = infer_import_edges(rows, repo_files, resolution_map)
-
+    resolutions = language_resolutions(get_manager().registrations(), manifests=manifests)
     with index.session(repo) as session:
+        chunks = session.edge_chunks(snapshot_sha)
+        edges = infer_edges(chunks, repo_files, resolutions)
         session.replace_edges(edges, snapshot_sha=snapshot_sha)
-
     log.info("inferred_edges", edges=len(edges))
-    return len(edges)
+    return len(edges), len(chunks)
 
 
 def _mark_indexed_and_cleanup(
@@ -352,15 +343,11 @@ def build_index(
     if stop is not None and stop.is_set():
         raise BuildStopped
 
-    # Fetch committed chunks for edge inference.
-    # Lightweight: skips content_tokens/name_tokens (~37% smaller).
     result = extracted.result
-    all_chunks = index.chunks(at=repo.at(snapshot_sha))
 
     # Phase 2: infer cross-file edges.
-    result.stats.total_edges = _infer_and_store_edges(
+    result.stats.total_edges, result.stats.total_chunks = _infer_and_store_edges(
         index=index,
-        chunks=all_chunks,
         repo_files=extracted.repo_files,
         manifests=extracted.manifests,
         snapshot_sha=snapshot_sha,
@@ -375,7 +362,6 @@ def build_index(
         index=index, repo=repo, snapshot_sha=snapshot_sha, on_progress=on_progress
     )
 
-    result.stats.total_chunks = len(all_chunks)
     result.stats.elapsed_seconds = time.monotonic() - t0
     log.info(
         "index_complete",

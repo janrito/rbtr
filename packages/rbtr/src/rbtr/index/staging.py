@@ -22,6 +22,7 @@ from collections.abc import Mapping
 import dataframely as dy
 import polars as pl
 
+from rbtr.domain.edge_frames import InferredEdgeRow
 from rbtr.domain.identity import chunk_id
 from rbtr.domain.models import (
     ChunkKind,
@@ -32,7 +33,6 @@ from rbtr.domain.models import (
 )
 from rbtr.domain.rules import ChunkRow
 from rbtr.domain.tokenise import search_tokens
-from rbtr.languages.edges import InferredEdgeRow
 
 
 class ChunkStagingRow(dy.Schema):
@@ -63,7 +63,6 @@ class ChunkStagingRow(dy.Schema):
         {
             "module": dy.String(nullable=True),
             "names": dy.String(nullable=True),
-            "dots": dy.String(nullable=True),
             "language_hint": dy.String(nullable=True),
             "node_types": dy.List(dy.String(), nullable=True),
         },

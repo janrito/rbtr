@@ -114,11 +114,9 @@ class ImportMeta(BaseModel):
     """
 
     module: str = ""
-    """Module path after stripping relative prefixes."""
+    """Module path; a relative one starts with `./` (the file's directory) or `../`."""
     names: str = ""
     """Comma-separated imported symbol names."""
-    dots: str = ""
-    """Relative import depth as a string (empty for absolute)."""
     language_hint: str = ""
     """Target language when known from structure (e.g. HTML
     `<script src>` → `'javascript'`).  Empty means unknown —

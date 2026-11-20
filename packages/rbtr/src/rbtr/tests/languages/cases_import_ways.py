@@ -1,7 +1,7 @@
 """Chunk rows as edge inference reads them, and the edges they make.
 
 Each case writes `EdgeChunkRow` columns for neutral languages the test
-module's `import_rules` fixture defines: `code`, whose references import
+module's `resolutions` fixture defines: `code`, whose references import
 what they name, and `prose` and `page`, whose references document it; a
 reference to a `prose` section compares folded, to a `page` section as
 written. No plugin is involved, so each case states one rule of how an
@@ -37,7 +37,6 @@ def case_a_bare_import_brings_in_definitions() -> ImportWayScenario:
             "language": ["code"] * 7,
             "module": ["lib.code", None, None, None, "other.code", None, None],
             "names": ["", None, None, None, "", None, None],
-            "dots": ["", None, None, None, "", None, None],
             "language_hint": ["", None, None, None, "", None, None],
         },
         repo_files=frozenset({"app.code", "lib.code"}),
@@ -63,7 +62,6 @@ def case_a_named_import_reaches_each_name_it_finds() -> ImportWayScenario:
             "language": ["code"] * 3,
             "module": ["lib.code", None, None],
             "names": ["f,missing", None, None],
-            "dots": ["", None, None],
             "language_hint": ["", None, None],
         },
         repo_files=frozenset({"app.code", "lib.code"}),
@@ -83,7 +81,6 @@ def case_a_name_no_symbol_holds_reaches_a_section_of_that_name() -> ImportWaySce
             "language": ["prose"] * 3,
             "module": ["guide.prose", None, None],
             "names": ["Usage", None, None],
-            "dots": ["", None, None],
             "language_hint": ["", None, None],
         },
         repo_files=frozenset({"readme.prose", "guide.prose"}),
@@ -103,7 +100,6 @@ def case_prose_naming_a_symbol_documents_the_first_of_that_name() -> ImportWaySc
             "language": ["prose", "code", "code"],
             "module": ["", None, None],
             "names": ["f", None, None],
-            "dots": ["", None, None],
             "language_hint": ["", None, None],
         },
         repo_files=frozenset({"readme.prose", "a.code", "b.code"}),
@@ -128,7 +124,6 @@ def case_an_import_with_no_module_reaches_files_its_words_name() -> ImportWaySce
             "language": ["code"] * 5,
             "module": ["", None, None, None, None],
             "names": ["", None, None, None, None],
-            "dots": ["", None, None, None, None],
             "language_hint": ["", None, None, None, None],
         },
         repo_files=frozenset({"app.code", "helpers.code", "io.code", "pkg/index.code"}),
@@ -148,7 +143,6 @@ def case_a_file_does_not_import_itself() -> ImportWayScenario:
             "language": ["code"] * 2,
             "module": ["lib.code", None],
             "names": ["", None],
-            "dots": ["", None],
             "language_hint": ["", None],
         },
         repo_files=frozenset({"lib.code"}),
@@ -171,9 +165,8 @@ def case_a_file_reaches_itself_only_by_naming_itself() -> ImportWayScenario:
             "kind": ["import", "variable"],
             "name": ["from . import helpers", "helpers"],
             "language": ["code"] * 2,
-            "module": ["", None],
+            "module": ["./", None],
             "names": ["helpers", None],
-            "dots": ["1", None],
             "language_hint": ["", None],
         },
         repo_files=frozenset({"pkg/index.code"}),
@@ -212,7 +205,6 @@ def case_a_link_reaches_a_section_whose_title_folds_to_it() -> ImportWayScenario
             "language": ["prose"] * 6,
             "module": ["guide.prose", "guide.prose", "guide.prose", None, None, None],
             "names": ["getting-started", "getting_started", "café----au-lait", None, None, None],
-            "dots": ["", "", "", None, None, None],
             "language_hint": ["", "", "", None, None, None],
         },
         repo_files=frozenset({"readme.prose", "guide.prose"}),
@@ -238,7 +230,6 @@ def case_a_link_reaches_a_section_of_an_exact_language_only_as_written() -> Impo
             "language": ["prose", "prose", "page", "page"],
             "module": ["site.page", "site.page", None, None],
             "names": ["getting-started", "usage", None, None],
-            "dots": ["", "", None, None],
             "language_hint": ["", "", None, None],
         },
         repo_files=frozenset({"readme.prose", "site.page"}),
@@ -258,7 +249,6 @@ def case_a_link_reaches_a_section_in_its_own_file() -> ImportWayScenario:
             "language": ["prose"] * 2,
             "module": ["guide.prose", None],
             "names": ["usage", None],
-            "dots": ["", None],
             "language_hint": ["", None],
         },
         repo_files=frozenset({"guide.prose"}),
@@ -278,7 +268,6 @@ def case_prose_naming_a_symbol_never_reaches_a_section() -> ImportWayScenario:
             "language": ["prose", "prose"],
             "module": ["", None],
             "names": ["intro", None],
-            "dots": ["", None],
             "language_hint": ["", None],
         },
         repo_files=frozenset({"readme.prose", "guide.prose"}),
@@ -305,7 +294,6 @@ def case_a_reference_hinted_to_a_language_documents_its_first_section_of_that_na
             "language": ["prose", "code", "prose", "prose"],
             "module": ["", None, None, None],
             "names": ["intro", None, None, None],
-            "dots": ["", None, None, None],
             "language_hint": ["prose", None, None, None],
         },
         repo_files=frozenset({"index.prose", "a.code", "a.prose", "b.prose"}),
@@ -325,9 +313,46 @@ def case_a_reference_hinted_to_code_documents_its_definition() -> ImportWayScena
             "language": ["prose", "prose", "code"],
             "module": ["", None, None],
             "names": ["intro", None, None],
-            "dots": ["", None, None],
             "language_hint": ["code", None, None],
         },
         repo_files=frozenset({"index.prose", "a.prose", "b.code"}),
         expected=frozenset({("func", "intro_function", "documents")}),
+    )
+
+
+def case_a_hinted_section_survives_another_language_in_the_same_file() -> ImportWayScenario:
+    """An earlier section in another embedded language cannot hide the hinted section."""
+    return ImportWayScenario(
+        rows={
+            "id": ["ref", "earlier", "wanted"],
+            "file_path": ["index.prose", "mixed.host", "mixed.host"],
+            "line_start": [1, 1, 9],
+            "kind": ["import", "doc_section", "doc_section"],
+            "name": ["reference Intro", "Intro", "Intro"],
+            "language": ["prose", "code", "page"],
+            "module": ["", None, None],
+            "names": ["Intro", None, None],
+            "language_hint": ["page", None, None],
+        },
+        repo_files=frozenset({"index.prose", "mixed.host"}),
+        expected=frozenset({("ref", "wanted", "documents")}),
+    )
+
+
+def case_a_hinted_function_survives_another_language_in_the_same_file() -> ImportWayScenario:
+    """An earlier definition in another embedded language cannot hide the hinted definition."""
+    return ImportWayScenario(
+        rows={
+            "id": ["ref", "earlier", "wanted"],
+            "file_path": ["index.prose", "mixed.host", "mixed.host"],
+            "line_start": [1, 1, 9],
+            "kind": ["import", "function", "function"],
+            "name": ["reference intro", "intro", "intro"],
+            "language": ["prose", "page", "code"],
+            "module": ["", None, None],
+            "names": ["intro", None, None],
+            "language_hint": ["code", None, None],
+        },
+        repo_files=frozenset({"index.prose", "mixed.host"}),
+        expected=frozenset({("ref", "wanted", "documents")}),
     )

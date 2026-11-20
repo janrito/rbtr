@@ -405,7 +405,7 @@ def case_py_from_import_aliased() -> ImportCase:
     return (
         "python",
         "from .models import Chunk as C\n",
-        {"dots": "1", "module": "models", "names": "Chunk"},
+        {"module": "./models", "names": "Chunk"},
     )
 
 
@@ -425,7 +425,7 @@ def case_py_relative_dot_with_module() -> ImportCase:
     return (
         "python",
         "from .models import Chunk\n",
-        {"dots": "1", "module": "models", "names": "Chunk"},
+        {"module": "./models", "names": "Chunk"},
     )
 
 
@@ -435,14 +435,14 @@ def case_py_relative_dotdot() -> ImportCase:
     return (
         "python",
         "from ..core import engine\n",
-        {"dots": "2", "module": "core", "names": "engine"},
+        {"module": "../core", "names": "engine"},
     )
 
 
 @case(tags=["import"])
 def case_py_relative_dot_only() -> ImportCase:
-    """from . import utils — no module key."""
-    return "python", "from . import utils\n", {"dots": "1", "names": "utils"}
+    """from . import utils — the package itself."""
+    return "python", "from . import utils\n", {"module": "./", "names": "utils"}
 
 
 @case(tags=["import"])
@@ -451,7 +451,7 @@ def case_py_relative_three_dots() -> ImportCase:
     return (
         "python",
         "from ...lib import helper\n",
-        {"dots": "3", "module": "lib", "names": "helper"},
+        {"module": "../../lib", "names": "helper"},
     )
 
 

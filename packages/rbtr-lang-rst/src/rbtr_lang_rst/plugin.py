@@ -28,12 +28,8 @@ from __future__ import annotations
 
 import re
 
-from rbtr.languages.registration import (
-    LanguageRegistration,
-    QueryExtraction,
-    SectionNames,
-    load_query,
-)
+from rbtr.domain.edge_frames import SectionNames
+from rbtr.languages.registration import LanguageRegistration, QueryExtraction, load_query
 
 rst = LanguageRegistration(
     id="rst",

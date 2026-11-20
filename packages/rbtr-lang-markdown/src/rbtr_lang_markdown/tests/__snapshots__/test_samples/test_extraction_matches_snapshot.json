@@ -31,7 +31,6 @@
     "metadata": {
       "module": "greeter",
       "names": "format_greeting",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -177,7 +176,6 @@
     "metadata": {
       "module": "greeter.css",
       "names": "",
-      "dots": "",
       "language_hint": "css"
     }
   },
@@ -273,7 +271,6 @@
     "metadata": {
       "module": "troubleshooting.md",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -339,7 +336,6 @@
     "metadata": {
       "module": "config.md",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -355,7 +351,6 @@
     "metadata": {
       "module": "api.md",
       "names": "format-a-greeting-the-helper",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -371,7 +366,6 @@
     "metadata": {
       "module": "config.md",
       "names": "locale",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -387,7 +381,6 @@
     "metadata": {
       "module": "config.md",
       "names": "install-notes",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -403,7 +396,6 @@
     "metadata": {
       "module": "config.md",
       "names": "legacy-options",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -429,7 +421,6 @@
     "metadata": {
       "module": "locales.md",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -445,7 +436,6 @@
     "metadata": {
       "module": "markdown.md",
       "names": "usage",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -461,7 +451,6 @@
     "metadata": {
       "module": "guides/setup.md",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   },

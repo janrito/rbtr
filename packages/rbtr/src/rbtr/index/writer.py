@@ -11,6 +11,7 @@ import polars as pl
 import structlog
 
 from rbtr.config import config
+from rbtr.domain.edge_frames import EdgeChunkRow, InferredEdgeRow
 from rbtr.domain.models import FileSnapshot, GcCounts, Repo
 from rbtr.index import load_sql
 from rbtr.index.db import build_fts, registered_views
@@ -21,7 +22,6 @@ from rbtr.index.staging import (
     staged_edges,
     staged_file_snapshots,
 )
-from rbtr.languages.edges import InferredEdgeRow
 
 CURRENT_BLOBS_SQL = load_sql("current_blobs.sql")
 _COUNT_UNCLAIMED_BLOBS_SQL = load_sql("count_unclaimed_blobs.sql")
@@ -32,6 +32,7 @@ _REMOVE_WATCHED_REFS_SQL = load_sql("delete_watched_refs.sql")
 _DELETE_EDGES_SQL = load_sql("delete_edges.sql")
 _DELETE_SNAPSHOTS_SQL = load_sql("delete_snapshots.sql")
 _DROP_SNAPSHOT_SQL = load_sql("drop_snapshot.sql")
+_EDGE_CHUNKS_SQL = load_sql("edge_chunks.sql")
 _INSERT_EDGES_SQL = load_sql("insert_edges.sql")
 _MARK_INDEXED_SQL = load_sql("mark_indexed.sql")
 _PRUNE_CHUNKS_SQL = load_sql("prune_chunks.sql")
@@ -275,6 +276,23 @@ class WriteSession:
             self._bulk_insert(
                 _UPSERT_SNAPSHOTS_SQL, staged_file_snapshots(snapshots, self._repo.repo_id)
             )
+
+    def edge_chunks(self, snapshot_sha: str) -> dy.DataFrame[EdgeChunkRow]:
+        """Every located chunk of the repo's snapshot *snapshot_sha*, as edge inference reads it.
+
+        Ordered by path and position, so a duplicated chunk appears once per
+        location and the first chunk of a file comes first.
+        """
+        self._require_active()
+        self._flush_chunks()
+        return (
+            self._cursor.sql(
+                _EDGE_CHUNKS_SQL,
+                params={"repo_id": self._repo.repo_id, "snapshot_sha": snapshot_sha},
+            )
+            .pl()
+            .pipe(EdgeChunkRow.validate, cast=True)
+        )
 
     def replace_edges(self, edges: dy.DataFrame[InferredEdgeRow], *, snapshot_sha: str) -> None:
         """Atomically replace all edges of the repo's snapshot *snapshot_sha*."""

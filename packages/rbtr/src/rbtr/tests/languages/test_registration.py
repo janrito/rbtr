@@ -14,41 +14,7 @@ from rbtr.languages.registration import (
     LanguageRegistration,
     NameResolver,
     QueryExtraction,
-    parse_path_relative,
 )
-
-
-@pytest.mark.parametrize(
-    ("path", "expected_dots", "expected_cleaned"),
-    [
-        ("./models", 1, "models"),
-        ("../utils", 2, "utils"),
-        ("../../shared/helpers", 3, "shared/helpers"),
-        ("../../../root", 4, "root"),
-        ("./a/b/c", 1, "a/b/c"),
-        ("./styles.css", 1, "styles.css"),
-        ("react", 0, "react"),
-        ("@testing-library/react", 0, "@testing-library/react"),
-        ("", 0, ""),
-        (".", 0, "."),
-    ],
-    ids=[
-        "current-dir",
-        "parent-dir",
-        "grandparent-dir",
-        "triple-parent",
-        "current-dir-nested",
-        "current-with-extension",
-        "absolute-package",
-        "scoped-package",
-        "empty-string",
-        "single-dot",
-    ],
-)
-def test_parse_path_relative(path: str, expected_dots: int, expected_cleaned: str) -> None:
-    dots, cleaned = parse_path_relative(path)
-    assert dots == expected_dots
-    assert cleaned == expected_cleaned
 
 
 def test_registration_defaults() -> None:

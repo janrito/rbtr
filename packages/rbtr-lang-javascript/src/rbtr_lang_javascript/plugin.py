@@ -14,11 +14,11 @@ Extracted chunks::
     class Service {}                → class "Service", scope ""
 
     import { foo } from './models'
-        → import, metadata {module: "models", names: "foo", dots: "1"}
+        → import, metadata {module: "./models", names: "foo"}
     import React from 'react'
         → import, metadata {module: "react", names: "React"}
     import './styles.css'
-        → import, metadata {module: "styles", dots: "1"}
+        → import, metadata {module: "./styles"}
 """
 
 from __future__ import annotations
@@ -32,7 +32,6 @@ from rbtr.languages.registration import (
     LanguageRegistration,
     QueryExtraction,
     load_query,
-    parse_path_relative,
 )
 
 if TYPE_CHECKING:
@@ -51,28 +50,28 @@ def extract_import_meta(
 
     Reads `@_import_module` from captures, then walks the node
     for import names (which the query can't capture because
-    they're multi-valued).  Applies `parse_path_relative` and
-    extension stripping to the module path.
+    they're multi-valued).  Strips the module's file extension, so
+    `./models.js` can resolve to `models.ts`; a `./` or `../` prefix
+    stays for resolution to read.
 
     Examples:
 
         `import { foo } from './models'`:
-            module="models", names="foo", dots="1"
+            module="./models", names="foo"
 
         `import React from 'react'`:
             module="react", names="React"
 
         `import * as utils from '../utils'`:
-            module="utils", names="utils", dots="2"
+            module="../utils", names="utils"
 
         `import './styles.css'`:
-            module="styles", dots="1"
+            module="./styles"
     """
     meta = resolver(node, captures)
     names: list[str] = []
 
     # Module comes from @_import_module capture (string_fragment).
-    # Still need to parse relative paths and strip extensions.
     raw_module = meta.module
 
     # Import clause (no named fields — child iteration needed).
@@ -96,13 +95,9 @@ def extract_import_meta(
                             names.append(ns.text.decode())
                             break
 
-    if raw_module:
-        dots, cleaned = parse_path_relative(raw_module)
-        if dots:
-            meta.dots = str(dots)
-        # Strip file extensions so module resolution can match without guessing.
-        cleaned = str(PurePosixPath(cleaned).with_suffix("")) or cleaned
-        meta.module = cleaned
+    extension = PurePosixPath(raw_module).suffix
+    if extension and len(extension) < len(raw_module):
+        meta.module = raw_module.removesuffix(extension)
 
     if names:
         meta.names = ",".join(names)
@@ -123,7 +118,7 @@ javascript = LanguageRegistration(
     index_files=frozenset({"index.js"}),
     import_targets=frozenset({"javascript", "css"}),
     source_roots=("", "src"),
-    extraction_serial=7,
+    extraction_serial=9,
 )
 typescript = LanguageRegistration(
     id="typescript",
@@ -150,7 +145,7 @@ typescript = LanguageRegistration(
     index_files=frozenset({"index.ts", "index.js"}),
     import_targets=frozenset({"typescript", "tsx", "javascript", "css"}),
     source_roots=("", "src"),
-    extraction_serial=7,
+    extraction_serial=9,
 )
 tsx = LanguageRegistration(
     id="tsx",
@@ -177,7 +172,7 @@ tsx = LanguageRegistration(
     index_files=frozenset({"index.tsx", "index.ts", "index.js"}),
     import_targets=frozenset({"tsx", "typescript", "javascript", "css"}),
     source_roots=("", "src"),
-    extraction_serial=4,
+    extraction_serial=6,
 )
 
 javascript.import_extractor(extract_import_meta)

@@ -19,9 +19,8 @@
     "line_start": 10,
     "line_end": 10,
     "metadata": {
-      "module": "greeter",
+      "module": "./greeter",
       "names": "greet",
-      "dots": "1",
       "language_hint": ""
     }
   },
@@ -115,9 +114,8 @@
     "line_start": 2,
     "line_end": 2,
     "metadata": {
-      "module": "b",
+      "module": "./b",
       "names": "helper",
-      "dots": "1",
       "language_hint": ""
     }
   },

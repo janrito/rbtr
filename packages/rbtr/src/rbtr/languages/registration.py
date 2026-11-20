@@ -27,11 +27,10 @@ is the `LanguageRegistration`, named by its language id::
     [project.entry-points."rbtr.languages"]
     kotlin = "rbtr_lang_kotlin.plugin:kotlin"
 
-This module is the plugin-authoring surface: everything a plugin imports to
-declare itself — `LanguageRegistration`, `ModuleStyle`, `SectionNames`, the resolver type
-aliases, `load_query`, and the capture/import helpers (`parse_path_relative`,
-`collect_scoped_path`, `enclosing_nodes_of_type`, `build_quoted_import`). The
-engine's built-in resolvers live in the private `_resolvers` module.
+This module provides language registrations, resolver type aliases, query
+loading and tree-derived capture helpers. Policy enums live in
+`domain.edge_frames`; path-relative parsing lives in `domain.resolution`.
+The engine's built-in resolvers live in the private `_resolvers` module.
 """
 
 from __future__ import annotations
@@ -40,59 +39,15 @@ import functools
 import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from enum import StrEnum
 from importlib.resources import files
 from typing import TYPE_CHECKING
 
+from rbtr.domain.edge_frames import ModuleStyle, SectionNames
 from rbtr.domain.models import Chunk, ImportMeta
 from rbtr.languages._resolvers import DefaultImport, DefaultName, DefaultScope
 
 if TYPE_CHECKING:
     from tree_sitter import Language, Node, Range
-
-
-class ModuleStyle(StrEnum):
-    """How import module strings map to file paths.
-
-    Languages declare this on `LanguageRegistration` to control
-    how module resolution (`resolution.py`) maps module strings to repo files.
-
-    `PATH`:
-        Slash-separated or bare filenames.  The resolver tries
-        the path as-is first (handles pre-extensioned filenames
-        like `app.js` or `reset.css`), then appends extensions.
-        Detects `./`/`../` prefixes and resolves relative to the
-        importing file.  Used by JS, TS, CSS, HTML, C, Go, Rust,
-        Ruby, and most other languages.
-
-    `DOTTED`:
-        Dot-separated module hierarchy.  The resolver converts
-        `.` to `/` before searching.  Used by Python and Java.
-    """
-
-    PATH = "path"
-    DOTTED = "dotted"
-
-
-class SectionNames(StrEnum):
-    """How a reference compares with the name of one of a language's sections.
-
-    Languages declare this on `LanguageRegistration`; edge inference
-    (`edges.py`) carries it out on the section's name and the reference
-    alike.
-
-    `EXACT`:
-        The reference is the name as written: an HTML element's `id`.
-
-    `FOLDED`:
-        Case, accents, punctuation and leading digits do not count: a
-        Markdown heading `Getting Started` is linked as
-        `#getting-started`, each renderer deriving the anchor by its own
-        rule.
-    """
-
-    EXACT = "exact"
-    FOLDED = "folded"
 
 
 type ImportResolver = Callable[[Node, dict[str, list[Node]]], ImportMeta]
@@ -339,6 +294,7 @@ class LanguageRegistration:
     before resolution (first matching prefix wins), for alias prefixes that
     don't map 1:1 to directories — e.g. `(("crate/", "src/"),)` so Rust's
     `crate::` resolves under `src/`.  Empty → no rewriting."""
+
     package_directory: bool = False
     """Whether a directory is itself a unit of this language, so a reference
     naming one reaches every file inside it: a Go package is its directory and
@@ -512,39 +468,6 @@ def build_quoted_import(
             raw = raw[1:-1]
         meta.module = raw
     return meta
-
-
-def parse_path_relative(specifier: str) -> tuple[int, str]:
-    """Parse a path-relative module specifier into `(dots, cleaned)`.
-
-    Strips `./` and `../` prefixes and returns a `dots` count
-    using the unified depth convention (1 = current directory,
-    2 = parent, etc.) plus the remaining module path.
-
-    Use this in import extractors for languages with filesystem-
-    relative import specifiers (JS, TS, CSS modules, etc.).
-
-    Examples:
-
-        `./models` → (1, "models")
-        `../utils` → (2, "utils")
-        `../../shared/helpers` → (3, "shared/helpers")
-        `react` → (0, "react")
-        `./styles.css` → (1, "styles.css")
-        (1, "styles.css")
-    """
-    dots = 0
-    rest = specifier
-    if rest.startswith("./"):
-        dots = 1
-        rest = rest[2:]
-    else:
-        while rest.startswith("../"):
-            dots += 1
-            rest = rest[3:]
-        if dots:
-            dots += 1  # "../" = 2 (parent dir = 2 levels up from file)
-    return dots, rest
 
 
 def collect_scoped_path(node: Node) -> list[str]:

@@ -56,7 +56,6 @@ class ChunkRow(dy.Schema):
         {
             "module": dy.String(nullable=True),
             "names": dy.String(nullable=True),
-            "dots": dy.String(nullable=True),
             "language_hint": dy.String(nullable=True),
             "node_types": dy.List(dy.String(), nullable=True),
         },

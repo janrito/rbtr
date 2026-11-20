@@ -380,7 +380,6 @@ export const PROTOCOL_DEFS = {
     properties: {
       module: { default: "", type: "string" },
       names: { default: "", type: "string" },
-      dots: { default: "", type: "string" },
       language_hint: { default: "", type: "string" },
     },
     title: "ImportMeta",

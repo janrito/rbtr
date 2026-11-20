@@ -31,7 +31,6 @@
     "metadata": {
       "module": "fmt",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -47,7 +46,6 @@
     "metadata": {
       "module": "example.com/greeter/greeter",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -203,7 +201,6 @@
     "metadata": {
       "module": "strings",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   },

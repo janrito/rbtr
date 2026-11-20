@@ -69,9 +69,8 @@
     "line_start": 9,
     "line_end": 9,
     "metadata": {
-      "module": "config",
+      "module": "./config",
       "names": "LOCALE",
-      "dots": "1",
       "language_hint": ""
     }
   },
@@ -87,7 +86,6 @@
     "metadata": {
       "module": "formatter",
       "names": "format",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -101,9 +99,8 @@
     "line_start": 11,
     "line_end": 11,
     "metadata": {
-      "module": "styles",
+      "module": "./styles",
       "names": "",
-      "dots": "1",
       "language_hint": ""
     }
   },
@@ -267,9 +264,8 @@
     "line_start": 1,
     "line_end": 1,
     "metadata": {
-      "module": "b",
+      "module": "./b",
       "names": "helper",
-      "dots": "1",
       "language_hint": ""
     }
   },

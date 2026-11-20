@@ -394,8 +394,6 @@ def _render_chunk(symbol: SymbolOut) -> None:
                 d.append(meta.module, style="dim")
             if meta.names:
                 d.append(f" ({meta.names})", style="dim")
-            if meta.dots:
-                d.append(f" dots={meta.dots}", style="dim")
         _out.print(d)
 
     _out.print(

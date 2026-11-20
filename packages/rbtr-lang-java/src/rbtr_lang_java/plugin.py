@@ -17,12 +17,8 @@ Extracted chunks::
 
 from __future__ import annotations
 
-from rbtr.languages.registration import (
-    LanguageRegistration,
-    ModuleStyle,
-    QueryExtraction,
-    load_query,
-)
+from rbtr.domain.edge_frames import ModuleStyle
+from rbtr.languages.registration import LanguageRegistration, QueryExtraction, load_query
 
 java = LanguageRegistration(
     id="java",

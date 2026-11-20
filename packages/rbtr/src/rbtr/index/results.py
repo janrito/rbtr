@@ -132,7 +132,6 @@ class _ChunkIdentity(dy.Schema):
         {
             "module": dy.String(nullable=True),
             "names": dy.String(nullable=True),
-            "dots": dy.String(nullable=True),
             "language_hint": dy.String(nullable=True),
             "node_types": dy.List(dy.String(), nullable=True),
         },
@@ -175,7 +174,6 @@ class SymbolRefRow(dy.Schema):
         {
             "module": dy.String(nullable=False),
             "names": dy.String(nullable=False),
-            "dots": dy.String(nullable=False),
             "language_hint": dy.String(nullable=False),
         },
         nullable=True,

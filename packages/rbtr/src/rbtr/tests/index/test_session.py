@@ -18,6 +18,7 @@ from pytest_cases import parametrize_with_cases
 from pytest_mock import MockerFixture
 
 from rbtr.config import config
+from rbtr.domain.edge_frames import EdgeChunkRow, InferredEdgeRow
 from rbtr.domain.models import (
     Chunk,
     EdgeKind,
@@ -31,7 +32,6 @@ from rbtr.errors import RepoNotFoundError
 from rbtr.index.index import Index
 from rbtr.index.staging import EmbeddingStagingRow, serial_map_view, staged_chunks
 from rbtr.languages.chunks import chunk_rows
-from rbtr.languages.edges import InferredEdgeRow
 
 from .cases_index_repos import RepoSequence
 from .cases_index_watched_refs import WatchedRefScenario
@@ -333,6 +333,19 @@ def test_replace_edges_scoped_to_commit(index: Index) -> None:
 
     assert index.count_edges(at=repo.at("c1")) == 0
     assert index.count_edges(at=repo.at("c2")) == 1
+
+
+def test_edge_chunks_are_every_location_in_path_order(
+    dup_index: Index, dup_ref: SnapshotRef
+) -> None:
+    """A chunk at two paths is read once per path, and the rows come in the order chunks are read."""
+    expected = (
+        dup_index.chunks(at=dup_ref)
+        .with_columns(pl.col("metadata").struct.unnest())
+        .pipe(EdgeChunkRow.validate, cast=True)
+    )
+    with dup_index.session(dup_ref.repo) as session:
+        assert session.edge_chunks(dup_ref.snapshot_sha).equals(expected)
 
 
 def test_update_embeddings_round_trip(index: Index) -> None:

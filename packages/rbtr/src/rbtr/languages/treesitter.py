@@ -63,7 +63,9 @@ only: delegation ends as ranges shrink, and at a language with no
 `injection_query`."""
 
 
-class Span(TypedDict):
+class ByteSpan(TypedDict):
+    """A span of a source's bytes, as a capture's docs are kept."""
+
     start: int
     end: int
 
@@ -71,7 +73,6 @@ class Span(TypedDict):
 class Metadata(TypedDict):
     module: str | None
     names: str | None
-    dots: str | None
     language_hint: str | None
     node_types: list[str] | None
 
@@ -90,7 +91,7 @@ class Capture(TypedDict):
     scope: str
     in_class: bool
     column: int
-    docs: list[Span]
+    docs: list[ByteSpan]
     start_byte: int
     end_byte: int
     line_start: int
@@ -151,6 +152,7 @@ def read(
     language.
     """
     captures: list[Capture] = []
+
     chunked: list[tuple[Chunk, int, int, str, str]] = []
     plain: list[int] = []
     numbers = itertools.count()
@@ -179,6 +181,7 @@ def read(
                     captured, named = query_captures(source, extraction)
                     captures += captured
                     captures += fragments(source, extraction, captured, named)
+
     return (
         pl.DataFrame(captures, schema=CaptureRow.create_empty().schema).pipe(
             CaptureRow.validate, cast=True
@@ -373,7 +376,7 @@ def query_captures(
                 scope=scope,
                 in_class=bool(scopes) and scopes[0].type in extraction.class_scope_types,
                 docs=[
-                    Span(start=d.start_byte, end=d.end_byte)
+                    ByteSpan(start=d.start_byte, end=d.end_byte)
                     for d in captured.captures.get(DOCSTRING_CAPTURE, [])
                     if node.start_byte <= d.start_byte and d.end_byte <= node.end_byte
                 ],
@@ -393,7 +396,7 @@ def capture(
     name: str = "",
     scope: list[str] | None = None,
     in_class: bool = False,
-    docs: list[Span] | None = None,
+    docs: list[ByteSpan] | None = None,
     meta: ImportMeta | None = None,
     node_types: list[str] | None = None,
 ) -> Capture:
@@ -409,14 +412,11 @@ def capture(
         metadata = Metadata(
             module=meta.module,
             names=meta.names,
-            dots=meta.dots,
             language_hint=meta.language_hint,
             node_types=None,
         )
     elif node_types is not None:
-        metadata = Metadata(
-            module=None, names=None, dots=None, language_hint=None, node_types=node_types
-        )
+        metadata = Metadata(module=None, names=None, language_hint=None, node_types=node_types)
     return Capture(
         file=source.file,
         source=source.number,

@@ -31,7 +31,6 @@
     "metadata": {
       "module": "std/collections",
       "names": "HashMap",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -47,7 +46,6 @@
     "metadata": {
       "module": "crate/config",
       "names": "LOCALE",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -61,9 +59,8 @@
     "line_start": 14,
     "line_end": 14,
     "metadata": {
-      "module": "",
+      "module": "../",
       "names": "util",
-      "dots": "2",
       "language_hint": ""
     }
   },

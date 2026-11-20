@@ -499,7 +499,6 @@ export interface Preview {
 export interface ImportMeta {
   module?: string;
   names?: string;
-  dots?: string;
   language_hint?: string;
 }
 /**

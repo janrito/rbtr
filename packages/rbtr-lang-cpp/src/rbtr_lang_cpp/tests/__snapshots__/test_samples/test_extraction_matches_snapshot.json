@@ -21,7 +21,6 @@
     "metadata": {
       "module": "string",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -37,7 +36,6 @@
     "metadata": {
       "module": "greeter.hpp",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -233,7 +231,6 @@
     "metadata": {
       "module": "string",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   },
@@ -319,7 +316,6 @@
     "metadata": {
       "module": "text.hpp",
       "names": "",
-      "dots": "",
       "language_hint": ""
     }
   },

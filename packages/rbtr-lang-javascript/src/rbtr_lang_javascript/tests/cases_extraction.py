@@ -94,7 +94,7 @@ def case_js_import_named_single() -> ImportCase:
     return (
         "javascript",
         "import { foo } from './models';\n",
-        {"module": "models", "names": "foo", "dots": "1"},
+        {"module": "./models", "names": "foo"},
     )
 
 
@@ -104,7 +104,7 @@ def case_js_import_named_multiple() -> ImportCase:
     return (
         "javascript",
         "import { foo, bar } from './models';\n",
-        {"module": "models", "names": "foo,bar", "dots": "1"},
+        {"module": "./models", "names": "foo,bar"},
     )
 
 
@@ -114,7 +114,7 @@ def case_js_import_named_parent() -> ImportCase:
     return (
         "javascript",
         "import { Config } from '../config';\n",
-        {"module": "config", "names": "Config", "dots": "2"},
+        {"module": "../config", "names": "Config"},
     )
 
 
@@ -124,7 +124,7 @@ def case_js_import_named_grandparent() -> ImportCase:
     return (
         "javascript",
         "import { util } from '../../shared/util';\n",
-        {"module": "shared/util", "names": "util", "dots": "3"},
+        {"module": "../../shared/util", "names": "util"},
     )
 
 
@@ -140,7 +140,7 @@ def case_js_import_default_relative() -> ImportCase:
     return (
         "javascript",
         "import App from './App';\n",
-        {"module": "App", "names": "App", "dots": "1"},
+        {"module": "./App", "names": "App"},
     )
 
 
@@ -150,20 +150,20 @@ def case_js_import_namespace() -> ImportCase:
     return (
         "javascript",
         "import * as utils from '../utils';\n",
-        {"module": "utils", "names": "utils", "dots": "2"},
+        {"module": "../utils", "names": "utils"},
     )
 
 
 @case(tags=["import"])
 def case_js_import_side_effect() -> ImportCase:
     """import './styles.css' — side-effect only."""
-    return "javascript", "import './styles.css';\n", {"module": "styles", "dots": "1"}
+    return "javascript", "import './styles.css';\n", {"module": "./styles"}
 
 
 @case(tags=["import"])
 def case_js_import_side_effect_no_ext() -> ImportCase:
     """import './polyfills' — no extension."""
-    return "javascript", "import './polyfills';\n", {"module": "polyfills", "dots": "1"}
+    return "javascript", "import './polyfills';\n", {"module": "./polyfills"}
 
 
 @case(tags=["import"])
@@ -293,7 +293,7 @@ def case_ts_import_named() -> ImportCase:
     return (
         "typescript",
         "import { User } from './types';\n",
-        {"module": "types", "names": "User", "dots": "1"},
+        {"module": "./types", "names": "User"},
     )
 
 
@@ -303,7 +303,7 @@ def case_ts_import_type() -> ImportCase:
     return (
         "typescript",
         "import type { Config } from './config';\n",
-        {"module": "config", "names": "Config", "dots": "1"},
+        {"module": "./config", "names": "Config"},
     )
 
 
@@ -326,7 +326,7 @@ def case_ts_import_namespace() -> ImportCase:
 @case(tags=["import"])
 def case_ts_import_side_effect() -> ImportCase:
     """import './setup'."""
-    return "typescript", "import './setup';\n", {"module": "setup", "dots": "1"}
+    return "typescript", "import './setup';\n", {"module": "./setup"}
 
 
 @case(tags=["mixed"])

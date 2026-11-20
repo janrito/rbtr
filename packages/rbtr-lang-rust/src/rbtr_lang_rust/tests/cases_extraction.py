@@ -203,7 +203,7 @@ def case_rust_import_crate_braces() -> ImportCase:
 @case(tags=["import"])
 def case_rust_import_super_single() -> ImportCase:
     """use super::utils."""
-    return "rust", "use super::utils;\n", {"names": "utils", "dots": "2"}
+    return "rust", "use super::utils;\n", {"module": "../", "names": "utils"}
 
 
 @case(tags=["import"])
@@ -212,7 +212,7 @@ def case_rust_import_super_nested() -> ImportCase:
     return (
         "rust",
         "use super::helpers::run;\n",
-        {"module": "helpers", "names": "run", "dots": "2"},
+        {"module": "../helpers", "names": "run"},
     )
 
 
@@ -222,7 +222,7 @@ def case_rust_import_super_super() -> ImportCase:
     return (
         "rust",
         "use super::super::common::Config;\n",
-        {"dots": "3", "module": "common", "names": "Config"},
+        {"module": "../../common", "names": "Config"},
     )
 
 
