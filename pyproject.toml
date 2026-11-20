@@ -88,6 +88,9 @@ unfixable = ["B"]
 "**/tests/**/*.py" = [
   "S101", # asserts allowed in tests
 ]
+"packages/rbtr/src/rbtr/testing/assertions.py" = [
+  "S101", # pytest assertion helpers: their asserts are rewritten into diffs
+]
 
 [tool.ruff.lint.flake8-quotes]
 docstring-quotes = "double"

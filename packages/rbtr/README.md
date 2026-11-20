@@ -958,10 +958,11 @@ example = LanguageRegistration(
 
 ### Testing the plugin
 
-Construct tests call `rbtr.languages.extract.extract_file`, which runs one file through
-the same extraction process the indexer uses for a batch. Sample tests build an example
-project as rbtr builds a repository. The `rbtr[test]` extra (in your `dev` group)
-provides `syrupy` and `pytest-cases`. Lay the tests out beside the code:
+A plugin's tests build source files as rbtr builds a repository, read back
+what an agent would ask, and check it. The `rbtr[test]` extra (in your
+`dev` group) provides `syrupy` and `pytest-cases`, and its pytest plugin
+provides the fixtures, so no `conftest.py` is needed. Lay the tests out
+beside the code:
 
 ```text
 src/rbtr_lang_swift/tests/
@@ -971,127 +972,140 @@ src/rbtr_lang_swift/tests/
   test_detection.py
   test_samples.py
   test_imports.py
-  samples/swift/swift.swift
+  samples/swift/...
   samples/imports/<scenario>/...
   __snapshots__/
 ```
 
-The `rbtr[test]` pytest plugin provides every fixture below, so a test
-just takes them as arguments; no `conftest.py` is needed. `snapshot_json`
-serialises a value to canonical JSON for a snapshot.
+Everything a test needs is in `rbtr.testing`:
 
-Construct tests keep the data (source → expected symbols) in `@case`
-functions and run the pipeline in the test body:
+| Name                                  | From                      | What it does                                                                                       |
+| ------------------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------- |
+| `indexed`                             | fixture                   | `with indexed(files) as index:` builds `{path: text}`, or a sample directory, and yields the index |
+| `outline(index)`                      | `rbtr.testing.reads`      | the symbols of every committed file (or of the paths given), as `list-symbols` gives them          |
+| `read(index, symbol)`                 | `rbtr.testing.reads`      | a symbol's definitions with their text, as `read-symbol` gives them                                |
+| `assert_reached(index, reached)`      | `rbtr.testing.assertions` | each target is reached by exactly the chunks listed                                                |
+| `assert_every_line_in_a_chunk(index)` | `rbtr.testing.assertions` | no non-blank line of a committed file falls outside a symbol                                       |
+| `snapshot_json`                       | fixture                   | snapshots a value as JSON                                                                          |
+
+A case returns its files and what they should give. A file of more than
+one line is a `"""\` block, never a string of escaped newlines:
 
 ```python
 # cases_extraction.py
 from pytest_cases import case
 
-type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
+type SymbolCase = tuple[dict[str, str], list[tuple[str, str, str]]]
 
 
 @case(tags=["symbol"])
 def case_function() -> SymbolCase:
-    return "swift", "func greet() {}\n", [("function", "greet", "")]
+    return {"greet.swift": "func greet() {}\n"}, [("function", "greet", "")]
 
 
 # test_extraction.py
 from pytest_cases import parametrize_with_cases
-from rbtr.git import FileEntry
-from rbtr.languages.extract import extract_file
+from rbtr.testing import Indexed
+from rbtr.testing.reads import outline
 
 
-@parametrize_with_cases("lang, source, expected", cases=".cases_extraction", has_tag="symbol")
-def test_extracts_expected_symbols(lang, source, expected):
-    chunks = extract_file(FileEntry("input", "sha1", source.encode()), lang)
-    got = [(c.kind, c.name, c.scope) for c in chunks]
-    for exp in expected:
-        assert exp in got
+@parametrize_with_cases("files, expected", cases=".cases_extraction", has_tag="symbol")
+def test_extracts_expected_symbols(indexed: Indexed, files: dict[str, str], expected: list) -> None:
+    with indexed(files) as index:
+        symbols = [(s.kind, s.name, s.scope) for s in outline(index)]
+    assert symbols == expected
 ```
 
-A sample test builds a committed example project and snapshots what the
-index then holds, guarding extraction against drift. The test module
-names the sample with a module-scoped `sample_dir` fixture; the
-`rbtr[test]` plugin commits it to a fresh repository, builds it, and
-hands the tests what the build holds as plain values:
+A call, a base or an import is checked as what reaches its target. A
+case for one is a small project and, for each target `(path, symbol)`,
+the chunks that reach it, `(path, name, edge)`:
+
+```python
+# test_imports.py
+import pytest
+from rbtr.testing import Indexed
+from rbtr.testing.assertions import Referrer, Target, assert_reached
+
+
+@pytest.mark.parametrize(
+    ("files", "reached"),
+    [
+        (
+            {
+                "app.swift": """\
+import Util
+
+func run() { log() }
+""",
+                "Util/log.swift": "func log() {}\n",
+            },
+            {
+                ("Util/log.swift", "log"): {
+                    ("app.swift", "import Util", "imports"),
+                    ("app.swift", "run", "calls"),
+                },
+            },
+        ),
+    ],
+)
+def test_each_target_is_reached_by_exactly_the_chunks_named(
+    indexed: Indexed, files: dict[str, str], reached: dict[Target, set[Referrer]]
+) -> None:
+    with indexed(files) as index:
+        assert_reached(index, reached)
+```
+
+A target that no symbol of its path names fails the check, so a
+misspelt target expected to be reached by nothing cannot pass. List the
+definitions a wrong lookup would reach, with no referrers, as well as the
+ones a right lookup reaches.
+
+A sample is an example project in `samples/`, which `indexed` builds
+from its directory. Its outline is snapshotted, and every non-blank line
+must sit in a chunk:
 
 ```python
 # test_samples.py
 from pathlib import Path
 
-import pytest
+from rbtr.testing import Indexed
+from rbtr.testing.assertions import assert_every_line_in_a_chunk
+from rbtr.testing.reads import outline
+from syrupy.assertion import SnapshotAssertion
 
 
-@pytest.fixture(scope="module")
-def sample_dir():
-    return Path(__file__).parent / "samples" / "swift"
-
-
-def test_parses_cleanly(sample_parse_errors):
-    assert sample_parse_errors == []
-
-
-def test_extraction_matches_snapshot(sample_symbols, snapshot_json):
-    assert sample_symbols == snapshot_json
-
-
-def test_edges_match_snapshot(sample_edges, snapshot_json):
-    assert sample_edges == snapshot_json
-
-
-def test_every_line_is_in_a_chunk(sample_uncovered_lines):
-    assert sample_uncovered_lines == []
+def test_extraction_matches_snapshot(indexed: Indexed, snapshot_json: SnapshotAssertion) -> None:
+    with indexed(Path(__file__).parent / "samples" / "swift") as index:
+        assert outline(index) == snapshot_json
+        assert_every_line_in_a_chunk(index)
 ```
 
-`sample_symbols` are the symbols `read-symbol` returns. `sample_edges`
-are the edges, as readable `file::name -> file::name [kind]` lines.
-`sample_uncovered_lines` lists each non-blank line no chunk spans, and
-must be empty: every line of code belongs to a chunk.
-`sample_parse_errors` names each file that does not parse in the
-language the build read it as.
+A failing check is reported at the test's line, with pytest's diff.
 
-Read a change in these snapshots as a change in what a user sees. A
-symbol of kind `fragment` is code no query names: one holding a
-definition is a capture the query is missing. A new uncovered line is
-syntax no chunk reaches. Regenerate the golden files after an intended
-change with `pytest --snapshot-update`, and read the diff before
-committing it.
+Read a change in the snapshot as a change in what a user sees. A symbol
+of kind `fragment` is code no query names: one holding a definition is a
+capture the query is missing. A new uncovered line is syntax no chunk
+reaches. Regenerate the golden files after an intended change with
+`pytest --snapshot-update`, and read the diff before committing it.
 
-The sample holds a file referencing a sibling inside a subdirectory, so
-its edge snapshot shows the language's references resolving from where
-they are written. An import form the main sample cannot hold without
-changing what else resolves, such as two packages sharing a path,
-belongs in a small project of its own under `samples/imports/`. One test
-module reads each through the same fixtures:
-
-```python
-# test_imports.py
-from pathlib import Path
-
-import pytest
-
-
-@pytest.fixture(scope="module", params=["relative-import", "two-packages"])
-def sample_dir(request):
-    return Path(__file__).parent / "samples" / "imports" / request.param
-
-
-def test_edges_match_snapshot(sample_edges, snapshot_json):
-    assert sample_edges == snapshot_json
-```
-
-The files the plugin claims are its own facts, tested beside it:
+The files the plugin claims are its own facts, tested the same way, as
+the language rbtr reads a file as:
 
 ```python
 # test_detection.py
 import pytest
-from rbtr.languages.manager import get_manager
+from rbtr.testing import Indexed
+from rbtr.testing.reads import outline
 
 
 @pytest.mark.parametrize(("path", "language"), [("App.swift", "swift")])
-def test_claims_its_files(path, language):
-    assert get_manager().detect_language(path) == language
+def test_claims_its_files(indexed: Indexed, path: str, language: str) -> None:
+    with indexed({path: ""}) as index:
+        assert {symbol.language for symbol in outline(index, [path])} == {language}
 ```
+
+A plugin's tests import from rbtr only `rbtr.testing` and its `reads`
+and `assertions`, and `rbtr.domain.models`.
 
 ### Installing the plugin
 

@@ -247,3 +247,17 @@ def test_distribution_reports_providing_package() -> None:
 
 def test_distribution_unknown_language_is_none() -> None:
     assert get_manager().distribution("nonesuch") is None
+
+
+def test_a_block_limited_to_some_languages_holds_those_alone() -> None:
+    """Inside the block only the named language is held, Python's `.py` included; after it, the installed languages are back."""
+    manager = get_manager()
+    named = LanguageRegistration(id="named", extensions=frozenset({".named", ".py"}))
+    with manager.limited_to(named):
+        assert manager.all_language_ids() == ["named"]
+        assert (manager.detect_language("a.named"), manager.detect_language("a.py")) == (
+            "named",
+            "named",
+        )
+    assert manager.get_registration("named") is None
+    assert (manager.detect_language("a.named"), manager.detect_language("a.py")) == (None, "python")

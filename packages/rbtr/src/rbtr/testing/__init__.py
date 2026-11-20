@@ -1,21 +1,20 @@
 """Shipped test tools for rbtr, its language plugins and its other packages.
 
-What a test suite (in- or out-of-tree) can't easily re-derive: a
-pydantic-aware snapshot serialiser, a sample project built as rbtr
-builds a repository and read back as plain values, and an isolated
-on-disk index.
+A pytest plugin (the `pytest11` entry point on `rbtr`), so every test suite
+gets its fixtures with no conftest: `indexed` builds a test's files into an
+index, `snapshot_json` snapshots pydantic values, and `isolated_db` gives a
+test its own on-disk index. For a test module that defines `sample_dir`,
+it also provides the built sample's `sample_symbols`, `sample_edges`,
+`sample_uncovered_lines` and `sample_parse_errors`.
 
-Also a pytest plugin (the `pytest11` entry point on `rbtr`): it provides the
-`snapshot_json` and `isolated_db` fixtures, and, for a test module that
-defines `sample_dir`, the built sample's `sample_symbols`, `sample_edges`,
-`sample_uncovered_lines` and `sample_parse_errors`, so every test suite gets
-them with no conftest boilerplate.
+A language test reads what it built through `rbtr.testing.reads`
+(`outline`, `read`) and checks it with `rbtr.testing.assertions`
+(`assert_reached`, `assert_every_line_in_a_chunk`), so every test reads and
+checks the same way.
 
-Always shipped (a normal module); it imports `syrupy` and `pytest`, so it is
-only *importable* with the `rbtr[test]` extra installed — exactly the test
-context that uses it. The sample fixtures are projections
-feeding snapshot assertions; keep them projections — do not fold them into
-`assert_*` helpers, which would hide syrupy's snapshot comparison.
+Always shipped (a normal package); it imports `syrupy` and `pytest`, so it
+is only *importable* with the `rbtr[test]` extra installed — exactly the
+test context that uses it.
 """
 
 from __future__ import annotations
@@ -24,7 +23,8 @@ import os
 import shutil
 import signal
 import time
-from collections.abc import Generator
+from collections.abc import Callable, Generator, Iterator, Mapping
+from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -37,6 +37,12 @@ from syrupy.extensions.single_file import SingleFileSnapshotExtension, WriteMode
 from tree_sitter import Parser
 
 from rbtr.daemon.status import is_pid_alive, read_status
+
+# A check's asserts report pytest's diff only when rewritten, and pytest
+# rewrites a plugin's modules only when it finds them in an installed wheel's
+# file list (an editable install lists none), so the module is named here,
+# before anything imports it.
+pytest.register_assert_rewrite("rbtr.testing.assertions")
 
 if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
@@ -78,6 +84,76 @@ def snapshot_json(snapshot: SnapshotAssertion) -> SnapshotAssertion:
     plugin package needs no conftest to snapshot `Chunk` and edge output.
     """
     return snapshot.use_extension(PydanticSnapshotExtension)
+
+
+type Indexed = Callable[[Mapping[str, str] | Path], AbstractContextManager[Index]]
+"""What the `indexed` fixture gives: `with indexed(files) as index:`, *files* a mapping or a sample directory."""
+
+
+# ----------------------------------------------------------------------------
+# A PURPOSEFUL EXCEPTION TO "NO FACTORY FIXTURES".
+#
+# The testing rules (`.agents/skills/rbtr-testing/SKILL.md`, "No factory
+# fixtures") say a fixture returns a value, never a callable that makes one.
+# `indexed` breaks that rule on purpose, and it is the only fixture that may.
+#
+# It exists for language testing: core's tests and every language plugin's
+# build source files and read what rbtr answers about them. Those tests take
+# their files from pytest-cases cases, and pytest-cases evaluates a case's
+# values only for the test function itself, so a fixture that depends on
+# `files` would receive an unevaluated placeholder. The files therefore reach
+# the build in the test body, through this factory (pytest's documented
+# "Factories as fixtures" pattern), and the index lives only inside the
+# `with` block. Shipping it in this pytest plugin gives every plugin package
+# the same build without code of its own.
+#
+# Do not copy this pattern into other fixtures.
+# ----------------------------------------------------------------------------
+@pytest.fixture
+def indexed(tmp_path: Path) -> Indexed:
+    """Index files in a repository in `tmp_path`: `with indexed(files) as index:`.
+
+    Writes *files* (`{path: text}`, or every file under a sample directory,
+    by its path within it) under `tmp_path`, commits them on top
+    of its branch (the engine reads a repository by its path), builds the
+    commit into an in-memory index with the languages the manager holds
+    (every installed one, or those `limited_to` names), and closes it when
+    the block ends. Read it with `rbtr.testing.reads` and check it with
+    `rbtr.testing.assertions`.
+    """
+    # deferred: `rbtr.index` imports `rbtr.config` (see `isolated_db`).
+    from rbtr.index.build import build_index
+    from rbtr.index.index import Index
+
+    @contextmanager
+    def build(files: Mapping[str, str] | Path) -> Iterator[Index]:
+        written = (
+            {
+                str(path.relative_to(files)): path.read_text()
+                for path in sorted(files.rglob("*"))
+                if path.is_file()
+            }
+            if isinstance(files, Path)
+            else files
+        )
+        for path, text in written.items():
+            (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
+            (tmp_path / path).write_text(text)
+        repo = pygit2.init_repository(str(tmp_path), bare=False, initial_head="main")
+        repo.index.add_all()
+        repo.index.write()
+        author = pygit2.Signature("rbtr", "rbtr@example.com")
+        parents = [] if repo.head_is_unborn else [repo.head.target]
+        tree = repo.index.write_tree()
+        sha = str(repo.create_commit("HEAD", author, author, "files", tree, parents))
+        index = Index(writable=True)
+        try:
+            build_index(str(tmp_path), sha, index)
+            yield index
+        finally:
+            index.close()
+
+    return build
 
 
 @pytest.fixture(scope="module")
@@ -219,7 +295,7 @@ def sample_parse_errors(
     return errors
 
 
-def _terminate_daemon_for(runtime_dir: Path, *, timeout: float = 5.0) -> None:
+def terminate_daemon_for(runtime_dir: Path, *, timeout: float = 5.0) -> None:
     """Stop a subprocess daemon whose status file is in `runtime_dir`.
 
     Reads the daemon's own status file for the pid, sends `SIGTERM`,
@@ -269,4 +345,4 @@ def isolated_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[Pa
     yield data_dir
     # Fixture finalisers still run when pytest unwinds on Ctrl-C; a
     # SIGKILLed run skips them, and nothing in-process can cover that.
-    _terminate_daemon_for(Config(data_dir=data_dir).runtime_dir)
+    terminate_daemon_for(Config(data_dir=data_dir).runtime_dir)

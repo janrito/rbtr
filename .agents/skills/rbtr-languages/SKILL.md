@@ -100,7 +100,9 @@ tests. It imports only core's domain types (`Chunk` and its roles,
 that defines one. An import-linter contract in the root `pyproject.toml`
 holds it: it allows a plugin `rbtr.domain.models` and
 `rbtr.languages.registration`, and nothing else from core. A plugin's
-tests read what extraction gives in domain terms, through the engine.
+tests build files through the engine and read what an agent would ask,
+so they may also import `rbtr.testing` and its `reads` and `assertions`,
+and nothing else.
 
 For embedded languages, an `injection_query` captures each block as
 `@injection.content`. Name its target with static
@@ -236,9 +238,10 @@ controls this behaviour and is enabled by default. See
 
 A fragment is a gap report, not a target. Read the gaps two ways:
 
-- **A sample's snapshot.** Each `test_samples.py` snapshots the symbols a
-  build of the sample holds, fragments among them, and the lines no chunk
-  spans. A fragment holding a definition is a missing capture: a C
+- **A sample's snapshot.** Each `test_samples.py` snapshots the outline
+  of a build of the sample, fragments among it, and checks that no line
+  falls outside a chunk (`assert_every_line_in_a_chunk`, which lists the
+  ones that do). A fragment holding a definition is a missing capture: a C
   prototype inside an `#ifndef` guard. A fragment holding part of one is a
   capture of the wrong node: Python's decorators sat in fragments until its
   query captured `decorated_definition`.
@@ -310,7 +313,10 @@ the adapter (`query_captures`) reads them for every captured node:
    snippet.
 3. Add the construct to that language's sample in the package's
    `tests/samples/` and regenerate the snapshot with `just snapshots`;
-   review the diff.
+   review the diff. Add a case for it too: a file and the symbols it
+   gives, or, for a call, base or import, a small project and what
+   reaches each target (`assert_reached`), with the definitions a wrong
+   lookup would reach listed as reached by nothing.
 4. Bump `extraction_serial` — any extraction change triggers
    re-extraction of stored blobs. It is independent of the package
    version: bump it during development (before any release) when output
@@ -331,9 +337,9 @@ the adapter (`query_captures`) reads them for every captured node:
   beside it decrements twice.
 - **Non-lexical scope → `@_scope`.** Scope otherwise follows tree ancestry.
   A Go method's receiver is a child, so capture it as `@_scope`.
-- **Deterministic test paths.** `next(iter(reg.extensions))` over a
-  `frozenset` varies with `PYTHONHASHSEED`. Choose test paths
-  deterministically with `sorted(...)`, or pass an explicit path.
+- **Name test files explicitly.** A case's files are `{path: source}`
+  with a literal path (`"input.py"`); a path taken from
+  `reg.extensions`, a `frozenset`, varies with `PYTHONHASHSEED`.
 - **Imports need their own patterns.** `tags.scm` has no imports. An
   import is stated by its query alone: captures for the module, names and
   bindings, `#strip!` to cut written text, and `#set!` for names, relative
@@ -349,8 +355,9 @@ the adapter (`query_captures`) reads them for every captured node:
   its predicate reference handling.
 - **Known-unsupported constructs → strict xfail.** Record a construct that
   *should* extract but can't (grammar/plugin limit) as an `xfail(strict=True)`
-  case, so closing the gap flips the test and prompts an update. Reserve for
-  symbol-shaped gaps `(kind, name, scope)`; import-identity gaps don't fit.
+  case, so closing the gap flips the test and prompts an update: a
+  symbol-shaped gap `(kind, name, scope)`, or an edge a call, base or
+  import should make, stated in its `assert_reached` expectation.
 
 ## `tags.scm`: a reference, not a runtime source
 
@@ -380,15 +387,18 @@ Curated per-language verdicts (take / modify / ignore) and the
 
 ## Testing
 
-How a plugin is tested (its sample, import scenarios, detection, and the
-fixtures `rbtr.testing` provides) is described once, in the `rbtr` README's
-"Testing the plugin" section (`packages/rbtr/README.md`). On top of it, in
-this repository:
+How a plugin is tested (its cases, sample, import scenarios, detection,
+and what `rbtr.testing` provides: `indexed`, `outline`, `read`,
+`assert_reached`, `assert_every_line_in_a_chunk`) is described once, in the
+`rbtr` README's "Testing the plugin" section (`packages/rbtr/README.md`).
+On top of it, in this repository:
 
 - Regenerate every plugin's snapshots with `just snapshots`, and read the
   diff before committing.
 - A language's behaviour is tested in its plugin, never in core's tests;
   see **rbtr-testing**.
+- A source file of more than one line is a `"""\` block, never a string of
+  escaped newlines (**rbtr-testing**, "Multi-line source fixtures").
 - Samples, including `samples/imports/`, are exempt from the repo's
   linters and type-checker; they are fixtures, validated by their own
   tests.
