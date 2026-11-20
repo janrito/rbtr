@@ -24,7 +24,7 @@ class User                       # class "User"
   def save; …; end               #   method "save", scope "User"
 end
 MAX = 100                        # variable "MAX"
-require_relative "config"        # import, metadata {module: ./config, names: *}
+require_relative "config"        # import, imports [{module: ./config, names: *}]
 ```
 
 ## Embedded / injected chunks

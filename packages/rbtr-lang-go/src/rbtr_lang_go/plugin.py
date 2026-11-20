@@ -11,7 +11,7 @@ Extracted chunks::
     type Reader interface { ... }   → class "Reader", scope ""
 
     import "fmt"
-        → import, metadata {module: "fmt"}, binding `fmt`
+        → import, imports [{module: "fmt"}], binding `fmt`
     import ("fmt" "os/exec")
         → 2 import chunks: {module: "fmt"}, {module: "os/exec"}, binding `exec`
 

@@ -19,9 +19,9 @@ Extracted chunks::
     end
 
     require "json"
-        → import, metadata {module: "json", names: "*"}
+        → import, imports [{module: "json", names: "*"}]
     require_relative "helpers"
-        → import, metadata {module: "./helpers", names: "*"}
+        → import, imports [{module: "./helpers", names: "*"}]
 """
 
 from __future__ import annotations

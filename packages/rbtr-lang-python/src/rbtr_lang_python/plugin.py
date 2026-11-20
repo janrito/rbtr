@@ -1,7 +1,7 @@
 """Python language plugin.
 
 Provides full support: symbol extraction (functions, classes,
-methods, imports) and structured import metadata.
+methods, imports) and each import's module, names and bindings.
 
 Extracted chunks::
 
@@ -12,11 +12,11 @@ Extracted chunks::
         def load(self):     → method "load", scope "Config"
             pass
 
-    import os               → import, metadata {module: "os"}
+    import os               → import, imports [{module: "os"}]
     from pathlib import Path
-                            → import, metadata {module: "pathlib", names: "Path"}
+                            → import, imports [{module: "pathlib", names: "Path"}]
     from ..core import engine
-                            → import, metadata {module: "../core", names: "engine"}
+                            → import, imports [{module: "..core", names: "engine"}]
 
 A chunk records what it calls and a class its bases (`references.scm`):
 `self.save()` and `cls.make()` start from the enclosing class, `super().save()`

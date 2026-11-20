@@ -187,7 +187,7 @@ def excluded_identifiers(name: str, scope: str) -> list[str]:
 
     The symbol's name and the parts of its scope — what search can
     match a query against directly. The full-text index covers
-    `name_tokens` and `content_tokens`, and the embedding is the name
+    `name_tokens` and `content_tokens`, and the embedding is the names
     followed by the content, so withholding the name is what stops a
     concept query being answered by an exact match on it.
 

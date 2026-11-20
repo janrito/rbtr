@@ -17,7 +17,7 @@ Extracted chunks::
     };
 
     #include <iostream>
-        → import, metadata {module: "iostream", names: "*"}
+        → import, imports [{module: "iostream", names: "*"}]
 """
 
 from __future__ import annotations

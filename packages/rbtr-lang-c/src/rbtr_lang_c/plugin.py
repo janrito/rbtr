@@ -14,9 +14,9 @@ Extracted chunks::
     typedef struct { ... } Point;   → class "Point", scope ""
 
     #include <stdio.h>
-        → import, metadata {module: "stdio.h", names: "*"}
+        → import, imports [{module: "stdio.h", names: "*"}]
     #include "mylib.h"
-        → import, metadata {module: "mylib.h", names: "*"}
+        → import, imports [{module: "mylib.h", names: "*"}]
 """
 
 from __future__ import annotations

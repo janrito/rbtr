@@ -15,7 +15,7 @@ Extracted chunks::
     %card { ... }                → class "%card"
     .btn { ... }                 → class ".btn"
     @keyframes slide { ... }     → class "slide"
-    @use "config";               → import, metadata {module: "config"}
+    @use "config";               → import, imports [{module: "config"}]
 """
 
 from __future__ import annotations

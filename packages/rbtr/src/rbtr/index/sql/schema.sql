@@ -1,6 +1,7 @@
--- One project's data file.  `meta` holds the embedding model and format
--- version its vectors were made with; the schema version lives in the
--- registry (`registry.sql`).
+-- One project's data file.  `meta` holds the schema version this file was
+-- migrated to (each file records its own; the registry's records the
+-- registry's), and the embedding model and format version its vectors
+-- were made with.
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -46,11 +47,11 @@ CREATE TABLE IF NOT EXISTS chunks (
   line_start INTEGER NOT NULL,
   line_end INTEGER NOT NULL,
   -- What the chunk's role carries beyond kind and name: a fragment's
-  -- syntax node types; the calls and bases a definition, class or fragment
-  -- writes (`refs`, each with the edge it makes); the imports the chunk
-  -- makes (`imports`, empty when it makes none: a key or a section can
-  -- import too), each with its text, module, names, target language and
-  -- bindings.
+  -- syntax node types; the calls and bases a definition, class,
+  -- statement or fragment writes (`refs`, each with the edge it makes);
+  -- the imports the chunk makes (`imports`, empty when it makes none: a
+  -- key or a section can import too), each with its text, module, names,
+  -- target language and bindings.
   metadata STRUCT(
     -- Diagnostic: rbtr-eval's index report reads it to find syntax no
     -- query captures; search and the edge graph do not.

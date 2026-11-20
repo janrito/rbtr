@@ -28,8 +28,8 @@ fn greet(name: &str) -> String { … }   // function "greet"
 struct Server { … }                    // class "Server"
 impl Server { fn start(&self) {} }     // class "Server"; method "start", scope "Server"
 const MAX: u32 = 100;                  // variable "MAX"
-use crate::config::Config;             // import, metadata {module: crate::config, names: Config}
-mod util;                              // import, metadata {module: ./util}
+use crate::config::Config;             // import, imports [{module: crate::config, names: Config}]
+mod util;                              // import, imports [{module: self::util}]
 ```
 
 ## Embedded / injected chunks

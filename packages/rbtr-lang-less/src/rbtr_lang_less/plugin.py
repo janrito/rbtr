@@ -15,7 +15,7 @@ Extracted chunks::
     .rounded(@r) { ... }         → function "rounded"
     .btn { ... }                 → class ".btn"
     @keyframes slide { ... }     → class "slide"
-    @import "reset";             → import, metadata {module: "reset"}
+    @import "reset";             → import, imports [{module: "reset"}]
 """
 
 from __future__ import annotations

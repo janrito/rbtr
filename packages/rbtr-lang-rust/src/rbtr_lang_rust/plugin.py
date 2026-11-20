@@ -15,11 +15,11 @@ Extracted chunks::
     }
 
     use std::collections::HashMap
-        → import, metadata {module: "std::collections", names: "HashMap"}
+        → import, imports [{module: "std::collections", names: "HashMap"}]
     use crate::models::{Chunk, Edge}
-        → import, metadata {module: "crate::models", names: "Chunk,Edge"}
+        → import, imports [{module: "crate::models", names: "Chunk,Edge"}]
     use super::utils
-        → import, metadata {module: "../", names: "utils"}
+        → import, imports [{module: "super", names: "utils"}]
 """
 
 from __future__ import annotations

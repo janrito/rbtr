@@ -25,7 +25,7 @@ func Greet(name string) string { … }   // function "Greet"
 type Server struct { … }               // class "Server"
 func (s *Server) Start() { … }         // method "Start", scope "Server"
 const MaxConns = 100                   // variable "MaxConns"
-import "fmt"                           // import, metadata {module: fmt}
+import "fmt"                           // import, imports [{module: fmt}]
 ```
 
 ## Embedded / injected chunks

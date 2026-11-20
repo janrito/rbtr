@@ -10,11 +10,11 @@ Extracted chunks::
     }
 
     import java.util.HashMap
-        → import, metadata {module: "java.util.HashMap", names: "HashMap"}
+        → import, imports [{module: "java.util.HashMap", names: "HashMap"}]
     import static org.junit.Assert.assertEquals
-        → import, metadata {module: "org.junit.Assert", names: "assertEquals"}
+        → import, imports [{module: "org.junit.Assert", names: "Assert.assertEquals"}]
     import com.example.models.*
-        → import, metadata {module: "com.example.models", names: "*"}
+        → import, imports [{module: "com.example.models", names: "*"}]
 
 A method's unqualified names reach its class's members (`members_in_scope`),
 and a package's classes see each other without imports (`directory_scope`).

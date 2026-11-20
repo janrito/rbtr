@@ -32,7 +32,8 @@ Title              doc_section "Title"
 Section            doc_section "Section", scope "Title"
 -------
 See :func:`helper` and :doc:`api/index`.
-                   import {names: helper}; import {module: api/index}
+                   import, imports [{names: helper, hint: python}];
+                   import, imports [{module: api/index}]
 ```
 
 ## Embedded / injected chunks

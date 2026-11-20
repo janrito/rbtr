@@ -10,8 +10,13 @@ itself (`pip install rbtr`).
 - **Functions & methods** — `def` / `async def`; methods are scoped to their
   enclosing class.
 - **Classes** — class definitions (which also form a scope for their members).
-- **Variables** — module-level assignments, including flat tuple unpacking.
-  Function locals and class attributes stay within their enclosing chunk.
+- **Variables** — module-level assignments; a flat tuple unpacking is one
+  variable, named by its names joined. Function locals and class attributes stay within
+  their enclosing chunk.
+- **Statements** — a module's `if`, `try`, `with`, `for` and `while` blocks,
+  and calls spanning lines, each one chunk; a definition or import inside
+  one is a chunk nested in it (`if __name__ == "__main__":` holding `def
+  main`).
 - **Imports** — `import` and `from … import` (relative, aliased, multi-name)
   → import chunks with resolved module + names, for cross-file edges.
 
@@ -28,7 +33,12 @@ class User:  # class "User"
 
 
 MAX = 100  # variable "MAX"
-from .utils import helper  # import, metadata {module: "./utils", names: "helper"}
+low, high = 1, 9  # variable "low, high"
+import os, sys  # import, imports [{module: "os"}, {module: "sys"}]
+from .utils import helper  # import, imports [{module: ".utils", names: "helper"}]
+
+if __name__ == "__main__":  # statement
+    main()
 ```
 
 ## Embedded / injected chunks

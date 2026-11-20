@@ -262,7 +262,10 @@ The query identifies a function and its enclosing class; the rules
 make `retry` a method and fold its leading comment into both its span
 and its documentation. The class still contains its body. Comments
 inside definitions remain in their text; standalone comment blocks
-become searchable `COMMENT` chunks. Scope paths join enclosing names
+become searchable `COMMENT` chunks. A top-level statement a language
+declares (`@statement`, Python's `if __name__ == "__main__":`) is one
+chunk, and what is captured inside it nests in it, as `retry` nests in
+`Client` ([Declared statements](#git-and-extraction)). Scope paths join enclosing names
 with `::`, so a nested class would give a method a scope such as
 `Outer::Client`.
 
@@ -393,8 +396,11 @@ distribution:
   `Import`, `Comment`, `RawSlice`, `Fragment`), `Span`, `ChunkKind`,
   `ImportMeta`, `Lookup`, where a reference's path is looked up, and
   the declared resolution policies `ModuleStyle`, `SectionNames` and
-  `MemberOrder`. A chunk's references are read from its row, in
-  `metadata.refs`.
+  `MemberOrder`. A chunk's references and imports are read from its
+  row, in `metadata.refs` and `metadata.imports`; an `Import` role is one
+  import, and a chunk of several is a query's (one span, several
+  captures). `@statement` is a query capture only: the chunker roles
+  have none.
 
 None of these modules loads polars or dataframely, and a plugin imports
 nothing else from core: the frames, rows and rules are core's own.
@@ -419,7 +425,13 @@ builds a repository (`indexed`, from core's pytest plugin
 over the daemon's handlers): its outline is compared against committed
 snapshots under `__snapshots__/`, and its edges are checked as what
 reaches each target (`rbtr.testing.assertions`), the same checks every
-language test makes. A plugin's tests import from rbtr only
+language test makes. Core's conformance test
+(`test_plugin_conformance.py`) builds every sample project of every
+installed plugin (each directory, each under `imports/` and `calls/`,
+each loose file) and checks the rules extraction holds for any
+language: every non-blank line is in a chunk, no kind overlap is left
+undecided, and each chunk is the text of its byte span, one per span. A
+plugin with no samples fails it. A plugin's tests import from rbtr only
 `rbtr.testing` and its `reads` and `assertions`, and the models, held by
 an import-linter allow-list, so they reach neither the
 index, its frames nor the daemon's messages.
@@ -440,21 +452,19 @@ installs by default. So core's suite passes with
 any set of optional plugins installed, and a change to a plugin fails a
 test in that plugin.
 
-The snapshots record the reply shape, not the write model (`Chunk`),
-so a change to how chunks are written or stored changes no snapshot
-unless what a user reads changes too. A sample test does not extract
-each file and infer edges itself: that repeats the build and drifts
-from it, as a file no plugin claims is plaintext only in a build. Nor
-do the build and the tests share a pure files-to-chunks-and-edges
-function: the build is incremental, extracting only blobs the store
-lacks and inferring edges from everything the store holds for the
-snapshot, so such a function would be a path production never takes.
-Each sample test builds the sample itself with `indexed`, so a plugin
-builds its sample three times (for the snapshot, the edges and every
-line): the 80 sample tests take 33.6 s in one process, the slowest
-1.57 s. Revisit that if the builds grow too slow; one build per module
-needs a module-scoped fixture that builds files, which `indexed`, a
-factory a test calls, does not give.
+The snapshots record the reply shape, not the write model (`Chunk`), so a change to how
+chunks are written or stored changes no snapshot unless what a user reads changes too. A
+sample test does not extract each file and infer edges itself: that repeats the build
+and drifts from it, as a file no plugin claims is plaintext only in a build. Nor do the
+build and the tests share a pure files-to-chunks-and-edges function: the build is
+incremental, extracting only blobs the store lacks and inferring edges from everything
+the store holds for the snapshot, so such a function would be a path production never
+takes. Each sample test builds the sample itself with `indexed`, so a plugin builds its
+sample twice (for the snapshot and the edges), and the conformance test once more: the
+55 sample tests take 30.7 s in one process, the slowest 2.18 s, and the 86 conformance
+cases 21.1 s. Revisit that if the builds grow too slow; one build per module needs a
+module-scoped fixture that builds files, which `indexed`, a factory a test calls, does
+not give.
 
 The samples are exempt from the repo's linters and
 type-checker — they are fixtures, validated by their own
@@ -607,6 +617,7 @@ names leave unresolved is listed in that plugin's README, under
 | A call on a local reaches its class's member only through a written type: `x = make()` reads `make` as the type, and a local with no annotation or constructor reaches nothing | Types are read from what is written beside the local, not inferred                                                                                                               | `case_a_local_assigned_from_a_factory_reaches_the_class_it_returns` |
 | A name bound twice in one file reaches both                                                                                                                                    | Bindings keep no order, so a later import shadowing an earlier one cannot be told from alternatives (`try: import ujson as json / except: import json`), which should reach both | `case_a_later_import_of_a_name_shadows_an_earlier`                  |
 | `Special.save` returns every `save` up the chain                                                                                                                               | The qualified-name reader admits each ancestor's scope; the member order is applied to calls only                                                                                | `test_a_class_qualified_name_reaches_the_override_it_calls`         |
+| An import of one name of a declaration of several (`from config import high` for `low, high = 1, 9`) reaches nothing                                                           | The declaration is one chunk, named `low, high`, and an import matches a name exactly                                                                                            | `test_an_import_of_one_name_reaches_the_declaration_of_several`     |
 
 Powers `find-refs` and the importance signal in search
 ranking. `find-refs` first resolves the user's symbol *name*
@@ -1123,7 +1134,140 @@ project file's tables, with the joins between them](docs/diagrams/data-model.png
 | `meta`              | `(key)`                                                                                                                                                                                                   |
 
 Chunk ids are sha256, so Python and DuckDB compute the same value: Python as rows
-are staged, polars having no sha256, and migrations in SQL.
+are staged, polars having no sha256, and migrations in SQL. [Tables](#tables)
+gives every column of each.
+
+### Tables
+
+Every column, key, sequence, index and check of the registry
+(`registry.sql`) and of a project's file (`schema.sql`), and what reads
+each. `metadata.*` are the fields of `chunks.metadata`; a **Joins** row
+names a join a read or write makes, which no table declares.
+
+#### Registry: `meta`
+
+| Column  | Type            | Key | Why                                                                          |
+| ------- | --------------- | --- | ---------------------------------------------------------------------------- |
+| `key`   | `TEXT`          | PK  | one value per key: schema_version, the version this registry was migrated to |
+| `value` | `TEXT NOT NULL` |     | the value; migrations on open compare it with SCHEMA_VERSION                 |
+
+#### Registry: `projects`
+
+| Column                       | Type              | Key | Why                                                                                       |
+| ---------------------------- | ----------------- | --- | ----------------------------------------------------------------------------------------- |
+| `id`                         | `INTEGER`         | PK  | surrogate from projects_id_seq; repos.project_id names it                                 |
+| `common_dir`                 | `TEXT NOT NULL`   | UQ  | the git common directory: a checkout and its linked worktrees share one, so one project   |
+| `file`                       | `TEXT NOT NULL`   | UQ  | the project's data file under index/; replaced by a fresh copy on compaction              |
+| `compacted_bytes`            | `BIGINT NOT NULL` |     | the file's size when last written whole: the baseline the compaction threshold grows from |
+| **Sequence projects_id_seq** |                   |     |                                                                                           |
+
+#### Registry: `repos`
+
+| Column                                                     | Type               | Key | Why                                                                                                                     |
+| ---------------------------------------------------------- | ------------------ | --- | ----------------------------------------------------------------------------------------------------------------------- |
+| `id`                                                       | `INTEGER`          | PK  | surrogate from repos_id_seq, unique across files; every per-repo row in a project file carries it as repo_id            |
+| `path`                                                     | `TEXT NOT NULL`    | UQ  | the canonical checkout path; requests name a repo by its path                                                           |
+| `project_id`                                               | `INTEGER NOT NULL` |     | the project whose file holds this repo's rows; no FOREIGN KEY, as DuckDB rejects updating a referenced projects.file    |
+| `missing_since`                                            | `TIMESTAMP`        |     | when maintenance first found the path gone; it forgets the repo after forget_after_s, clears this when the path is back |
+| **Sequence repos_id_seq**                                  |                    |     |                                                                                                                         |
+| **Joins**                                                  |                    |     |                                                                                                                         |
+| `projects ON project_id = id`                              |                    |     | which data file holds this checkout's rows                                                                              |
+| `every per-repo table of the project file ON id = repo_id` |                    |     | file_snapshots, edges, indexed_snapshots, watched_refs: across files, kept whole by the store                           |
+
+#### Project file: `meta`
+
+| Column  | Type            | Key | Why                                                                                                |
+| ------- | --------------- | --- | -------------------------------------------------------------------------------------------------- |
+| `key`   | `TEXT`          | PK  | schema_version, embedding_model, embedding_version                                                 |
+| `value` | `TEXT NOT NULL` |     | a model or format change clears every embedding on open (vectors of two models cannot be compared) |
+
+#### Project file: `file_snapshots`
+
+| Column                                                     | Type               | Key | Why                                                                                                             |
+| ---------------------------------------------------------- | ------------------ | --- | --------------------------------------------------------------------------------------------------------------- |
+| `repo_id`                                                  | `INTEGER NOT NULL` | PK  | which checkout; no DEFAULT, so a write that forgot it fails rather than filing rows under another repo          |
+| `snapshot_sha`                                             | `TEXT NOT NULL`    | PK  | a commit, or the working tree's tree SHA                                                                        |
+| `file_path`                                                | `TEXT NOT NULL`    | PK  | where the file is: a chunk carries no path, so a result's paths come from here                                  |
+| `blob_sha`                                                 | `TEXT NOT NULL`    |     | the file's content: joins to chunks, so unchanged files share extractions                                       |
+| `detected_language`                                        | `TEXT NOT NULL`    |     | the language the file was read as; joins to chunks.file_language; reused for files only content detection names |
+| **Keys, indexes**                                          |                    |     |                                                                                                                 |
+| `PRIMARY KEY (repo_id, snapshot_sha, file_path)`           |                    |     | one row per file of a snapshot; uniqueness only (replace_snapshots deletes, then inserts)                       |
+| `idx_snapshots_repo_commit (repo_id, snapshot_sha)`        |                    | IDX | every snapshot-scoped read filters on it                                                                        |
+| **Joins**                                                  |                    |     |                                                                                                                 |
+| `chunks ON blob_sha AND detected_language = file_language` |                    |     | a snapshot's chunks: every read and the edge pass go through this join                                          |
+| `indexed_snapshots ON repo_id, snapshot_sha`               |                    |     | a build writes a snapshot's rows here and its completion row in one transaction                                 |
+| `repos (registry) ON repo_id = id`                         |                    |     | across files, so no FOREIGN KEY: the store writes repo_id from the repo it holds                                |
+
+#### Project file: `chunks`
+
+| Column                                                          | Type               | Key | Why                                                                                                                                               |
+| --------------------------------------------------------------- | ------------------ | --- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                                                            | `TEXT`             | PK  | first 16 hex of sha256(blob_sha:file_language:start_byte:end_byte): one span of a blob read as one language; edges and the search index key on it |
+| `blob_sha`                                                      | `TEXT NOT NULL`    |     | the blob the chunk is a span of: joins to file_snapshots; re-extraction replaces by blob                                                          |
+| `kind`                                                          | `TEXT NOT NULL`    |     | the chunk's role, the narrowest of its captures (KIND_NARROWS): filters reads, sets the kind boost, picks edge rules                              |
+| `name`                                                          | `TEXT NOT NULL`    |     | the name its captures give it, several joined by `,` (`low, high`), `''` when unnamed: name search, read-symbol, find-refs, edge targets          |
+| `scope`                                                         | `TEXT NOT NULL`    |     | the enclosing names (Outer::Inner): qualified names, member lookup, display                                                                       |
+| `language`                                                      | `TEXT NOT NULL`    |     | the chunk's own language (an embedded block's): its serial, hinted resolution, the plugin check                                                   |
+| `file_language`                                                 | `TEXT NOT NULL`    |     | the language the file was read as; joins to detected_language; the same bytes read twice are two extractions                                      |
+| `extraction_serial`                                             | `INTEGER NOT NULL` |     | the serial of the plugin that wrote it: a blob is re-extracted when this differs                                                                  |
+| `content`                                                       | `TEXT NOT NULL`    |     | exactly the blob's text from start_byte to end_byte: read-symbol's body, previews, the reranker, the embedding's input                            |
+| `content_tokens`                                                | `TEXT NOT NULL`    |     | search_tokens(content), computed once at write: the search index's body field                                                                     |
+| `name_tokens`                                                   | `TEXT NOT NULL`    |     | search_tokens(name): the search index's name field                                                                                                |
+| `start_byte`                                                    | `BIGINT NOT NULL`  |     | where the span starts in the blob: identity                                                                                                       |
+| `end_byte`                                                      | `BIGINT NOT NULL`  |     | where it ends, exclusive: identity                                                                                                                |
+| `line_start`                                                    | `INTEGER NOT NULL` |     | the first line: navigation, display, ordering (reads have no file text to turn bytes into lines)                                                  |
+| `line_end`                                                      | `INTEGER NOT NULL` |     | the line of the span's last byte: spans in replies, range checks                                                                                  |
+| `metadata`                                                      | `STRUCT NOT NULL`  |     | what the role carries beyond kind and names                                                                                                       |
+| `metadata.node_types`                                           | `TEXT[]`           |     | a fragment's syntax: diagnostic, read by rbtr-eval's index report                                                                                 |
+| `metadata.refs`                                                 | `STRUCT[]`         |     | the calls and bases a definition, class, statement or fragment writes: call and inherit edges                                                     |
+| `metadata.imports`                                              | `STRUCT[]`         |     | every import the span makes, on any kind (a $ref key imports): text, module, names, hint, bindings                                                |
+| `embedding`                                                     | `FLOAT[]`          |     | the semantic channel's vector, variable length; kept across re-extraction while names and content are unchanged                                   |
+| `embedding_truncated`                                           | `BOOLEAN NOT NULL` |     | the text exceeded the model's context: diagnostic, reported, never ranked                                                                         |
+| **Keys, checks, indexes**                                       |                    |     |                                                                                                                                                   |
+| `PRIMARY KEY (id)`                                              |                    |     | the target of the upsert's ON CONFLICT (id); staging refuses two rows of one id                                                                   |
+| `CHECK chunk_span`                                              |                    |     | end_byte >= start_byte and line_end >= line_start                                                                                                 |
+| `CHECK truncation_needs_embedding`                              |                    |     | truncation describes an embedding that exists                                                                                                     |
+| `idx_chunks_blob (blob_sha, file_language)`                     |                    | IDX | the snapshot join, current_blobs, replace by blob, the orphan prune                                                                               |
+| `search index fts_main_chunks`                                  |                    | FTS | BM25 over name_tokens and content_tokens, keyed by id; rebuilt after writes; IDF neutralised                                                      |
+| **Joins**                                                       |                    |     |                                                                                                                                                   |
+| `file_snapshots ON blob_sha, file_language = detected_language` |                    |     | where a chunk is: its repos and paths; one chunk, many locations                                                                                  |
+| `edges ON id = source_id / target_id`                           |                    |     | what it reaches and what reaches it                                                                                                               |
+
+#### Project file: `edges`
+
+| Column                                        | Type               | Key | Why                                                                                    |
+| --------------------------------------------- | ------------------ | --- | -------------------------------------------------------------------------------------- |
+| `repo_id`                                     | `INTEGER NOT NULL` | PK  | edges are per checkout                                                                 |
+| `snapshot_sha`                                | `TEXT NOT NULL`    | PK  | and per snapshot: a build replaces the edges of each snapshot whose chunks it changed  |
+| `source_id`                                   | `TEXT NOT NULL`    | PK  | the chunk that imports, calls, inherits or documents                                   |
+| `target_id`                                   | `TEXT NOT NULL`    | PK  | the chunk it reaches; find-refs and the importance signal read inbound edges           |
+| `kind`                                        | `TEXT NOT NULL`    | PK  | imports, documents, calls or inherits; weighted per kind in search                     |
+| `source_path`                                 | `TEXT NOT NULL`    | PK  | a chunk shared by two paths resolves relative to each, so the path is part of the edge |
+| `target_path`                                 | `TEXT NOT NULL`    | PK  | the same for the target; read by get_edges and qualified-name lookup                   |
+| **Keys**                                      |                    |     |                                                                                        |
+| `PRIMARY KEY (all seven)`                     |                    |     | insert_edges de-duplicates with ON CONFLICT DO NOTHING                                 |
+| **Joins**                                     |                    |     |                                                                                        |
+| `chunks ON source_id = id, ON target_id = id` |                    |     | inbound_refs names the referring chunk; inbound_degree counts a target's edges         |
+| `file_snapshots ON repo_id, snapshot_sha`     |                    |     | clean-up deletes the edges of a snapshot with no file list                             |
+
+#### Project file: `indexed_snapshots`
+
+| Column                                | Type                 | Key | Why                                                                                     |
+| ------------------------------------- | -------------------- | --- | --------------------------------------------------------------------------------------- |
+| `repo_id`                             | `INTEGER NOT NULL`   | PK  | completion is per checkout                                                              |
+| `snapshot_sha`                        | `TEXT NOT NULL`      | PK  | a snapshot is readable only with this row, written with its file list and edges         |
+| `indexed_at`                          | `TIMESTAMP NOT NULL` |     | newest first: the latest indexed commit for reads, the order embedding works in, status |
+| **Keys**                              |                      |     |                                                                                         |
+| `PRIMARY KEY (repo_id, snapshot_sha)` |                      |     | the target of mark_indexed's ON CONFLICT, which refreshes indexed_at                    |
+
+#### Project file: `watched_refs`
+
+| Column                       | Type               | Key | Why                                                                                    |
+| ---------------------------- | ------------------ | --- | -------------------------------------------------------------------------------------- |
+| `repo_id`                    | `INTEGER NOT NULL` | PK  | intent is per checkout; HEAD is seeded for every repo                                  |
+| `ref`                        | `TEXT NOT NULL`    | PK  | a branch, tag or SHA the watcher keeps indexed; garbage collection keeps what it names |
+| **Keys**                     |                    |     |                                                                                        |
+| `PRIMARY KEY (repo_id, ref)` |                    |     | the target of insert_watched_refs' ON CONFLICT DO NOTHING: watching twice is one watch |
 
 ### Embedding column
 
@@ -1537,9 +1681,10 @@ contents suggest, and that a symbol many things depend on is
 more often the one you meant.
 
 **Kind boost** — what the chunk is. A class scores 1.5, a
-function or method 1.3, a variable 1.0, a doc section 0.8, a
-test function 0.7, a config key 0.6, a comment or raw
-line-chunk 0.5, a migration 0.4, an import 0.3. An import line
+function or method 1.3, a variable or API endpoint 1.0, a doc
+section 0.8, a test function 0.7, a config key 0.6, a comment,
+raw line-chunk, fragment or statement 0.5, a migration 0.4, an
+import 0.3. An import line
 matches a name as well as the definition does and is almost
 never what was wanted, which is what the bottom of that range
 is for.
@@ -1673,7 +1818,10 @@ stored (repo-relative) chunk paths.
 `read-symbol` and `find-refs` turn a name into chunks through
 `Index.name_matches`, as does search's name-match channel. A
 name matches by tier (exact, case-insensitive, prefix,
-substring), and only the best tier any file found is kept.
+substring), and only the best tier any file found is kept. A
+declaration of several names is one chunk named `low, high`, so
+`high` finds it within the name, and only where nothing matches
+`high` better in the snapshot.
 
 A qualified name is written in the canonical form a scope is
 stored in, `Outer::Inner::name` (`compose_scope`), or with any
@@ -2444,6 +2592,20 @@ tree-walk, so one extraction model covers every language. The cost
 is that tree-sitter cannot see blank lines, so grouping comment
 runs into blocks is a rule over the captured rows (`fold_comments`).
 
+**Declared statements.** A language may declare the top-level statements a
+file runs as `@statement` (Python's `if __name__ == "__main__":`, a test file's
+multi-line `describe(…)` call): each is one unnamed chunk, and what its query
+captures inside it is a chunk nested in it, as a method is in its class, so the
+statement's text is never cut into fragments around a `def`. Core applies no
+rule of its own on a file's root; a language with no declaration leaves such text
+to fragments. Every captured kind narrows a statement (`KIND_NARROWS`), so a
+JavaScript `test(…)` captured as a test and as a statement is a test. A
+statement holds the calls written in it, as a fragment does. A query capture
+must name a kind, a metadata capture or a `_` helper: any other name
+(`@statment`, or `@fragment`, which no capture makes) fails the build with
+`QueryCaptureError`, raised past `extract_files`' per-file isolation since no
+file is at fault.
+
 **Fragments for code no query names.** A query selects the constructs it names;
 everything else in a file — a module-level `if __name__ == "__main__":`,
 `module.exports = {…}`, a Go `package` clause, a parse error — would otherwise reach no
@@ -2615,21 +2777,23 @@ to every stored id, in `chunks` and twice per edge, for odds already
 small.
 
 **Roles describe chunks; rows expose their fields.** A custom chunker returns `Chunk`
-values whose roles (`Definition`, `Section`, `Import`, `Comment`,
-`RawSlice`, `Fragment`) carry the data for that kind. Query extraction produces the
-corresponding columns directly. Both paths reach `ChunkRow`: `kind`, `name` and span
-columns support filtering and identity, while `metadata` is a `STRUCT` of role payload
-fields: the imports the chunk makes (a list, empty when it makes none, each with its
-module, names, hint and bindings), a fragment's node types, what a definition, class or
+values whose roles (`Definition`, `Section`, `Import`, `Comment`, `RawSlice`,
+`Fragment`) carry the data for that kind. Query extraction produces the corresponding
+columns directly. Both paths reach `ChunkRow`: `kind`, `name` and span columns support
+filtering and identity, while `metadata` is a `STRUCT` of role payload fields: the
+imports the chunk makes (a list, empty when it makes none, each with its module, names,
+hint and bindings), a fragment's node types, what a definition, class, statement or
 fragment calls, and a class's bases. A role that can record calls always stores a list,
-empty when it records none. `chunk_rows` flattens the chunker's values, an `Import`
-role becoming an import list of one; staging adds the storage columns. Reads keep
-those rows rather than reconstructing write models. A struct passes between DuckDB and
-polars as Arrow; storing metadata as JSON would add per-row encoding and parsing.
+empty when it records none. `chunk_rows` flattens the chunker's values, an `Import` role
+becoming an import list of one; staging adds the storage columns. Reads keep those rows
+rather than reconstructing write models. A struct passes between DuckDB and polars as
+Arrow; storing metadata as JSON would add per-row encoding and parsing.
 
 **One span, one chunk.** A node two patterns capture is one chunk: a JSON `$ref` is a
 key that imports, an HCL `module` block a key that imports its `source`, `import os,
-sys` one import of two modules. Its kind is the narrowest of its captures
+sys` one import of two modules, `low, high = 1, 9` one variable named `low, high`: its
+name is its captures' names joined by `, `, less an import's text where a key imports.
+Its kind is the narrowest of its captures
 (`KIND_NARROWS`, the one table of kind precedence: a test narrows a function, every kind
 narrows an import); its imports and calls are every capture's. Indexes that
 cross-reference code hold the same: SCIP gives one occurrence several `symbol_roles`,
@@ -2637,6 +2801,24 @@ and Kythe hangs several edges off one anchor. Two chunks of one span do not work
 the id is the span, so they would share an id and the index would keep either. Search
 weights a chunk by its kind, so a key that imports ranks as a key, and an import's
 lower weight applies only to a chunk that is an import alone.
+
+Three other ways of choosing do not work here. A priority per pattern, as Neovim's
+`#set! priority` gives highlights, is a setting no overlap in any plugin needs, since
+`KIND_NARROWS` decides every one the samples hold. The earliest or latest pattern
+winning makes the kind depend on a query's order, and tree-sitter's own runners
+disagree on which (tree-sitter issue #1374). Naming each import by its module, so
+`import os, sys` is two chunks, keeps two chunks over one span. Revisit if a language
+needs two kinds on one node that neither narrows.
+
+A list of names per chunk, so that `from config import high` and `read-symbol high`
+reach `low, high = 1, 9` exactly, does not pay. On five eval corpora (django,
+excalidraw, tokio, hugo, redis) a chunk of several names is 0 to 0.064% of named
+chunks, and some of those were query defects since fixed: Go's grouped `type ( … )`
+named every type on one chunk, and HTML named a form field by its `name`. The list made
+every reader join the names to show them and edge inference read a chunk once per
+name. One name costs the edge from an import of one of the names
+([what names resolve wrongly](#calls-and-bases)), and `read-symbol high` finds the
+declaration only within its name, beside any import named with `high`.
 
 **Opening the index migrates it.** Migration belongs to the `index`
 layer and reports through the log; the CLI just opens the index, and

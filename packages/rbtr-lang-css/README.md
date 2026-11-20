@@ -31,7 +31,7 @@ body { color: #333; }              /* class "body",          scope ""      */
 .card { .title { … } }             /* class ".title",        scope ".card" */
 @media (max-width: 600px) { … }    /* class, unnamed                      */
 @keyframes slide { … }             /* class "slide"                       */
-@import url("reset.css");          /* import, metadata {module: reset.css} */
+@import url("reset.css");          /* import, imports [{module: reset.css}] */
 :root { --brand: #333; }           /* variable "--brand"                   */
 ```
 

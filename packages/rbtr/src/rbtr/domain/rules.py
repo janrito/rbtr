@@ -129,8 +129,8 @@ class ChunkRow(dy.Schema):
     The role is spread over `kind`, `name` and `metadata`: the imports
     the chunk makes (empty when it makes none; a key or a section can
     import too); a fragment's node types (a diagnostic, read by rbtr-eval
-    only), null on other kinds; the calls and bases a definition, class
-    or fragment writes (a base only on a class), null on other kinds.
+    only), null on other kinds; the calls and bases a definition, class,
+    statement or fragment writes (a base only on a class), null on other kinds.
     `docs` is the text of its documentation, null when it has none.
     `content` is the file's text from `start_byte` to `end_byte`, and
     `line_end` the line its last byte is on.
