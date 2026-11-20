@@ -19,15 +19,17 @@ import structlog
 from rbtr.config import config
 from rbtr.domain.models import KindOverlap
 from rbtr.domain.rules import (
+    CaptureRow,
     FileRow,
     KindOverlapRow,
     PlacedChunkRow,
     assemble,
     capture_chunks,
+    end_before_trailing_whitespace,
+    last_line_of_span,
     levelled,
     line_windows,
     with_metadata,
-    without_trailing_whitespace,
 )
 from rbtr.errors import QueryCaptureError
 from rbtr.git import FileEntry
@@ -96,7 +98,15 @@ def extract_batch(files: dy.DataFrame[FileRow]) -> Extraction:
     # Each rule is one lazy plan, its result checked within it, collected
     # before the next rule reads it: a plan copies a frame it reads twice into
     # each use, and `with_metadata` reads its inputs many times.
-    trimmed = without_trailing_whitespace(captures.lazy(), files).collect()
+    trimmed = (
+        captures.lazy()
+        .join(files.select("file", "content").lazy(), on="file")
+        .with_columns(end_byte=end_before_trailing_whitespace(pl.col("end_byte")))
+        .with_columns(line_end=last_line_of_span())
+        .drop("content")
+        .pipe(CaptureRow.validate, cast=True)
+        .collect()
+    )
     settled = levelled(trimmed.lazy(), files).collect()
     described = with_metadata(settled.lazy(), metadata_captures.lazy()).collect()
     # Read by both of `assemble`'s plans, so collected once here.

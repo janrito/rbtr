@@ -581,24 +581,6 @@ def end_before_trailing_whitespace(stop: pl.Expr) -> pl.Expr:
     )
 
 
-def without_trailing_whitespace(
-    captures: dy.LazyFrame[CaptureRow], files: dy.DataFrame[FileRow]
-) -> dy.LazyFrame[CaptureRow]:
-    """*captures* each ended before the whitespace it ends with, and its last line the line of its new last byte.
-
-    Grammars fold the line break after a node into it (a Markdown
-    paragraph, a C `#include`), so two captures of one span would
-    otherwise differ by a newline, and a chunk would end on a blank line.
-    """
-    return (
-        captures.join(files.select("file", "content").lazy(), on="file")
-        .with_columns(end_byte=end_before_trailing_whitespace(pl.col("end_byte")))
-        .with_columns(line_end=last_line_of_span())
-        .drop("content")
-        .pipe(CaptureRow.validate, cast=True)
-    )
-
-
 def last_line_of_span() -> pl.Expr:
     """The line a span's last byte is on, from `line_start` and the newlines before that byte.
 
