@@ -17,7 +17,7 @@ from pathlib import PurePosixPath
 
 from rbtr.domain.models import ImportMeta
 from rbtr.languages.manager import LanguageManager
-from rbtr.languages.registration import ModuleStyle, parse_path_relative
+from rbtr.languages.registration import ModuleStyle, SectionNames, parse_path_relative
 
 
 @dataclass(frozen=True)
@@ -46,6 +46,9 @@ class ImportResolution:
     prose: bool = False
     """Whether the language's references document what they name (see
     `LanguageRegistration.prose`)."""
+    section_names: SectionNames = SectionNames.EXACT
+    """How a reference compares with the name of one of the language's
+    sections. See `SectionNames`."""
 
 
 def build_resolution_map(
@@ -87,6 +90,7 @@ def build_resolution_map(
             own_extensions=reg.extensions,
             package_directory=reg.package_directory,
             prose=reg.prose,
+            section_names=reg.section_names,
         )
     return result
 
@@ -110,7 +114,8 @@ def import_files(
     3. For a path-style reference found nowhere from the root, beside
        the importer: `@import "b.css"` in `css/a.css` means `css/b.css`.
 
-    A file never resolves to itself, however its neighbours are named.
+    A file resolves to itself only for an import that names it and
+    something in it.
     """
     resolution = resolution_map.get(meta.language_hint or language)
     if resolution is None:
@@ -132,7 +137,11 @@ def import_files(
             beside = _climb(file_path, 1, module)
             if beside is not None and beside != module:
                 found = module_files(beside, repo_files, resolution, importer_ext)
-    return [f for f in found if f != file_path]
+    # A file reaches itself only by naming itself and something in it (`#usage`,
+    # `guide.md#usage` in `guide.md`); reaching it through its directory's
+    # stand-in (`from . import x` in `__init__.py`) names the directory.
+    names_itself = bool(meta.names) and PurePosixPath(module).name == PurePosixPath(file_path).name
+    return [f for f in found if f != file_path or names_itself]
 
 
 def module_files(

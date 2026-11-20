@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pytest_cases import parametrize_with_cases
 
-from rbtr.domain.models import ChunkKind, Import
+from rbtr.domain.models import ChunkKind, Import, Section
 from rbtr.git import FileEntry
 from rbtr.languages.extract import extract_file
 
@@ -75,3 +75,50 @@ def test_html_self_closing_link_produces_import() -> None:
     imports = [c.role for c in chunks if isinstance(c.role, Import)]
     assert len(imports) == 1
     assert imports[0].meta.module == "styles.css"
+
+
+def test_html_anchor_href_names_a_page() -> None:
+    """`<a href>` to a page imports it, naming the fragment's element; `#top` names its own page.
+
+    A link to an external URL is not recorded.
+    """
+    src = """\
+<html>
+<body>
+<p>See <a href="guide.html#setup">setup</a>, <a href="about.html">about</a>,
+<a href="https://example.com">elsewhere</a> and <a href="#top">the top</a>.</p>
+</body>
+</html>
+"""
+    chunks = extract_file(FileEntry("page.html", "sha1", src.encode()), "html")
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
+    assert [(i.meta.module, i.meta.names, i.meta.language_hint) for i in imports] == [
+        ("guide.html", "setup", ""),
+        ("about.html", "", ""),
+        ("page.html", "top", ""),
+    ]
+
+
+def test_an_element_a_fragment_can_name_is_a_section_named_by_it() -> None:
+    """An element with an `id` or `name` is a section of that name; a section element without one, of its tag.
+
+    A start tag alone, as inline HTML in Markdown gives one, counts too.
+    """
+    src = """\
+<html>
+<body>
+<section id="setup"><h2 id="install">Install</h2><p><a name="pip"></a>pip.</p></section>
+<section><p>Use it.</p></section>
+</body>
+</html>
+"""
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "html")
+    assert [c.role.name for c in chunks if isinstance(c.role, Section)] == [
+        "body",
+        "setup",
+        "install",
+        "pip",
+        "section",
+    ]
+    lone = extract_file(FileEntry("input", "sha1", b'<a id="here">'), "html")
+    assert [c.role.name for c in lone if isinstance(c.role, Section)] == ["here"]

@@ -8,9 +8,11 @@ itself (`pip install rbtr`).
 ## What it ingests
 
 - **Sections** — major `<body>` elements (`<main>`, `<article>`, `<nav>`, …)
-  → doc sections, named by their `id` (else the tag name).
+  → doc sections, named by their `id` (else the tag name); any other element
+  with an `id` or `name` → a doc section of that name.
 - **Imports** — `<script src>` and `<link href>` → import chunks carrying the
-  referenced path and a language hint, so edges link to the target file.
+  referenced path and a language hint, so edges link to the target file;
+  `<a href="page.html#id">` → an import naming the element `id`.
 
 ## Chunks produced
 

@@ -12,8 +12,10 @@ Each import takes one `ImportWay`:
   symbol in those files, or else a doc section of that name; one
   naming none (`import x`, `#include "x.h"`) reaches every chunk the
   files bring into scope.
-- `NAME`: prose naming a symbol and no file (an rST `:func:` role)
-  reaches the first symbol of that name anywhere.
+- `NAME`: prose naming something and no file (an rST `:func:` or
+  `:ref:` role) reaches the first chunk of that name in the language its
+  `language_hint` says holds it, as a module says where a Python import
+  finds its name; with no hint, the first symbol of that name anywhere.
 - `TEXT`: an import whose extractor recorded nothing usable; each word
   of its text that is a file's stem reaches that file's first symbol.
   Imprecise, and the only way left.
@@ -31,6 +33,7 @@ import dataframely as dy
 import polars as pl
 
 from rbtr.domain.models import ChunkKind, EdgeKind, ImportMeta
+from rbtr.languages.registration import SectionNames
 from rbtr.languages.resolution import ImportResolution, import_files
 
 
@@ -59,7 +62,7 @@ class ImportWay(StrEnum):
     MODULE = "module"
     """Its metadata names a module or a relative depth: it reaches the module's files."""
     NAME = "name"
-    """Prose naming a symbol and no file (rST `:func:`): it reaches that symbol."""
+    """Prose naming something and no file (rST `:func:`, `:ref:`): it reaches that chunk."""
     TEXT = "text"
     """Neither: its words that are file stems reach those files."""
 
@@ -75,9 +78,25 @@ class ImportRow(dy.Schema):
     source_path = dy.String(nullable=False)
     name = dy.String(nullable=False)
     names = dy.String(nullable=False)
+    language_hint = dy.String(nullable=False)
     way = dy.Enum(w.value for w in ImportWay)
     kind = dy.Enum(k.value for k in EdgeKind)
     target_paths = dy.List(dy.String(), nullable=True)
+
+
+class SectionKeyRow(dy.Schema):
+    """A doc section with the key a reference reaches it by, and whether that key is folded.
+
+    One row per file and key: of two sections a reference could reach,
+    the earlier line.
+    """
+
+    id = dy.String(nullable=False)
+    file_path = dy.String(nullable=False)
+    line_start = dy.Int32(nullable=False)
+    language = dy.String(nullable=False)
+    key = dy.String(nullable=False)
+    folded = dy.Bool(nullable=False)
 
 
 class InferredEdgeRow(dy.Schema):
@@ -186,6 +205,7 @@ def _imports(
             pl.col("file_path").alias("source_path"),
             "name",
             "names",
+            pl.col("language_hint").fill_null(""),
             "way",
             _edge_kind(prose),
             "target_paths",
@@ -194,19 +214,44 @@ def _imports(
     )
 
 
-def _module_files(imports: dy.DataFrame[ImportRow]) -> pl.DataFrame:
-    """The `MODULE` imports, one row per file their module resolves to, as `target_path`."""
+def _listed_names() -> pl.Expr:
+    """The names an import lists (`from x import a, b`), as a list to explode into one per row."""
+    return pl.col("names").str.split(",")
+
+
+def _folded(name: pl.Expr) -> pl.Expr:
+    """*name* as `SectionNames.FOLDED` compares it: letters and digits, lowercase, no accents.
+
+    Leading digits do not count either: renderers drop them from a
+    heading's anchor (`1. Intro` is linked as `#intro`).
+    """
     return (
-        imports.filter(pl.col("way") == ImportWay.MODULE)
-        .explode("target_paths")
-        .rename({"target_paths": "target_path"})
+        name.str.normalize("NFKD")
+        .str.to_lowercase()
+        .str.replace_all(r"[^\p{L}\p{N}]", "")
+        .str.replace(r"^\p{N}+", "")
     )
 
 
-def _named(imports: pl.DataFrame) -> pl.DataFrame:
-    """*imports*, one row per name each one names, as `target_name`."""
-    return imports.with_columns(pl.col("names").str.split(",").alias("target_name")).explode(
-        "target_name"
+def _folds(folding: list[str]) -> pl.Expr:
+    """Whether a section's language, one of *folding*, declares `SectionNames.FOLDED`."""
+    return pl.col("language").is_in(folding)
+
+
+def _section_key(folding: list[str]) -> pl.Expr:
+    """The key a reference reaches a section by: its name, folded when its language folds."""
+    return pl.when(_folds(folding)).then(_folded(pl.col("name"))).otherwise(pl.col("name"))
+
+
+def _reference_keys() -> pl.Expr:
+    """The keys a reference's `target_name` can match a section by: as written, and folded.
+
+    Each is a `{key, folded}` struct, to explode into one row each and
+    join against a section's `key` and `folded`.
+    """
+    return pl.concat_list(
+        pl.struct(key=pl.col("target_name"), folded=pl.lit(value=False)),
+        pl.struct(key=_folded(pl.col("target_name")), folded=pl.lit(value=True)),
     )
 
 
@@ -215,8 +260,9 @@ def _bare_edges(
 ) -> dy.DataFrame[InferredEdgeRow]:
     """A bare import (`import x`, `#include "x.h"`) reaches every chunk its files bring into scope."""
     return (
-        _module_files(imports)
-        .filter(pl.col("names") == "")
+        imports.filter((pl.col("way") == ImportWay.MODULE) & (pl.col("names") == ""))
+        .explode("target_paths")
+        .rename({"target_paths": "target_path"})
         .join(
             importable.select(
                 pl.col("file_path").alias("target_path"), pl.col("id").alias("target_id")
@@ -230,26 +276,50 @@ def _bare_edges(
 def _named_edges(
     imports: dy.DataFrame[ImportRow],
     symbols: dy.DataFrame[EdgeChunkRow],
-    sections: dy.DataFrame[EdgeChunkRow],
+    sections: dy.DataFrame[SectionKeyRow],
 ) -> dy.DataFrame[InferredEdgeRow]:
     """A named import (`from X import Y`) reaches each named symbol in its files.
 
-    A name no symbol there has reaches a doc section of that name
-    instead (`doc.md#a-heading`).
+    A name no symbol there has reaches the doc section whose key equals
+    it, folded when the section's is (`doc.md#a-heading`).
     """
-
-    def by_name(targets: dy.DataFrame[EdgeChunkRow], alias: str) -> pl.DataFrame:
-        return targets.select(
-            pl.col("file_path").alias("target_path"),
-            pl.col("name").alias("target_name"),
-            pl.col("id").alias(alias),
+    named = (
+        imports.filter((pl.col("way") == ImportWay.MODULE) & (pl.col("names") != ""))
+        .explode("target_paths")
+        .rename({"target_paths": "target_path"})
+        .with_columns(target_name=_listed_names())
+        .explode("target_name")
+    )
+    reached = ["source_id", "target_path", "target_name"]
+    by_section = (
+        named.with_columns(reference=_reference_keys())
+        .explode("reference")
+        .unnest("reference")
+        .join(
+            sections.select(
+                pl.col("file_path").alias("target_path"),
+                "key",
+                "folded",
+                pl.col("line_start").alias("section_line"),
+                pl.col("id").alias("section_id"),
+            ),
+            on=["target_path", "key", "folded"],
         )
-
-    keys = ["target_path", "target_name"]
+        .sort("section_line")
+        .unique(reached, keep="first", maintain_order=True)
+        .select(*reached, "section_id")
+    )
     return (
-        _named(_module_files(imports).filter(pl.col("names") != ""))
-        .join(by_name(symbols, "symbol_id"), on=keys, how="left")
-        .join(by_name(sections, "section_id"), on=keys, how="left")
+        named.join(
+            symbols.select(
+                pl.col("file_path").alias("target_path"),
+                pl.col("name").alias("target_name"),
+                pl.col("id").alias("symbol_id"),
+            ),
+            on=["target_path", "target_name"],
+            how="left",
+        )
+        .join(by_section, on=reached, how="left")
         .with_columns(target_id=pl.coalesce("symbol_id", "section_id"))
         .drop_nulls("target_id")
         .pipe(InferredEdgeRow.validate, cast=True)
@@ -257,21 +327,67 @@ def _named_edges(
 
 
 def _name_edges(
-    imports: dy.DataFrame[ImportRow], symbols: dy.DataFrame[EdgeChunkRow]
+    imports: dy.DataFrame[ImportRow],
+    symbols: dy.DataFrame[EdgeChunkRow],
+    sections: dy.DataFrame[SectionKeyRow],
 ) -> dy.DataFrame[InferredEdgeRow]:
-    """A `NAME` import documents the first symbol of each name it names, wherever it is."""
-    first_by_name = symbols.unique("name", keep="first", maintain_order=True)
-    return (
-        _named(imports.filter(pl.col("way") == ImportWay.NAME))
-        .join(
-            first_by_name.select(
-                pl.col("name").alias("target_name"),
-                pl.col("id").alias("target_id"),
-                pl.col("file_path").alias("target_path"),
-            ),
-            on="target_name",
+    """A `NAME` import documents the first chunk of each name it names, in its hinted language.
+
+    The first symbol of that name in the language its `language_hint`
+    names, or else the first section whose key equals it (an rST `:ref:`
+    hinted `rst`); with no hint, the first symbol of that name anywhere.
+    First by file, then line.
+    """
+    named = (
+        imports.filter(pl.col("way") == ImportWay.NAME)
+        .with_columns(target_name=_listed_names())
+        .explode("target_name")
+    )
+    reached = ["source_id", "target_name"]
+    by_symbol = (
+        pl.concat(
+            [
+                symbols.select("language", "name", "id", "file_path"),
+                symbols.select(pl.lit("").alias("language"), "name", "id", "file_path"),
+            ]
         )
-        .with_columns(kind=pl.lit(EdgeKind.DOCUMENTS))
+        .unique(["language", "name"], keep="first", maintain_order=True)
+        .select(
+            pl.col("language").alias("language_hint"),
+            pl.col("name").alias("target_name"),
+            pl.col("id").alias("symbol_id"),
+            pl.col("file_path").alias("symbol_path"),
+        )
+    )
+    by_section = (
+        named.filter(pl.col("language_hint") != "")
+        .with_columns(reference=_reference_keys())
+        .explode("reference")
+        .unnest("reference")
+        .join(
+            sections.select(
+                pl.col("language").alias("language_hint"),
+                "key",
+                "folded",
+                pl.col("id").alias("section_id"),
+                pl.col("file_path").alias("section_path"),
+                pl.col("line_start").alias("section_line"),
+            ),
+            on=["language_hint", "key", "folded"],
+        )
+        .sort("section_path", "section_line")
+        .unique(reached, keep="first", maintain_order=True)
+        .select(*reached, "section_id", "section_path")
+    )
+    return (
+        named.join(by_symbol, on=["language_hint", "target_name"], how="left")
+        .join(by_section, on=reached, how="left")
+        .with_columns(
+            target_id=pl.coalesce("symbol_id", "section_id"),
+            target_path=pl.coalesce("symbol_path", "section_path"),
+            kind=pl.lit(EdgeKind.DOCUMENTS),
+        )
+        .drop_nulls("target_id")
         .pipe(InferredEdgeRow.validate, cast=True)
     )
 
@@ -321,7 +437,9 @@ def infer_import_edges(
     """Infer the edges *chunks*' imports make to the chunks they reach.
 
     Each import takes one `ImportWay`, resolved by `_bare_edges` and
-    `_named_edges` (`MODULE`), `_name_edges` and `_text_edges`. A
+    `_named_edges` (`MODULE`), `_name_edges` and `_text_edges`. A doc
+    section is reached by its key (`SectionKeyRow`), folded when its
+    language declares `SectionNames.FOLDED`. A
     module resolves to files with `import_files`, by the rules
     *resolution_map* holds for each language.
 
@@ -334,13 +452,23 @@ def infer_import_edges(
         .unique(["file_path", "name"], keep="first", maintain_order=True)
         .pipe(EdgeChunkRow.validate)
     )
+    rules = resolution_map or {}
+    folding = [lang for lang, r in rules.items() if r.section_names is SectionNames.FOLDED]
     sections = (
         chunks.filter(pl.col("kind") == ChunkKind.DOC_SECTION)
-        .unique(["file_path", "name"], keep="first", maintain_order=True)
-        .pipe(EdgeChunkRow.validate)
+        .select(
+            "id",
+            "file_path",
+            "line_start",
+            "language",
+            key=_section_key(folding),
+            folded=_folds(folding),
+        )
+        .filter(pl.col("key") != "")
+        .unique(["file_path", "key", "folded"], keep="first", maintain_order=True)
+        .pipe(SectionKeyRow.validate, cast=True)
     )
     importable = chunks.filter(_brought_into_scope()).pipe(EdgeChunkRow.validate)
-    rules = resolution_map or {}
     prose = pl.col("language").is_in([language for language, r in rules.items() if r.prose])
     index_stems = {PurePosixPath(f).stem for r in rules.values() for f in r.index_files}
     imports = _imports(chunks, prose, repo_files, rules)
@@ -348,7 +476,7 @@ def infer_import_edges(
         [
             _bare_edges(imports, importable),
             _named_edges(imports, symbols, sections),
-            _name_edges(imports, symbols),
+            _name_edges(imports, symbols, sections),
             _text_edges(imports, symbols, repo_files, index_stems),
         ]
     )

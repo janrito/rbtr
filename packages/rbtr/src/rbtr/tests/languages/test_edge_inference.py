@@ -7,6 +7,7 @@ import pytest
 from pytest_cases import parametrize_with_cases
 
 from rbtr.languages.edges import EdgeChunkRow, infer_import_edges
+from rbtr.languages.registration import SectionNames
 from rbtr.languages.resolution import ImportResolution
 
 from .cases_import_ways import ImportWayScenario
@@ -14,7 +15,12 @@ from .cases_import_ways import ImportWayScenario
 
 @pytest.fixture
 def import_rules() -> dict[str, ImportResolution]:
-    """How the neutral languages of `cases_import_ways` resolve: `code` imports, `prose` documents."""
+    """How the neutral languages of `cases_import_ways` resolve.
+
+    `code` imports what it names; `prose` and `page` document it. A
+    reference to a `prose` section compares folded, and one to a `page`
+    section as written.
+    """
     return {
         "code": ImportResolution(
             extensions=(".code",),
@@ -24,6 +30,14 @@ def import_rules() -> dict[str, ImportResolution]:
         ),
         "prose": ImportResolution(
             extensions=(".code", ".prose"),
+            index_files=(),
+            source_roots=("",),
+            path_substitutions=(),
+            prose=True,
+            section_names=SectionNames.FOLDED,
+        ),
+        "page": ImportResolution(
+            extensions=(".page",),
             index_files=(),
             source_roots=("",),
             path_substitutions=(),

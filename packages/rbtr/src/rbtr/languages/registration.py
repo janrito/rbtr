@@ -28,7 +28,7 @@ is the `LanguageRegistration`, named by its language id::
     kotlin = "rbtr_lang_kotlin.plugin:kotlin"
 
 This module is the plugin-authoring surface: everything a plugin imports to
-declare itself — `LanguageRegistration`, `ModuleStyle`, the resolver type
+declare itself — `LanguageRegistration`, `ModuleStyle`, `SectionNames`, the resolver type
 aliases, `load_query`, and the capture/import helpers (`parse_path_relative`,
 `collect_scoped_path`, `enclosing_nodes_of_type`, `build_quoted_import`). The
 engine's built-in resolvers live in the private `_resolvers` module.
@@ -72,6 +72,27 @@ class ModuleStyle(StrEnum):
 
     PATH = "path"
     DOTTED = "dotted"
+
+
+class SectionNames(StrEnum):
+    """How a reference compares with the name of one of a language's sections.
+
+    Languages declare this on `LanguageRegistration`; edge inference
+    (`edges.py`) carries it out on the section's name and the reference
+    alike.
+
+    `EXACT`:
+        The reference is the name as written: an HTML element's `id`.
+
+    `FOLDED`:
+        Case, accents, punctuation and leading digits do not count: a
+        Markdown heading `Getting Started` is linked as
+        `#getting-started`, each renderer deriving the anchor by its own
+        rule.
+    """
+
+    EXACT = "exact"
+    FOLDED = "folded"
 
 
 type ImportResolver = Callable[[Node, dict[str, list[Node]]], ImportMeta]
@@ -352,6 +373,9 @@ class LanguageRegistration:
     rather than importing it: its references make `documents` edges, and one
     may name a symbol and no file (an rST `:func:` role), found by name
     anywhere."""
+    section_names: SectionNames = SectionNames.EXACT
+    """How a reference compares with the name of one of this language's
+    sections. See `SectionNames`."""
 
     # Extraction overrides — attached via the decorator methods below. Each slot
     # holds the *effective* resolver: a built-in default (a `_Default*`

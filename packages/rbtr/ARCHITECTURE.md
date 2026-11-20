@@ -421,8 +421,11 @@ importing file: `@import "b.css"` in `css/a.css` means
 `css/b.css`, and the root comes first so a reference that already
 resolves keeps the file it resolved to. `module_style` and
 `source_roots` tune the mapping per language; ambiguous matches
-are dropped rather than guessed, and a file never resolves to
-itself.
+are dropped rather than guessed, and a file resolves to itself only
+for a reference that names that file and something in it (`#usage`,
+or `guide.md#usage` in `guide.md`): `from . import x` in an
+`__init__.py` reaches it through its directory's stand-in, which names
+the directory, not the file.
 
 Some references name a directory rather than a file. Where the
 language names a directory's stand-in — `__init__.py`,
@@ -441,6 +444,20 @@ A registration names such a file as its `manifest`, the
 extraction loop reads it while the content is in hand, and
 `build_resolution_map` turns it into path substitutions — the
 edge pass itself reads no files.
+
+References reach sections by their names. Queries capture explicit HTML
+ids and rST labels as sections; headings keep their title. A plugin
+chooses `SectionNames.EXACT` for names such as HTML ids, or `FOLDED` to
+compare a heading with a renderer's fragment. For example,
+`guide.md#getting-started` reaches Markdown's `Getting Started` heading.
+Core applies the declared comparison over the frame.
+
+A name-only reference uses `ImportMeta.language_hint` to choose where to
+look: rST's `:func:` hints `python`, while `:ref:` hints `rst`. Its query
+sets this with `#set! import.language_hint`; resolution returns the first
+matching chunk in that language, comparing section names as its plugin
+declares. [Git and extraction](#git-and-extraction) explains the choice
+of names and comparison rules.
 
 Whether each language's own syntax reaches a file is pinned in that
 language's plugin: its sample holds a file importing a sibling inside a
@@ -2244,6 +2261,15 @@ way around writing a pattern:
 
 Each rule is deleted when tree-sitter-rst gives the node: entries in a
 `toctree`'s content, sections nesting their body.
+
+**Section references use captured names and a comparison rule.** Queries
+capture author-defined ids and labels; an enum lets core compare names
+in columns. Stored anchor lists mix those names with renderer-derived
+data, while plugin callbacks would either expose polars to plugins or
+run Python per row. `language_hint` already distinguishes the scope of
+`:ref:` from `:func:`, so a separate reference-kind field repeats that
+information. Folding does not reproduce renderer-specific numbering or
+transliteration; revisit if unresolved links require those rules.
 
 **Batch extraction amortises frame processing.** Comment folding, text
 materialisation, ordering and tokenisation operate on sets of rows. A

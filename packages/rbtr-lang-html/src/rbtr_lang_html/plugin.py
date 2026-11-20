@@ -75,7 +75,7 @@ html = LanguageRegistration(
     ),
     injection_query=load_query(__package__, "injections"),
     import_targets=frozenset({"javascript", "typescript", "css"}),
-    extraction_serial=4,
+    extraction_serial=5,
 )
 
 
@@ -83,9 +83,10 @@ html = LanguageRegistration(
 def _element_name(
     resolver: NameResolver, capture_name: str, node: Node, captures: dict[str, list[Node]]
 ) -> str:
-    """Name a semantic element by its `id`, else its tag; others by default."""
-    if capture_name != "doc_section":
-        return resolver(capture_name, node, captures)
+    """Name an element by the `id` or `name` the query captured, else its `id`, else its tag."""
+    captured = resolver(capture_name, node, captures)
+    if capture_name != "doc_section" or captured:
+        return captured
     start_tag = next((c for c in node.children if c.type == "start_tag"), None)
     if start_tag is not None:
         elem_id = _get_attr(start_tag, "id")
@@ -101,7 +102,15 @@ def _element_name(
 def _import_meta(
     resolver: ImportResolver, node: Node, captures: dict[str, list[Node]]
 ) -> ImportMeta:
-    """Import metadata with a language hint from the element kind."""
+    """Import metadata hinted by the element kind: a script, a stylesheet, or a link to a page.
+
+    A `<script src>` imports JavaScript and a `<link href>` CSS, each hinted
+    so it resolves by that language's rules. An `<a href>` names a page and
+    takes no hint.
+    """
     meta = resolver(node, captures)
-    meta.language_hint = "javascript" if node.type == "script_element" else "css"
+    if node.type == "script_element":
+        meta.language_hint = "javascript"
+    elif not captures.get("_at"):
+        meta.language_hint = "css"
     return meta

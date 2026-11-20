@@ -510,12 +510,14 @@ class Directives:
         return self.strip(captured.pattern, key, name) if key else name
 
     def import_meta(self, captured: CapturedNode) -> ImportMeta:
-        """The import *captured* records, its captures' `#strip!` applied."""
+        """The import *captured* records, its `#strip!` and language-hint directives applied."""
         meta = self.language.resolve_import(captured.node, captured.captures)
+        hint = self.query.pattern_settings(captured.pattern).get("import.language_hint")
         return meta.model_copy(
             update={
                 "module": self.strip(captured.pattern, "_import_module", meta.module),
                 "names": self.strip(captured.pattern, "_import_names", meta.names),
+                "language_hint": hint or meta.language_hint,
             }
         )
 
