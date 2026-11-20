@@ -400,3 +400,13 @@ def test_chunk_with_inverted_span_is_rejected(index: Index, head_ref: SnapshotRe
     inverted = make_chunk("a").model_copy(update={"line_start": 7, "line_end": 6})
     with pytest.raises(duckdb.ConstraintException):
         seed_index(index, [inverted], head_ref)
+
+
+def test_a_failed_commit_leaves_the_thread_able_to_read(
+    index: Index, head_ref: SnapshotRef
+) -> None:
+    """A session whose commit fails rolls back, so the thread reads on."""
+    inverted = make_chunk("a").model_copy(update={"line_start": 7, "line_end": 6})
+    with pytest.raises(duckdb.ConstraintException):
+        seed_index(index, [inverted], head_ref)
+    assert index.has_indexed(at=head_ref) is False

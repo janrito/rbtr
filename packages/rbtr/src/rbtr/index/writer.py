@@ -106,11 +106,18 @@ class WriteSession:
 
         Rolls back and raises `RuntimeError` when the session inserted
         chunks and wrote no `file_snapshots` row, rather than
-        committing chunks the next clean-up would delete.
+        committing chunks the next clean-up would delete.  Rolls back
+        and re-raises when the flush or the check fails.
         """
         self._require_active()
-        self._flush_chunks()
-        if (unclaimed := self._count_unclaimed_blobs()) > 0:
+        try:
+            self._flush_chunks()
+            unclaimed = self._count_unclaimed_blobs()
+        except BaseException:
+            self._cursor.rollback()
+            self._active = False
+            raise
+        if unclaimed > 0:
             self._cursor.rollback()
             self._active = False
             msg = (
