@@ -52,7 +52,7 @@ export type ChunkKind =
 /**
  * What a `rbtr gc` invocation is allowed to delete.
  */
-export type GcMode = "head_only" | "keep" | "orphans" | "watched" | "watched_only";
+export type GcMode = "head_only" | "keep" | "watched" | "watched_only";
 export type EveryRepoGcMode = "watched" | "watched_only";
 /**
  * @minItems 1

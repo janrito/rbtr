@@ -375,7 +375,6 @@ rbtr gc --scope all               # every indexed repo
 rbtr gc --keep watched-only       # keep only HEAD and watched refs
 rbtr gc --keep head-only          # keep only HEAD
 rbtr gc --keep-refs main,release  # keep only HEAD plus these refs
-rbtr gc --keep everything         # sweep crashed-build residue only
 rbtr gc --no-compact              # skip the disk-reclaiming rewrite
 rbtr gc --dry-run                 # preview what would be dropped
 ```
@@ -395,8 +394,7 @@ just HEAD and the watch set, dropping unwatched branches and
 tags (the way to reclaim refs you no longer index).
 
 The rest: `--keep head-only` keeps only HEAD; `--keep-refs`
-keeps HEAD plus the refs you name; `--keep everything` drops no
-commits at all and sweeps residue from crashed builds. A run
+keeps HEAD plus the refs you name. A run
 keeps one set, so naming a second is refused.
 
 If the daemon is mid-build or mid-embed when you run it, gc waits

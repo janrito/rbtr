@@ -38,8 +38,6 @@ _MARK_INDEXED_SQL = load_sql("mark_indexed.sql")
 _PRUNE_CHUNKS_SQL = load_sql("prune_chunks.sql")
 _PRUNE_EDGES_SQL = load_sql("prune_edges.sql")
 _SWEEP_ORPHAN_CHUNKS_SQL = load_sql("sweep_orphan_chunks.sql")
-_SWEEP_ORPHAN_EDGES_SQL = load_sql("sweep_orphan_edges.sql")
-_SWEEP_ORPHAN_SNAPSHOTS_SQL = load_sql("sweep_orphan_snapshots.sql")
 _UPDATE_EMBEDDINGS_SQL = load_sql("update_embeddings.sql")
 _UPSERT_CHUNKS_SQL = load_sql("upsert_chunks.sql")
 _UPSERT_SNAPSHOTS_SQL = load_sql("upsert_snapshots.sql")
@@ -382,23 +380,15 @@ class WriteSession:
         )
 
     def cleanup(self) -> GcCounts:
-        """Remove the session's repo's residue and what it leaves unclaimed.
+        """Remove what no snapshot claims: rows a snapshot's rebuild or drop leaves.
 
-        1. Delete file snapshots and edges of the repo's snapshots never
-           marked indexed: what a build that stopped part-way left.
-        2. Delete chunks no file snapshot in the project references.
-        3. Delete the repo's edges whose snapshot has no file snapshots.
+        1. Delete chunks no file snapshot in the project references.
+        2. Delete the repo's edges whose snapshot has no file snapshots.
 
         A build runs it once its snapshot is marked indexed.  Returns
         counts of rows removed.
         """
         self._require_active()
-        snap_rows = self._cursor.execute(
-            _SWEEP_ORPHAN_SNAPSHOTS_SQL, {"repo_id": self._repo.repo_id}
-        ).fetchall()
-        orphan_edge_rows = self._cursor.execute(
-            _SWEEP_ORPHAN_EDGES_SQL, {"repo_id": self._repo.repo_id}
-        ).fetchall()
         chunk_rows = self._cursor.execute(_PRUNE_CHUNKS_SQL).fetchall()
         stale_edge_rows = self._cursor.execute(
             _PRUNE_EDGES_SQL, {"repo_id": self._repo.repo_id}
@@ -406,8 +396,4 @@ class WriteSession:
         chunks_deleted = int(chunk_rows[0][0])
         if chunks_deleted > 0:
             self._chunks_modified = True
-        return GcCounts(
-            file_snapshots=int(snap_rows[0][0]),
-            edges=int(orphan_edge_rows[0][0]) + int(stale_edge_rows[0][0]),
-            chunks=chunks_deleted,
-        )
+        return GcCounts(edges=int(stale_edge_rows[0][0]), chunks=chunks_deleted)

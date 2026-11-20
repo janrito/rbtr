@@ -312,8 +312,8 @@ one session, which holds one cursor and one repo](docs/diagrams/write-session.pn
 The session also owns reads the transaction depends on, including
 current-blob checks and stored-language lookups. They see changes made
 on that cursor. A build registers its repo before opening the first
-session, and its final session cleans up residue from unfinished
-builds. [Repo registration](#repo-registration) and
+session, and its session ends by deleting what no snapshot claims.
+[Repo registration](#repo-registration) and
 [Garbage collection](#garbage-collection) describe those lifetimes.
 
 ## Language plugins
@@ -1250,9 +1250,9 @@ the views to the owner's rollback.
 
 `indexed_snapshots` records which `(repo, snapshot)` pairs are
 fully indexed. The daemon watcher checks this to trigger
-builds. GC uses it to identify orphans: any
-`file_snapshots` or `edges` row without a matching
-`indexed_snapshots` row is orphan.
+builds. A build writes it in the transaction that writes the
+snapshot's file list and edges, so a snapshot has a file list
+only once it is indexed.
 
 `indexed_snapshots` is **completion**; `watched_refs` is
 **intent** (which refs to keep indexed). See
@@ -1357,15 +1357,15 @@ rbtr declares no foreign keys; see
 
 ## Garbage collection
 
-`indexed_snapshots` is the authority. Data without a matching
-row is orphan. Both operations live on `WriteSession`:
+`indexed_snapshots` is the authority: a snapshot is kept or dropped by
+its row there. Both operations live on `WriteSession`:
 
 - `drop_snapshot` — removes all trace of a commit
   (indexed_snapshots row, snapshots, edges, orphaned chunks).
-- `cleanup` — removes residue from crashed builds
-  (snapshots/edges for uncommitted commits) and stale data
-  (chunks not referenced by any snapshot, edges whose
-  commit has no snapshots).
+- `cleanup` — removes what no snapshot claims: chunks not
+  referenced by any snapshot, and edges whose commit has no
+  snapshots. A build commits a snapshot's file list, edges and
+  mark together, so it leaves no unmarked snapshot to sweep.
 
 Because chunks are content-addressed and **shared by a project's
 checkouts**, the orphan sweep is a reference count over the
@@ -1415,8 +1415,8 @@ current worktree tree is always protected). So a routine
 never discards anything a branch points at or that you
 asked to keep indexed. `WATCHED_ONLY` keeps just HEAD plus
 the watch set, dropping unwatched branches/tags — the opt-in
-way to reclaim refs you no longer index. `HEAD_ONLY`,
-`KEEP`, and `ORPHANS` are the other explicit modes. Each
+way to reclaim refs you no longer index. `HEAD_ONLY` and
+`KEEP` are the other explicit modes. Each
 names a different keep-set, so the CLI refuses two at once
 rather than resolving them by precedence. If a mode drops a
 still-watched snapshot, the watcher rebuilds it on the next
@@ -1425,23 +1425,19 @@ somebody asks to read it. Collection never edits the watch set
 itself — that is `rbtr unwatch`'s job — so a thorough tidy trims
 first and collects second.
 
-GC is **per-repo by default**; `rbtr gc --scope all` reclaims across
-**every** registered repo at once (`GcAllRequest` ⇒ `run_gc_all`
-loops `run_gc` over `repos()`), and each repo's sweep reclaims
-the chunks no surviving snapshot of its project references.
-Globally it takes **`WATCHED` or `WATCHED_ONLY`** — the retentions
-stated in a repo's own terms, so every repo keeps at least its HEAD and
-its watch set. `HEAD_ONLY` and `KEEP` name one repo's refs and
-`ORPHANS` sweeps one repo's residue, so `GcAllRequest` cannot carry
-them. A repo is **skipped** when git cannot answer for it: a path
-that no longer resolves (never purged — forgetting it is a separate,
-explicit action; see below) or an unborn HEAD, which `run_gc` raises on
-and which must not end a pass over every other repo. Each repo is
-reported through `on_progress` as it is collected: inline, as a bar on
-stderr; from the daemon, as `progress` notifications whose work is
-`collect`, the first sent as it starts, and then `gc_ended`, which is
-sent however gc ends. None of them names a repo, since one gc covers
-many, and none touches a running build's progress.
+GC is **per-repo by default**; `rbtr gc --scope all` reclaims across **every**
+registered repo at once (`GcAllRequest` ⇒ `run_gc_all` loops `run_gc` over `repos()`),
+and each repo's sweep reclaims the chunks no surviving snapshot of its project
+references. Globally it takes **`WATCHED` or `WATCHED_ONLY`** — the retentions stated in
+a repo's own terms, so every repo keeps at least its HEAD and its watch set. `HEAD_ONLY`
+and `KEEP` name one repo's refs, so `GcAllRequest` cannot carry them. A repo is
+**skipped** when git cannot answer for it: a path that no longer resolves (never purged
+— forgetting it is a separate, explicit action; see below) or an unborn HEAD, which
+`run_gc` raises on and which must not end a pass over every other repo. Each repo is
+reported through `on_progress` as it is collected: inline, as a bar on stderr; from the
+daemon, as `progress` notifications whose work is `collect`, the first sent as it
+starts, and then `gc_ended`, which is sent however gc ends. None of them names a repo,
+since one gc covers many, and none touches a running build's progress.
 
 **Forgetting a repo** removes it entirely from the index, undoing what
 [registration](#repo-registration) set up (`Store.forget`).
@@ -2154,8 +2150,7 @@ than restoring a transient job queue.
 Only the active transaction rolls back on failure. A build is one
 transaction, so a failure leaves every snapshot's chunks, file list and
 edges as they were; embedding batches committed earlier remain, and a new
-embedding run reads the remaining missing vectors. Clean-up still removes
-snapshot rows never marked complete wherever it finds them. Standing aside and
+embedding run reads the remaining missing vectors. Standing aside and
 crashing therefore resume through the same stored state.
 
 Partially built or retired project files are reconciled against the registry

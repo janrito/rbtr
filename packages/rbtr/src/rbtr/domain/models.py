@@ -642,7 +642,6 @@ class GcMode(StrEnum):
 
     HEAD_ONLY = "head_only"  # keep current HEAD, drop the rest
     KEEP = "keep"  # keep only listed refs
-    ORPHANS = "orphans"  # sweep residue only, drop no commits
     WATCHED = "watched"  # default: HEAD + local branches/tags/notes + watched
     WATCHED_ONLY = "watched_only"  # HEAD + resolved watched_refs only
 

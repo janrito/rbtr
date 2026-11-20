@@ -337,7 +337,7 @@ export const PROTOCOL_DEFS = {
   },
   GcMode: {
     description: "What a `rbtr gc` invocation is allowed to delete.",
-    enum: ["head_only", "keep", "orphans", "watched", "watched_only"],
+    enum: ["head_only", "keep", "watched", "watched_only"],
     title: "GcMode",
     type: "string",
   },

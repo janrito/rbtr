@@ -152,14 +152,6 @@ def test_keep_with_no_refs_is_head_only(gc: GcFixture) -> None:
     assert gc.index.has_indexed(at=gc.registered.at(gc.c2)) is False
 
 
-def test_orphans_never_drops_indexed_snapshots(gc: GcFixture) -> None:
-    counts = run_gc(gc.index, gc.repo_path, mode=GcMode.ORPHANS, refs=[], dry_run=False)
-    assert counts.snapshots == 0
-    assert gc.index.has_indexed(at=gc.registered.at(gc.c1)) is True
-    assert gc.index.has_indexed(at=gc.registered.at(gc.c2)) is True
-    assert gc.index.has_indexed(at=gc.registered.at(gc.c3)) is True
-
-
 def test_dry_run_reports_without_writing(gc: GcFixture) -> None:
     counts = run_gc(gc.index, gc.repo_path, mode=GcMode.HEAD_ONLY, refs=[], dry_run=True)
     assert counts.snapshots == 2
