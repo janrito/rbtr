@@ -1,0 +1,6 @@
+[
+  "docs/a.md::../src/loader.py -> src/loader.py::do_stuff [documents]",
+  "docs/a.md::../src/loader.py -> src/loader.py::load [documents]",
+  "docs/a.md::b.md -> docs/b.md::Details [documents]",
+  "docs/a.md::b.md -> docs/b.md::Guide [documents]"
+]

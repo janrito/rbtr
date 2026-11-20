@@ -12,28 +12,6 @@ def greet(name):
     return name
 '''
 
-RUST = """\
-/// Return a friendly greeting.
-fn greet(name: &str) -> String {
-    name.to_string()
-}
-"""
-
-TYPESCRIPT = """\
-/**
- * Return a friendly greeting.
- */
-function greet(name: string): string {
-    return name;
-}
-"""
-
-UNDOCUMENTED = """\
-fn greet(name: &str) -> String {
-    name.to_string()
-}
-"""
-
 PROSE = """\
 # Greeting
 
@@ -45,12 +23,9 @@ Return a friendly greeting.
     ("content", "language", "expected"),
     [
         (PYTHON, "python", '"""Return a friendly greeting."""'),
-        (RUST, "rust", "/// Return a friendly greeting.\n"),
-        (TYPESCRIPT, "typescript", "/**\n * Return a friendly greeting.\n */"),
-        (UNDOCUMENTED, "rust", None),
         (PROSE, "markdown", None),
     ],
-    ids=["python-docstring", "rust-doc-comment", "typescript-jsdoc", "undocumented", "no-query"],
+    ids=["python-docstring", "no-query"],
 )
 def test_docstring_is_the_first_documented_symbols_documentation(
     content: str, language: str, expected: str | None

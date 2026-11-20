@@ -1,0 +1,11 @@
+Release notes
+=============
+
+A ``.txt`` file whose content is reStructuredText, read as reStructuredText.
+
+Upgrading
+---------
+
+.. note::
+
+   Run ``uv tool upgrade rbtr``.

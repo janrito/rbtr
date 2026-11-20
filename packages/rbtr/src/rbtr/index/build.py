@@ -42,7 +42,7 @@ from rbtr.index.index import Index
 from rbtr.index.progress import ProgressCallback, _noop_progress
 from rbtr.index.results import ChunkResultRow
 from rbtr.index.staging import TokenisedChunk
-from rbtr.languages.chunks import detect_prose_format, host_presence_chunk
+from rbtr.languages.chunks import host_presence_chunk
 from rbtr.languages.edges import EdgeChunkRow, infer_import_edges
 from rbtr.languages.extract import extract_file
 from rbtr.languages.manager import get_manager
@@ -206,9 +206,7 @@ def _extract_and_store_chunks(
                 # Content sniff, for a new file whose extension says nothing.
                 if not detected_lang:
                     text = entry.content.decode(errors="replace")
-                    fmt = detect_prose_format(text)
-                    if fmt:
-                        detected_lang = fmt
+                    detected_lang = mgr.detect_language_by_content(text) or ""
                 # Nothing claimed it, so it is plaintext: a language, not
                 # a blank. Settled before the gate, which asks whether
                 # this blob was already extracted as this language.

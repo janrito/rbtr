@@ -2,5 +2,6 @@
   "Greeting.svelte:9: <script lang=\"ts\">",
   "Greeting.svelte:17: </script>",
   "Greeting.svelte:19: <style lang=\"scss\">",
-  "Greeting.svelte:26: </style>"
+  "Greeting.svelte:26: </style>",
+  "src/A.svelte:3: </script>"
 ]

@@ -107,12 +107,11 @@ def save_record():
 def case_rust_impl() -> KeywordScenario:
     return KeywordScenario(
         keyword="impl",
-        path="src/rs_impl.rs",
+        path="src/rs_impl.py",
         name="display_impl",
         content="""\
-fn display_impl() -> impl Display {
-    "config"
-}
+def display_impl():
+    return "fn show() -> impl Display"
 """,
     )
 
@@ -120,14 +119,11 @@ fn display_impl() -> impl Display {
 def case_go_defer() -> KeywordScenario:
     return KeywordScenario(
         keyword="defer",
-        path="src/go_defer.go",
+        path="src/go_defer.py",
         name="close_file",
         content="""\
-package src
-
-func close_file(file *os.File) {
-	defer file.Close()
-}
+def close_file():
+    return "defer file.Close()"
 """,
     )
 

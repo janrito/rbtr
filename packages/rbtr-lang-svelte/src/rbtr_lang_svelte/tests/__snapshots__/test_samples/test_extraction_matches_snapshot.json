@@ -94,5 +94,41 @@
     "content": "function greet(name: string): string {\n  return `Hello, ${name}`;\n}",
     "line_start": 3,
     "line_end": 5
+  },
+  {
+    "name": "",
+    "kind": "raw_chunk",
+    "file_path": "src/A.svelte",
+    "scope": "",
+    "language": "svelte",
+    "content": "",
+    "line_start": 1,
+    "line_end": 1
+  },
+  {
+    "name": "import { helper } from './b.js';",
+    "kind": "import",
+    "file_path": "src/A.svelte",
+    "scope": "",
+    "language": "javascript",
+    "content": "import { helper } from './b.js';",
+    "line_start": 2,
+    "line_end": 2,
+    "metadata": {
+      "module": "b",
+      "names": "helper",
+      "dots": "1",
+      "language_hint": ""
+    }
+  },
+  {
+    "name": "helper",
+    "kind": "function",
+    "file_path": "src/b.js",
+    "scope": "",
+    "language": "javascript",
+    "content": "function helper() {}",
+    "line_start": 1,
+    "line_end": 1
   }
 ]

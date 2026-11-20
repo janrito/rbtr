@@ -20,6 +20,7 @@ Extracted chunks::
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
@@ -239,6 +240,8 @@ markdown = LanguageRegistration(
     grammar_module="tree_sitter_markdown",
     injection_query=load_query(__package__, "injections"),
     prose=True,
+    # ATX headings and fenced code.
+    content_signals=(re.compile(r"^#{1,6}\s+", re.MULTILINE), re.compile(r"^```", re.MULTILINE)),
     extraction_serial=5,
 )
 

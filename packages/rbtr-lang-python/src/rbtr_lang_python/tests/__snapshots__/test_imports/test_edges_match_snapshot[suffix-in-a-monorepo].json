@@ -1,0 +1,4 @@
+[
+  "packages/app/src/app/main.py::from core.helpers import assist -> packages/core/src/core/helpers.py::assist [imports]",
+  "packages/app/src/app/main.py::from core.models import Model -> packages/core/src/core/models.py::Model [imports]"
+]

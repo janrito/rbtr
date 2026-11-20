@@ -2,7 +2,7 @@
 
 It registers no extensions and no filenames, so detection never routes
 to it by name: the build resolves to it once extension, stored detection
-and the prose sniff have all found nothing. It has no grammar and no
+and the content sniff have all found nothing. It has no grammar and no
 query, so extraction falls to `chunk_plaintext`, whose line slices carry
 `PLAINTEXT` as their language.
 

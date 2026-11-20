@@ -11,7 +11,7 @@ from __future__ import annotations
 from pytest_cases import parametrize_with_cases
 
 from rbtr.git import FileEntry
-from rbtr.languages.extract import extract_file
+from rbtr.languages.extract import docstring, extract_file
 
 
 @parametrize_with_cases(
@@ -49,3 +49,16 @@ def test_leading_doc_folds_into_symbol(lang: str, source: str, name: str, snippe
         c for c in extract_file(FileEntry("input", "sha1", source.encode()), lang) if c.name == name
     )
     assert snippet in chunk.content
+
+
+def test_docstring_is_the_jsdoc_as_written() -> None:
+    """`docstring` returns the first documented symbol's JSDoc block as written."""
+    source = """\
+/**
+ * Return a friendly greeting.
+ */
+function greet(name: string): string {
+    return name;
+}
+"""
+    assert docstring(source, "typescript") == "/**\n * Return a friendly greeting.\n */"

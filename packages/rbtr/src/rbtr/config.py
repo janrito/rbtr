@@ -150,6 +150,12 @@ reports how many there are.",
     )
     chunk_lines: int = Field(default=50, description="Lines per index chunk.")
     chunk_overlap: int = Field(default=5, description="Overlap lines between adjacent chunks.")
+    content_sniff_chars: int = Field(
+        default=2048,
+        ge=1,
+        description="Characters at the start of a file read to recognise its language by \
+its content, when its path names none.",
+    )
     embed: bool = Field(
         default=True,
         description="Compute and use embeddings.  Off: no embedding model is loaded, \

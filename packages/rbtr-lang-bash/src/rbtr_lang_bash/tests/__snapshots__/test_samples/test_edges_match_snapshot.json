@@ -1,4 +1,5 @@
 [
   "bash.sh::source ./lib/colours.sh -> lib/colours.sh::RED [imports]",
-  "bash.sh::source ./lib/colours.sh -> lib/colours.sh::RESET [imports]"
+  "bash.sh::source ./lib/colours.sh -> lib/colours.sh::RESET [imports]",
+  "bin/a.sh::source ./b.sh -> bin/b.sh::helper [imports]"
 ]

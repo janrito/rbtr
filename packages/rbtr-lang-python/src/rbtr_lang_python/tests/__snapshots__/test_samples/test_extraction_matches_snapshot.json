@@ -122,6 +122,32 @@
     "line_end": 3
   },
   {
+    "name": "from pkg.b import helper",
+    "kind": "import",
+    "file_path": "pkg/a.py",
+    "scope": "",
+    "language": "python",
+    "content": "from pkg.b import helper",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "pkg.b",
+      "names": "helper",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "name": "helper",
+    "kind": "function",
+    "file_path": "pkg/b.py",
+    "scope": "",
+    "language": "python",
+    "content": "def helper():\n    return 1",
+    "line_start": 1,
+    "line_end": 2
+  },
+  {
     "name": "",
     "kind": "comment",
     "file_path": "python.py",

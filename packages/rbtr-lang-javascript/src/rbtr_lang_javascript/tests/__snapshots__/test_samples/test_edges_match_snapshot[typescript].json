@@ -1,4 +1,5 @@
 [
+  "src/a.ts::import { helper } from './b'; -> src/b.ts::helper [imports]",
   "typescript.ts::export * from \"./config\"; -> config.ts::LOCALE [imports]",
   "typescript.ts::export { Locale } from \"./types\"; -> types.ts::Formatter [imports]",
   "typescript.ts::import type { Formatter } from \"./types\"; -> types.ts::Formatter [imports]",

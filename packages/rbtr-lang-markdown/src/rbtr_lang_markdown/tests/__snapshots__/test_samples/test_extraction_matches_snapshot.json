@@ -350,5 +350,35 @@
       "dots": "",
       "language_hint": ""
     }
+  },
+  {
+    "name": "Release notes",
+    "kind": "doc_section",
+    "file_path": "notes.txt",
+    "scope": "",
+    "language": "markdown",
+    "content": "# Release notes\n\nA `.txt` file whose content is Markdown, read as Markdown.",
+    "line_start": 1,
+    "line_end": 9
+  },
+  {
+    "name": "Upgrading",
+    "kind": "doc_section",
+    "file_path": "notes.txt",
+    "scope": "Release notes",
+    "language": "markdown",
+    "content": "## Upgrading\n\n```sh\nuv tool upgrade rbtr\n```",
+    "line_start": 5,
+    "line_end": 9
+  },
+  {
+    "name": "",
+    "kind": "doc_section",
+    "file_path": "notes.txt",
+    "scope": "",
+    "language": "bash",
+    "content": "uv tool upgrade rbtr",
+    "line_start": 8,
+    "line_end": 8
   }
 ]

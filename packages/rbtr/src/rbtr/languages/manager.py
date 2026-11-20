@@ -37,6 +37,7 @@ from pathlib import PurePosixPath
 import structlog
 from tree_sitter import Language
 
+from rbtr.config import config
 from rbtr.errors import MissingLanguagePluginsError, RbtrError
 from rbtr.languages.registration import LanguageRegistration
 
@@ -113,6 +114,21 @@ class LanguageManager:
         if p.name in self._filename_map:
             return self._filename_map[p.name]
         return self._ext_map.get(p.suffix)
+
+    def detect_language_by_content(self, text: str) -> str | None:
+        """The language whose `content_signals` match the start of *text* most often.
+
+        For a file whose path names no language; the first
+        `config.content_sniff_chars` characters are read.  A tie is won by the
+        language id first in sort order; `None` when no signal matches.
+        """
+        sample = text[: config.content_sniff_chars]
+        counts = {
+            language_id: sum(len(signal.findall(sample)) for signal in reg.content_signals)
+            for language_id, reg in sorted(self._registrations.items())
+        }
+        best = max(counts, key=counts.__getitem__, default=None)
+        return best if best is not None and counts[best] > 0 else None
 
     def get_registration(self, language_id: str) -> LanguageRegistration | None:
         """Return the registration for *language_id*, or `None`."""

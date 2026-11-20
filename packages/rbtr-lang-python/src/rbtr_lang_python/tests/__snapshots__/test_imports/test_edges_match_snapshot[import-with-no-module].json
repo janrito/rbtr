@@ -1,0 +1,3 @@
+[
+  "pkg/a.py::from __future__ import annotations -> pkg/annotations.py::note [imports]"
+]

@@ -50,6 +50,32 @@
     "line_end": 4
   },
   {
+    "name": "import { Helper } from './b';",
+    "kind": "import",
+    "file_path": "src/a.tsx",
+    "scope": "",
+    "language": "tsx",
+    "content": "import { Helper } from './b';",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "b",
+      "names": "Helper",
+      "dots": "1",
+      "language_hint": ""
+    }
+  },
+  {
+    "name": "Helper",
+    "kind": "function",
+    "file_path": "src/b.tsx",
+    "scope": "",
+    "language": "tsx",
+    "content": "function Helper() {\n  return null;\n}",
+    "line_start": 1,
+    "line_end": 3
+  },
+  {
     "name": "",
     "kind": "comment",
     "file_path": "tsx.tsx",

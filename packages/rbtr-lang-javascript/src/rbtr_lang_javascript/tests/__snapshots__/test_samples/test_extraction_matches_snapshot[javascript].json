@@ -258,6 +258,32 @@
     "line_end": 45
   },
   {
+    "name": "import { helper } from './b.js';",
+    "kind": "import",
+    "file_path": "src/a.js",
+    "scope": "",
+    "language": "javascript",
+    "content": "import { helper } from './b.js';",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "b",
+      "names": "helper",
+      "dots": "1",
+      "language_hint": ""
+    }
+  },
+  {
+    "name": "helper",
+    "kind": "function",
+    "file_path": "src/b.js",
+    "scope": "",
+    "language": "javascript",
+    "content": "function helper() {}",
+    "line_start": 1,
+    "line_end": 1
+  },
+  {
     "name": ".greeter",
     "kind": "class",
     "file_path": "styles.css",

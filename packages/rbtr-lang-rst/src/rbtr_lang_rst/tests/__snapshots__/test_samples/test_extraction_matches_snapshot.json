@@ -50,6 +50,26 @@
     "line_end": 10
   },
   {
+    "name": "Release notes",
+    "kind": "doc_section",
+    "file_path": "notes.txt",
+    "scope": "",
+    "language": "rst",
+    "content": "Release notes\n=============\n\nA ``.txt`` file whose content is reStructuredText, read as reStructuredText.",
+    "line_start": 1,
+    "line_end": 5
+  },
+  {
+    "name": "Upgrading",
+    "kind": "doc_section",
+    "file_path": "notes.txt",
+    "scope": "Release notes",
+    "language": "rst",
+    "content": "Upgrading\n---------\n\n.. note::\n\n   Run ``uv tool upgrade rbtr``.",
+    "line_start": 6,
+    "line_end": 11
+  },
+  {
     "name": "",
     "kind": "doc_section",
     "file_path": "readme.rst",
