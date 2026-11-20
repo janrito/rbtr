@@ -25,6 +25,8 @@ from rbtr.git import normalise_repo_path, worktree_tree_sha
 from rbtr.index.build import build_index, drop_stale_worktree_shas
 from rbtr.index.gc import run_gc, run_gc_all
 from rbtr.index.index import Index
+from rbtr.index.staging import staged_chunks
+from rbtr.languages.chunks import chunk_rows
 
 from ..conftest import make_commit
 from .conftest import make_chunk, make_snap
@@ -215,7 +217,9 @@ def test_gc_reports_reclaimed_orphan_chunks(gc: GcFixture) -> None:
     # its claim, and the claim later removed.
     with gc.index.session(gc.registered) as ws:
         ws.add_watched_refs([gc.c2])  # keep every commit -> no drops
-        ws.add_chunk(make_chunk("orphan", path="z.py", blob="b_orphan"))
+        ws.add_chunks(
+            staged_chunks(chunk_rows([make_chunk("orphan", path="z.py", blob="b_orphan")]), {})
+        )
         ws.replace_snapshots([make_snap("forgotten", "z.py", "b_orphan")], snapshot_sha="forgotten")
     with gc.index.session(gc.registered) as ws:
         ws.replace_snapshots([], snapshot_sha="forgotten")

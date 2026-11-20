@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+import dataframely as dy
 import pygit2
 import pytest
 import structlog
@@ -39,13 +40,14 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.server import Daemon
 from rbtr.daemon.status import remove_status
-from rbtr.domain.models import Chunk
-from rbtr.git import FileEntry, normalise_repo_path
-from rbtr.index import build, maintenance
+from rbtr.domain.rules import FileRow, PlacedChunkRow
+from rbtr.git import normalise_repo_path
+from rbtr.index import maintenance
 from rbtr.index.build import build_index
 from rbtr.index.index import Index
 from rbtr.index.indexer import Indexer
 from rbtr.index.progress import RepoProgressCallback
+from rbtr.languages import extract
 from rbtr.tests.conftest import StubModel
 
 
@@ -179,14 +181,14 @@ def case_shutdown_during_build(
     repo_path = normalise_repo_path(git_repo.workdir)
     index.register(repo_path)
     server = Daemon(runtime_dir, index=index, idle_poll_interval=60.0, busy_poll_interval=60.0)
-    extract = build.extract_file
+    batch = extract.extract_batch
 
-    def held_extract(entry: FileEntry, language: str) -> list[Chunk]:
+    def held_extract(files: dy.DataFrame[FileRow]) -> dy.DataFrame[PlacedChunkRow]:
         write_started.set()
         assert write_released.wait(20), "file extraction was not released"
-        return extract(entry, language)
+        return batch(files)
 
-    mocker.patch.object(build, "extract_file", side_effect=held_extract)
+    mocker.patch.object(extract, "extract_batch", side_effect=held_extract)
 
     def stop() -> None:
         try:

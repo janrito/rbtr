@@ -293,9 +293,8 @@ class LanguageRegistration:
     and set its language with `(#set! injection.language "<id>")` — to a
     canonical rbtr language id — plus an optional
     `(#set! injection.priority "<n>")` (default 0) to disambiguate overlapping
-    matches. The engine runs it after the primary extraction and delegates
-    each captured range via `extract_query`. `None` means no embedded
-    delegation."""
+    matches. The engine reads each captured range as that language, as
+    another source of the same file. `None` means no embedded delegation."""
     index_files: frozenset[str] = frozenset()
     """Directory entry-point filenames: an import of a *directory* resolves
     to one of these inside it — e.g. `{"__init__.py"}` (Python),

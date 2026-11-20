@@ -26,6 +26,8 @@ from rbtr.daemon.messages import GcRequest, GcResponse
 from rbtr.domain.models import GcMode, SnapshotRef
 from rbtr.git import head_sha
 from rbtr.index.index import Index
+from rbtr.index.staging import staged_chunks
+from rbtr.languages.chunks import chunk_rows
 
 from .cases_gc_compaction import CompactionScenario
 from .conftest import make_chunk, make_snap
@@ -58,16 +60,17 @@ def churned_index(fake_repo: str, isolated_db: Path) -> Generator[ChurnedIndex]:
     index = Index.from_config(writable=True)
     repo = index.register(fake_repo)
     with index.session(repo) as ws:
-        for i in range(800):
-            ws.add_chunk(
-                make_chunk(
-                    f"chunk-{i}",
-                    name=f"calculate_retry_backoff_{i}",
-                    content=f"def calculate_retry_backoff_{i}(attempt): return 2 ** attempt",
-                    blob=f"blob-{i}",
-                    path=f"m{i}.py",
-                )
+        chunks = [
+            make_chunk(
+                f"chunk-{i}",
+                name=f"calculate_retry_backoff_{i}",
+                content=f"def calculate_retry_backoff_{i}(attempt): return 2 ** attempt",
+                blob=f"blob-{i}",
+                path=f"m{i}.py",
             )
+            for i in range(800)
+        ]
+        ws.add_chunks(staged_chunks(chunk_rows(chunks), {}))
         ws.replace_snapshots(
             [make_snap(head, f"m{i}.py", f"blob-{i}") for i in range(800)], snapshot_sha=head
         )

@@ -23,7 +23,7 @@ from rbtr.index.build import build_index
 from rbtr.index.index import Index
 from rbtr.index.search import search
 from rbtr.languages.manager import get_manager
-from rbtr.languages.treesitter import _get_query
+from rbtr.languages.treesitter import compiled_query
 
 
 @pytest.fixture(scope="module")
@@ -548,7 +548,7 @@ def test_build_index_empty_repo(tmp_path: Path, index: Index) -> None:
 def test_query_cache_produces_identical_chunks(tmp_path: Path) -> None:
     """Cached tree-sitter queries must produce the same chunks as fresh ones.
 
-    `_get_query()` caches compiled `Query` objects per language.
+    `compiled_query()` caches compiled `Query` objects per language.
     This test creates many same-language files, builds twice (cold cache
     vs warm cache), and asserts identical extraction results.
     """
@@ -572,7 +572,7 @@ def test_query_cache_produces_identical_chunks(tmp_path: Path) -> None:
 
     # Clear the query cache to ensure a cold start.
 
-    _get_query.cache_clear()
+    compiled_query.cache_clear()
 
     index1 = Index(writable=True)
     index2 = Index(writable=True)
@@ -582,7 +582,7 @@ def test_query_cache_produces_identical_chunks(tmp_path: Path) -> None:
         chunks1 = set(index1.chunks(at=cold.at(sha))["name"])
 
         # Second build — queries are now cached.
-        _get_query.cache_clear()
+        compiled_query.cache_clear()
         build_index(repo.workdir, sha, index2)
         [warm] = index2.repos()
         chunks2 = set(index2.chunks(at=warm.at(sha))["name"])
@@ -893,7 +893,9 @@ def test_unparseable_file_is_still_navigable(
     without a chunk the file is listed as indexed yet cannot be reached
     by any read — and the next build re-parses and re-fails it.
     """
-    mocker.patch("rbtr.index.build.extract_file", side_effect=RuntimeError("no parser today"))
+    mocker.patch(
+        "rbtr.languages.extract.extract_batch", side_effect=RuntimeError("no parser today")
+    )
 
     result = build_index(git_repo.workdir, snapshot_sha, index)
 

@@ -1,63 +1,38 @@
 """The shapes the index write path puts into DuckDB.
 
-`TokenisedChunk` is the storage row: a `Chunk` plus the columns the
-`chunks` table needs — the FTS tokenisations and the extraction serial
-— which are facts about the table, so they live with the write path
-that fills them.
-
 Each `staged_*` builder turns what its producer makes into a typed polars
 frame whose column names match the corresponding SQL staging view (`_stg`).
-A producer that makes one item at a time hands over domain objects:
-extraction yields a file's `Chunk`s and its `FileSnapshot`.  A producer
-that works on sets hands over a frame: edge inference returns its edges as
-an `InferredEdgeRow` frame, which staging only scopes to a snapshot, and
-the embed loop builds an `EmbeddingStagingRow` frame from each batch.  Registering a frame as a virtual
-view and running `INSERT INTO ... SELECT` against it is orders of magnitude
-faster than `executemany` for large batches; `duckdb.register` accepts polars
-frames natively (shared Arrow memory, zero-copy).  Validation via dataframely
-catches schema drift at the function boundary.
+Extraction hands over a batch's chunks as `ChunkRow`s, which staging gives
+their ids, search tokens and serials; edge inference returns its edges as
+an `InferredEdgeRow` frame, which staging only scopes to a snapshot; the
+embed loop builds an `EmbeddingStagingRow` frame from each batch; a
+snapshot's files arrive as `FileSnapshot`s. Registering a frame as a
+virtual view and running `INSERT INTO ... SELECT` against it is orders of
+magnitude faster than `executemany` for large batches; `duckdb.register`
+accepts polars frames natively (shared Arrow memory, zero-copy).
+Validation via dataframely catches schema drift at the function boundary.
 
 These are pure functions -- they never touch DuckDB directly.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import dataframely as dy
 import polars as pl
-from pydantic import TypeAdapter
 
+from rbtr.domain.identity import chunk_id
 from rbtr.domain.models import (
-    Chunk,
     ChunkKind,
     EdgeKind,
     FileSnapshot,
     FileSnapshots,
     SnapshotRef,
 )
+from rbtr.domain.rules import ChunkRow
+from rbtr.domain.tokenise import tokenise_code
 from rbtr.languages.edges import InferredEdgeRow
-
-
-class TokenisedChunk(Chunk, frozen=True):
-    """Chunk with the extra columns the `chunks` table needs.
-
-    Written during extraction, stored in DB, consumed by FTS.
-    No code outside the extraction loop reads these fields
-    from the model — they exist only to flow into DuckDB.
-    The added fields split by role: `content_tokens` and
-    `name_tokens` are the code-aware tokenisations BM25/FTS
-    queries against; `extraction_serial` is a storage
-    column, not part of chunk identity, which is derived from
-    file/blob/name/line only.  Chunks carry no `repo_id` — the
-    store is content-addressed and repo attribution lives in
-    `file_snapshots`.
-    """
-
-    content_tokens: str = ""
-    name_tokens: str = ""
-    extraction_serial: int = 1
-
-
-TokenisedChunks = TypeAdapter(list[TokenisedChunk])
 
 
 class ChunkStagingRow(dy.Schema):
@@ -95,11 +70,6 @@ class ChunkStagingRow(dy.Schema):
         nullable=True,
     )
     extraction_serial = dy.Int32(nullable=False)
-
-
-# A dumped chunk's `role`, every role's fields present: a batch without
-# imports would otherwise infer a struct with no `meta`.
-_ROLE = pl.Struct({"kind": pl.String, "name": pl.String, "meta": ChunkStagingRow.metadata.dtype})
 
 
 class EdgeStagingRow(dy.Schema):
@@ -152,29 +122,35 @@ class EmbeddingStagingRow(dy.Schema):
         return lengths == lengths.first()
 
 
-def staged_chunks(chunks: list[TokenisedChunk]) -> dy.DataFrame[ChunkStagingRow]:
-    """Build a staging frame of tokenised chunks for `_bulk_insert`.
+def staged_chunks(
+    chunks: dy.DataFrame[ChunkRow], serials: Mapping[str, int]
+) -> dy.DataFrame[ChunkStagingRow]:
+    """*chunks* as the store's rows: each with its id, its search tokens, and its serial.
 
-    Chunks are content-addressed (keyed by `id`) and shared across
-    repos; the batch carries no `repo_id`.  Each chunk's role and span
-    are spread over the table's columns: `kind`, `name` and `metadata`
-    (the role's payload), `line_start` and `line_end`.
+    Chunks are content-addressed (keyed by `id`) and shared across repos;
+    the batch carries no `repo_id`. A chunk's serial is its own language's
+    in *serials* (the embedded language of a block it was read from), else
+    its file's, else 1. Ids are computed in one Python pass over their
+    columns: polars has no blake2b, and its own hash is not stable across
+    versions.
     """
-    if not chunks:
-        return ChunkStagingRow.create_empty()
-    return (
-        pl.DataFrame(
-            TokenisedChunks.dump_python(chunks, mode="json"), schema_overrides={"role": _ROLE}
-        )
-        .with_columns(
-            pl.col("role").struct.field("kind"),
-            pl.col("role").struct.field("name").fill_null(""),
-            pl.col("role").struct.field("meta").alias("metadata"),
-            pl.col("span").struct.field("start").alias("line_start"),
-            pl.col("span").struct.field("end").alias("line_end"),
-        )
-        .pipe(ChunkStagingRow.validate, cast=True)
-    )
+    identities = chunks.select(
+        "blob_sha", "file_language", "kind", "name", "line_start", "line_end"
+    ).iter_rows()
+    return chunks.with_columns(
+        id=pl.Series([chunk_id(*identity) for identity in identities], dtype=pl.String),
+        content_tokens=pl.Series(
+            [tokenise_code(text) for text in chunks["content"]], dtype=pl.String
+        ),
+        name_tokens=pl.Series([tokenise_code(name) for name in chunks["name"]], dtype=pl.String),
+        extraction_serial=pl.col("language").replace_strict(
+            serials,
+            default=pl.col("file_language").replace_strict(
+                serials, default=1, return_dtype=pl.Int32
+            ),
+            return_dtype=pl.Int32,
+        ),
+    ).pipe(ChunkStagingRow.validate, cast=True)
 
 
 def staged_edges(

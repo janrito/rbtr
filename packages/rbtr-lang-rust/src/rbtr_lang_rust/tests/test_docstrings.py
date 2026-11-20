@@ -6,7 +6,7 @@ import pytest
 from pytest_cases import parametrize_with_cases
 
 from rbtr.git import FileEntry
-from rbtr.languages.extract import docstring, extract_file
+from rbtr.languages.extract import docstrings, extract_file
 
 
 @parametrize_with_cases(
@@ -68,5 +68,5 @@ fn greet(name: &str) -> String {
     ids=["doc-comment", "undocumented"],
 )
 def test_docstring_is_the_doc_comment_as_written(source: str, expected: str | None) -> None:
-    """`docstring` returns the first documented symbol's doc comment as written, or none."""
-    assert docstring(source, "rust") == expected
+    """`docstrings` gives the first documented symbol's doc comment as written, or none."""
+    assert docstrings([(source, "rust")]) == [expected]

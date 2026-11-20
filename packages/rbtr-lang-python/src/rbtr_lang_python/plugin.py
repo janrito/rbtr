@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from tree_sitter import Node
 
 # The `@_docstring` sub-capture marks the first-statement body
-# docstring for doc-range detection (used by `extract_doc_spans`
+# docstring for doc-range detection (used by `docstrings`
 # and the eval query sampler).  It is optional in the match
 # (`?`), so functions/classes without a docstring still match.
 

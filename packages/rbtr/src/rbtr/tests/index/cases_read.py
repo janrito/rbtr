@@ -11,10 +11,9 @@ from dataclasses import dataclass, field
 
 from pytest_cases import case
 
-from rbtr.domain.models import ChunkKind, FileSnapshot, SnapshotRef
+from rbtr.domain.models import Chunk, ChunkKind, FileSnapshot, SnapshotRef
 from rbtr.index.index import Index
 from rbtr.index.search import search
-from rbtr.index.staging import TokenisedChunk
 
 from .conftest import make_chunk, make_snap
 
@@ -41,14 +40,18 @@ class EmbedOrderScenario:
 
 @dataclass(frozen=True)
 class BlobCurrentScenario:
-    """Seed data + blob_is_current(serial map) query + expected result."""
+    """Seed data + blob_is_current(serial map) query + expected result.
 
-    chunks: list[TokenisedChunk]
+    *stored_serials* are the serials the chunks were stored at, by language.
+    """
+
+    chunks: list[Chunk]
     snapshots: list[FileSnapshot]
     query_blob: str
     query_language: str
     serial_map: dict[str, int]
     expected: bool
+    stored_serials: dict[str, int] = field(default_factory=dict)
 
 
 @case(tags=["chunks"])
@@ -231,12 +234,8 @@ def case_blob_is_current_detected_language_changed() -> BlobCurrentScenario:
 @case(tags=["blob_is_current"])
 def case_blob_is_current_multilanguage_all_current() -> BlobCurrentScenario:
     """SFC blob: host + embedded chunks all at current serials → True."""
-    host = make_chunk("tpl", blob="sfc", language="svelte").model_copy(
-        update={"extraction_serial": 2}
-    )
-    ts = make_chunk("fn", blob="sfc", language="typescript", file_language="svelte").model_copy(
-        update={"extraction_serial": 7}
-    )
+    host = make_chunk("tpl", blob="sfc", language="svelte")
+    ts = make_chunk("fn", blob="sfc", language="typescript", file_language="svelte")
     return BlobCurrentScenario(
         chunks=[host, ts],
         snapshots=[make_snap("head", "C.svelte", "sfc", "svelte")],
@@ -244,18 +243,15 @@ def case_blob_is_current_multilanguage_all_current() -> BlobCurrentScenario:
         query_language="svelte",
         serial_map={"svelte": 2, "typescript": 7, "": 1},
         expected=True,
+        stored_serials={"svelte": 2, "typescript": 7},
     )
 
 
 @case(tags=["blob_is_current"])
 def case_blob_is_current_multilanguage_embedded_bump() -> BlobCurrentScenario:
     """SFC blob: a delegated chunk stale vs the current embedded serial → False."""
-    host = make_chunk("tpl", blob="sfc", language="svelte").model_copy(
-        update={"extraction_serial": 2}
-    )
-    ts = make_chunk("fn", blob="sfc", language="typescript", file_language="svelte").model_copy(
-        update={"extraction_serial": 7}
-    )
+    host = make_chunk("tpl", blob="sfc", language="svelte")
+    ts = make_chunk("fn", blob="sfc", language="typescript", file_language="svelte")
     return BlobCurrentScenario(
         chunks=[host, ts],
         snapshots=[make_snap("head", "C.svelte", "sfc", "svelte")],
@@ -263,6 +259,7 @@ def case_blob_is_current_multilanguage_embedded_bump() -> BlobCurrentScenario:
         query_language="svelte",
         serial_map={"svelte": 2, "typescript": 8, "": 1},
         expected=False,
+        stored_serials={"svelte": 2, "typescript": 7},
     )
 
 

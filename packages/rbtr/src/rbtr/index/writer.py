@@ -14,10 +14,9 @@ from rbtr.domain.models import FileSnapshot, GcCounts, Repo
 from rbtr.index import load_sql
 from rbtr.index.db import build_fts, registered_views
 from rbtr.index.staging import (
+    ChunkStagingRow,
     EmbeddingStagingRow,
-    TokenisedChunk,
     serial_map_view,
-    staged_chunks,
     staged_edges,
     staged_file_snapshots,
 )
@@ -53,7 +52,7 @@ class WriteSession:
 
     ```python
     with index.session(repo) as ws:
-        ws.add_chunk(chunk)                        # buffered, content-addressed
+        ws.add_chunks(staged)                      # buffered, content-addressed
         ws.replace_edges(edges, snapshot_sha=sha)  # immediate, under the repo
     # exit: flush buffer + commit + FTS rebuild; rollback on exception
     ```
@@ -82,7 +81,8 @@ class WriteSession:
         self._inserted_blobs: set[tuple[str, str]] = set()
         # Chunks are content-addressed (keyed by id, no repo_id); the
         # buffer holds repo-independent content flushed via upsert.
-        self._chunk_buffer: list[TokenisedChunk] = []
+        self._chunk_buffer: list[dy.DataFrame[ChunkStagingRow]] = []
+        self._buffered = 0
 
     def __enter__(self) -> WriteSession:
         self._cursor.begin()
@@ -210,8 +210,8 @@ class WriteSession:
         ).fetchall()
         return str(rows[0][0]) if rows else ""
 
-    def add_chunk(self, chunk: TokenisedChunk) -> None:
-        """Buffer a content-addressed chunk for insertion.
+    def add_chunks(self, chunks: dy.DataFrame[ChunkStagingRow]) -> None:
+        """Buffer content-addressed chunks for insertion.
 
         Chunks are accumulated and flushed to DuckDB in batches —
         on commit/exit, when the buffer reaches
@@ -223,18 +223,33 @@ class WriteSession:
         its blob in the same transaction, which `_commit` requires.
         """
         self._require_active()
-        self._chunk_buffer.append(chunk)
-        if len(self._chunk_buffer) >= config.insert_batch_size:
+        self._chunk_buffer.append(chunks)
+        self._buffered += chunks.height
+        if self._buffered >= config.insert_batch_size:
             self._flush_chunks()
 
     def _flush_chunks(self) -> None:
         """Write buffered chunks to DuckDB in one batch."""
         if not self._chunk_buffer:
             return
-        self._bulk_insert(_UPSERT_CHUNKS_SQL, staged_chunks(self._chunk_buffer))
+        chunks = pl.concat(self._chunk_buffer)
+        self._bulk_insert(_UPSERT_CHUNKS_SQL, chunks)
         self._chunks_modified = True
-        self._inserted_blobs.update((c.blob_sha, c.file_language) for c in self._chunk_buffer)
+        self._inserted_blobs.update(chunks.select("blob_sha", "file_language").unique().rows())
         self._chunk_buffer.clear()
+        self._buffered = 0
+
+    def replace_chunks(self, chunks: dy.DataFrame[ChunkStagingRow]) -> None:
+        """Buffer *chunks* in place of what is stored for their blobs, as their file languages.
+
+        A blob extracted again may give chunks with other ids than before
+        (its language may have changed), so the chunks stored for each
+        blob and file language in *chunks* are deleted first.
+        """
+        blobs = chunks.group_by("file_language").agg(pl.col("blob_sha").unique())
+        for file_language, blob_shas in blobs.iter_rows():
+            self.delete_chunks_for_blobs(set(blob_shas), file_language)
+        self.add_chunks(chunks)
 
     def delete_chunks_for_blobs(self, blob_shas: set[str], file_language: str) -> None:
         """Delete the given blobs' chunks extracted as *file_language*.

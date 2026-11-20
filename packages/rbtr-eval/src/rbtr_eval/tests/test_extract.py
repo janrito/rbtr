@@ -1,6 +1,6 @@
 """Behaviour tests for extract query generation.
 
-Docstring detection is `rbtr.languages.extract.docstring` on the
+Docstring detection is `rbtr.languages.extract.docstrings` on the
 chunk content. Tested through the observable output: which
 provenances are produced for each symbol.
 """

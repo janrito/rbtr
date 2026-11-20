@@ -14,10 +14,9 @@ import pytest
 from rbtr.config import config
 from rbtr.domain.models import ChunkKind, Fragment, Import
 from rbtr.git import FileEntry
-from rbtr.languages.extract import extract_file
+from rbtr.languages.extract import extract_file, extract_symbols
 from rbtr.languages.manager import get_manager
 from rbtr.languages.registration import LanguageRegistration, QueryExtraction
-from rbtr.languages.treesitter import extract_symbols
 
 
 @pytest.mark.parametrize("lang", sorted(get_manager().all_language_ids()))
@@ -249,7 +248,7 @@ Call it.
 
 
 def test_unknown_capture_name_ignored() -> None:
-    """Captures not in _CAPTURE_KINDS are silently skipped."""
+    """Captures not in CAPTURE_KINDS are silently skipped."""
     grammar = get_manager().grammar("python")
     assert grammar is not None
     query_unknown = """\

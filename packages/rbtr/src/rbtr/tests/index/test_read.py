@@ -14,19 +14,20 @@ import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.domain.models import (
+    Chunk,
     EdgeKind,
     Import,
     ImportMeta,
     SnapshotRef,
     Span,
 )
-from rbtr.domain.tokenise import tokenise_code
 from rbtr.git import normalise_repo_path
 from rbtr.index.build import build_index
 from rbtr.index.embed import embed_index
 from rbtr.index.embeddings import Embedder
 from rbtr.index.index import Index
-from rbtr.index.staging import TokenisedChunk
+from rbtr.index.staging import staged_chunks
+from rbtr.languages.chunks import chunk_rows
 
 from ..conftest import make_commit
 from .cases_read import (
@@ -103,8 +104,7 @@ DEC = 12  # winter
 def blob_query(scenario: BlobCurrentScenario, index: Index) -> tuple[Index, BlobCurrentScenario]:
     repo = index.register("/repo")
     with index.session(repo) as ws:
-        for c in scenario.chunks:
-            ws.add_chunk(c)
+        ws.add_chunks(staged_chunks(chunk_rows(scenario.chunks), scenario.stored_serials))
         ws.replace_snapshots(list(scenario.snapshots), snapshot_sha="head")
     return index, scenario
 
@@ -125,11 +125,11 @@ def test_upsert_replaces_content(index: Index) -> None:
 
     repo = index.register("/repo")
     with index.session(repo) as ws:
-        ws.add_chunk(c1)
+        ws.add_chunks(staged_chunks(chunk_rows([c1]), {}))
         ws.replace_snapshots([make_snap("head", "f.py", c1.blob_sha)], snapshot_sha="head")
 
     with index.session(repo) as ws:
-        ws.add_chunk(c2)
+        ws.add_chunks(staged_chunks(chunk_rows([c2]), {}))
 
     chunks = index.chunks(at=repo.at("head"))
     assert len(chunks) == 1
@@ -143,8 +143,7 @@ def test_delete_chunks_for_blobs_removes_target(index: Index) -> None:
 
     repo = index.register("/repo")
     with index.session(repo) as ws:
-        ws.add_chunk(c1)
-        ws.add_chunk(c2)
+        ws.add_chunks(staged_chunks(chunk_rows([c1, c2]), {}))
         ws.replace_snapshots(
             [make_snap("head", "a.py", "b1"), make_snap("head", "b.py", "b2")], snapshot_sha="head"
         )
@@ -200,10 +199,10 @@ def test_a_read_leaves_the_cursor_free_for_the_next(
 
 
 @pytest.fixture
-def script_import() -> TokenisedChunk:
+def script_import() -> Chunk:
     """An import with every metadata field set, so a field storage drops shows."""
     content = '<script src="greeter.js"></script>'
-    return TokenisedChunk(
+    return Chunk(
         blob_sha="blob_page",
         file_path="page.html",
         role=Import(
@@ -213,13 +212,12 @@ def script_import() -> TokenisedChunk:
             ),
         ),
         content=content,
-        content_tokens=tokenise_code(content),
         span=Span(start=3, end=3),
     )
 
 
 def test_an_import_reads_back_as_written(
-    script_import: TokenisedChunk, index: Index, head_ref: SnapshotRef
+    script_import: Chunk, index: Index, head_ref: SnapshotRef
 ) -> None:
     seed_index(index, [script_import], head_ref)
     assert index.chunks(at=head_ref)["metadata"].to_list() == [
@@ -397,13 +395,11 @@ def test_rechunk_of_shared_blob_propagates_to_all_repos(
     index = shared_chunk_index
     repo1, repo2 = index.repos()
     blob = str(index.chunks(at=repo1.at(shared_sha))["blob_sha"].item())
-    rechunked = make_chunk("shared_fn_v2", path="x.py", blob=blob, language="python").model_copy(
-        update={"extraction_serial": 2}
-    )
+    rechunked = make_chunk("shared_fn_v2", path="x.py", blob=blob, language="python")
     # A different name, so a different id: the upgrade replaces the row.
     with index.session(repo1) as ws:
         ws.delete_chunks_for_blobs({blob}, file_language="python")
-        ws.add_chunk(rechunked)
+        ws.add_chunks(staged_chunks(chunk_rows([rechunked]), {"python": 2}))
 
     assert index.chunks(at=repo1.at(shared_sha))["id"].to_list() == [rechunked.id]
     assert index.chunks(at=repo2.at(shared_sha))["id"].to_list() == [rechunked.id]
@@ -634,7 +630,7 @@ def test_snapshots_come_back_in_embed_order(scenario: EmbedOrderScenario, index:
         with index.session(repo) as ws:
             for sha in shas:
                 chunk = make_chunk(sha, path=f"{sha}.py")
-                ws.add_chunk(chunk)
+                ws.add_chunks(staged_chunks(chunk_rows([chunk]), {}))
                 ws.replace_snapshots(
                     [make_snap(sha, chunk.file_path, chunk.blob_sha)], snapshot_sha=sha
                 )

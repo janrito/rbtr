@@ -26,6 +26,7 @@ from pytest_mock import MockerFixture
 
 from rbtr.config import config, index_dir_of
 from rbtr.domain.models import (
+    Chunk,
     EmbeddingState,
     FileSnapshot,
     Import,
@@ -43,7 +44,8 @@ from rbtr.index import load_sql
 from rbtr.index.constants import EMBEDDING_FORMAT_VERSION, SCHEMA_VERSION
 from rbtr.index.index import Index
 from rbtr.index.migrations import BringForward, FileKind, Migrate, chain, parse_calver, run
-from rbtr.index.staging import EmbeddingStagingRow, TokenisedChunk
+from rbtr.index.staging import EmbeddingStagingRow, staged_chunks
+from rbtr.languages.chunks import chunk_rows
 
 from .cases_index_versioning import FileAfter, MigrationScenario, VersioningScenario
 from .conftest import make_chunk, make_snap
@@ -86,13 +88,7 @@ def reopened(
         registered = seed.register("/repo")
         (project_file,) = (path.parent / "index").glob("*.duckdb")
         with seed.session(registered) as ws:
-            for chunk in before.seeded_chunks:
-                tc = (
-                    chunk
-                    if isinstance(chunk, TokenisedChunk)
-                    else TokenisedChunk(**chunk.model_dump())
-                )
-                ws.add_chunk(tc)
+            ws.add_chunks(staged_chunks(chunk_rows(before.seeded_chunks), {}))
             if before.seeded_chunks:
                 ws.replace_snapshots(
                     [
@@ -200,7 +196,7 @@ def _seed_one_chunk(path: Path) -> None:
     seed = Index(path, writable=True)
     repo = seed.register("/repo")
     with seed.session(repo) as ws:
-        ws.add_chunk(make_chunk("c1"))
+        ws.add_chunks(staged_chunks(chunk_rows([make_chunk("c1")]), {}))
         ws.replace_snapshots(
             [FileSnapshot(snapshot_sha="head", file_path="f.py", blob_sha="blob_c1")],
             snapshot_sha="head",
@@ -290,7 +286,7 @@ def test_fts_persists_across_reopen(tmp_path: Path) -> None:
     index1 = Index(db_path, writable=True)
     repo = index1.register("/repo")
     with index1.session(repo) as ws:
-        ws.add_chunk(chunk)
+        ws.add_chunks(staged_chunks(chunk_rows([chunk]), {}))
         ws.replace_snapshots(
             [FileSnapshot(snapshot_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha)],
             snapshot_sha="head",
@@ -369,7 +365,7 @@ def test_forgetting_a_projects_last_checkout_deletes_its_file(tmp_path: Path) ->
     kept = index.register("/kept")
     forgotten = index.register("/forgotten")
     with index.session(forgotten) as ws:
-        ws.add_chunk(make_chunk("c", path="a.py", blob="b"))
+        ws.add_chunks(staged_chunks(chunk_rows([make_chunk("c", path="a.py", blob="b")]), {}))
         ws.replace_snapshots([make_snap("head", "a.py", "b")], snapshot_sha="head")
         ws.mark_indexed(snapshot_sha="head")
     query = "SELECT path FROM duckdb_databases() WHERE database_name = current_database()"
@@ -567,7 +563,7 @@ def test_a_project_file_from_2026_10_0_keeps_its_import_metadata(tmp_path: Path)
     as files written then hold it.
     """
     path = tmp_path / "index.duckdb"
-    imp = TokenisedChunk(
+    imp = Chunk(
         blob_sha="blob_app",
         file_path="app.py",
         role=Import(name="import os", meta=ImportMeta(module="os")),
@@ -578,8 +574,7 @@ def test_a_project_file_from_2026_10_0_keeps_its_import_metadata(tmp_path: Path)
     seed = Index(path, writable=True)
     repo = seed.register("/repo")
     with seed.session(repo) as ws:
-        ws.add_chunk(imp)
-        ws.add_chunk(fn)
+        ws.add_chunks(staged_chunks(chunk_rows([imp, fn]), {}))
         ws.replace_snapshots([make_snap("head", "app.py", "blob_app")], snapshot_sha="head")
     seed.close()
     (project_file,) = (tmp_path / "index").glob("*.duckdb")

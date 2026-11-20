@@ -7,18 +7,19 @@ from pathlib import Path
 
 import polars as pl
 
-from rbtr.domain.models import EdgeKind, FileSnapshot
+from rbtr.domain.models import Chunk, EdgeKind, FileSnapshot
 from rbtr.index.index import Index
-from rbtr.index.staging import EmbeddingStagingRow, TokenisedChunk
+from rbtr.index.staging import EmbeddingStagingRow, staged_chunks
+from rbtr.languages.chunks import chunk_rows
 from rbtr.languages.edges import InferredEdgeRow
 
 from .conftest import make_chunk
 
 
 def test_commit_makes_writes_visible_during_concurrent_work(
-    math_func: TokenisedChunk,
-    http_func: TokenisedChunk,
-    string_func: TokenisedChunk,
+    math_func: Chunk,
+    http_func: Chunk,
+    string_func: Chunk,
 ) -> None:
     """A repo registered and written on a worker thread is visible to
     another thread once the session commits, while the worker goes on
@@ -30,7 +31,7 @@ def test_commit_makes_writes_visible_during_concurrent_work(
         repo = index.register("/repo")
         with index.session(repo) as session:
             for c in [math_func, http_func, string_func]:
-                session.add_chunk(c)
+                session.add_chunks(staged_chunks(chunk_rows([c]), {}))
             session.replace_snapshots(
                 [
                     FileSnapshot(
@@ -112,7 +113,7 @@ def test_concurrent_batch_and_search(tmp_path: Path) -> None:
     ]
     with index.session(repo) as session:
         for c in chunks:
-            session.add_chunk(c)
+            session.add_chunks(staged_chunks(chunk_rows([c]), {}))
         session.replace_snapshots(
             [
                 FileSnapshot(snapshot_sha="head", file_path=c.file_path, blob_sha=c.blob_sha)
@@ -136,7 +137,7 @@ def test_concurrent_batch_and_search(tmp_path: Path) -> None:
             # Each batch is a snapshot of its own, as each build is.
             batch = f"batch_{i}"
             with index.session(repo) as session:
-                session.add_chunk(extra)
+                session.add_chunks(staged_chunks(chunk_rows([extra]), {}))
                 session.replace_snapshots(
                     [
                         FileSnapshot(
@@ -170,9 +171,7 @@ def test_concurrent_batch_and_search(tmp_path: Path) -> None:
     index.close()
 
 
-def test_index_survives_threads_that_write_and_exit(
-    math_func: TokenisedChunk, http_func: TokenisedChunk
-) -> None:
+def test_index_survives_threads_that_write_and_exit(math_func: Chunk, http_func: Chunk) -> None:
     """A thread may write and exit; another thread still reads the store.
 
     The build worker is such a thread. On duckdb 1.5.5, without pyarrow
@@ -184,11 +183,11 @@ def test_index_survives_threads_that_write_and_exit(
     repo = index.register("/repo")
     seen: list[int] = []
 
-    def write(chunks: list[TokenisedChunk]) -> None:
+    def write(chunks: list[Chunk]) -> None:
         """Write `head` as a build does: the snapshot's every file, replacing the last."""
         with index.session(repo) as session:
             for chunk in chunks:
-                session.add_chunk(chunk)
+                session.add_chunks(staged_chunks(chunk_rows([chunk]), {}))
             session.replace_snapshots(
                 [
                     FileSnapshot(snapshot_sha="head", file_path=c.file_path, blob_sha=c.blob_sha)
