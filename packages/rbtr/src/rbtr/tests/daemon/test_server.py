@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import threading
-import time
 from pathlib import Path
 
 import duckdb
@@ -41,7 +40,7 @@ from rbtr.errors import DaemonBusyError, RbtrError
 from rbtr.index.index import Index
 from rbtr.tests.daemon.cases_server import MalformedMessage, StopScenario
 
-from .conftest import serving
+from .conftest import serving, subscribed
 
 
 @parametrize_with_cases("scenario", cases=".cases_server")
@@ -82,18 +81,14 @@ def test_multiple_requests(running_daemon: Daemon, fake_repo: str) -> None:
     assert r2.kind == "status"
 
 
-def test_gc_publishes_its_start_progress_and_end(running_daemon: Daemon) -> None:
+def test_gc_publishes_its_start_progress_and_end(running_daemon: Daemon, fake_repo: str) -> None:
     """A gc over every repo publishes one `gc_progress` per repo, between its start and end."""
-    sub: zmq.Socket[bytes] = zmq.Context.instance().socket(zmq.SUB)
-    sub.connect(running_daemon.pub_addr)
-    sub.subscribe(b"")
-    time.sleep(0.5)  # the subscription reaches the daemon
-    with DaemonClient(running_daemon.runtime_dir) as client:
-        client.send(GcAllRequest(mode=GcMode.WATCHED))
-    published = []
-    while sub.poll(2000):
-        published.append(notification_adapter.validate_json(sub.recv()))
-    sub.close()
+    with subscribed(running_daemon, fake_repo) as sub:
+        with DaemonClient(running_daemon.runtime_dir) as client:
+            client.send(GcAllRequest(mode=GcMode.WATCHED))
+        published = []
+        while sub.poll(2000):
+            published.append(notification_adapter.validate_json(sub.recv()))
 
     gc_kinds = (GcStartedNotification, GcProgressNotification, GcEndedNotification)
     assert [n for n in published if isinstance(n, gc_kinds)] == [
@@ -118,7 +113,8 @@ def test_an_idle_daemon_runs_maintenance(
     which starts its grace period, collects the live repo, and rebuilds the
     FTS index no write changed.
     """
-    monkeypatch.setattr(config, "maintenance_idle_s", 0.0)
+    # Held off until the subscription is confirmed, so none of the pass is missed.
+    monkeypatch.setattr(config, "maintenance_idle_s", float("inf"))
     gone = seeded_index.register(str(tmp_path / "gone"))
     live = seeded_index.repo(fake_repo)
     with seeded_index.reader(live) as cur:
@@ -126,16 +122,13 @@ def test_an_idle_daemon_runs_maintenance(
     server = Daemon(
         runtime_dir, index=seeded_index, idle_poll_interval=1.0, busy_poll_interval=60.0
     )
-    sub: zmq.Socket[bytes] = zmq.Context.instance().socket(zmq.SUB)
-    with serving(server):
-        sub.connect(server.pub_addr)
-        sub.subscribe(b"")
+    with serving(server), subscribed(server, fake_repo) as sub:
+        monkeypatch.setattr(config, "maintenance_idle_s", 0.0)
         published = []
-        while sub.poll(3000):
+        while sub.poll(30_000):
             published.append(notification_adapter.validate_json(sub.recv()))
             if isinstance(published[-1], GcEndedNotification):
                 break
-    sub.close()
 
     gc_kinds = (GcStartedNotification, GcProgressNotification, GcEndedNotification)
     assert [n for n in published if isinstance(n, gc_kinds)] == [

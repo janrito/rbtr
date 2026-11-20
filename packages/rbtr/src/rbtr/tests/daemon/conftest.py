@@ -14,6 +14,7 @@ import asyncio
 import contextlib
 import tempfile
 import threading
+import time
 from collections.abc import Callable, Generator, Iterator
 from pathlib import Path
 
@@ -23,9 +24,15 @@ import zmq
 from pytest_mock import MockerFixture
 
 from rbtr.daemon.client import DaemonClient
-from rbtr.daemon.messages import Request, Response
+from rbtr.daemon.messages import (
+    GcEndedNotification,
+    GcRequest,
+    Request,
+    Response,
+    notification_adapter,
+)
 from rbtr.daemon.server import Daemon
-from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot, IndexResult, Repo
+from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot, GcMode, IndexResult, Repo
 from rbtr.index.build import build_index
 from rbtr.index.embeddings import Embedder
 from rbtr.index.index import Index
@@ -351,6 +358,38 @@ def serving(server: Daemon) -> Iterator[Daemon]:
         server.request_shutdown()
         thread.join(timeout=30)
         assert not thread.is_alive(), "daemon thread still running after shutdown"
+
+
+@contextlib.contextmanager
+def subscribed(server: Daemon, repo_path: str) -> Iterator[zmq.Socket[bytes]]:
+    """A SUB socket on *server*'s notifications that is known to receive them.
+
+    A PUB socket drops what it publishes before a subscription reaches it,
+    and the daemon has no handshake to say when one has.  So this sends a
+    dry-run gc of *repo_path*, which publishes `gc_started` and `gc_ended`
+    and writes nothing, until that `gc_ended` arrives.  The probe's own
+    notifications are read here, so the block sees only what it triggers.
+    """
+    sub: zmq.Socket[bytes] = zmq.Context.instance().socket(zmq.SUB)
+    sub.connect(server.pub_addr)
+    sub.subscribe(b"")
+    try:
+        deadline = time.monotonic() + 30
+        probe = GcRequest(repo_path=repo_path, mode=GcMode.WATCHED, dry_run=True)
+        received = False
+        with DaemonClient(server.runtime_dir) as client:
+            while not received:
+                assert time.monotonic() < deadline, "the subscription received nothing"
+                client.send(probe)
+                wait_until = time.monotonic() + 2
+                while not received and (remaining := wait_until - time.monotonic()) > 0:
+                    if not sub.poll(int(remaining * 1000)):
+                        break
+                    notification = notification_adapter.validate_json(sub.recv())
+                    received = isinstance(notification, GcEndedNotification)
+        yield sub
+    finally:
+        sub.close()
 
 
 @pytest.fixture
