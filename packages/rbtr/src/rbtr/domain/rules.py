@@ -80,6 +80,8 @@ class ChunkRow(dy.Schema):
     class). `metadata` is
     null for a role with no payload (sections, comments, raw slices).
     `docs` is the text of its documentation, null when it has none.
+    `content` is the file's text from `start_byte` to `end_byte`, and
+    `line_end` the line its last byte is on.
     """
 
     blob_sha = dy.String(nullable=False)
@@ -89,6 +91,8 @@ class ChunkRow(dy.Schema):
     name = dy.String(nullable=False)
     scope = dy.String(nullable=False)
     content = dy.String(nullable=False)
+    start_byte = dy.Int64(nullable=False)
+    end_byte = dy.Int64(nullable=False)
     line_start = dy.Int32(nullable=False)
     line_end = dy.Int32(nullable=False)
     metadata = dy.Struct(
@@ -421,23 +425,33 @@ def without_final_empty_line() -> pl.Expr:
     )
 
 
-def window_text(size: int) -> pl.Expr:
-    """The *size* lines from a window's start, joined, less whitespace at both ends."""
-    return pl.col("lines").list.slice("start", size).list.join("\n").str.strip_chars()
+def window_lines(size: int) -> pl.Expr:
+    """The *size* lines from a window's start, joined: its text before trimming."""
+    return pl.col("lines").list.slice("start", size).list.join("\n")
 
 
-def window_end(size: int) -> pl.Expr:
-    """The 1-based last line of the window of *size* lines from `start`, within its file."""
-    return pl.min_horizontal(pl.col("start") + size, pl.col("lines").list.len())
+def window_start_byte() -> pl.Expr:
+    """Where a window's first line starts in its file: the lines before it, each with its newline."""
+    return (
+        pl.col("lines")
+        .list.slice(0, "start")
+        .list.eval(pl.element().str.len_bytes() + 1)
+        .list.sum()
+        .cast(pl.Int64)
+    )
 
 
-def span_text() -> pl.Expr:
-    """A span's text; a fragment's ends before the newlines it ends with."""
-    span = text(pl.col("start_byte"), pl.col("end_byte"))
+def end_before_final_newlines() -> pl.Expr:
+    """A span's end; a fragment's before the newlines its text ends with."""
     return (
         pl.when(pl.col("kind") == ChunkKind.FRAGMENT.value)
-        .then(span.str.strip_chars_end("\n"))
-        .otherwise(span)
+        .then(
+            pl.col("start_byte")
+            + text(pl.col("start_byte"), pl.col("end_byte"))
+            .str.strip_chars_end("\n")
+            .str.len_bytes()
+        )
+        .otherwise(pl.col("end_byte"))
     )
 
 
@@ -525,9 +539,16 @@ def end_before_trailing_whitespace() -> pl.Expr:
 
 
 def last_line_of_span() -> pl.Expr:
-    """The line `end_byte` falls on, from `line_start` and the newlines in between."""
-    return pl.col("line_start") + text(pl.col("start_byte"), pl.col("end_byte")).str.count_matches(
-        "\n", literal=True
+    """The line a span's last byte is on, from `line_start` and the newlines before that byte.
+
+    A span ending with a newline ends on the line the newline ends, as
+    tree-sitter's `last_line` reads a node ending at a line break.
+    """
+    span = text(pl.col("start_byte"), pl.col("end_byte"))
+    return (
+        pl.col("line_start")
+        + span.str.count_matches("\n", literal=True)
+        - span.str.ends_with("\n").cast(pl.Int64)
     )
 
 
@@ -890,9 +911,9 @@ def capture_chunks(
 ) -> dy.LazyFrame[PlacedChunkRow]:
     """The chunks *captures* make: comments folded (`fold_comments`), then each made a chunk.
 
-    A capture's text is its span of the file (a fragment's less the
-    newlines it ends with), and its docs the texts of its documentation's
-    spans joined by newlines. A function in a class is a method
+    A capture's text is its span of the file (a fragment's span ends
+    before the newlines it ends with), and its docs the texts of its
+    documentation's spans joined by newlines. A function in a class is a method
     (`promoted`), and an import's `#` is read (`module_before_fragment`,
     `fragment_as_names`). A fragment whose text is blank is no chunk.
     """
@@ -915,7 +936,10 @@ def capture_chunks(
             metadata=pl.col("metadata").struct.with_fields(
                 module=module_before_fragment(), names=fragment_as_names()
             ),
-            content=span_text(),
+            end_byte=end_before_final_newlines(),
+        )
+        .with_columns(
+            content=text(pl.col("start_byte"), pl.col("end_byte")), line_end=last_line_of_span()
         )
         .filter(~blank_fragment())
         .pipe(PlacedChunkRow.validate, cast=True)
@@ -927,9 +951,9 @@ def line_windows(
 ) -> dy.LazyFrame[PlacedChunkRow]:
     """The files numbered in *plain*, as windows of *size* lines, each from *overlap* lines before the last ends.
 
-    A file that ends in a newline has no empty last line. A window's text
-    is its lines joined, less whitespace at both ends, and a blank window
-    is no chunk. The windows are in *language*, numbered in their file.
+    A file that ends in a newline has no empty last line. A window's span
+    is its lines less whitespace at both ends, and a blank window is no
+    chunk. The windows are in *language*, numbered in their file.
     """
     return (
         files.lazy()
@@ -943,8 +967,22 @@ def line_windows(
         .with_columns(lines=without_final_empty_line())
         .with_columns(start=pl.int_ranges(0, pl.col("lines").list.len(), size - overlap))
         .explode("start", empty_as_null=False)
+        .with_columns(raw=window_lines(size), first=window_start_byte())
+        .with_columns(trimmed=pl.col("raw").str.strip_chars_start(ASCII_WHITESPACE))
         .with_columns(
-            content=window_text(size), line_start=pl.col("start") + 1, line_end=window_end(size)
+            content=pl.col("trimmed").str.strip_chars_end(ASCII_WHITESPACE),
+            start_byte=pl.col("first")
+            + pl.col("raw").str.len_bytes()
+            - pl.col("trimmed").str.len_bytes(),
+            line_start=pl.col("start")
+            + 1
+            + pl.col("raw")
+            .str.head(pl.col("raw").str.len_chars() - pl.col("trimmed").str.len_chars())
+            .str.count_matches("\n", literal=True),
+        )
+        .with_columns(
+            end_byte=pl.col("start_byte") + pl.col("content").str.len_bytes(),
+            line_end=pl.col("line_start") + pl.col("content").str.count_matches("\n", literal=True),
         )
         .filter(pl.col("content") != "")
         .with_columns(
@@ -982,6 +1020,8 @@ def assemble(
             name=pl.lit(""),
             scope=pl.lit(""),
             content=pl.lit(""),
+            start_byte=pl.lit(0),
+            end_byte=pl.lit(0),
             line_start=pl.lit(1),
             line_end=pl.lit(1),
         )

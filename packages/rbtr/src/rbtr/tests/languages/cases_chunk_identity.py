@@ -32,13 +32,6 @@ class IdentityScenario:
     chunks: list[Chunk]
 
 
-@case(
-    marks=pytest.mark.xfail(
-        strict=True,
-        reason="two captures of one kind and name on one line share a line-based id, "
-        "so the index keeps one (Phase 3: the id hashes the byte span)",
-    )
-)
 def case_one_name_twice_on_a_line_is_two_chunks() -> IdentityScenario:
     """Two assignments to `kind` on one line are two spans, so two chunks."""
     return IdentityScenario(
@@ -55,8 +48,8 @@ def case_one_name_twice_on_a_line_is_two_chunks() -> IdentityScenario:
 @case(
     marks=pytest.mark.xfail(
         strict=True,
-        reason="leftover text is cut at every tree level, and two fragments on one line "
-        "share an id (Phase 3: byte-span ids; Phase 4: contiguous leftovers join)",
+        reason="leftover text is cut at every tree level, so `run` and `(` are two "
+        "fragments (Phase 4: contiguous leftovers join)",
     )
 )
 def case_leftover_text_on_a_line_is_one_fragment() -> IdentityScenario:
@@ -125,8 +118,8 @@ def case_one_declaration_of_two_names_is_one_chunk() -> IdentityScenario:
 @case(
     marks=pytest.mark.xfail(
         strict=True,
-        reason="an element with an id that also links a file is a section and an import "
-        "(Phase 3: one span; Phase 5: the section carries the import)",
+        reason="an element with an id that also links a file is a section and an import, "
+        "the import's span ending past the newline (Phase 5: the section carries the import)",
     )
 )
 def case_one_node_in_two_roles_is_one_chunk() -> IdentityScenario:

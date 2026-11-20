@@ -27,17 +27,16 @@ def compose_scope(names: Iterable[str]) -> str:
     return SCOPE_SEPARATOR.join(n for n in names if n)
 
 
-def chunk_id(
-    blob_sha: str, file_language: str, kind: str, name: str, line_start: int, line_end: int
-) -> str:
-    """A hash of what a chunk is: its blob, the language its file was read as, its role, its span.
+def chunk_id(blob_sha: str, file_language: str, start_byte: int, end_byte: int) -> str:
+    """A hash of where a chunk is: its blob, the language its file was read as, its byte span.
 
     Byte-identical files share every chunk, so a copy of an indexed file
     resolves to the row already there. `file_language` is part of it
-    because the same bytes read as two languages are two extractions;
-    `kind` and `line_end` because a chunk is a span with a role, and an
-    rst `doc_section` and a `:mod:` reference can share a name and a
-    starting line while spanning different lines.
+    because the same bytes read as two languages are two extractions. A
+    span of a file is one chunk, whatever its kind and name, so two
+    chunks of one extraction share an id only if they share a span; bytes,
+    not lines, because two chunks can share every line (`kind = 1; kind
+    = 2`).
     """
-    raw = f"{blob_sha}:{file_language}:{kind}:{name}:{line_start}:{line_end}"
+    raw = f"{blob_sha}:{file_language}:{start_byte}:{end_byte}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]

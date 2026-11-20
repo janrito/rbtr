@@ -22,6 +22,8 @@ from rbtr.domain.rules import CaptureRow, ChunkRow
                 "name": "x",
                 "scope": "",
                 "content": "x",
+                "start_byte": 0,
+                "end_byte": 1,
                 "line_start": 1,
                 "line_end": 1,
                 "metadata": {
@@ -45,6 +47,8 @@ from rbtr.domain.rules import CaptureRow, ChunkRow
                 "name": "x",
                 "scope": "",
                 "content": "x",
+                "start_byte": 0,
+                "end_byte": 1,
                 "line_start": 1,
                 "line_end": 1,
                 "metadata": {
@@ -76,6 +80,8 @@ from rbtr.domain.rules import CaptureRow, ChunkRow
                 "name": "x",
                 "scope": "",
                 "content": "x",
+                "start_byte": 0,
+                "end_byte": 1,
                 "line_start": 1,
                 "line_end": 1,
                 "metadata": {
@@ -108,6 +114,8 @@ from rbtr.domain.rules import CaptureRow, ChunkRow
                 "name": "x",
                 "scope": "",
                 "content": "x",
+                "start_byte": 0,
+                "end_byte": 1,
                 "line_start": 1,
                 "line_end": 1,
                 "metadata": {
@@ -131,6 +139,8 @@ from rbtr.domain.rules import CaptureRow, ChunkRow
                 "name": "x",
                 "scope": "",
                 "content": "x",
+                "start_byte": 0,
+                "end_byte": 1,
                 "line_start": 1,
                 "line_end": 1,
                 "metadata": None,
@@ -156,6 +166,8 @@ def test_a_chunk_whose_fields_agree_is_accepted(row: dict) -> None:
                 "name": "x",
                 "scope": "",
                 "content": "x",
+                "start_byte": 0,
+                "end_byte": 1,
                 "line_start": 1,
                 "line_end": 1,
                 "metadata": {
@@ -180,6 +192,8 @@ def test_a_chunk_whose_fields_agree_is_accepted(row: dict) -> None:
                 "name": "x",
                 "scope": "",
                 "content": "x",
+                "start_byte": 0,
+                "end_byte": 1,
                 "line_start": 1,
                 "line_end": 1,
                 "metadata": {
@@ -204,6 +218,8 @@ def test_a_chunk_whose_fields_agree_is_accepted(row: dict) -> None:
                 "name": "x",
                 "scope": "",
                 "content": "x",
+                "start_byte": 0,
+                "end_byte": 1,
                 "line_start": 1,
                 "line_end": 1,
                 "metadata": {
@@ -228,6 +244,8 @@ def test_a_chunk_whose_fields_agree_is_accepted(row: dict) -> None:
                 "name": "x",
                 "scope": "",
                 "content": "x",
+                "start_byte": 0,
+                "end_byte": 1,
                 "line_start": 1,
                 "line_end": 1,
                 "metadata": {
@@ -252,6 +270,8 @@ def test_a_chunk_whose_fields_agree_is_accepted(row: dict) -> None:
                 "name": "x",
                 "scope": "",
                 "content": "x",
+                "start_byte": 0,
+                "end_byte": 1,
                 "line_start": 1,
                 "line_end": 1,
                 "metadata": {
@@ -283,6 +303,8 @@ def test_a_chunk_whose_fields_agree_is_accepted(row: dict) -> None:
                 "name": "x",
                 "scope": "",
                 "content": "x",
+                "start_byte": 0,
+                "end_byte": 1,
                 "line_start": 1,
                 "line_end": 1,
                 "metadata": {
@@ -307,6 +329,8 @@ def test_a_chunk_whose_fields_agree_is_accepted(row: dict) -> None:
                 "name": "x",
                 "scope": "",
                 "content": "x",
+                "start_byte": 0,
+                "end_byte": 1,
                 "line_start": 1,
                 "line_end": 1,
                 "metadata": {
@@ -333,6 +357,8 @@ def test_a_chunk_whose_fields_agree_is_accepted(row: dict) -> None:
                 "name": "x",
                 "scope": "",
                 "content": "x",
+                "start_byte": 0,
+                "end_byte": 1,
                 "line_start": 1,
                 "line_end": 1,
                 "metadata": {

@@ -118,15 +118,6 @@
     "line_end": 13
   },
   {
-    "name": "fallback",
-    "kind": "variable",
-    "file_path": "javascript.js",
-    "scope": "",
-    "language": "javascript",
-    "line_start": 14,
-    "line_end": 14
-  },
-  {
     "name": "locale",
     "kind": "variable",
     "file_path": "javascript.js",

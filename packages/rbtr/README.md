@@ -933,15 +933,22 @@ def chunk_example(
             file_path=file_path,
             role=Section(kind=ChunkKind.DOC_SECTION, name=""),
             content=node.text.decode(),
-            span=Span(start=node.start_point[0] + 1, end=last_line(node)),
+            span=Span(
+                start=node.start_point[0] + 1,
+                end=last_line(node),
+                start_byte=node.start_byte,
+                end_byte=node.end_byte,
+            ),
         )
 ```
 
-Spans are 1-based and inclusive. Take the last line from
-`last_line`: tree-sitter rows are 0-based, and a node that
-consumes its trailing newline ends at column 0 of a row it does
-not occupy, so adding one to the end row overshoots such a node
-by a line.
+A span's lines are 1-based and inclusive; its bytes are the node's
+offsets, the end exclusive, and the chunk's content is exactly those
+bytes. Take the last line from `last_line`: tree-sitter rows are
+0-based, and a node that consumes its trailing newline ends at column 0
+of a row it does not occupy, so adding one to the end row overshoots
+such a node by a line. Core makes a chunk's id from its blob, file
+language and bytes.
 
 A file whose name claims no language, such as `notes.txt`, can still
 be read as yours by its content. List patterns that mark your
@@ -1127,7 +1134,9 @@ anything that shapes the chunks it emits — bump
 `extraction_serial` on the registration. Each stored chunk records its
 own language's serial. On the next build, a file whose chunks carry an
 different contributor serial needs re-extraction; leaving the serial
-unchanged keeps the existing chunks. That build also brings up to date
+unchanged keeps the existing chunks. A chunk whose span is unchanged
+keeps its id, and its embedding while its name and content are
+unchanged. That build also brings up to date
 what every other indexed commit sharing those files knows of them: their
 references are worked out again from the new chunks, so `find-refs` at an
 older commit answers from what the plugin extracts now. It is independent

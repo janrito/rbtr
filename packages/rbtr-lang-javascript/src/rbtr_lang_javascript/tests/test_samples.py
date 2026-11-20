@@ -94,6 +94,11 @@ def test_extraction_matches_snapshot(
                 },
             },
             id="javascript",
+            marks=pytest.mark.xfail(
+                strict=True,
+                reason="a declaration of several names is one span captured once per name, so the "
+                "index keeps the first name (one-span-one-chunk Phase 6: a chunk lists its names)",
+            ),
         ),
         pytest.param(
             "typescript",

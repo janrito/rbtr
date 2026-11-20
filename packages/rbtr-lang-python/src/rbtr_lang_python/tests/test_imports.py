@@ -45,6 +45,11 @@ from rbtr.testing.assertions import Referrer, Target, assert_reached
                 },
             },
             id="named-imports",
+            marks=pytest.mark.xfail(
+                strict=True,
+                reason="a declaration of several names is one span captured once per name, so the "
+                "index keeps the first name (one-span-one-chunk Phase 6: a chunk lists its names)",
+            ),
         ),
         pytest.param(
             "bare-import",

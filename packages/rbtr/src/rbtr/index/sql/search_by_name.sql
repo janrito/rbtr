@@ -20,6 +20,8 @@ WITH ranked AS (
     c.content,
     c.line_start,
     c.line_end,
+    c.start_byte,
+    c.end_byte,
     c.metadata,
     CASE
       WHEN c.embedding IS NULL THEN 'none'
@@ -80,6 +82,8 @@ SELECT
   content,
   line_start,
   line_end,
+  start_byte,
+  end_byte,
   metadata,
   embedding_state,
   -- Returned so a search over several project files keeps only the best

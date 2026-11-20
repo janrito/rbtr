@@ -20,13 +20,12 @@ CREATE TABLE IF NOT EXISTS file_snapshots (
 
 CREATE TABLE IF NOT EXISTS chunks (
   -- Content-addressed store: `id` is a sha256 (first 16 hex) of
-  -- (blob_sha, file_language, kind, name, line_start, line_end) and is
-  -- therefore globally unique and location-independent.  Identical
-  -- content at several paths, or in several checkouts of the project,
-  -- is one row here; where it lives is entirely
-  -- `file_snapshots`, joined on blob_sha + file_language =
-  -- detected_language.  See ARCHITECTURE.md "Content-addressed
-  -- chunks".
+  -- (blob_sha, file_language, start_byte, end_byte): one span of a blob
+  -- read as one language is one row, whatever its kind and name, and is
+  -- location-independent.  Identical content at several paths, or in
+  -- several checkouts of the project, is one row here; where it lives is
+  -- entirely `file_snapshots`, joined on blob_sha + file_language =
+  -- detected_language.  See ARCHITECTURE.md "Content-addressed chunks".
   id TEXT NOT NULL,
   blob_sha TEXT NOT NULL,
   kind TEXT NOT NULL,
@@ -41,6 +40,9 @@ CREATE TABLE IF NOT EXISTS chunks (
   content TEXT NOT NULL,
   content_tokens TEXT NOT NULL DEFAULT '',
   name_tokens TEXT NOT NULL DEFAULT '',
+  -- `content` is the blob's text from `start_byte` to `end_byte`.
+  start_byte BIGINT NOT NULL,
+  end_byte BIGINT NOT NULL,
   line_start INTEGER NOT NULL,
   line_end INTEGER NOT NULL,
   -- What the chunk's role carries beyond kind and name: an import's
@@ -63,8 +65,11 @@ CREATE TABLE IF NOT EXISTS chunks (
   embedding FLOAT[] DEFAULT NULL,
   embedding_truncated BOOLEAN NOT NULL DEFAULT FALSE,
   PRIMARY KEY (id),
-  -- A span ends on or after the line it starts on.
-  CONSTRAINT chunk_span CHECK (line_end >= line_start),
+  -- A span ends on or after the byte and the line it starts on.
+  CONSTRAINT chunk_span CHECK (
+    end_byte >= start_byte
+    AND line_end >= line_start
+  ),
   -- Truncation describes an embedding that exists.
   CONSTRAINT truncation_needs_embedding CHECK (
     embedding IS NOT NULL

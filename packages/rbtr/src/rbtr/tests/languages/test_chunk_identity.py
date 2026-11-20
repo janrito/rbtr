@@ -67,3 +67,70 @@ a.f()
             build,
             {("a.py", "f"): {("b.py", "import os, a", "imports"), ("b.py", "", "calls")}},
         )
+
+
+def test_each_chunk_is_the_text_of_its_byte_span(indexed: Indexed) -> None:
+    """Every stored chunk's content is its file's bytes from `start_byte` to `end_byte`, and its lines are the lines those bytes are on.
+
+    A file per way a chunk is made: captures with a folded comment block,
+    lines ending with their newline, blocks another language reads, and
+    windows of a plaintext file. `é` is two bytes, so a span counted in
+    characters would be found out.
+    """
+    files = {
+        "a.py": """\
+# Résumé of the module.
+
+
+# Comment block,
+# folded into the function.
+def f():
+    return "é"
+
+
+f()
+""",
+        "b.c": """\
+#include <stdio.h>
+#include "b.h"
+
+int g(void) { return 1; }
+""",
+        "c.md": """\
+# Café
+
+Text.
+
+```python
+x = "é"
+```
+""",
+        "d.html": """\
+<p>é</p>
+<script>
+const y = 1;
+</script>
+""",
+        "notes.txt": """\
+
+
+Plain é text,
+after two blank lines.
+""",
+    }
+    with indexed(files) as build:
+        [repo] = build.index.repos()
+        chunks = build.index.chunks(at=resolve_read_ref(build.index, repo, None).at)
+    assert set(chunks["file_path"]) == set(files)
+    disagreeing = [
+        chunk
+        for chunk in chunks.rows(named=True)
+        for text in [files[chunk["file_path"]].encode()]
+        if (chunk["content"], chunk["line_start"], chunk["line_end"])
+        != (
+            text[chunk["start_byte"] : chunk["end_byte"]].decode(),
+            text.count(b"\n", 0, chunk["start_byte"]) + 1,
+            text.count(b"\n", 0, max(chunk["start_byte"], chunk["end_byte"] - 1)) + 1,
+        )
+    ]
+    assert disagreeing == []

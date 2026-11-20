@@ -478,15 +478,6 @@
     "line_end": 25
   },
   {
-    "name": "FALLBACK",
-    "kind": "variable",
-    "file_path": "python.py",
-    "scope": "",
-    "language": "python",
-    "line_start": 26,
-    "line_end": 26
-  },
-  {
     "name": "LOCALES",
     "kind": "variable",
     "file_path": "python.py",

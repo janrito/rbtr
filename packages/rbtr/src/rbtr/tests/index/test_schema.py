@@ -17,7 +17,6 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import duckdb
-import polars as pl
 import pygit2
 import pytest
 import structlog
@@ -586,203 +585,43 @@ at {migrations[0].start}"
         assert migrated_ddl == fresh_ddl
 
 
-def test_a_project_file_from_2026_10_0_keeps_its_import_metadata(
-    tmp_path: Path, fake_repo: str
+@pytest.mark.parametrize("stored", ["2026.10.0", "2026.11.0", "2026.11.1"])
+def test_a_project_file_from_before_2026_11_2_is_emptied_and_keeps_its_watched_refs(
+    tmp_path: Path, git_repo: pygit2.Repository, repo_path: str, stored: str
 ) -> None:
-    """A file holding metadata as JSON text opens with each import's metadata as it was.
-
-    The file is written now and forged back to 2026.10.0's shape: every
-    chunk's `metadata` as JSON text, an import's without `language_hint`,
-    as files written then hold it.
-    """
-    path = tmp_path / "index.duckdb"
-    git = pygit2.Repository(fake_repo)
-    sha = str(
-        make_commit(
-            git,
-            {
-                "app.py": b"""\
-import os
-
-
-def load():
-    pass
-"""
-            },
-            parents=[git.head.peel(pygit2.Commit).id],
-        )
-    )
-    seed = Index(path, writable=True)
-    build_index(fake_repo, sha, seed)
-    seed.close()
-    (project_file,) = (tmp_path / "index").glob("*.duckdb")
-    with duckdb.connect(str(project_file)) as con:
-        con.execute("""\
-DROP INDEX idx_chunks_blob;
-ALTER TABLE chunks ALTER metadata TYPE TEXT USING CASE
-  WHEN kind = 'import' THEN '{"module": "os", "names": "", "dots": ""}'
-  ELSE '{"module": "", "names": "", "dots": ""}'
-END;
-ALTER TABLE chunks ALTER metadata SET DEFAULT '{}';
-ALTER TABLE chunks ALTER metadata SET NOT NULL;
-CREATE INDEX idx_chunks_blob ON chunks (blob_sha, file_language);
-UPDATE meta SET value = '2026.10.0' WHERE key = 'schema_version';
-""")
-    with duckdb.connect(str(path)) as con:
-        con.execute("UPDATE meta SET value = '2026.10.0' WHERE key = 'schema_version'")
-
-    index = Index(path, writable=True)
-    try:
-        [repo] = index.repos()
-        read = index.chunks(at=repo.at(sha))
-    finally:
-        index.close()
-    assert read.select(pl.col("kind").cast(pl.String), "metadata").sort("kind").rows() == [
-        (
-            "function",
-            {
-                "module": None,
-                "names": None,
-                "language_hint": None,
-                "node_types": None,
-                "refs": [],
-                "bindings": None,
-            },
-        ),
-        (
-            "import",
-            {
-                "module": "os",
-                "names": "",
-                "language_hint": "",
-                "node_types": None,
-                "refs": None,
-                "bindings": [],
-            },
-        ),
-    ]
-
-
-def test_a_project_file_from_2026_11_0_keeps_its_chunks_and_gives_each_role_empty_references(
-    tmp_path: Path, git_repo: pygit2.Repository, repo_path: str
-) -> None:
-    """Each definition, class and fragment gets no references, an import no bindings.
-
-    The file is written now and forged back to 2026.11.0's metadata,
-    which holds none of them and an import's `dots`; one chunk carries an embedding, which stays.
-    """
-    path = tmp_path / "data" / "index.duckdb"
-    source = b"""\
-import os
-
-
-class Box:
-    pass
-
-
-def run():
-    return 1
-
-
-os.environ
-"""
-    sha = str(
-        make_commit(git_repo, {"m.py": source}, parents=[git_repo.head.peel(pygit2.Commit).id])
-    )
-    seed = Index(path, writable=True)
-    build_index(repo_path, sha, seed)
-    repo = seed.register(repo_path)
-    chunks = seed.chunks(at=repo.at(sha)).select("id", "kind", "name").sort(pl.all())
-    seed.close()
-    (project_file,) = (tmp_path / "data" / "index").glob("*.duckdb")
-    with duckdb.connect(str(project_file)) as con:
-        con.execute("""\
-UPDATE chunks SET embedding = [0.5, 0.25] WHERE name = 'run';
-DROP INDEX idx_chunks_blob;
-ALTER TABLE chunks ALTER metadata TYPE STRUCT(
-  module TEXT, names TEXT, dots TEXT, language_hint TEXT, node_types TEXT[]
-) USING CASE WHEN metadata IS NOT NULL AND kind IN ('import', 'fragment') THEN struct_pack(
-  module := metadata.module,
-  names := metadata.names,
-  dots := CASE WHEN kind = 'import' THEN '' END,
-  language_hint := metadata.language_hint,
-  node_types := metadata.node_types
-) END;
-CREATE INDEX idx_chunks_blob ON chunks (blob_sha, file_language);
-UPDATE meta SET value = '2026.11.0' WHERE key = 'schema_version';
-""")
-    with duckdb.connect(str(path)) as con:
-        con.execute("UPDATE meta SET value = '2026.11.0' WHERE key = 'schema_version'")
-
-    index = Index(path, writable=True)
-    try:
-        [repo] = index.repos()
-        read = index.chunks(at=repo.at(sha))
-        with index.reader(repo) as cur:
-            vectors = cur.sql("SELECT embedding FROM chunks WHERE name = 'run'").fetchall()
-    finally:
-        index.close()
-    assert read.select("id", "kind", "name").sort(pl.all()).equals(chunks)
-    payloads = {
-        str(kind): (meta["refs"], meta["bindings"])
-        for kind, meta in read.select("kind", "metadata").iter_rows()
-    }
-    assert payloads == {
-        "import": (None, []),
-        "class": ([], None),
-        "function": ([], None),
-        "fragment": ([], None),
-    }
-    assert vectors == [([0.5, 0.25],)]
-
-
-def test_a_project_file_from_2026_11_0_keeps_its_chunks_edges_and_embeddings(
-    tmp_path: Path, git_repo: pygit2.Repository, repo_path: str
-) -> None:
-    """Chunk ids of an earlier hash become sha256 ids; rows, edges and vectors stay.
-
-    The file is written now and forged back: every chunk id, and every
-    edge naming one, is renamed, and one chunk carries an embedding.
-    """
+    """Chunk ids hash byte spans from 2026.11.2: an older file opens with no chunks, edges or snapshots, its repo and watched refs kept."""
     path = tmp_path / "data" / "index.duckdb"
     files = {
         "m.py": b"""\
 def fn():
     return 1
 """,
-        "app.py": b"""\
-from m import fn
-""",
+        "app.py": b"from m import fn\n",
     }
     sha = str(make_commit(git_repo, files, parents=[git_repo.head.peel(pygit2.Commit).id]))
     seed = Index(path, writable=True)
     build_index(repo_path, sha, seed)
     repo = seed.register(repo_path)
-    chunks = seed.chunks(at=repo.at(sha)).select("id", "file_path", "name").sort(pl.all())
-    edges = seed.edges(within=[repo.at(sha)]).sort(pl.all())
+    with seed.session(repo) as ws:
+        ws.add_watched_refs(["main"])
+    assert not seed.edges(within=[repo.at(sha)]).is_empty()
     seed.close()
-    assert not edges.is_empty()
     (project_file,) = (tmp_path / "data" / "index").glob("*.duckdb")
-    with duckdb.connect(str(project_file)) as con:
-        con.execute("""\
-UPDATE chunks SET embedding = [0.5, 0.25] WHERE name = 'fn';
-UPDATE edges SET source_id = 'old' || left(source_id, 13);
-UPDATE edges SET target_id = 'old' || left(target_id, 13);
-UPDATE chunks SET id = 'old' || left(id, 13);
-UPDATE meta SET value = '2026.11.0' WHERE key = 'schema_version';
-""")
-    with duckdb.connect(str(path)) as con:
-        con.execute("UPDATE meta SET value = '2026.11.0' WHERE key = 'schema_version'")
+    for file in (project_file, path):
+        with duckdb.connect(str(file)) as con:
+            con.execute("UPDATE meta SET value = $v WHERE key = 'schema_version'", {"v": stored})
 
     index = Index(path, writable=True)
     try:
         [repo] = index.repos()
-        read = index.chunks(at=repo.at(sha)).select("id", "file_path", "name").sort(pl.all())
-        assert read.equals(chunks)
-        assert index.edges(within=[repo.at(sha)]).sort(pl.all()).equals(edges)
+        assert index.watched_refs(repo) == ["main"]
+        assert not index.has_indexed(at=repo.at(sha))
+        assert index.count_file_snapshots(at=repo.at(sha)) == 0
         with index.reader(repo) as cur:
-            vectors = cur.sql("SELECT embedding FROM chunks WHERE name = 'fn'").fetchall()
-        assert vectors == [([0.5, 0.25],)]
+            counts = cur.sql(
+                "SELECT (SELECT count(*) FROM chunks), (SELECT count(*) FROM edges)"
+            ).fetchall()
+        assert counts == [(0, 0)]
     finally:
         index.close()
 

@@ -228,8 +228,8 @@ class WriteSession:
         (its language may have changed), so the chunks stored for each
         blob and file language in *chunks* that *chunks* does not hold are
         deleted. A chunk it holds again keeps its embedding while its
-        content is unchanged (`upsert_chunks.sql`), since the model reads
-        its name, part of its id, and its content.
+        name and content are unchanged (`upsert_chunks.sql`), which is
+        what the model reads.
         """
         blobs = chunks.group_by("file_language").agg(pl.col("blob_sha").unique(), pl.col("id"))
         for file_language, blob_shas, ids in blobs.iter_rows():

@@ -272,15 +272,27 @@ type Role = Annotated[
 
 
 class Span(BaseModel, frozen=True):
-    """The lines a chunk occupies: 1-based, inclusive, never ending before it starts."""
+    """Where a chunk is in its file: its bytes, `start_byte` up to `end_byte`, and the lines they fall on.
+
+    Lines are 1-based and inclusive; neither the bytes nor the lines end
+    before they start.
+    """
 
     start: int
     end: int
+    start_byte: int
+    end_byte: int
 
     @model_validator(mode="after")
     def ends_after_it_starts(self) -> Span:
         if self.end < self.start:
             msg = f"a span cannot end (line {self.end}) before it starts (line {self.start})"
+            raise ValueError(msg)
+        if self.end_byte < self.start_byte:
+            msg = (
+                f"a span cannot end (byte {self.end_byte}) before it starts"
+                f" (byte {self.start_byte})"
+            )
             raise ValueError(msg)
         return self
 
@@ -298,10 +310,10 @@ class Chunk(BaseModel, frozen=True):
     identity: one chunk can be reached at several paths, which
     `file_snapshots` records.
 
-    Frozen, because a chunk *is* its content: two with the same content
-    are the same chunk, and changing one of the fields that says so makes
-    it a different chunk rather than the same one altered. Labelling one
-    therefore returns a copy.
+    Frozen, because a chunk *is* a span of a blob read as one language:
+    changing one of the fields that says so makes it a different chunk
+    rather than the same one altered. Labelling one therefore returns a
+    copy.
     """
 
     blob_sha: str
@@ -353,10 +365,8 @@ class Chunk(BaseModel, frozen=True):
     @computed_field  # type: ignore[prop-decorator]  # pydantic needs the property last
     @property
     def id(self) -> str:
-        """This chunk's `chunk_id`: location is the province of `file_snapshots`."""
-        return chunk_id(
-            self.blob_sha, self.file_language, self.kind, self.name, self.line_start, self.line_end
-        )
+        """This chunk's `chunk_id`, from its blob, file language and byte span; its paths are `file_snapshots`'."""
+        return chunk_id(self.blob_sha, self.file_language, self.span.start_byte, self.span.end_byte)
 
 
 class ScoredChunk(BaseModel, frozen=True):

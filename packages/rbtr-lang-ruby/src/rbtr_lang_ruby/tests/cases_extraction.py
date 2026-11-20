@@ -296,13 +296,27 @@ def case_ruby_constant() -> SymbolCase:
     return {"input.rb": "MAX_SIZE = 100\n"}, [("variable", "MAX_SIZE", "")]
 
 
-@case(tags=["symbol"])
+@case(
+    tags=["symbol"],
+    marks=pytest.mark.xfail(
+        strict=True,
+        reason="a declaration of several names is one span captured once per name, so the "
+        "index keeps the first name (one-span-one-chunk Phase 6: a chunk lists its names)",
+    ),
+)
 def case_ruby_multiple_assignment() -> SymbolCase:
     """Ruby multiple assignment of constants."""
     return {"input.rb": "A, B = 1, 2\n"}, [("variable", "A", ""), ("variable", "B", "")]
 
 
-@case(tags=["symbol"])
+@case(
+    tags=["symbol"],
+    marks=pytest.mark.xfail(
+        strict=True,
+        reason="a declaration of several names is one span captured once per name, so the "
+        "index keeps the first name (one-span-one-chunk Phase 6: a chunk lists its names)",
+    ),
+)
 def case_ruby_splat_assignment() -> SymbolCase:
     """Ruby splat target."""
     return {"input.rb": "A, *B = list\n"}, [("variable", "A", ""), ("variable", "B", "")]

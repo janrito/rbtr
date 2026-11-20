@@ -31,6 +31,8 @@ def chunk_rows(chunks: Sequence[Chunk]) -> dy.DataFrame[ChunkRow]:
             pl.col("role").struct.field("meta").alias("metadata"),
             pl.col("span").struct.field("start").alias("line_start"),
             pl.col("span").struct.field("end").alias("line_end"),
+            pl.col("span").struct.field("start_byte"),
+            pl.col("span").struct.field("end_byte"),
             docs=pl.lit(None, dtype=pl.String),
         )
         .with_columns(

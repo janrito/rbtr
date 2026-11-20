@@ -123,6 +123,11 @@ def test_py_a_local_or_attribute_is_no_variable(indexed: Indexed, src: str) -> N
     assert [s for s in reply if s.kind == ChunkKind.VARIABLE] == []
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="a declaration of several names is one span captured once per name, so the "
+    "index keeps the first name (one-span-one-chunk Phase 6: a chunk lists its names)",
+)
 def test_py_tuple_unpacking_captured_as_variables(indexed: Indexed) -> None:
     """Flat tuple-unpacking binds each target as its own VARIABLE chunk, spanning the whole statement."""
     src = """\

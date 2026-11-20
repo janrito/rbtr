@@ -55,6 +55,8 @@ class ChunkStagingRow(dy.Schema):
     content = dy.String(nullable=False)
     content_tokens = dy.String(nullable=False)
     name_tokens = dy.String(nullable=False)
+    start_byte = dy.Int64(nullable=False)
+    end_byte = dy.Int64(nullable=False)
     line_start = dy.Int32(nullable=False)
     line_end = dy.Int32(nullable=False)
     # What the role carries beyond kind and name: the union of the role
@@ -123,23 +125,26 @@ def staged_chunks(
     in *serials* (the embedded language of a block it was read from), else
     its file's, else 1. Ids are computed in one Python pass over their
     columns: polars has no sha256, and its own hash is not stable across
-    versions.
+    versions. A span captured twice (a declaration of several names, a key
+    that imports) is one id, and its first capture is the row.
     """
-    identities = chunks.select(
-        "blob_sha", "file_language", "kind", "name", "line_start", "line_end"
-    ).iter_rows()
-    return chunks.with_columns(
-        id=pl.Series([chunk_id(*identity) for identity in identities], dtype=pl.String),
-        content_tokens=search_tokens(pl.col("content")),
-        name_tokens=search_tokens(pl.col("name")),
-        extraction_serial=pl.col("language").replace_strict(
-            serials,
-            default=pl.col("file_language").replace_strict(
-                serials, default=1, return_dtype=pl.Int32
+    identities = chunks.select("blob_sha", "file_language", "start_byte", "end_byte").iter_rows()
+    return (
+        chunks.with_columns(
+            id=pl.Series([chunk_id(*identity) for identity in identities], dtype=pl.String),
+            content_tokens=search_tokens(pl.col("content")),
+            name_tokens=search_tokens(pl.col("name")),
+            extraction_serial=pl.col("language").replace_strict(
+                serials,
+                default=pl.col("file_language").replace_strict(
+                    serials, default=1, return_dtype=pl.Int32
+                ),
+                return_dtype=pl.Int32,
             ),
-            return_dtype=pl.Int32,
-        ),
-    ).pipe(ChunkStagingRow.validate, cast=True)
+        )
+        .unique("id", keep="first", maintain_order=True)
+        .pipe(ChunkStagingRow.validate, cast=True)
+    )
 
 
 def staged_edges(

@@ -95,7 +95,9 @@ to core.
 
 **A plugin never touches polars or dataframely**, in its code or its
 tests. It imports only core's domain types (`Chunk` and its roles,
-`Span`, `ChunkKind`, the resolution enums) and the registration helpers
+`Span` — lines and byte offsets; core makes a chunk's id from its blob,
+language and bytes, so a plugin never computes one — `ChunkKind`, the
+resolution enums) and the registration helpers
 (`rbtr.languages.registration`): never a frame, a row schema or a module
 that defines one. An import-linter contract in the root `pyproject.toml`
 holds it: it allows a plugin `rbtr.domain.models` and
@@ -334,7 +336,8 @@ the adapter (`query_captures`) reads them for every captured node:
   one too many for a node that consumes its trailing newline and ends at
   column 0 of the next row. Import `last_line` from `rbtr.languages.registration`
   and delete any local trailing-newline correction — a compensation left
-  beside it decrements twice.
+  beside it decrements twice. Bytes need no correction: set `start_byte`
+  and `end_byte` from the node, and make the content exactly those bytes.
 - **Non-lexical scope → `@_scope`.** Scope otherwise follows tree ancestry.
   A Go method's receiver is a child, so capture it as `@_scope`.
 - **Name test files explicitly.** A case's files are `{path: source}`

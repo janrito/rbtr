@@ -128,6 +128,9 @@ class _ChunkIdentity(dy.Schema):
     content = dy.String(nullable=False)
     line_start = dy.Int32(nullable=False)
     line_end = dy.Int32(nullable=False)
+    # Where the chunk is in its blob: `content` is the bytes between.
+    start_byte = dy.Int64(nullable=False)
+    end_byte = dy.Int64(nullable=False)
     # The role's payload, as `ChunkStagingRow` writes it.
     metadata = ChunkRow.metadata
 

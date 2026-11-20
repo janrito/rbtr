@@ -143,5 +143,5 @@ Preamble.
 
 Body.
 """,
-        symbols=[("fragment", "", "", 1, 2), ("doc_section", "A", "", 3, 5)],
+        symbols=[("fragment", "", "", 1, 1), ("doc_section", "A", "", 3, 5)],
     )

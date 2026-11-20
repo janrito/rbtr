@@ -86,10 +86,10 @@ persistence detail on the way out — see
    everything else gets line-based chunking.
 2. **Local and offline.** Embeddings run on-device (GGUF on
    Metal/CPU). The index is a set of DuckDB files. No API calls.
-3. **Incremental.** Builds are keyed by git blob SHA, and
-   chunks are content-addressed: only changed files are
-   re-extracted, embeddings persist, and byte-identical content
-   is shared across a project's checkouts. Clones have separate
+3. **Incremental.** Builds are keyed by git blob SHA, and a
+   chunk is a span of a blob: only changed files are
+   re-extracted, embeddings persist, and byte-identical files
+   share their chunks across a project's checkouts. Clones have separate
    project files and extract their own copies.
 
 ## Indexing
@@ -149,6 +149,14 @@ that boundary; [Record identity](#record-identity) defines the keys.
 ![How files become chunks once: two snapshots name the same blob for an
 unchanged file, so they share its chunks](docs/diagrams/content-addressing.png)
 
+A chunk's id hashes its blob, the language its file was read as, and
+its byte span (`start_byte`, `end_byte`), so one span of a blob is one
+chunk, whatever its kind and name. Bytes, not lines: several chunks can
+share a line, as `kind = 1; kind = 2` does, or a JSON `},` that closes
+an object and goes on with an array. Kind and name are not part of it:
+a re-extraction that keeps a span keeps its id, and a renamed chunk is
+the same row updated.
+
 For each batch, `session.current_blobs` returns the current
 `(blob_sha, file_language)` extractions. A pair is current when it has
 stored chunks and every contributing language's extraction serial
@@ -177,8 +185,8 @@ content is entirely in embedded languages.
 When re-extracting, `WriteSession.replace_chunks` deletes the old
 chunks for that `(blob_sha, file_language)` that the new extraction
 does not produce, then upserts the new ones. A chunk produced again keeps
-its embedding while its content is unchanged: the model reads its name,
-which its id covers, and its content. So a serial bump re-embeds only the
+its embedding while its name and content are unchanged: the model reads
+both, and neither is part of its id. So a serial bump re-embeds only the
 chunks it changes. Other host-language extractions of the same bytes are
 retained.
 
@@ -278,10 +286,13 @@ the fragments that start in its text: a fragment never spans a captured
 node, so none crosses into the next heading's.
 
 Staging (`staged_chunks`) adds the stable [chunk id](#record-identity),
-[search tokens](#fts-index-lifecycle) and each chunk's extraction
-serial. Staging keeps the stored chunk columns, leaving documentation
-and placement in the extraction frames. The store receives a validated
-`ChunkStagingRow` frame.
+[search tokens](#fts-index-lifecycle) and each chunk's extraction serial. A chunk's
+content is exactly its file's bytes from `start_byte` to `end_byte`: trimming whitespace
+moves the span's end, not the text, and the last line is the line of the span's last
+byte. A span two captures make (a declaration of several names, a key that imports) is
+one id, and staging keeps its first capture. Staging keeps the stored chunk columns,
+leaving documentation and placement in the extraction frames. The store receives a
+validated `ChunkStagingRow` frame.
 
 If a batch raises during extraction, `extract_files` halves it and
 retries until it isolates the failing file. That file is logged and
@@ -949,7 +960,8 @@ tree_A is cleaned up by:
 The index is a registry and one DuckDB file per project (see
 [Index files](#index-files)). Its central design point is that
 **`chunks` is a content-addressed store**: a chunk row is keyed by `id`
-alone (a content hash) and carries **no `repo_id`**. The only table where
+alone (a hash of its blob, file language and byte span) and carries
+**no `repo_id`**. The only table where
 a repo meets content is **`file_snapshots`**, which maps
 `(repo_id, snapshot_sha, file_path) -> blob_sha`. So:
 
@@ -1096,7 +1108,7 @@ project file's tables, with the joins between them](docs/diagrams/data-model.png
 | `projects`          | `common_dir`, the git common directory, unique; `file` is unique too, so no two projects share a file                                                                                                     |
 | `repos`             | `path`, unique and always canonical; `id` is a surrogate the other tables carry                                                                                                                           |
 | `file_snapshots`    | `(repo_id, snapshot_sha, file_path)`                                                                                                                                                                      |
-| `chunks`            | `(id)` = first 16 hex of `sha256(blob_sha:file_language:kind:name:line_start:line_end)` — content-addressed, shared across a project's checkouts and paths                                                |
+| `chunks`            | `(id)` = first 16 hex of `sha256(blob_sha:file_language:start_byte:end_byte)` — one span of a blob, shared across a project's checkouts and paths                                                         |
 | `edges`             | `(repo_id, snapshot_sha, source_id, target_id, kind, source_path, target_path)` — the whole tuple is the key, the paths included: one import chunk imports a different sibling from each of its locations |
 | `indexed_snapshots` | `(repo_id, snapshot_sha)`                                                                                                                                                                                 |
 | `watched_refs`      | `(repo_id, ref)`                                                                                                                                                                                          |
@@ -1315,11 +1327,19 @@ or write of a waiting file raises `IndexMigratingError`
 
 A migration keeps every column it does not change, vectors included.
 DuckDB cannot add a constraint with `ALTER`, so such a migration
-rebuilds the table with `INSERT … SELECT`. That is how the two
-`CHECK`s on `chunks` (a span ends on or after its first line;
-truncation implies an embedding) reach existing files. A test runs
-each kind's chain over its base schema (`<start>.base.sql`) and
-compares the result with a new file's.
+rebuilds the table with `INSERT … SELECT`. A test runs each kind's
+chain over its base schema (`<start>.base.sql`) and compares the result
+with a new file's.
+
+A migration whose stored rows SQL cannot carry forward empties the
+project file instead, keeping its watched refs and `meta`.
+`2026.10.0__2026.11.2.sql` does, for any file from `2026.10.0`: a chunk's
+id hashes its byte span, which no stored row records, and every id and
+edge is of an earlier kind. On the first start after it, every read
+answers "not indexed" until its ref is built again; the daemon builds
+the watched refs before it embeds, so semantic search finds nothing
+until embedding catches up; a ref no one watches stays unindexed until
+it is watched.
 
 **Replacing an index too old to migrate.** The index is rebuilt from
 git, so it is replaced with an empty one, at the cost of re-indexing
@@ -2567,7 +2587,24 @@ concurrent writers.
 **Migrations, not rebuilds.** A schema change migrates every file
 from the version it records. Replacing the index on every breaking
 change does not work here: it re-extracts every checkout and
-re-embeds every chunk to change a column.
+re-embeds every chunk to change a column. A change whose stored rows
+SQL cannot carry forward empties the project files instead, keeping the
+registry and watched refs: a chunk id built from byte offsets the file
+does not hold is one. Three ways of carrying the rows do not work here:
+nullable offsets filled in on the next extraction leave a state every
+reader must handle; a table holding embeddings to restore after the
+rebuild, and a Python migration step that re-extracts from git, are each
+a mechanism kept for a one-off cost.
+
+**A chunk is a span of a blob.** Its id is the first 16 hex characters
+(64 bits) of the sha256 of its blob, file language and byte span; the
+odds of two spans sharing one are about 2.7e-8 at a million chunks in a
+project file, 2.7e-6 at ten million. An id from the span's text alone,
+as git names a blob, does not work here: a chunk's lines, scope, calls
+and edges depend on where its text is, so they would move to a table of
+placements that every read joins through. 128 bits would add 16 bytes
+to every stored id, in `chunks` and twice per edge, for odds already
+small.
 
 **Roles describe chunks; rows expose their fields.** A custom chunker returns `Chunk`
 values whose roles (`Definition`, `Section`, `Import`, `Comment`,
