@@ -41,7 +41,7 @@ dependencies = [
   "llama-cpp-python>=0.3.36",
   "pathspec>=1.1.1",
   "platformdirs>=4.13.0",
-  "polars>=2.0.0",
+  "polars>=2.1.0",
   # Required though never called: duckdb needs it imported before threading.
   "pyarrow>=26.0.0",
   "pydantic>=2.14.1",

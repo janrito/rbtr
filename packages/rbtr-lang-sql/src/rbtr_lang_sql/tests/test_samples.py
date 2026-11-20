@@ -99,12 +99,21 @@ def test_sql_dialect_extraction_matches_snapshot(
     assert chunks == snapshot_json
 
 
-@pytest.mark.xfail(
+_UNPARSED = pytest.mark.xfail(
     reason="generic SQL grammar does not fully parse dialect-specific syntax",
     strict=True,
 )
+
+
 @pytest.mark.parametrize(
-    "dialect", ["sql_postgres", "sql_mysql", "sql_sqlite", "sql_duckdb", "sql_clickhouse"]
+    "dialect",
+    [
+        pytest.param("sql_postgres", marks=_UNPARSED),
+        "sql_mysql",
+        pytest.param("sql_sqlite", marks=_UNPARSED),
+        pytest.param("sql_duckdb", marks=_UNPARSED),
+        pytest.param("sql_clickhouse", marks=_UNPARSED),
+    ],
 )
 def test_sql_dialect_parses_cleanly(dialect: str) -> None:
     """Sentinel: flips to XPASS (failing) when a dialect parses cleanly."""
