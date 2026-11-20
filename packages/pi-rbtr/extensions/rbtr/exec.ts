@@ -170,7 +170,16 @@ export async function runRbtr(
 }
 
 /**
+ * The rbtr commands run so far, chained. A command run with no daemon
+ * opens the index itself and holds it alone while it runs, so two at
+ * once fail with `index_locked`; each starts when the one before it ends.
+ */
+let previousCommand: Promise<unknown> = Promise.resolve();
+
+/**
  * Run an rbtr subcommand and parse its single JSON response object.
+ * Commands run one at a time (`previousCommand`); one aborted while
+ * waiting does not start.
  */
 export async function runRbtrJson<T>(
   pi: ExtensionAPI,
@@ -178,6 +187,11 @@ export async function runRbtrJson<T>(
   args: string[],
   options?: { signal?: AbortSignal; timeout?: number },
 ): Promise<T> {
-  const result = await runRbtr(pi, resolved, args, options);
-  return JSON.parse(result.stdout) as T;
+  const command = previousCommand.then(async () => {
+    options?.signal?.throwIfAborted();
+    const result = await runRbtr(pi, resolved, args, options);
+    return JSON.parse(result.stdout) as T;
+  });
+  previousCommand = command.catch(() => undefined);
+  return command;
 }
