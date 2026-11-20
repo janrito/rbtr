@@ -36,10 +36,12 @@ from rbtr.index.constants import EMBEDDING_FORMAT_VERSION, SCHEMA_VERSION
 from rbtr.index.db import build_fts
 from rbtr.index.migrations import (
     BringForward,
+    Chains,
     Current,
     FileKind,
     Migrate,
     Replace,
+    chain,
     plan,
     run,
 )
@@ -123,11 +125,12 @@ class Store:
         self._attach_registry()
         # Holding the registry, and so DuckDB's lock on it, no other process
         # opens the index while its files are brought forward.
+        chains = {kind: chain(kind) for kind in FileKind}
         try:
-            opened = self._bring_registry_forward()
+            opened = self._bring_registry_forward(chains)
             self._sync()
             self._attach_projects()
-            self._waiting = self._bring_project_files_forward(opened)
+            self._waiting = self._bring_project_files_forward(chains, opened)
             if writable:
                 self._delete_unnamed_files()
                 for file in self._file_of.values():
@@ -171,7 +174,7 @@ class Store:
         cur.execute(_REGISTRY_SQL)
         cur.execute(_SET_SCHEMA_VERSION_SQL, {"schema_version": SCHEMA_VERSION})
 
-    def _bring_registry_forward(self) -> str | None:
+    def _bring_registry_forward(self, chains: Chains) -> str | None:
         """Create, migrate in place or replace the registry; return the version it had.
 
         A read-only store refuses a missing registry with `IndexNotBuiltError`.
@@ -186,7 +189,9 @@ class Store:
             self._create_registry()
             return SCHEMA_VERSION
         opened = str(rows[0][0]) if rows else None
-        match plan(FileKind.REGISTRY, opened, current=SCHEMA_VERSION, writable=self._writable):
+        match plan(
+            chains, FileKind.REGISTRY, opened, current=SCHEMA_VERSION, writable=self._writable
+        ):
             case Replace(stored=stored):
                 self._replace(stored)
             case BringForward() as step:
@@ -196,7 +201,9 @@ class Store:
                 pass
         return opened
 
-    def _bring_project_files_forward(self, opened: str | None) -> dict[str, BringForward]:
+    def _bring_project_files_forward(
+        self, chains: Chains, opened: str | None
+    ) -> dict[str, BringForward]:
         """Record each project file's version, or return the files to migrate on a copy.
 
         A file recording no version is taken to be at *opened*, the
@@ -208,7 +215,9 @@ class Store:
             cur = self._cursor_for(_alias(file))
             rows = cur.sql(_GET_SCHEMA_VERSION_SQL).fetchall()
             stored = str(rows[0][0]) if rows else opened
-            match plan(FileKind.PROJECT, stored, current=SCHEMA_VERSION, writable=self._writable):
+            match plan(
+                chains, FileKind.PROJECT, stored, current=SCHEMA_VERSION, writable=self._writable
+            ):
                 case Replace(stored=stored):
                     self._replace(stored)
                     return {}
