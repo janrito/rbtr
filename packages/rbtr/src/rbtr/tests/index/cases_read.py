@@ -1,6 +1,6 @@
 """Cases for read-side store behaviours.
 
-Scenarios for `chunks`, `edges`, `blob_is_current`,
+Scenarios for `chunks`, `edges`, `current_blobs`,
 upsert, and multi-repo isolation.
 """
 
@@ -40,7 +40,7 @@ class EmbedOrderScenario:
 
 @dataclass(frozen=True)
 class BlobCurrentScenario:
-    """Seed data + blob_is_current(serial map) query + expected result.
+    """Seed data, a `current_blobs` query of one pair under a serial map, and whether it is current.
 
     *stored_serials* are the serials the chunks were stored at, by language.
     """
@@ -143,8 +143,8 @@ def shared():
     )
 
 
-@case(tags=["blob_is_current"])
-def case_blob_is_current_same_language() -> BlobCurrentScenario:
+@case(tags=["current_blobs"])
+def case_current_blobs_same_language() -> BlobCurrentScenario:
     """Blob exists with matching language."""
     c = make_chunk("fn1")
     return BlobCurrentScenario(
@@ -157,8 +157,8 @@ def case_blob_is_current_same_language() -> BlobCurrentScenario:
     )
 
 
-@case(tags=["blob_is_current"])
-def case_blob_is_current_different_language() -> BlobCurrentScenario:
+@case(tags=["current_blobs"])
+def case_current_blobs_different_language() -> BlobCurrentScenario:
     """Blob exists but with different language → False."""
     c = make_chunk("fn1")
     return BlobCurrentScenario(
@@ -171,8 +171,8 @@ def case_blob_is_current_different_language() -> BlobCurrentScenario:
     )
 
 
-@case(tags=["blob_is_current"])
-def case_blob_is_current_same_language_and_serial() -> BlobCurrentScenario:
+@case(tags=["current_blobs"])
+def case_current_blobs_same_language_and_serial() -> BlobCurrentScenario:
     """Blob stored as 'markdown' v1, queried with same → True."""
     c = make_chunk("doc1", kind=ChunkKind.DOC_SECTION, language="markdown")
     return BlobCurrentScenario(
@@ -185,8 +185,8 @@ def case_blob_is_current_same_language_and_serial() -> BlobCurrentScenario:
     )
 
 
-@case(tags=["blob_is_current"])
-def case_blob_is_current_different_serial() -> BlobCurrentScenario:
+@case(tags=["current_blobs"])
+def case_current_blobs_different_serial() -> BlobCurrentScenario:
     """Blob stored at serial 1, queried with serial 2 → False."""
     c = make_chunk("doc1", kind=ChunkKind.DOC_SECTION, language="markdown")
     return BlobCurrentScenario(
@@ -199,8 +199,8 @@ def case_blob_is_current_different_serial() -> BlobCurrentScenario:
     )
 
 
-@case(tags=["blob_is_current"])
-def case_blob_is_current_nonexistent() -> BlobCurrentScenario:
+@case(tags=["current_blobs"])
+def case_current_blobs_nonexistent() -> BlobCurrentScenario:
     """Blob doesn't exist at all → False."""
     c = make_chunk("fn1")
     return BlobCurrentScenario(
@@ -213,8 +213,8 @@ def case_blob_is_current_nonexistent() -> BlobCurrentScenario:
     )
 
 
-@case(tags=["blob_is_current"])
-def case_blob_is_current_detected_language_changed() -> BlobCurrentScenario:
+@case(tags=["current_blobs"])
+def case_current_blobs_detected_language_changed() -> BlobCurrentScenario:
     """Plaintext blob, now detected as python (plugin registered) → False.
 
     The stored chunk is at a current serial, but there is no chunk in the
@@ -231,8 +231,8 @@ def case_blob_is_current_detected_language_changed() -> BlobCurrentScenario:
     )
 
 
-@case(tags=["blob_is_current"])
-def case_blob_is_current_multilanguage_all_current() -> BlobCurrentScenario:
+@case(tags=["current_blobs"])
+def case_current_blobs_multilanguage_all_current() -> BlobCurrentScenario:
     """SFC blob: host + embedded chunks all at current serials → True."""
     host = make_chunk("tpl", blob="sfc", language="svelte")
     ts = make_chunk("fn", blob="sfc", language="typescript", file_language="svelte")
@@ -247,8 +247,8 @@ def case_blob_is_current_multilanguage_all_current() -> BlobCurrentScenario:
     )
 
 
-@case(tags=["blob_is_current"])
-def case_blob_is_current_multilanguage_embedded_bump() -> BlobCurrentScenario:
+@case(tags=["current_blobs"])
+def case_current_blobs_multilanguage_embedded_bump() -> BlobCurrentScenario:
     """SFC blob: a delegated chunk stale vs the current embedded serial → False."""
     host = make_chunk("tpl", blob="sfc", language="svelte")
     ts = make_chunk("fn", blob="sfc", language="typescript", file_language="svelte")

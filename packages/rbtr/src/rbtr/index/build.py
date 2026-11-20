@@ -20,7 +20,7 @@ from __future__ import annotations
 import itertools
 import threading
 import time
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,7 +40,7 @@ from rbtr.git import FileEntry, changed_files, list_files, non_commit_shas, norm
 from rbtr.index.index import Index
 from rbtr.index.progress import ProgressCallback, _noop_progress
 from rbtr.index.results import ChunkResultRow
-from rbtr.index.staging import staged_chunks
+from rbtr.index.staging import SerialMapRow, serial_map_view, staged_chunks
 from rbtr.languages.edges import EdgeChunkRow, infer_import_edges
 from rbtr.languages.extract import BATCH_FILES, extract_files, file_rows
 from rbtr.languages.manager import get_manager
@@ -92,21 +92,24 @@ class FileToExtract:
 
 def listed_files(
     files: Iterable[FileEntry],
-    snapshot_language: Callable[[str], str],
-    blob_is_current: Callable[[str, str, dict[str, int]], bool],
+    snapshot_languages: Callable[[Sequence[str]], dict[str, str]],
+    current_blobs: Callable[
+        [Sequence[tuple[str, str]], dy.DataFrame[SerialMapRow]], set[tuple[str, str]]
+    ],
     changed: set[str] | None,
-    serials: dict[str, int],
+    serials: dy.DataFrame[SerialMapRow],
     stop: threading.Event | None,
-) -> Iterator[StoredFile | FileToExtract]:
-    """Each of *files*, as a `StoredFile` or a `FileToExtract`, with the language it is read as.
+) -> Iterator[list[StoredFile | FileToExtract]]:
+    """*files*, `BATCH_FILES` at a time, each as a `StoredFile` or a `FileToExtract`.
 
     A file is skipped when it is unchanged since the base snapshot (when
-    *changed* lists the files that changed), or when *blob_is_current*
-    finds its blob already extracted as its language under *serials*.
-    *snapshot_language* is the language a path was last recorded in.
+    *changed* lists the files that changed), or when *current_blobs* finds
+    its blob already extracted as its language under *serials*.
+    *snapshot_languages* gives the language each path was recorded in. A
+    batch costs one query of each.
     """
     mgr = get_manager()
-    for entry in files:
+    for batch in itertools.batched(files, BATCH_FILES, strict=False):
         if stop is not None and stop.is_set():
             raise BuildStopped
 
@@ -114,27 +117,35 @@ def listed_files(
         # Every file needs it, including one that is skipped below:
         # a snapshot row pairs with its chunks on the language the
         # file was extracted as, so a row without one has no chunks.
-        detected_lang = mgr.detect_language(entry.path) or ""
-        if not detected_lang:
-            detected_lang = snapshot_language(entry.path)
+        by_extension = {entry.path: mgr.detect_language(entry.path) or "" for entry in batch}
+        stored = snapshot_languages(
+            [path for path, language in by_extension.items() if not language]
+        )
+        languages: list[str] = []
+        for entry in batch:
+            language = by_extension[entry.path] or stored.get(entry.path, "")
+            if not language and (changed is None or entry.path in changed):
+                # Content sniff, for a new file whose extension says nothing.
+                text = entry.content.decode(errors="replace")
+                language = mgr.detect_language_by_content(text) or ""
+            # Nothing claimed it, so it is plaintext: a language, not
+            # a blank. Settled before the blob check, which asks whether
+            # this blob was already extracted as this language.
+            languages.append(language or PLAINTEXT)
 
-        if changed is not None and entry.path not in changed:
-            yield StoredFile(entry, detected_lang or PLAINTEXT, FileOutcome.SKIPPED_UNCHANGED)
-            continue
-        # Content sniff, for a new file whose extension says nothing.
-        if not detected_lang:
-            text = entry.content.decode(errors="replace")
-            detected_lang = mgr.detect_language_by_content(text) or ""
-        # Nothing claimed it, so it is plaintext: a language, not
-        # a blank. Settled before the gate, which asks whether
-        # this blob was already extracted as this language.
-        detected_lang = detected_lang or PLAINTEXT
-
-        # Blob dedup gate.
-        if blob_is_current(entry.blob_sha, detected_lang, serials):
-            yield StoredFile(entry, detected_lang, FileOutcome.SKIPPED_CURRENT)
-        else:
-            yield FileToExtract(entry, detected_lang)
+        current = current_blobs(
+            [(entry.blob_sha, language) for entry, language in zip(batch, languages, strict=True)],
+            serials,
+        )
+        listed: list[StoredFile | FileToExtract] = []
+        for entry, language in zip(batch, languages, strict=True):
+            if changed is not None and entry.path not in changed:
+                listed.append(StoredFile(entry, language, FileOutcome.SKIPPED_UNCHANGED))
+            elif (entry.blob_sha, language) in current:
+                listed.append(StoredFile(entry, language, FileOutcome.SKIPPED_CURRENT))
+            else:
+                listed.append(FileToExtract(entry, language))
+        yield listed
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,13 +220,13 @@ def _extract_and_store_chunks(
         )
         listed = listed_files(
             files,
-            session.get_snapshot_language,
-            session.blob_is_current,
+            session.snapshot_languages,
+            session.current_blobs,
             changed,
-            dedup_serials,
+            serial_map_view(dedup_serials),
             stop,
         )
-        for batch in itertools.batched(listed, BATCH_FILES, strict=False):
+        for batch in listed:
             to_extract = [(f.entry, f.language) for f in batch if isinstance(f, FileToExtract)]
             failed: list[str] = []
             if to_extract:
@@ -329,7 +340,7 @@ def build_index(
 
     When *base_sha* is provided, only files that changed between
     *base_sha* and *snapshot_sha* are considered for extraction.
-    Unchanged files are skipped without checking `blob_is_current`.
+    Unchanged files are skipped whatever the blob check says.
 
     When *stop* is set, the build raises `BuildStopped` before its next
     file or phase. The snapshot is left unindexed, as a build that died

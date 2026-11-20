@@ -1,6 +1,6 @@
 """Read-side behavioural tests for Index.
 
-Covers: chunks filters, edges filters, blob_is_current
+Covers: chunks filters, edges filters, current_blobs
 language matching, chunk upsert, delete_chunks_for_blobs,
 multi-repo data isolation, and cross-repo content sharing
 (content-addressed dedup, shared embeddings, reference-counted
@@ -26,7 +26,7 @@ from rbtr.index.build import build_index
 from rbtr.index.embed import embed_index
 from rbtr.index.embeddings import Embedder
 from rbtr.index.index import Index
-from rbtr.index.staging import staged_chunks
+from rbtr.index.staging import serial_map_view, staged_chunks
 from rbtr.languages.chunks import chunk_rows
 
 from ..conftest import make_commit
@@ -100,7 +100,7 @@ DEC = 12  # winter
 
 
 @fixture
-@parametrize_with_cases("scenario", has_tag="blob_is_current")
+@parametrize_with_cases("scenario", has_tag="current_blobs")
 def blob_query(scenario: BlobCurrentScenario, index: Index) -> tuple[Index, BlobCurrentScenario]:
     repo = index.register("/repo")
     with index.session(repo) as ws:
@@ -109,12 +109,13 @@ def blob_query(scenario: BlobCurrentScenario, index: Index) -> tuple[Index, Blob
     return index, scenario
 
 
-def test_blob_is_current_matches(
+def test_current_blobs_match(
     blob_query: tuple[Index, BlobCurrentScenario],
 ) -> None:
     index, s = blob_query
     with index.session(index.repo("/repo")) as ws:
-        current = ws.blob_is_current(s.query_blob, s.query_language, s.serial_map)
+        pair = (s.query_blob, s.query_language)
+        current = pair in ws.current_blobs([pair], serial_map_view(s.serial_map))
     assert current == s.expected
 
 
@@ -152,8 +153,7 @@ def test_delete_chunks_for_blobs_removes_target(index: Index) -> None:
         ws.delete_chunks_for_blobs({"b1"}, file_language="")
 
     with index.session(repo) as ws:
-        assert ws.blob_is_current("b1", "", {"": 1}) is False
-        assert ws.blob_is_current("b2", "", {"": 1}) is True
+        assert ws.current_blobs([("b1", ""), ("b2", "")], serial_map_view({"": 1})) == {("b2", "")}
 
 
 def test_edges_returns_all(module_index: Index, import_graph: SnapshotRef) -> None:

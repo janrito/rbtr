@@ -667,7 +667,7 @@ Initial release.
 
 
 def test_build_index_prose_blob_dedup(tmp_path: Path, index: Index) -> None:
-    """Prose-detected blobs are deduped on rebuild (blob_is_current prose fallback)."""
+    """Prose-detected blobs are deduped on rebuild (the blob check under the stored language)."""
     repo = pygit2.init_repository(str(tmp_path / "prose_dedup"), bare=False, initial_head="main")
 
     (tmp_path / "prose_dedup" / "README").write_text("""\
@@ -795,7 +795,7 @@ def test_build_index_dedups_empty_file(tmp_path: Path, index: Index) -> None:
     """An empty file is skipped on rebuild, not re-parsed every time.
 
     An empty `__init__.py` produces no definition chunks; the host-presence
-    chunk records its language so `blob_is_current` hits on the second build.
+    chunk records its language so `current_blobs` finds it on the second build.
     """
     repo = pygit2.init_repository(str(tmp_path / "empty"), bare=False, initial_head="main")
     (tmp_path / "empty" / "pkg").mkdir(parents=True)

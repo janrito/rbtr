@@ -17,7 +17,7 @@ These are pure functions -- they never touch DuckDB directly.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 import dataframely as dy
 import polars as pl
@@ -181,7 +181,7 @@ def staged_file_snapshots(
 class SerialMapRow(dy.Schema):
     """Backs the cursor-registered `_serial_map` join view.
 
-    Not an insert target: `blob_is_current` left-joins a blob's chunks against
+    Not an insert target: `current_blobs` left-joins blobs' chunks against
     this view to check every chunk is at its language's current
     extraction serial. Maps language id -> current serial (the full
     registry, plus `""` for plaintext). `extraction_serial` is `Int32` to
@@ -202,3 +202,17 @@ def serial_map_view(serials: dict[str, int]) -> dy.DataFrame[SerialMapRow]:
             "extraction_serial": list(serials.values()),
         }
     ).pipe(SerialMapRow.validate, cast=True)
+
+
+class BlobLanguageRow(dy.Schema):
+    """Backs the cursor-registered `_blobs` join view: a blob, and the language its file is read as."""
+
+    blob_sha = dy.String(nullable=False)
+    language = dy.String(nullable=False)
+
+
+def blob_languages_view(blobs: Sequence[tuple[str, str]]) -> dy.DataFrame[BlobLanguageRow]:
+    """Build the `_blobs` join view from `(blob_sha, language)` pairs."""
+    return pl.DataFrame(blobs, schema=BlobLanguageRow.create_empty().schema, orient="row").pipe(
+        BlobLanguageRow.validate, cast=True
+    )

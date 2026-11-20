@@ -29,7 +29,7 @@ from rbtr.domain.models import (
 )
 from rbtr.errors import RepoNotFoundError
 from rbtr.index.index import Index
-from rbtr.index.staging import EmbeddingStagingRow, staged_chunks
+from rbtr.index.staging import EmbeddingStagingRow, serial_map_view, staged_chunks
 from rbtr.languages.chunks import chunk_rows
 from rbtr.languages.edges import InferredEdgeRow
 
@@ -416,8 +416,8 @@ def test_replacing_a_snapshot_with_nothing_hides_its_chunks(
 
     assert index.chunks(at=repo.at("head")).is_empty()
     with index.session(repo) as ws:
-        assert ws.blob_is_current(math_func.blob_sha, "", {"": 1}) is True
-        assert ws.blob_is_current(http_func.blob_sha, "", {"": 1}) is True
+        pairs = [(math_func.blob_sha, ""), (http_func.blob_sha, "")]
+        assert ws.current_blobs(pairs, serial_map_view({"": 1})) == set(pairs)
 
 
 def test_a_span_cannot_end_before_it_starts() -> None:

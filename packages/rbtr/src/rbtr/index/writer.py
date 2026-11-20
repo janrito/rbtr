@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from types import TracebackType
 
 import dataframely as dy
@@ -16,15 +17,16 @@ from rbtr.index.db import build_fts, registered_views
 from rbtr.index.staging import (
     ChunkStagingRow,
     EmbeddingStagingRow,
-    serial_map_view,
+    SerialMapRow,
+    blob_languages_view,
     staged_edges,
     staged_file_snapshots,
 )
 from rbtr.languages.edges import InferredEdgeRow
 
-_BLOB_IS_CURRENT_SQL = load_sql("blob_is_current.sql")
+CURRENT_BLOBS_SQL = load_sql("current_blobs.sql")
 _COUNT_UNCLAIMED_BLOBS_SQL = load_sql("count_unclaimed_blobs.sql")
-_GET_SNAPSHOT_LANGUAGE_SQL = load_sql("get_snapshot_language.sql")
+SNAPSHOT_LANGUAGES_SQL = load_sql("snapshot_languages.sql")
 _DELETE_CHUNKS_FOR_BLOBS_SQL = load_sql("delete_chunks_for_blobs.sql")
 _ADD_WATCHED_REFS_SQL = load_sql("insert_watched_refs.sql")
 _REMOVE_WATCHED_REFS_SQL = load_sql("delete_watched_refs.sql")
@@ -59,8 +61,8 @@ class WriteSession:
 
     Every row a write adds belongs to the session's repo, so no method
     takes one.  Chunks are the project's: its checkouts share them.  The
-    reads the transaction depends on (`blob_is_current`,
-    `get_snapshot_language`) run on the session's cursor, so they see
+    reads the transaction depends on (`current_blobs`,
+    `snapshot_languages`) run on the session's cursor, so they see
     what it has written.
 
     Every method raises `RuntimeError` outside the `with` block.  The
@@ -154,61 +156,60 @@ class WriteSession:
         with registered_views(self._cursor, _stg=frame) as cur:
             cur.execute(sql)
 
-    def blob_is_current(self, blob_sha: str, language: str, serials: dict[str, int]) -> bool:
-        """Check whether *blob_sha* is up to date for host *language*.
+    def current_blobs(
+        self, blobs: Sequence[tuple[str, str]], serials: dy.DataFrame[SerialMapRow]
+    ) -> set[tuple[str, str]]:
+        """The `(blob_sha, language)` pairs of *blobs* whose chunks are up to date.
 
-        This is the blob-dedup check: the build calls it before extracting
-        a file.  If True, the blob's chunks are current and valid — skip.
-        If False, the file needs (re-)extraction.  The check spans the
-        session's project (its chunks are content-addressed and shared by
-        its checkouts), so a blob already parsed by any of them is reused —
-        no re-parse when a linked worktree indexes it.  It runs on the
-        session's cursor, so it sees chunks this transaction deleted.
+        This is the blob-dedup check: the build asks it of a batch of files
+        before extracting them, and skips the files whose pair it returns.
+        The check spans the session's project (its chunks are
+        content-addressed and shared by its checkouts), so a blob already
+        parsed by any of them is reused — no re-parse when a linked
+        worktree indexes it.  It runs on the session's cursor, so it sees
+        chunks this transaction deleted.
 
-        *language* is the file's currently detected host language;
-        *serials* maps language id → current extraction serial (the
-        full registry, plus `""` for plaintext).  The blob is up to
-        date iff it has ≥1 chunk in *language* **and** every chunk's
-        `(language, extraction_serial)` matches a row in
-        *serials*.  Either condition failing triggers re-extraction:
+        A pair's *language* is the file's detected host language;
+        *serials* maps each language to its current extraction serial
+        (the full registry).  A blob is up to date iff it has ≥1 chunk in
+        *language* **and** every chunk's `(language, extraction_serial)`
+        matches a row in *serials*.  Either condition failing triggers
+        re-extraction:
 
-        - Detected language changed — a blob indexed as plaintext
-          (`language=""`), then a plugin registered for the
-          extension → no chunk in the new language → re-extract.
-          (Every file leaves a host-language chunk, so this check
-          is reliable.)
+        - Detected language changed — a blob indexed as plaintext, then
+          a plugin registered for the extension → no chunk in the new
+          language → re-extract.  (Every file leaves a host-language
+          chunk, so this check is reliable.)
         - A language's extraction serial is bumped → chunks stored at
           the old serial no longer match → re-extracted.
         - A multi-language file (SFC) lists every embedded language
           plus the host, so bumping *any* contributor (the svelte
           host or the delegated typescript) re-extracts the file;
           when none change, it is skipped like any other blob.
-
-        When `blob_is_current` returns False and old chunks exist for
-        the blob (language change), the caller must delete old
-        chunks before inserting new ones — the new extraction
-        may produce different chunk IDs that the upsert can't
-        reconcile.
         """
+        if not blobs:
+            return set()
         self._require_active()
-        with registered_views(self._cursor, _serial_map=serial_map_view(serials)) as cur:
-            rows = cur.sql(
-                _BLOB_IS_CURRENT_SQL, params={"blob_sha": blob_sha, "language": language}
-            ).fetchall()
-        return bool(rows[0][0])
+        with registered_views(
+            self._cursor, _blobs=blob_languages_view(blobs), _serial_map=serials
+        ) as cur:
+            return {
+                (blob_sha, language) for blob_sha, language in cur.sql(CURRENT_BLOBS_SQL).fetchall()
+            }
 
-    def get_snapshot_language(self, file_path: str) -> str:
-        """Return the language *file_path* was detected as in any of the repo's snapshots.
+    def snapshot_languages(self, file_paths: Sequence[str]) -> dict[str, str]:
+        """Each of *file_paths*' language, as one of the repo's snapshots recorded it.
 
-        Returns `''` if the file has never been indexed or was
-        indexed as plaintext.
+        A path no snapshot of the repo holds is absent.
         """
+        if not file_paths:
+            return {}
         self._require_active()
         rows = self._cursor.sql(
-            _GET_SNAPSHOT_LANGUAGE_SQL,
-            params={"repo_id": self._repo.repo_id, "file_path": file_path},
+            SNAPSHOT_LANGUAGES_SQL,
+            params={"repo_id": self._repo.repo_id, "file_paths": list(file_paths)},
         ).fetchall()
-        return str(rows[0][0]) if rows else ""
+        return dict(rows)
 
     def add_chunks(self, chunks: dy.DataFrame[ChunkStagingRow]) -> None:
         """Buffer content-addressed chunks for insertion.

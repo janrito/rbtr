@@ -145,17 +145,16 @@ their blobs and chunk `id`s coincide, and the existing chunks
 are reused — no re-parsing, no re-embedding. A clone is a
 project of its own, so it parses and embeds its content again.
 
-The build checks `session.blob_is_current(blob_sha, language,
-serials)` before extracting a file, where `language` is the
-file's detected host language and `serials` is the current
-`{language: extraction serial}` registry map (plus `""` for
-plaintext). The check spans the repo's project, so a blob
-already chunked by any of its checkouts is reused. A blob is
-**up to date** — the file skipped and only its `file_snapshots`
-row written — iff it has at least
-one chunk in the detected `language` *and* every stored chunk
-is at its language's current extraction serial. Both are matched
-in one query against a registered `_serial_map` view (a
+The build checks each batch of files before extracting it, in one
+query (`session.current_blobs`) over the batch's `(blob_sha,
+language)` pairs, where `language` is each file's detected host
+language, and the current `{language: extraction serial}` registry
+map. The check spans the repo's project, so a blob already chunked
+by any of its checkouts is reused. A blob is **up to date** — the
+file skipped and only its `file_snapshots` row written — iff it has
+at least one chunk in the detected `language` *and* every stored
+chunk is at its language's current extraction serial. Both are
+matched against registered `_blobs` and `_serial_map` views (a
 `LEFT JOIN`; a chunk with no matching serial row is stale).
 
 Two things force re-extraction; when the new chunks are
@@ -193,8 +192,8 @@ re-extracts it, and an unchanged file is skipped.
 
 Language is resolved once per file before the dedup check, in order:
 file extension → the `detected_language` recorded on an earlier
-`file_snapshots` row for that path (`get_snapshot_language`) →
-a content sniff for never-seen files. Persisting the
+`file_snapshots` row for that path (`snapshot_languages`, one query
+per batch) → a content sniff for never-seen files. Persisting the
 detected language on the snapshot is what lets a file
 identified by its content skip the sniff —
 and the needless re-extraction — on every subsequent build.
@@ -729,14 +728,14 @@ repo of its own:
 1. **Extract** — `list_files(repo_path, tree_sha)` walks
    the tree object directly (same as commit trees). Each
    file gets a `FileEntry` with `blob_sha` from the tree.
-   The `blob_is_current` check skips files whose blob SHA already
-   has chunks in the store.
+   The blob check (`current_blobs`) skips files whose blob SHA
+   already has chunks in the store.
 2. **Edges** — inferred from the worktree's chunk set.
 3. **Finalise** — `mark_indexed(repo_id, tree_sha)`,
    cleanup orphans.
 4. **Embed** — deferred, same as commits.
 
-Because `blob_is_current` works on content identity (blob SHA),
+Because the blob check works on content identity (blob SHA),
 a rebuild where nothing changed skips all files.
 
 ### Staleness detection
@@ -777,7 +776,7 @@ poll_worktree → worktree_tree_sha = tree_A (≠ HEAD tree)
 Indexer.next_job → BuildJob(refs=(tree_A,))
 build_index(tree_A):
   list_files(tree_A) → walks tree object
-  foo.py: dirty blob_sha → blob_is_current miss → extract
+  foo.py: dirty blob_sha → not current → extract
   other files: same blob_sha as HEAD → skip
   replace_snapshots(tree_A), replace_edges(tree_A)
   mark_indexed(tree_A)
@@ -2390,13 +2389,24 @@ operations over rows, so they run once for a hundred files rather than
 once per file. A run per file does not work here: a run of the rules
 costs about 9 ms whatever its size, five times a file's whole extraction,
 and from about a hundred files a run the cost per file stops falling.
-Building the five evaluation repositories takes 48.5 s against 63.3 s
-with every rule run per file in Python, at about 860 MiB peak against
-about 1,000 MiB; on Django, tokenising falls from 9.5 s to about 2 s and
-deleting and inserting from 4.7 s to 0.6 s. Extraction alone costs 8%
+On Django, with every rule run per file in Python, tokenising takes
+9.5 s against about 2 s, and deleting and inserting 4.7 s against
+0.6 s. Extraction alone costs 8%
 more per file (1.89 ms against 1.77 ms): the adapter's per-file work is
 unchanged, and the rules add their run. A batch with nothing to extract
 runs no rules and stores nothing.
+
+**The blob check runs once per batch.** Each batch's files are checked
+against the store in one query, and their stored languages looked up in
+another. On Django's 5,668 files, against a store that holds their
+chunks, a query per file takes 18.2 s and a query per batch of a hundred
+0.27 s. One query for the whole tree takes 0.01 s, but the build streams
+each file's content from git with its listing; checking the whole tree
+first would mean listing it twice, and checking again the files whose
+language only their content names. Building the five evaluation
+repositories takes 24 s against 57 s with a query per file and every rule
+run per file in Python, and rebuilding them with nothing changed 3 s
+against 24 s, at about 950 MiB peak against about 1,100 MiB.
 
 **The adapter settles spans; the rules decide from values.**
 `rbtr.languages.treesitter` is the only code that holds a tree-sitter
