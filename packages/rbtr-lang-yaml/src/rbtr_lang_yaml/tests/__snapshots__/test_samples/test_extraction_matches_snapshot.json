@@ -75,6 +75,43 @@
   },
   {
     "blob_sha": "sha1",
+    "file_path": "recipients.yaml",
+    "role": {
+      "kind": "comment"
+    },
+    "scope": "",
+    "language": "yaml",
+    "file_language": "yaml",
+    "content": "# Recipients the greeter writes to, in order.",
+    "span": {
+      "start": 1,
+      "end": 1
+    },
+    "id": "97943055c48aca06"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "recipients.yaml",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "document"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "yaml",
+    "file_language": "yaml",
+    "content": "- name: world\n  greeting: hello\n- name: team\n  greeting: hi",
+    "span": {
+      "start": 2,
+      "end": 5
+    },
+    "id": "9701a95702b84cea"
+  },
+  {
+    "blob_sha": "sha1",
     "file_path": "yaml.yaml",
     "role": {
       "kind": "comment"

@@ -443,6 +443,28 @@
   },
   {
     "blob_sha": "sha1",
+    "file_path": "partial.html",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "text",
+          "element"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "html",
+    "file_language": "html",
+    "content": "{% extends \"base.html\" %}\n<p>A loose paragraph outside any section.</p>",
+    "span": {
+      "start": 1,
+      "end": 2
+    },
+    "id": "f4645ced1bf9620f"
+  },
+  {
+    "blob_sha": "sha1",
     "file_path": "styles.css",
     "role": {
       "kind": "class",

@@ -557,5 +557,84 @@
       "end": 68
     },
     "id": "fbf278e7135316e2"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "vite.config.ts",
+    "role": {
+      "kind": "comment"
+    },
+    "scope": "",
+    "language": "typescript",
+    "file_language": "typescript",
+    "content": "// Build configuration for the greeter.",
+    "span": {
+      "start": 1,
+      "end": 1
+    },
+    "id": "b0eec444d8e60c22"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "vite.config.ts",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "export_statement"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "typescript",
+    "file_language": "typescript",
+    "content": "export default defineConfig({\n  root: \"src\",\n});",
+    "span": {
+      "start": 2,
+      "end": 4
+    },
+    "id": "86365142aa0eb4e1"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "vite.config.ts",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "ambient_declaration"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "typescript",
+    "file_language": "typescript",
+    "content": "declare module \"greeter-env\" {\n  export const locale: string;\n}",
+    "span": {
+      "start": 6,
+      "end": 8
+    },
+    "id": "4e2e79f36dc2eea4"
+  },
+  {
+    "blob_sha": "sha1",
+    "file_path": "vite.config.ts",
+    "role": {
+      "kind": "fragment",
+      "meta": {
+        "node_types": [
+          "expression_statement"
+        ]
+      }
+    },
+    "scope": "",
+    "language": "typescript",
+    "file_language": "typescript",
+    "content": "registerGreeter(\"en\");",
+    "span": {
+      "start": 10,
+      "end": 10
+    },
+    "id": "d413d58d29f8f980"
   }
 ]
