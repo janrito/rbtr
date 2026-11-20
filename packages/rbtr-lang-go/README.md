@@ -38,9 +38,9 @@ rbtr resolves calls by the names they are written with, without types
 or control flow. These are what that gets wrong in this language; each
 is a strict expected failure, so fixing one fails its test.
 
-| What happens                                                                           | Why                                                                                                                                                                                                                     | Pinned by                                         |
-| -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| A Go import of a directory whose package is named otherwise binds the directory's name | Go binds the declared package name, which is in the imported files, not the import. In samples of 300 files, 3 of 2,413 internal unaliased imports in cli/cli, prometheus and hugo differed, with no calls through them | `test_an_import_binds_the_packages_declared_name` |
+| What happens                                                                           | Why                                                                                 | Pinned by                                         |
+| -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------- |
+| A Go import of a directory whose package is named otherwise binds the directory's name | Go binds the declared package name, which is in the imported files, not the import. | `test_an_import_binds_the_packages_declared_name` |
 
 ## Grammar & dependencies
 

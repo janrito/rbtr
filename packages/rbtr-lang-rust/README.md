@@ -42,9 +42,9 @@ rbtr resolves calls by the names they are written with, without types
 or control flow. These are what that gets wrong in this language; each
 is a strict expected failure, so fixing one fails its test.
 
-| What happens                                                        | Why                                                                                                                                                      | Pinned by                                           |
-| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| A Rust call by its full path (`crate::util::log()`) reaches nothing | Its head, `crate`, `self` or `super`, is bound by no `use`. In samples of 300 files these are 0.2% of ripgrep's calls, 0.7% of tokio's and 0.16% of uv's | `test_a_call_by_its_full_path_reaches_the_function` |
+| What happens                                                        | Why                                                         | Pinned by                                           |
+| ------------------------------------------------------------------- | ----------------------------------------------------------- | --------------------------------------------------- |
+| A Rust call by its full path (`crate::util::log()`) reaches nothing | Its head, `crate`, `self` or `super`, is bound by no `use`. | `test_a_call_by_its_full_path_reaches_the_function` |
 
 ## Grammar & dependencies
 

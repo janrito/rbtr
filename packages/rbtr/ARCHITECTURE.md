@@ -538,11 +538,6 @@ names leave unresolved is listed in that plugin's README, under
 | A name bound twice in one file reaches both                                                                                                                                    | Bindings keep no order, so a later import shadowing an earlier one cannot be told from alternatives (`try: import ujson as json / except: import json`), which should reach both | `case_a_later_import_of_a_name_shadows_an_earlier`                  |
 | `Special.save` returns every `save` up the chain                                                                                                                               | The qualified-name reader admits each ancestor's scope; the member order is applied to calls only                                                                                | `test_a_class_qualified_name_reaches_the_override_it_calls`         |
 
-On django and home-assistant, rbtr's call edges agree with a names-only
-prototype resolver at precision 0.96 and 0.97, recall 1.00 and 1.00; the
-edges only rbtr makes are mostly calls through `super()`, which the
-prototype does not follow.
-
 Powers `find-refs` and the importance signal in search
 ranking. `find-refs` first resolves the user's symbol *name*
 to chunk IDs via `name_matches` (edges are keyed on chunk
@@ -2350,8 +2345,8 @@ times its imports, and on a large repository it was most of
 the edge phase. The rest of resolution is joins too: candidate
 paths are source roots × extensions × index files, and first
 match is a rank. Resolving each reference in a Python callback
-made resolution the largest edge step (0.25s of Django's
-14,358 module references); as joins it takes 0.05s.
+made resolution the largest edge step: on Django's 14,358 module
+references, the callbacks took 0.25 s and the joins 0.05 s.
 
 **Standalone comments as their own `COMMENT` kind.** A comment
 that isn't a symbol's documentation — a banner, licence header,
