@@ -1,99 +1,41 @@
-"""Behavioural tests for WriteSession mechanics.
+"""Behavioural tests for the write side, through builds and embedding.
 
-Verifies the transactional contract: commit-on-exit,
-rollback-on-exception, guard rails, sweep behaviour,
-FTS rebuild, chunk buffering, and write method round-trips.
+What a build's session guarantees: a failure rolls back and leaves the
+thread reading, a failed search-index rebuild keeps the previous one,
+chunks flush in batches, a rebuild replaces only its own commit's rows,
+and stored payloads (embeddings, calls, bases, bindings) read back whole.
+Also registration, watched refs, and a read-only index refusing writes.
 """
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable
 from pathlib import Path
 
 import duckdb
 import polars as pl
+import pygit2
 import pytest
 from pydantic import ValidationError as ModelValidationError
 from pytest_cases import parametrize_with_cases
 from pytest_mock import MockerFixture
 
 from rbtr.config import config
-from rbtr.domain.edge_frames import EdgeChunkRow, InferredEdgeRow
-from rbtr.domain.models import (
-    Binding,
-    Chunk,
-    ChunkKind,
-    Definition,
-    EdgeKind,
-    EmbeddingState,
-    FileSnapshot,
-    Import,
-    ImportMeta,
-    Repo,
-    SnapshotRef,
-    Span,
-)
-from rbtr.domain.rules import ChunkRow
+from rbtr.domain.edge_frames import EdgeChunkRow
+from rbtr.domain.models import EmbeddingState, Repo, SnapshotRef, Span
 from rbtr.errors import RepoNotFoundError
+from rbtr.index.build import build_index
+from rbtr.index.embed import embed_index
+from rbtr.index.embeddings import Embedder
 from rbtr.index.index import Index
-from rbtr.index.staging import EmbeddingStagingRow, serial_map_view, staged_chunks
-from rbtr.languages.chunks import chunk_rows
+from rbtr.languages.manager import get_manager
+from rbtr.languages.registration import QueryExtraction
+from rbtr_lang_python.plugin import python
 
+from ..conftest import make_commit
 from .cases_index_repos import RepoSequence
 from .cases_index_watched_refs import WatchedRefScenario
-from .conftest import make_chunk, make_snap, seed_index
-
-
-def test_clean_exit_commits(index: Index) -> None:
-    """Data written in a session is visible after clean exit."""
-    repo = index.register("/repo")
-    with index.session(repo) as ws:
-        ws.add_chunks(staged_chunks(chunk_rows([make_chunk("a")]), {}))
-        ws.replace_snapshots([make_snap("c1", "f.py", "blob_a")], snapshot_sha="c1")
-
-    chunks = index.chunks(at=repo.at("c1"))
-    assert (chunks["name"] == "a").any()
-
-
-def test_exception_rolls_back(index: Index) -> None:
-    """Data written in a session is invisible after an exception."""
-
-    repo = index.register("/repo")
-
-    def _failing_session() -> None:
-        with index.session(repo) as ws:
-            ws.add_chunks(staged_chunks(chunk_rows([make_chunk("a")]), {}))
-            ws.replace_snapshots([make_snap("c1", "f.py", "blob_a")], snapshot_sha="c1")
-            msg = "boom"
-            raise RuntimeError(msg)
-
-    with pytest.raises(RuntimeError):
-        _failing_session()
-
-    chunks = index.chunks(at=repo.at("c1"))
-    assert chunks.is_empty()
-
-
-def test_write_outside_session_raises(index: Index) -> None:
-    """Calling a write method without an active session raises."""
-    ws = index.session(index.register("/repo"))
-    # ws.__enter__ not called — no active transaction.
-    with pytest.raises(RuntimeError, match="No active transaction"):
-        ws.add_chunks(staged_chunks(chunk_rows([make_chunk("a")]), {}))
-
-
-def test_chunks_cannot_be_committed_without_a_claim(index: Index) -> None:
-    """A session inserting chunks and no `file_snapshots` rows is refused.
-
-    The sweeps delete every chunk no repo claims, so a commit holding
-    an unclaimed chunk leaves it for the next sweep to take.
-    """
-    repo = index.register("/repo")
-
-    with pytest.raises(RuntimeError, match="file_snapshots"), index.session(repo) as ws:
-        ws.add_chunks(staged_chunks(chunk_rows([make_chunk("unclaimed")]), {}))
-
-    assert index.count_orphan_chunks() == 0
 
 
 @pytest.mark.parametrize(
@@ -135,111 +77,67 @@ def test_a_read_only_index_refuses_every_write(
         index.close()
 
 
-def test_cleanup_removes_the_repos_unfinished_snapshots(index: Index) -> None:
-    """`cleanup` removes the residue of a build that stopped part-way."""
-    # Simulate a crashed build: a snapshot never marked indexed.
-    repo = index.register("/repo")
-    with index.session(repo) as ws:
-        ws.add_chunks(staged_chunks(chunk_rows([make_chunk("good")]), {}))
-        ws.replace_snapshots([make_snap("good_sha", "f.py", "blob_good")], snapshot_sha="good_sha")
-        ws.mark_indexed(snapshot_sha="good_sha")
-
-    with index.session(repo) as ws:
-        ws.add_chunks(staged_chunks(chunk_rows([make_chunk("orphan")]), {}))
-        ws.replace_snapshots(
-            [make_snap("crashed_sha", "f.py", "blob_orphan")], snapshot_sha="crashed_sha"
-        )
-        # No mark_indexed — simulates crash.
-
-    with index.session(repo) as ws:
-        ws.cleanup()
-
-    assert index.count_file_snapshots(at=repo.at("crashed_sha")) == 0
-    assert index.count_file_snapshots(at=repo.at("good_sha")) > 0
-
-
-def test_cleanup_leaves_a_sibling_checkouts_residue(project_index: Index) -> None:
-    """`cleanup` clears its own repo's residue, not another checkout's.
-
-    The sibling's unfinished snapshot still claims its chunk, so the
-    chunk is not an orphan; the sibling's own clean-up removes both.
-    """
-    index = project_index
-    main, worktree = index.repos()
-    with index.session(main) as ws:
-        ws.add_chunks(staged_chunks(chunk_rows([make_chunk("wip")]), {}))
-        ws.replace_snapshots([make_snap("wip_sha", "f.py", "blob_wip")], snapshot_sha="wip_sha")
-        # No mark_indexed: the build stopped here.
-
-    with index.session(worktree) as ws:
-        ws.cleanup()
-
-    assert index.count_file_snapshots(at=main.at("wip_sha")) > 0
-    assert index.count_orphan_chunks() == 0
-
-
-def test_fts_rebuilt_after_chunk_insert(index: Index) -> None:
-    """Session that inserts chunks rebuilds FTS on exit."""
-    repo = index.register("/repo")
-    with index.session(repo) as ws:
-        ws.add_chunks(staged_chunks(chunk_rows([make_chunk("searchable")]), {}))
-        ws.replace_snapshots([make_snap("c1", "f.py", "blob_searchable")], snapshot_sha="c1")
-        ws.mark_indexed(snapshot_sha="c1")
-
-    results = index.fulltext_matches("searchable", within=[repo.at("c1")])
-    assert len(results) > 0
-
-
-def test_a_failed_fts_rebuild_keeps_the_previous_index(index: Index, mocker: MockerFixture) -> None:
+def test_a_failed_fts_rebuild_keeps_the_previous_index(
+    fake_repo: str, index: Index, mocker: MockerFixture
+) -> None:
     """A rebuild that fails part-way leaves the previous FTS index whole."""
-    ref = index.register("/repo").at("c1")
-    seed_index(index, [make_chunk("before", name="before_check")], ref)
+    repo = pygit2.Repository(fake_repo)
+    before = make_commit(
+        repo,
+        {
+            "before.py": b"""\
+def before_check():
+    pass
+"""
+        },
+        parents=[repo.head.peel(pygit2.Commit).id],
+    )
+    after = make_commit(
+        repo,
+        {
+            "before.py": b"""\
+def before_check():
+    pass
+""",
+            "after.py": b"""\
+def after_check():
+    pass
+""",
+        },
+        parents=[before],
+    )
+    build_index(fake_repo, str(before), index)
     mocker.patch("rbtr.index.db._NEUTRALISE_FTS_IDF_SQL", "SELECT * FROM no_such_table")
-    after = make_chunk("after", name="after_check", path="g.py")
-    later = index.register("/repo").at("c2")
     with pytest.raises(duckdb.CatalogException):
-        seed_index(index, [after], later)
+        build_index(fake_repo, str(after), index)
 
-    assert len(index.fulltext_matches("before", within=[ref])) == 1
-    assert len(index.fulltext_matches("after", within=[later])) == 0
+    registered = index.repo(fake_repo)
+    assert len(index.fulltext_matches("before", within=[registered.at(str(before))])) == 1
+    assert len(index.fulltext_matches("after", within=[registered.at(str(after))])) == 0
 
 
-def test_buffer_flushes_at_batch_size(index: Index, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Chunks are flushed when the buffer reaches batch size."""
+def test_buffer_flushes_at_batch_size(
+    fake_repo: str, index: Index, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A build of more chunks than the batch size flushes them in batches, every one stored."""
     monkeypatch.setattr(config, "insert_batch_size", 5)
-
-    repo = index.register("/repo")
-    with index.session(repo) as ws:
-        for i in range(12):
-            ws.add_chunks(staged_chunks(chunk_rows([make_chunk(f"c{i}", path=f"f{i}.py")]), {}))
-        ws.replace_snapshots(
-            [make_snap("head", f"f{i}.py", f"blob_c{i}") for i in range(12)], snapshot_sha="head"
+    repo = pygit2.Repository(fake_repo)
+    sha = str(
+        make_commit(
+            repo,
+            {
+                f"f{i}.py": f"""\
+def f{i}():
+    pass
+""".encode()
+                for i in range(12)
+            },
+            parents=[repo.head.peel(pygit2.Commit).id],
         )
+    )
+    build_index(fake_repo, sha, index)
 
-    chunks = index.chunks(at=repo.at("head"))
-    assert len(chunks) == 12
-
-
-def test_buffer_flushes_before_dependent_ops(index: Index) -> None:
-    """Buffer is flushed before replace_snapshots (which depends on chunks)."""
-    repo = index.register("/repo")
-    with index.session(repo) as ws:
-        ws.add_chunks(staged_chunks(chunk_rows([make_chunk("a", blob="b1", path="a.py")]), {}))
-        # replace_snapshots triggers _flush_chunks internally.
-        ws.replace_snapshots([make_snap("c1", "a.py", "b1")], snapshot_sha="c1")
-
-    chunks = index.chunks(at=repo.at("c1"))
-    assert len(chunks) == 1
-
-
-def test_empty_operations_are_noops(index: Index) -> None:
-    """Empty lists don't cause errors."""
-    repo = index.register("/repo")
-    with index.session(repo) as ws:
-        ws.replace_snapshots([], snapshot_sha="c1")
-        ws.replace_edges(InferredEdgeRow.create_empty(), snapshot_sha="c1")
-        ws.update_embeddings(EmbeddingStagingRow.create_empty())
-        ws.delete_chunks_for_blobs(set(), file_language="")
+    assert len(index.chunks(at=index.repo(fake_repo).at(sha))) == 12
 
 
 @parametrize_with_cases("scenario", cases=".cases_index_repos")
@@ -288,57 +186,65 @@ def test_repo_raises_for_unknown(index: Index) -> None:
     assert raised.value.error_code == "repo_not_found"
 
 
-def test_replace_snapshots_scoped_to_commit(index: Index) -> None:
-    """Replacing snapshots for one commit doesn't touch another."""
-    repo = index.register("/repo")
-    with index.session(repo) as ws:
-        ws.add_chunks(
-            staged_chunks(
-                chunk_rows(
-                    [
-                        make_chunk("a", blob="b1", path="a.py"),
-                        make_chunk("b", blob="b2", path="b.py"),
-                    ]
-                ),
-                {},
-            )
+def test_rebuilding_a_commit_leaves_another_commits_files_and_edges(
+    fake_repo: str, index: Index
+) -> None:
+    """Rebuilding one commit replaces its file list and edges, not another commit's.
+
+    Each commit holds a module importing another. A plugin upgrade that
+    stops reading imports re-extracts the first commit's files: its edges
+    are inferred again, to none, and the second's stay.
+    """
+    repo = pygit2.Repository(fake_repo)
+    head = repo.head.peel(pygit2.Commit).id
+    first = str(
+        make_commit(
+            repo,
+            {
+                "a.py": b"""\
+from b import f
+""",
+                "b.py": b"""\
+def f():
+    pass
+""",
+            },
+            ref="refs/heads/first",
+            parents=[head],
         )
-        ws.replace_snapshots([make_snap("c1", "a.py", "b1")], snapshot_sha="c1")
-        ws.replace_snapshots([make_snap("c2", "b.py", "b2")], snapshot_sha="c2")
+    )
+    second = str(
+        make_commit(
+            repo,
+            {
+                "c.py": b"""\
+from d import g
+""",
+                "d.py": b"""\
+def g():
+    pass
+""",
+            },
+            ref="refs/heads/second",
+            parents=[head],
+        )
+    )
+    build_index(fake_repo, first, index)
+    build_index(fake_repo, second, index)
+    no_imports = dataclasses.replace(
+        python,
+        extraction=QueryExtraction(
+            query="(function_definition name: (identifier) @_fn_name) @function\n"
+        ),
+        extraction_serial=python.extraction_serial + 1,
+    )
+    with get_manager().limited_to(no_imports):
+        build_index(fake_repo, first, index)
 
-    with index.session(repo) as ws:
-        ws.replace_snapshots([make_snap("c1", "a.py", "b1")], snapshot_sha="c1")
-
-    assert index.count_file_snapshots(at=repo.at("c2")) == 1
-
-
-def test_replace_edges_scoped_to_commit(index: Index) -> None:
-    """Replacing edges for one commit doesn't touch another."""
-    e1 = {
-        "source_id": "a",
-        "target_id": "b",
-        "kind": EdgeKind.IMPORTS,
-        "source_path": "src/a.py",
-        "target_path": "src/b.py",
-    }
-    e2 = {
-        "source_id": "c",
-        "target_id": "d",
-        "kind": EdgeKind.IMPORTS,
-        "source_path": "src/c.py",
-        "target_path": "src/d.py",
-    }
-
-    repo = index.register("/repo")
-    with index.session(repo) as ws:
-        ws.replace_edges(InferredEdgeRow.validate(pl.DataFrame([e1]), cast=True), snapshot_sha="c1")
-        ws.replace_edges(InferredEdgeRow.validate(pl.DataFrame([e2]), cast=True), snapshot_sha="c2")
-
-    with index.session(repo) as ws:
-        ws.replace_edges(InferredEdgeRow.create_empty(), snapshot_sha="c1")
-
-    assert index.count_edges(at=repo.at("c1")) == 0
-    assert index.count_edges(at=repo.at("c2")) == 1
+    registered = index.repo(fake_repo)
+    assert index.count_edges(at=registered.at(first)) == 0
+    assert index.count_edges(at=registered.at(second)) == 1
+    assert index.count_file_snapshots(at=registered.at(second)) == 2
 
 
 def test_edge_chunks_are_every_location_in_path_order(
@@ -354,128 +260,114 @@ def test_edge_chunks_are_every_location_in_path_order(
         assert session.edge_chunks(dup_ref.snapshot_sha).equals(expected)
 
 
-def test_update_embeddings_round_trip(index: Index) -> None:
-    """Embeddings and truncation flags are persisted correctly.
-
-    Seeds two chunks, embeds one as truncated and one as not,
-    then verifies both the embedding flag and the
-    `embedding_truncated` column in the DB.
-    """
-    repo = index.register("/repo")
-    with index.session(repo) as ws:
-        chunk_a = make_chunk("a")
-        chunk_b = make_chunk("b", blob="blob_b", path="g.py")
-        ws.add_chunks(staged_chunks(chunk_rows([chunk_a, chunk_b]), {}))
-        ws.replace_snapshots(
-            [
-                make_snap("c1", "f.py", "blob_a"),
-                make_snap("c1", "g.py", "blob_b"),
-            ],
-            snapshot_sha="c1",
+def test_embedding_and_truncation_are_stored(
+    fake_repo: str, index: Index, stubbed_embedder: Embedder
+) -> None:
+    """Embedding stores each chunk's vector, and whether its text was cut to fit the model."""
+    repo = pygit2.Repository(fake_repo)
+    long_doc = "Step after step. " * 600
+    sha = str(
+        make_commit(
+            repo,
+            {
+                "short.py": b"""\
+def short():
+    pass
+""",
+                "long.py": f'''\
+def long():
+    """{long_doc}"""
+'''.encode(),
+            },
+            parents=[repo.head.peel(pygit2.Commit).id],
         )
+    )
+    build_index(fake_repo, sha, index)
+    at = index.repo(fake_repo).at(sha)
+    assert set(index.chunks(at=at)["embedding_state"]) == {EmbeddingState.NONE}
 
-    # Before embedding — chunks have no embedding.
-    chunks = index.chunks(at=repo.at("c1"))
-    assert not (chunks["embedding_state"] != EmbeddingState.NONE).any()
+    embed_index(index, at=at, embedder=stubbed_embedder)
 
-    vec = [0.1, 0.2, 0.3]
-    with index.session(repo) as ws:
-        ws.update_embeddings(
-            EmbeddingStagingRow.validate(
-                pl.DataFrame(
-                    {
-                        "id": [chunk_a.id, chunk_b.id],
-                        "embedding": [vec, vec],
-                        "embedding_truncated": [True, False],
-                    }
-                ),
-                cast=True,
-            )
-        )
-
-    # After embedding — both flagged as embedded.
-    chunks = index.chunks(at=repo.at("c1"))
-    assert len(chunks) == 2
-    assert (chunks["embedding_state"] != EmbeddingState.NONE).all()
-
-    # Verify truncation flags in the DB.
-    with index.reader(repo) as cur:
-        rows = cur.sql("SELECT id, embedding_truncated FROM chunks ORDER BY id").fetchall()
-    by_id = {row[0]: row[1] for row in rows}
-    assert by_id[chunk_a.id] is True
-    assert by_id[chunk_b.id] is False
-
-
-def test_extracting_a_blob_again_keeps_the_embeddings_of_unchanged_chunks(index: Index) -> None:
-    """A chunk extracted again with its id and content keeps its embedding.
-
-    One with the same id and other content is embedded afresh, and one the
-    extraction no longer gives is deleted.
-    """
-    kept = make_chunk("kept", path="f.py", blob="blob")
-    changed = make_chunk("changed", path="f.py", blob="blob", content="return 1")
-    gone = make_chunk("gone", path="f.py", blob="blob")
-    rewritten = make_chunk("changed", path="f.py", blob="blob", content="return 2")
-    assert rewritten.id == changed.id
-    repo = index.register("/repo")
-    with index.session(repo) as ws:
-        ws.replace_chunks(staged_chunks(chunk_rows([kept, changed, gone]), {}))
-        ws.replace_snapshots([make_snap("c1", "f.py", "blob")], snapshot_sha="c1")
-    with index.session(repo) as ws:
-        ws.update_embeddings(
-            pl.DataFrame(
-                {
-                    "id": [kept.id, changed.id, gone.id],
-                    "embedding": [[0.1, 0.2]] * 3,
-                    "embedding_truncated": [True] * 3,
-                }
-            ).pipe(EmbeddingStagingRow.validate, cast=True)
-        )
-    with index.session(repo) as ws:
-        ws.replace_chunks(staged_chunks(chunk_rows([kept, rewritten]), {}))
-    chunks = index.chunks(at=repo.at("c1"))
-    assert sorted(chunks.select("name", pl.col("embedding_state").cast(pl.String)).rows()) == [
-        ("changed", EmbeddingState.NONE),
-        ("kept", EmbeddingState.TRUNCATED),
+    states = index.chunks(at=at).select("name", pl.col("embedding_state").cast(pl.String))
+    assert sorted(states.rows()) == [
+        ("long", EmbeddingState.TRUNCATED),
+        ("short", EmbeddingState.FULL),
     ]
 
 
-def test_a_chunks_calls_bases_and_bindings_are_read_as_written(index: Index) -> None:
+def test_extracting_a_blob_again_keeps_the_embeddings_of_unchanged_chunks(
+    fake_repo: str, index: Index, stubbed_embedder: Embedder
+) -> None:
+    """A plugin upgrade's re-extraction keeps the embedding of a chunk whose span, name and content are unchanged.
+
+    The upgraded query names functions by their parameters and captures
+    no comments: `named` keeps its span under a new name, so it is
+    embedded afresh (the model reads names); `gone`, whose span began at
+    the comment folded into it, is deleted, and its function is a new
+    chunk; `Kept` keeps its embedding.
+    """
+    repo = pygit2.Repository(fake_repo)
+    source = b"""\
+class Kept:
+    pass
+
+
+# Folded into gone.
+def gone():
+    pass
+
+
+def named(a):
+    pass
+"""
+    sha = str(make_commit(repo, {"f.py": source}, parents=[repo.head.peel(pygit2.Commit).id]))
+    build_index(fake_repo, sha, index)
+    at = index.repo(fake_repo).at(sha)
+    embed_index(index, at=at, embedder=stubbed_embedder)
+    gone_id = index.chunks(at=at, name="gone")["id"].item()
+    upgraded = dataclasses.replace(
+        python,
+        extraction=QueryExtraction(
+            query="""\
+(class_definition name: (identifier) @_cls_name) @class
+(function_definition parameters: (parameters) @_fn_name) @function
+"""
+        ),
+        extraction_serial=python.extraction_serial + 1,
+    )
+    with get_manager().limited_to(upgraded):
+        build_index(fake_repo, sha, index)
+
+    chunks = index.chunks(at=at)
+    assert gone_id not in chunks["id"].to_list()
+    assert sorted(
+        chunks.select("kind", "name", pl.col("embedding_state").cast(pl.String)).rows()
+    ) == [
+        ("class", "Kept", EmbeddingState.FULL),
+        ("fragment", "", EmbeddingState.NONE),
+        ("function", "()", EmbeddingState.NONE),
+        ("function", "(a)", EmbeddingState.NONE),
+    ]
+
+
+def test_a_chunks_calls_bases_and_bindings_are_read_as_written(
+    fake_repo: str, index: Index
+) -> None:
     """What a class, a method and an import record of other code comes back from storage whole."""
-    model = {"kind": "inherits", "lookup": "unqualified", "path": ["models", "Model"], "type": None}
-    save = {"kind": "calls", "lookup": "member", "path": ["save"], "type": None}
-    chunks = [
-        make_chunk("Order", path="f.py", blob="blob").model_copy(
-            update={"role": Definition(kind=ChunkKind.CLASS, name="Order")}
-        ),
-        make_chunk("run", path="f.py", blob="blob").model_copy(
-            update={"role": Definition(kind=ChunkKind.METHOD, name="run")}
-        ),
-        make_chunk("np", path="f.py", blob="blob").model_copy(
-            update={
-                "role": Import(
-                    name="import numpy as np",
-                    meta=ImportMeta(module="numpy", bindings=[Binding(name="numpy", local="np")]),
-                )
-            }
-        ),
-    ]
-    repo = index.register("/repo")
-    with index.session(repo) as ws:
-        rows = (
-            chunk_rows(chunks)
-            .with_columns(
-                metadata=pl.col("metadata").struct.with_fields(
-                    refs=pl.Series(
-                        [[model], [save], None], dtype=ChunkRow.metadata.inner["refs"].dtype
-                    )
-                )
-            )
-            .pipe(ChunkRow.validate)
-        )
-        ws.add_chunks(staged_chunks(rows, {}))
-        ws.replace_snapshots([make_snap("c1", "f.py", "blob")], snapshot_sha="c1")
-    read = index.chunks(at=repo.at("c1")).sort("name")
+    repo = pygit2.Repository(fake_repo)
+    source = b"""\
+import numpy as np
+from django.db import models
+
+
+class Order(models.Model):
+    def run(self):
+        self.save()
+"""
+    sha = str(make_commit(repo, {"f.py": source}, parents=[repo.head.peel(pygit2.Commit).id]))
+    build_index(fake_repo, sha, index)
+
+    read = index.chunks(at=index.repo(fake_repo).at(sha)).sort("name")
     assert [
         (
             row["name"],
@@ -486,48 +378,20 @@ def test_a_chunks_calls_bases_and_bindings_are_read_as_written(index: Index) -> 
     ] == [
         (
             "Order",
-            [model],
+            [
+                {
+                    "kind": "inherits",
+                    "lookup": "unqualified",
+                    "path": ["models", "Model"],
+                    "type": None,
+                }
+            ],
             None,
         ),
+        ("from django.db import models", None, [{"name": "models", "local": "models"}]),
         ("import numpy as np", None, [{"name": "numpy", "local": "np"}]),
-        ("run", [save], None),
+        ("run", [{"kind": "calls", "lookup": "member", "path": ["save"], "type": None}], None),
     ]
-
-
-def test_replacing_a_snapshot_with_nothing_hides_its_chunks(
-    index: Index, math_func: Chunk, http_func: Chunk
-) -> None:
-    """An emptied snapshot hides its chunks without deleting them."""
-    repo = index.register("/repo")
-    with index.session(repo) as ws:
-        ws.add_chunks(staged_chunks(chunk_rows([math_func, http_func]), {}))
-        ws.replace_snapshots(
-            [
-                FileSnapshot(
-                    snapshot_sha="head",
-                    file_path=math_func.file_path,
-                    blob_sha=math_func.blob_sha,
-                ),
-                FileSnapshot(
-                    snapshot_sha="head",
-                    file_path=http_func.file_path,
-                    blob_sha=http_func.blob_sha,
-                ),
-            ],
-            snapshot_sha="head",
-        )
-    assert len(index.chunks(at=repo.at("head"))) == 2
-
-    with index.session(repo) as ws:
-        ws.replace_snapshots([], snapshot_sha="head")
-
-    assert index.chunks(at=repo.at("head")).is_empty()
-    with index.session(repo) as ws:
-        blobs = [math_func.blob_sha, http_func.blob_sha]
-        assert ws.current_blobs(blobs, serial_map_view({"": 1})) == {
-            (math_func.blob_sha, ""),
-            (http_func.blob_sha, ""),
-        }
 
 
 def test_a_span_cannot_end_before_it_starts() -> None:
@@ -536,11 +400,24 @@ def test_a_span_cannot_end_before_it_starts() -> None:
 
 
 def test_a_failed_commit_leaves_the_thread_able_to_read(
-    index: Index, head_ref: SnapshotRef
+    fake_repo: str, index: Index, mocker: MockerFixture
 ) -> None:
-    """A session whose commit fails rolls back, so the thread reads on."""
-    # `model_construct` skips the check `Span` makes, so the table's own refuses the row.
-    inverted = make_chunk("a").model_copy(update={"span": Span.model_construct(start=7, end=6)})
-    with pytest.raises(duckdb.ConstraintException):
-        seed_index(index, [inverted], head_ref)
-    assert index.has_indexed(at=head_ref) is False
+    """A build whose chunk write fails rolls back, so the thread reads on."""
+    repo = pygit2.Repository(fake_repo)
+    sha = str(
+        make_commit(
+            repo,
+            {
+                "f.py": b"""\
+def f():
+    pass
+"""
+            },
+            parents=[repo.head.peel(pygit2.Commit).id],
+        )
+    )
+    mocker.patch("rbtr.index.writer._UPSERT_CHUNKS_SQL", "SELECT * FROM no_such_table")
+    with pytest.raises(duckdb.CatalogException):
+        build_index(fake_repo, sha, index)
+
+    assert index.has_indexed(at=index.repo(fake_repo).at(sha)) is False

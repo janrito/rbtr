@@ -108,7 +108,13 @@ def long_scored_chunk(scored_chunk: ScoredChunk) -> ScoredChunk:
     """A hit whose body runs well past the preview cap."""
     body = "\n".join(f"    line_{i} = {i}" for i in range(200))
     return scored_chunk.model_copy(
-        update={"content": f"def wide():\n{body}", "line_start": 1, "line_end": 201}
+        update={
+            "content": f"""\
+def wide():
+{body}""",
+            "line_start": 1,
+            "line_end": 201,
+        }
     )
 
 

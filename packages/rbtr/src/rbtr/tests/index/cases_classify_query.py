@@ -110,7 +110,9 @@ def case_concept(query: str) -> tuple[str, QueryKind]:
         "function update() {",
         "function updateRelatedObjectLinks(triggeringLink) {",
         # CSS
-        "body {\n\tfont-size: 16px;",
+        """\
+body {
+\tfont-size: 16px;""",
         # Go
         "if err != nil {",
         # Operators
@@ -119,7 +121,10 @@ def case_concept(query: str) -> tuple[str, QueryKind]:
         # Rust / TS generics
         "result <T>",
         # Multi-language body fragments from eval
-        "dd {\n    margin-bottom: 0.8em;\n}",
+        """\
+dd {
+    margin-bottom: 0.8em;
+}""",
         'function U(e){return e&&"undefined"!=typeof e.getElementsByTagName&&e}',
     ],
 )
@@ -159,7 +164,11 @@ def case_code(query: str) -> tuple[str, QueryKind]:
         ("rbtr search-weight tuning report.Impact by dimension", QueryKind.IDENTIFIER),
         # JSDoc {Type} braces trigger CODE.
         (
-            "/**\n * Returns a function to use in pseudos\n * @param {String} type\n */",
+            """\
+/**
+ * Returns a function to use in pseudos
+ * @param {String} type
+ */""",
             QueryKind.CONCEPT,
         ),
         # Concept query with function-call syntax in it.

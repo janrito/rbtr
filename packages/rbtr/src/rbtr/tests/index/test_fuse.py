@@ -137,24 +137,51 @@ def test_every_result_has_populated_breakdown(
     [
         # Densest line wins: line 1 holds both tokens, lines 0 and 2 none.
         (
-            "def f():\n    deps = agent_deps\n    x = 1",
+            """\
+def f():
+    deps = agent_deps
+    x = 1""",
             ["agent", "deps"],
             1,
             ["agent", "deps"],
         ),
         # Tie on count resolves to the earliest line.
-        ("deps here\nagent here\nx", ["agent", "deps"], 0, ["agent", "deps"]),
+        (
+            """\
+deps here
+agent here
+x""",
+            ["agent", "deps"],
+            0,
+            ["agent", "deps"],
+        ),
         # A camelCase fragment matches inside a compound identifier.
         (
-            "class AgentDeps:\n    pass",
+            """\
+class AgentDeps:
+    pass""",
             ["agentdeps", "agent", "deps"],
             0,
             ["agentdeps", "agent", "deps"],
         ),
         # No token occurs: no anchor, no terms.
-        ("def f():\n    return 1", ["zzz", "qqq"], None, []),
+        (
+            """\
+def f():
+    return 1""",
+            ["zzz", "qqq"],
+            None,
+            [],
+        ),
         # Empty token set: no anchor, no terms.
-        ("anything\nhere", [], None, []),
+        (
+            """\
+anything
+here""",
+            [],
+            None,
+            [],
+        ),
         # Empty content: no anchor, no terms.
         ("", ["agent"], None, []),
     ],
@@ -184,7 +211,19 @@ def test_match_preview_is_row_wise() -> None:
     """
     offset, terms = match_preview_exprs(["agent"])
     out = (
-        pl.DataFrame({"content": ["x = 1\nagent here", "no match", "agent\nmore"]})
+        pl.DataFrame(
+            {
+                "content": [
+                    """\
+x = 1
+agent here""",
+                    "no match",
+                    """\
+agent
+more""",
+                ]
+            }
+        )
         .select(offset.alias("match_line_offset"), terms.alias("matched_terms"))
         .to_dicts()
     )

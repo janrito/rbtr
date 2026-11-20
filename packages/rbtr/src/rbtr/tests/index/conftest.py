@@ -1,12 +1,9 @@
 """Shared fixtures for `tests/index/`.
 
-Two fixture families:
-
-1. **Ranking dataset** — a seeded Index for the search
-   ranking and structural-boost tests.
-
-2. **Small named chunks / edges** — building blocks consumed
-   by case files for store-level behavioural tests.
+Every index here is written as production writes one: commits of real
+files, built (`build_index`), then collected or embedded through `Index`.
+The ranking dataset is a commit of four files whose code makes the edges
+the search-ranking tests count.
 
 No module-level test data.  Everything is a fixture so
 dependency graphs are explicit.
@@ -17,119 +14,18 @@ from __future__ import annotations
 from collections.abc import Generator
 from pathlib import Path
 
-import polars as pl
 import pygit2
 import pytest
 
-from rbtr.domain.edge_frames import InferredEdgeRow
 from rbtr.domain.models import (
-    Chunk,
-    ChunkKind,
-    Definition,
-    EdgeKind,
-    FileSnapshot,
-    Import,
-    ImportMeta,
-    Section,
     SnapshotRef,
-    Span,
 )
 from rbtr.git import normalise_repo_path
 from rbtr.index.build import build_index
 from rbtr.index.index import Index
 from rbtr.index.refs import latest_ref
-from rbtr.index.staging import staged_chunks
-from rbtr.languages.chunks import chunk_rows
 
 from ..conftest import make_commit
-
-# ═════════════════════════════════════════════════════════════════════
-# Builders (no side effects, no hidden state)
-# ═════════════════════════════════════════════════════════════════════
-
-
-def make_chunk(
-    handle: str,
-    *,
-    name: str = "",
-    content: str = "",
-    path: str = "f.py",
-    blob: str = "",
-    kind: ChunkKind = ChunkKind.FUNCTION,
-    scope: str = "",
-    language: str = "",
-    file_language: str | None = None,
-) -> Chunk:
-    """Build a minimal `Chunk` with auto-tokenised fields.
-
-    *handle* is a short label for the chunk within a test: it seeds the
-    default `name` and `blob_sha`, which is what keeps two fixture chunks
-    distinct. It is not the id — that is derived from the content, so
-    assert against a fixture's `.id` or its `name`, never a literal.
-
-    Chunks are content-addressed and carry no `repo_id`; which repo a
-    chunk belongs to is decided by the snapshot that references its
-    blob (see `seed_index`'s `ref`).
-
-    `file_language` defaults to *language*, which is what a file in one
-    language yields. Pass it separately for an embedded chunk, whose own
-    language differs from its file's — and match it to the
-    `detected_language` of the `make_snap` rows that reference the blob,
-    or the two will not pair up.
-    """
-    name = name or handle
-    content = content or f"def {name}(): pass"
-    return Chunk.model_validate(
-        {
-            "blob_sha": blob or f"blob_{handle}",
-            "file_path": path,
-            "role": {"kind": kind, "name": name, "meta": {}},
-            "scope": scope,
-            "content": content,
-            "span": {"start": 1, "end": 1},
-            "language": language,
-            "file_language": language if file_language is None else file_language,
-        }
-    )
-
-
-def make_snap(sha: str, path: str, blob: str, language: str = "") -> FileSnapshot:
-    """Build a `FileSnapshot`.
-
-    *language* is the file's detected language, which pairs the snapshot
-    with the chunks extracted from it.
-    """
-    return FileSnapshot(snapshot_sha=sha, file_path=path, blob_sha=blob, detected_language=language)
-
-
-def seed_index(index: Index, chunks: list[Chunk], ref: SnapshotRef) -> None:
-    """Insert chunks, and snapshots referencing their blobs, under *ref*.
-
-    *ref* is marked indexed, so the seeded snapshot is one a read can
-    find.
-
-    The repo named by *ref* must already be registered: its rows live in
-    its project's file, which registration makes.  `head_ref` does that
-    registration for the common single-repo case; a test seeding several
-    repos registers each one and takes a ref from the repo it gets back,
-    then calls this once per ref.  Passing the same chunk under two refs
-    models content shared across worktrees or clones.
-    """
-    with index.session(ref.repo) as ws:
-        ws.add_chunks(staged_chunks(chunk_rows(chunks), {}))
-        ws.replace_snapshots(
-            [
-                FileSnapshot(
-                    snapshot_sha=ref.snapshot_sha,
-                    file_path=c.file_path,
-                    blob_sha=c.blob_sha,
-                    detected_language=c.file_language,
-                )
-                for c in chunks
-            ],
-            snapshot_sha=ref.snapshot_sha,
-        )
-        ws.mark_indexed(snapshot_sha=ref.snapshot_sha)
 
 
 @pytest.fixture
@@ -423,274 +319,70 @@ def dup_ref(dup_index: Index) -> SnapshotRef:
 # Small realistic project with deliberate ranking conflicts:
 #   * CLASS vs IMPORT of the same name  → kind boost
 #   * source vs test mentioning a fn    → file penalty
-#   * high-df term ("config") in 5/6    → IDF neutralised
+#   * high-df term ("config") in most   → IDF neutralised
 #   * exact name match vs content       → name score
-#   * 3 inbound edges vs 0              → importance
+#   * 4 inbound edges vs 2 vs 0         → importance
 #   * diff touching src/server.py       → proximity
+#
+# The edges are the ones its code makes: `AppConfig` is imported by
+# `src/server.py` and linked from `docs/setup.md` (2); `load_config` is
+# imported by `src/server.py` and the test, and called by `start_server`
+# and `test_load_config` (4, two of them calls); `start_server` is reached
+# by nothing.
 
 
 @pytest.fixture
-def ranking_commit() -> str:
-    return "abc123"
-
-
-@pytest.fixture
-def ranking_config_class() -> Chunk:
-    name = "AppConfig"
-    content = """\
+def ranking_commit(fake_repo: str) -> str:
+    """A commit of `fake_repo` holding the ranking dataset's files."""
+    repo = pygit2.Repository(fake_repo)
+    files = {
+        "src/config.py": b"""\
 class AppConfig:
     database_url: str
     max_retries: int = 3
     timeout: float = 30.0
-"""
-    return Chunk(
-        blob_sha="blob_config",
-        file_path="src/config.py",
-        role=Definition(kind=ChunkKind.CLASS, name=name),
-        content=content,
-        span=Span(start=1, end=5),
-    )
 
 
-@pytest.fixture
-def ranking_load_config() -> Chunk:
-    name = "load_config"
-    content = """\
 def load_config(path: str) -> AppConfig:
     with open(path) as f:
         data = json.load(f)
-    return AppConfig(**data)
-"""
-    return Chunk(
-        blob_sha="blob_config",
-        file_path="src/config.py",
-        role=Definition(kind=ChunkKind.FUNCTION, name=name),
-        content=content,
-        span=Span(start=10, end=14),
-    )
+    return data
+""",
+        "src/server.py": b"""\
+from config import AppConfig, load_config
 
 
-@pytest.fixture
-def ranking_import_config() -> Chunk:
-    name = "from config import AppConfig"
-    content = "from config import AppConfig, load_config"
-    return Chunk(
-        blob_sha="blob_server",
-        file_path="src/server.py",
-        role=Import(name=name, meta=ImportMeta()),
-        content=content,
-        span=Span(start=1, end=1),
-    )
-
-
-@pytest.fixture
-def ranking_start_server() -> Chunk:
-    name = "start_server"
-    content = """\
-def start_server(config: AppConfig) -> None:
+def start_server(path: str) -> None:
+    config = load_config(path)
     app = create_app(config)
     app.run(host="0.0.0.0", port=config.port)
-"""
-    return Chunk(
-        blob_sha="blob_server",
-        file_path="src/server.py",
-        role=Definition(kind=ChunkKind.FUNCTION, name=name),
-        content=content,
-        span=Span(start=5, end=8),
-    )
+""",
+        "tests/test_config.py": b"""\
+from config import load_config
 
 
-@pytest.fixture
-def ranking_test_config() -> Chunk:
-    name = "test_load_config"
-    content = """\
 def test_load_config():
     config = load_config("test.json")
-    assert isinstance(config, AppConfig)
-    assert config.max_retries == 3
+    assert isinstance(config, dict)
+    assert config["max_retries"] == 3
     config = load_config("other.json")
-    assert config.timeout == 30.0
+    assert config["timeout"] == 30.0
     config = load_config("empty.json")
-"""
-    return Chunk(
-        blob_sha="blob_test_config",
-        file_path="tests/test_config.py",
-        role=Definition(kind=ChunkKind.FUNCTION, name=name),
-        content=content,
-        span=Span(start=1, end=7),
-    )
-
-
-@pytest.fixture
-def ranking_doc_section() -> Chunk:
-    name = "Configuration"
-    content = """\
+""",
+        "docs/setup.md": b"""\
 ## Configuration
 
-Use `load_config` to load an `AppConfig` from a JSON file.
+Use `load_config` to load an [AppConfig](../src/config.py#AppConfig) from a JSON file.
 Set `database_url` and `max_retries` as needed.
-"""
-    return Chunk(
-        blob_sha="blob_docs",
-        file_path="docs/setup.md",
-        role=Section(kind=ChunkKind.DOC_SECTION, name=name),
-        content=content,
-        span=Span(start=1, end=5),
-    )
+""",
+    }
+    return str(make_commit(repo, files, parents=[repo.head.peel(pygit2.Commit).id]))
 
 
 @pytest.fixture
-def ranking_chunks(
-    ranking_config_class: Chunk,
-    ranking_load_config: Chunk,
-    ranking_import_config: Chunk,
-    ranking_start_server: Chunk,
-    ranking_test_config: Chunk,
-    ranking_doc_section: Chunk,
-) -> list[Chunk]:
-    return [
-        ranking_config_class,
-        ranking_load_config,
-        ranking_import_config,
-        ranking_start_server,
-        ranking_test_config,
-        ranking_doc_section,
-    ]
-
-
-@pytest.fixture
-def ranking_edges(
-    ranking_config_class: Chunk,
-    ranking_load_config: Chunk,
-    ranking_import_config: Chunk,
-    ranking_start_server: Chunk,
-    ranking_test_config: Chunk,
-    ranking_doc_section: Chunk,
-) -> list[dict[str, str]]:
-    """Edge graph used by importance / structural ranking tests.
-
-    The config class receives 2 inbound edges (import, start_server),
-    `load_config` 3 (import, call, doc), and `start_server` none. Edges
-    carry the chunks' real ids, so they point at rows that exist.
-    """
-    return [
-        {
-            "source_id": ranking_import_config.id,
-            "target_id": ranking_config_class.id,
-            "kind": EdgeKind.IMPORTS,
-            "source_path": ranking_import_config.file_path,
-            "target_path": ranking_config_class.file_path,
-        },
-        {
-            "source_id": ranking_import_config.id,
-            "target_id": ranking_load_config.id,
-            "kind": EdgeKind.IMPORTS,
-            "source_path": ranking_import_config.file_path,
-            "target_path": ranking_load_config.file_path,
-        },
-        {
-            "source_id": ranking_start_server.id,
-            "target_id": ranking_config_class.id,
-            "kind": EdgeKind.IMPORTS,
-            "source_path": ranking_start_server.file_path,
-            "target_path": ranking_config_class.file_path,
-        },
-        {
-            "source_id": ranking_test_config.id,
-            "target_id": ranking_load_config.id,
-            "kind": EdgeKind.CALLS,
-            "source_path": ranking_test_config.file_path,
-            "target_path": ranking_load_config.file_path,
-        },
-        {
-            "source_id": ranking_doc_section.id,
-            "target_id": ranking_load_config.id,
-            "kind": EdgeKind.DOCUMENTS,
-            "source_path": ranking_doc_section.file_path,
-            "target_path": ranking_load_config.file_path,
-        },
-    ]
-
-
-@pytest.fixture
-def ranking_index(
-    ranking_commit: str,
-    ranking_chunks: list[Chunk],
-    ranking_edges: list[dict[str, str]],
-) -> Generator[Index]:
-    """An in-memory Index pre-loaded with the ranking dataset."""
-    # Written by hand, not built: the ranking tests count each kind of
-    # edge a chunk receives, and a build would add the edges its code makes.
+def ranking_index(fake_repo: str, ranking_commit: str) -> Generator[Index]:
+    """An in-memory Index with the ranking dataset built."""
     index = Index(writable=True)
-    repo = index.register("/repo")
-    with index.session(repo) as ws:
-        ws.add_chunks(staged_chunks(chunk_rows(ranking_chunks), {}))
-        ws.replace_snapshots(
-            [
-                FileSnapshot(
-                    snapshot_sha=ranking_commit, file_path=c.file_path, blob_sha=c.blob_sha
-                )
-                for c in ranking_chunks
-            ],
-            snapshot_sha=ranking_commit,
-        )
-        ws.replace_edges(
-            InferredEdgeRow.validate(pl.DataFrame(ranking_edges), cast=True),
-            snapshot_sha=ranking_commit,
-        )
+    build_index(fake_repo, ranking_commit, index)
     yield index
     index.close()
-
-
-# ═════════════════════════════════════════════════════════════════════
-# Small named chunks / edges (for case_store_* families)
-# ═════════════════════════════════════════════════════════════════════
-
-
-@pytest.fixture
-def math_func() -> Chunk:
-    return Chunk(
-        blob_sha="blob_math",
-        file_path="src/math_utils.py",
-        role=Definition(kind=ChunkKind.FUNCTION, name="calculate_standard_deviation"),
-        content="""\
-def calculate_standard_deviation(values: list[float]) -> float:
-    mean = sum(values) / len(values)
-    variance = sum((x - mean) ** 2 for x in values) / len(values)
-    return variance ** 0.5
-""",
-        span=Span(start=1, end=4),
-    )
-
-
-@pytest.fixture
-def http_func() -> Chunk:
-    return Chunk(
-        blob_sha="blob_http",
-        file_path="src/api/client.py",
-        role=Definition(kind=ChunkKind.FUNCTION, name="fetch_json_from_endpoint"),
-        content="""\
-async def fetch_json_from_endpoint(url: str, headers: dict) -> dict:
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url, headers=headers)
-        response.raise_for_status()
-        return response.json()
-""",
-        span=Span(start=10, end=15),
-    )
-
-
-@pytest.fixture
-def string_func() -> Chunk:
-    return Chunk(
-        blob_sha="blob_string",
-        file_path="src/text/normalize.py",
-        role=Definition(kind=ChunkKind.FUNCTION, name="normalize_whitespace"),
-        content="""\
-def normalize_whitespace(text: str) -> str:
-    import re
-    collapsed = re.sub(r'\\s+', ' ', text)
-    return collapsed.strip()
-""",
-        span=Span(start=1, end=4),
-    )

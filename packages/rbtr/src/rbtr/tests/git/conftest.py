@@ -75,27 +75,44 @@ from ..conftest import make_commit
 
 @pytest.fixture
 def handler_v1() -> bytes:
-    return b'def handle(request):\n    return "ok"\n'
+    return b"""\
+def handle(request):
+    return "ok"
+"""
 
 
 @pytest.fixture
 def handler_v2() -> bytes:
-    return b'def handle(request):\n    validate(request)\n    return "ok"\n'
+    return b"""\
+def handle(request):
+    validate(request)
+    return "ok"
+"""
 
 
 @pytest.fixture
 def utils_content() -> bytes:
-    return b"def helper():\n    return 42\n"
+    return b"""\
+def helper():
+    return 42
+"""
 
 
 @pytest.fixture
 def readme_content() -> bytes:
-    return b"# Project\n\nA sample project.\n"
+    return b"""\
+# Project
+
+A sample project.
+"""
 
 
 @pytest.fixture
 def config_yaml_content() -> bytes:
-    return b"retries: 3\ntimeout: 30\n"
+    return b"""\
+retries: 3
+timeout: 30
+"""
 
 
 @pytest.fixture

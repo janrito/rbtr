@@ -143,7 +143,10 @@ def test_list_files_rbtrignore(sample_repo: SampleRepo) -> None:
 
 
 def test_list_files_rbtrignore_negation(sample_repo: SampleRepo) -> None:
-    ignore = parse_ignore("*.yaml\n!config.yaml\n")
+    ignore = parse_ignore("""\
+*.yaml
+!config.yaml
+""")
     entries = list(
         list_files(sample_repo.repo.workdir, "feature", max_file_size=1_000_000, ignore=ignore)
     )

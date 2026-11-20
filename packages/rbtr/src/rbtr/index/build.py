@@ -92,14 +92,18 @@ def file_languages(
 ) -> list[tuple[FileEntry, str]]:
     """Each file with its language: extension, stored detection, then content.
 
-    Files outside *changed* keep their extension or stored language;
-    content detection applies to new or changed files. Plaintext is the
-    fallback when no language claims a file.
+    Files outside *changed* keep their extension or stored language, a
+    stored one only while it is installed; content detection applies to
+    new or changed files. Plaintext is the fallback when no language
+    claims a file.
     """
     mgr = get_manager()
     resolved: list[tuple[FileEntry, str]] = []
     for entry in files:
-        language = mgr.detect_language(entry.path) or stored.get(entry.path, "")
+        installed = stored.get(entry.path, "")
+        if mgr.get_registration(installed) is None:
+            installed = ""
+        language = mgr.detect_language(entry.path) or installed
         if not language and (changed is None or entry.path in changed):
             text = entry.content.decode(errors="replace")
             language = mgr.detect_language_by_content(text) or ""

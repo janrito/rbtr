@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from collections import Counter
 from collections.abc import Generator
 from dataclasses import replace
 from pathlib import Path
@@ -15,7 +16,7 @@ from pytest_mock import MockerFixture
 from rbtr.domain.models import (
     ChunkKind,
     EdgeKind,
-    FileSnapshot,
+    FileOutcome,
     IndexResult,
 )
 from rbtr.errors import BuildStopped
@@ -24,6 +25,10 @@ from rbtr.index.index import Index
 from rbtr.index.search import search
 from rbtr.languages.manager import get_manager
 from rbtr.languages.treesitter import compiled_query
+from rbtr_lang_markdown.plugin import markdown, markdown_inline
+from rbtr_lang_python.plugin import python
+
+from ..conftest import make_commit
 
 
 @pytest.fixture(scope="module")
@@ -479,25 +484,37 @@ def test_build_index_marks_commit_indexed(
 def test_build_index_sweeps_residue_from_crashed_builds(
     git_repo: pygit2.Repository, repo_path: str, index: Index, snapshot_sha: str
 ) -> None:
-    """A successful build cleans up dangling snapshots/edges from prior crashes."""
-    # Simulate residue: a snapshot for a commit that never finished.
-    repo = index.register(repo_path)
-    with index.session(repo) as ws:
-        ws.replace_snapshots(
-            [
-                FileSnapshot(
-                    snapshot_sha="crashed_sha", file_path="leftover.py", blob_sha="leftover_blob"
-                )
-            ],
-            snapshot_sha="crashed_sha",
+    """A successful build cleans up the snapshot and edges a build stopped at its edges left."""
+    crashed = str(
+        make_commit(
+            git_repo,
+            {
+                "leftover.py": b"""\
+def leftover():
+    pass
+"""
+            },
+            ref="refs/heads/crashed",
         )
-    assert index.has_indexed(at=repo.at("crashed_sha")) is False
+    )
+    stop = threading.Event()
+    with pytest.raises(BuildStopped):
+        build_index(
+            repo_path,
+            crashed,
+            index,
+            stop=stop,
+            on_progress=lambda phase, *_: stop.set() if phase == "edges" else None,
+        )
+    repo = index.register(repo_path)
+    assert index.count_file_snapshots(at=repo.at(crashed)) > 0
+    assert index.has_indexed(at=repo.at(crashed)) is False
 
-    build_index(git_repo.workdir, snapshot_sha, index)
+    build_index(repo_path, snapshot_sha, index)
 
     # The legit commit is indexed; the crashed residue is gone.
     assert index.has_indexed(at=repo.at(snapshot_sha)) is True
-    assert index.chunks(at=repo.at("crashed_sha")).is_empty()
+    assert index.count_file_snapshots(at=repo.at(crashed)) == 0
 
 
 def test_a_stopped_build_leaves_its_snapshot_for_the_next_build(
@@ -556,26 +573,33 @@ def test_a_build_that_failed_after_extracting_is_rebuilt_in_full(
     assert set(index.chunks(at=at)["name"]) == set(uninterrupted.chunks(at=at)["name"])
 
 
-def test_a_checkouts_failed_build_leaves_its_sibling_whole(
+def test_a_build_leaves_its_sibling_checkouts_unfinished_snapshot(
     git_repo: pygit2.Repository,
     linked_worktree: pygit2.Repository,
-    index: Index,
+    project_index: Index,
     snapshot_sha: str,
-    mocker: MockerFixture,
 ) -> None:
-    """A build's clean-up clears only its own repo's residue.  A sibling
-    checkout built meanwhile reuses the failed build's chunks and is whole;
-    the failed checkout is whole once it builds again."""
-    crash = mocker.patch(
-        "rbtr.index.build.infer_and_store_edges", side_effect=RuntimeError("crash")
-    )
-    with pytest.raises(RuntimeError, match="crash"):
-        build_index(git_repo.workdir, snapshot_sha, index)
-    mocker.stop(crash)
+    """A linked checkout reuses chunks from a stopped build and leaves its file list intact."""
+    index = project_index
+    main, worktree = index.repos()
+    at = main.at(snapshot_sha)
+    stop = threading.Event()
+    with pytest.raises(BuildStopped):
+        build_index(
+            git_repo.workdir,
+            snapshot_sha,
+            index,
+            stop=stop,
+            on_progress=lambda phase, *_: stop.set() if phase == "edges" else None,
+        )
+    files = index.count_file_snapshots(at=at)
+    assert files > 0
+    assert not index.has_indexed(at=at)
 
     build_index(linked_worktree.workdir, snapshot_sha, index)
-    main, worktree = index.repos()
-    assert index.count_file_snapshots(at=main.at(snapshot_sha)) > 0, "the residue stays"
+
+    assert index.count_file_snapshots(at=at) == files
+    assert not index.has_indexed(at=at)
     build_index(git_repo.workdir, snapshot_sha, index)
 
     uninterrupted = Index(writable=True)
@@ -619,7 +643,10 @@ def test_query_cache_produces_identical_chunks(tmp_path: Path) -> None:
     for i in range(10):
         path = tmp_path / "cache_test" / f"mod_{i}.py"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(f"def unique_func_{i}():\n    return {i}\n")
+        path.write_text(f"""\
+def unique_func_{i}():
+    return {i}
+""")
 
     git_index = repo.index
     for i in range(10):
@@ -797,14 +824,16 @@ def multilang_repo(tmp_path: Path) -> pygit2.Repository:
     the orchestrator's per-language serial-map gating using only default
     plugins — no optional plugin required.
     """
-    content = (
-        "# API\n\n"
-        "The handler entry point:\n\n"
-        "```python\n"
-        "def handle(request):\n"
-        "    return 200\n"
-        "```\n"
-    )
+    content = """\
+# API
+
+The handler entry point:
+
+```python
+def handle(request):
+    return 200
+```
+"""
     repo = pygit2.init_repository(str(tmp_path / "docs"), bare=False, initial_head="main")
     (tmp_path / "docs" / "api.md").write_text(content)
     git_index = repo.index
@@ -854,6 +883,77 @@ def test_build_index_reextracts_on_contributor_bump(
 
     rebuild = build_index(multilang_repo.workdir, sha, index)
     assert rebuild.stats.parsed_files >= 1
+
+
+def test_a_file_whose_language_is_no_longer_installed_is_extracted_again(
+    fake_repo: str, index: Index
+) -> None:
+    """A Python file built while Python was installed is extracted again, as plaintext, once it is not.
+
+    Its stored language names no installed plugin, so the file is read as
+    no language claims it, and the blob has no current extraction so read.
+    """
+    repo = pygit2.Repository(fake_repo)
+    sha = str(
+        make_commit(
+            repo,
+            {
+                "a.py": b"""\
+def f():
+    pass
+"""
+            },
+            parents=[repo.head.peel(pygit2.Commit).id],
+        )
+    )
+    with get_manager().limited_to(python):
+        build_index(fake_repo, sha, index)
+    with get_manager().limited_to():
+        rebuild = build_index(fake_repo, sha, index)
+
+    assert rebuild.stats.outcomes == Counter({FileOutcome.PARSED: 1})
+    chunks = index.chunks(at=index.repo(fake_repo).at(sha))
+    assert chunks.select("kind", "file_language").rows() == [("raw_chunk", "plaintext")]
+
+
+def test_a_plaintext_file_is_reused_on_rebuild(fake_repo: str, index: Index) -> None:
+    """A file no language reads keeps its plaintext extraction across builds."""
+    repo = pygit2.Repository(fake_repo)
+    sha = str(
+        make_commit(
+            repo,
+            {"NOTES": b"Remember the milk.\n"},
+            parents=[repo.head.peel(pygit2.Commit).id],
+        )
+    )
+    build_index(fake_repo, sha, index)
+    rebuild = build_index(fake_repo, sha, index)
+
+    assert rebuild.stats.outcomes == Counter({FileOutcome.SKIPPED_CURRENT: 1})
+
+
+def test_bumping_one_reading_of_shared_bytes_extracts_only_that_reading(
+    fake_repo: str, index: Index
+) -> None:
+    """The same bytes read as Python and as Markdown are two extractions, each current on its own.
+
+    Raising Markdown's serial re-extracts the Markdown file; the Python
+    file, the same blob, stays current.
+    """
+    repo = pygit2.Repository(fake_repo)
+    text = b"x = 1\n"
+    sha = str(
+        make_commit(repo, {"a.py": text, "a.md": text}, parents=[repo.head.peel(pygit2.Commit).id])
+    )
+    with get_manager().limited_to(python, markdown, markdown_inline):
+        build_index(fake_repo, sha, index)
+    bumped = replace(markdown, extraction_serial=markdown.extraction_serial + 1)
+    with get_manager().limited_to(python, bumped, markdown_inline):
+        rebuild = build_index(fake_repo, sha, index)
+
+    assert rebuild.stats.outcomes == Counter(
+        {FileOutcome.PARSED: 1, FileOutcome.SKIPPED_CURRENT: 1}
+    )
 
 
 def test_build_index_dedups_empty_file(tmp_path: Path, index: Index) -> None:

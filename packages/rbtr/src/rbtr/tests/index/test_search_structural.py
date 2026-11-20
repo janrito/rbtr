@@ -21,9 +21,9 @@ def test_importance_boosts_highly_imported_symbol(
     ranking_index: Index,
     ranking_commit: str,
 ) -> None:
-    """config_class (3 inbound edges) has higher importance than start_server (0).
+    """AppConfig (2 inbound edges) has higher importance than start_server (0).
 
-    Both match 'config' in content.  config_class also benefits
+    Both match 'config' in content.  AppConfig also benefits
     from CLASS kind boost, but this test specifically verifies the
     importance field is populated from edges.
     """
@@ -41,10 +41,11 @@ def test_importance_boosts_highly_imported_symbol(
 
 
 def test_importance_reflects_edge_count(ranking_index: Index, ranking_commit: str) -> None:
-    """load_config (3 inbound edges) has higher importance than config_class (2).
+    """load_config (4 inbound edges) has higher importance than AppConfig (2).
 
-    Edges: import→config_class, server→config_class (2 inbound).
-           import→load_config, test→load_config, doc→load_config (3 inbound).
+    Edges: server's import and the doc's link → AppConfig (2 inbound).
+           server's and the test's imports, start_server's and
+           test_load_config's calls → load_config (4 inbound).
     """
     [repo] = ranking_index.repos()
     results = search(
@@ -79,7 +80,7 @@ def test_proximity_boosts_chunks_in_changed_file(
 ) -> None:
     """Chunks in src/server.py rank higher when it's in the diff.
 
-    Both import_config and start_server are in src/server.py.
+    Both the import and start_server are in src/server.py.
     Without diff context, their proximity is 1.0 (neutral).
     With changed_files={"src/server.py"}, proximity=1.5.
     """
@@ -93,7 +94,7 @@ def test_proximity_boosts_chunks_in_changed_file(
         changed_files=changed,
     )
 
-    r_import = assert_in_results(results, "from config import AppConfig")
+    r_import = assert_in_results(results, "from config import AppConfig, load_config")
     r_server = assert_in_results(results, "start_server")
     assert r_import.proximity == 1.5
     assert r_server.proximity == 1.5
@@ -103,7 +104,7 @@ def test_proximity_boosts_via_edge(ranking_index: Index, ranking_commit: str) ->
     """Chunks with edges to changed files get proximity=1.2.
 
     When src/config.py is changed, start_server has an edge to
-    config_class (in the changed file) → proximity=1.2.
+    load_config (in the changed file) → proximity=1.2.
     """
     changed = {"src/config.py"}
     [repo] = ranking_index.repos()
@@ -137,9 +138,8 @@ def test_same_directory_gets_mild_boost(ranking_index: Index, ranking_commit: st
     )
 
     r_fn = assert_in_results(results, "load_config")
-    # load_config has edges FROM import_config (which is in
-    # src/server.py), so it should get 1.2 (edge), not 1.1.
-    # Let's verify the edge-based boost takes precedence.
+    # load_config has edges from src/server.py's import and
+    # start_server, so it gets 1.2 (edge), not 1.1.
     assert r_fn.proximity >= 1.1
 
 
@@ -163,7 +163,7 @@ def test_distant_file_gets_no_proximity_boost(
 ) -> None:
     """Chunks in a different directory with no edges get proximity=1.0.
 
-    When src/server.py is changed, doc_config (in docs/) is
+    When src/server.py is changed, the Configuration section (in docs/) is
     unrelated — no same-directory match, no edge to changed file.
     """
     changed = {"src/server.py"}
@@ -183,8 +183,8 @@ def test_distant_file_gets_no_proximity_boost(
 def test_proximity_changes_ranking(ranking_index: Index, ranking_commit: str) -> None:
     """Proximity boost actually changes the relative ranking.
 
-    Query 'AppConfig' without diff → config_class is rank 1.
-    With diff on src/server.py, import_config (proximity=1.5)
+    Query 'AppConfig' without diff → the class is rank 1.
+    With diff on src/server.py, the import (proximity=1.5)
     should rank higher relative to its no-diff position.
     """
     [repo] = ranking_index.repos()
@@ -204,7 +204,7 @@ def test_proximity_changes_ranking(ranking_index: Index, ranking_commit: str) ->
 
     names_no_diff = [r.name for r in results_no_diff]
     names_with_diff = [r.name for r in results_with_diff]
-    imp = "from config import AppConfig"
+    imp = "from config import AppConfig, load_config"
     assert imp in names_no_diff, "the import is missing without diff context"
     assert imp in names_with_diff, "the import is missing with diff context"
     # Import should rank better (lower index) with diff context.
@@ -214,7 +214,7 @@ def test_proximity_changes_ranking(ranking_index: Index, ranking_commit: str) ->
 def test_an_edge_kind_counts_as_much_as_its_weight(
     ranking_index: Index, ranking_commit: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Weighting calls 0 leaves load_config its import and doc edges: AppConfig's two."""
+    """Weighting calls 0 leaves load_config its two imports: as many as AppConfig's import and link."""
     monkeypatch.setattr(config, "edge_weights", {EdgeKind.CALLS: 0.0})
     [repo] = ranking_index.repos()
     results = search(ranking_index, "config", within=[repo.at(ranking_commit)], top_k=10)

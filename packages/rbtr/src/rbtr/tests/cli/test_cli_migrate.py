@@ -34,7 +34,12 @@ def test_a_command_with_no_daemon_migrates_the_index_then_runs(
     mocker.patch("rbtr.index.store.SCHEMA_VERSION", "2099.1.0")
     head = make_commit(
         git_repo,
-        {"src/added.py": b"def added():\n    return 1\n"},
+        {
+            "src/added.py": b"""\
+def added():
+    return 1
+"""
+        },
         parents=[git_repo.head.peel(pygit2.Commit).id],
     )
 
