@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 from enum import StrEnum
 from pathlib import PurePath
-from typing import Annotated, Any, Literal, Protocol, runtime_checkable
+from typing import Annotated, Literal, Protocol, runtime_checkable
 
 from pydantic import (
     AfterValidator,
@@ -78,7 +78,7 @@ class HasRepoPath(Protocol):
     repo_path: str
 
 
-def _decode_json_array(text: str) -> Any:
+def _decode_json_array(text: str) -> JsonValue:
     """Return *text* JSON-decoded if it is a JSON array, else *text* itself.
 
     Uses pydantic-core's JSON parser (the same one pydantic uses for
@@ -93,7 +93,7 @@ def _decode_json_array(text: str) -> Any:
         return text
 
 
-def _unwrap_json_list(value: Any) -> Any:
+def _unwrap_json_list(value: JsonValue) -> JsonValue:
     """Decode a list argument delivered as a JSON-encoded string.
 
     Some tool-call providers send a `list[str]` argument as a JSON
