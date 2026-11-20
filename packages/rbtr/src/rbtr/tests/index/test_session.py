@@ -13,11 +13,12 @@ from pathlib import Path
 import duckdb
 import pytest
 from dataframely.exc import ValidationError
+from pydantic import ValidationError as ModelValidationError
 from pytest_cases import parametrize_with_cases
 from pytest_mock import MockerFixture
 
 from rbtr.config import config
-from rbtr.domain.models import Edge, EdgeKind, FileSnapshot, Repo, SnapshotRef
+from rbtr.domain.models import Edge, EdgeKind, FileSnapshot, Repo, SnapshotRef, Span
 from rbtr.errors import RepoNotFoundError
 from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
@@ -405,18 +406,17 @@ def test_replacing_a_snapshot_with_nothing_hides_its_chunks(
         assert ws.blob_is_current(http_func.blob_sha, "", {"": 1}) is True
 
 
-def test_chunk_with_inverted_span_is_rejected(index: Index, head_ref: SnapshotRef) -> None:
-    """A span that ends before it starts does not reach the table."""
-    inverted = make_chunk("a").model_copy(update={"line_start": 7, "line_end": 6})
-    with pytest.raises(duckdb.ConstraintException):
-        seed_index(index, [inverted], head_ref)
+def test_a_span_cannot_end_before_it_starts() -> None:
+    with pytest.raises(ModelValidationError, match="before it starts"):
+        Span(start=7, end=6)
 
 
 def test_a_failed_commit_leaves_the_thread_able_to_read(
     index: Index, head_ref: SnapshotRef
 ) -> None:
     """A session whose commit fails rolls back, so the thread reads on."""
-    inverted = make_chunk("a").model_copy(update={"line_start": 7, "line_end": 6})
+    # `model_construct` skips the check `Span` makes, so the table's own refuses the row.
+    inverted = make_chunk("a").model_copy(update={"span": Span.model_construct(start=7, end=6)})
     with pytest.raises(duckdb.ConstraintException):
         seed_index(index, [inverted], head_ref)
     assert index.has_indexed(at=head_ref) is False

@@ -2,228 +2,203 @@
   {
     "blob_sha": "sha1",
     "file_path": "highlights.scm",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "tree_sitter_query",
     "file_language": "tree_sitter_query",
     "content": "; A tree-sitter query file exercising every construct rbtr should index:\n; named nodes with fields, anonymous nodes, alternation lists, groupings,\n; predicates, wildcards, negated fields, anchors, quantifiers, supertypes,\n; and a MISSING-node pattern. Every top-level pattern is one doc section.",
-    "line_start": 1,
-    "line_end": 4,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 4
     },
     "id": "91411c21fd288abd"
   },
   {
     "blob_sha": "sha1",
     "file_path": "highlights.scm",
-    "kind": "doc_section",
-    "name": "definition.function",
+    "role": {
+      "kind": "doc_section",
+      "name": "definition.function"
+    },
     "scope": "",
     "language": "tree_sitter_query",
     "file_language": "tree_sitter_query",
     "content": "; Named-node patterns with a field and an outer definition capture.\n(function_definition\n  name: (identifier) @function\n  body: (_) @_body) @definition.function",
-    "line_start": 6,
-    "line_end": 9,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 6,
+      "end": 9
     },
     "id": "22635e30fc3ec0ec"
   },
   {
     "blob_sha": "sha1",
     "file_path": "highlights.scm",
-    "kind": "doc_section",
-    "name": "definition.class",
+    "role": {
+      "kind": "doc_section",
+      "name": "definition.class"
+    },
     "scope": "",
     "language": "tree_sitter_query",
     "file_language": "tree_sitter_query",
     "content": "(class_definition\n  name: (identifier) @type) @definition.class",
-    "line_start": 11,
-    "line_end": 12,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 11,
+      "end": 12
     },
     "id": "2f7ccba614073350"
   },
   {
     "blob_sha": "sha1",
     "file_path": "highlights.scm",
-    "kind": "doc_section",
-    "name": "keyword",
+    "role": {
+      "kind": "doc_section",
+      "name": "keyword"
+    },
     "scope": "",
     "language": "tree_sitter_query",
     "file_language": "tree_sitter_query",
     "content": "; Alternation list and a bare anonymous-node matcher.\n[\"if\" \"else\" \"while\" \"return\"] @keyword",
-    "line_start": 14,
-    "line_end": 15,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 14,
+      "end": 15
     },
     "id": "68190efc87150b38"
   },
   {
     "blob_sha": "sha1",
     "file_path": "highlights.scm",
-    "kind": "doc_section",
-    "name": "keyword.coroutine",
+    "role": {
+      "kind": "doc_section",
+      "name": "keyword.coroutine"
+    },
     "scope": "",
     "language": "tree_sitter_query",
     "file_language": "tree_sitter_query",
     "content": "\"async\" @keyword.coroutine",
-    "line_start": 17,
-    "line_end": 17,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 17,
+      "end": 17
     },
     "id": "4587431c020385fb"
   },
   {
     "blob_sha": "sha1",
     "file_path": "highlights.scm",
-    "kind": "doc_section",
-    "name": "",
+    "role": {
+      "kind": "doc_section",
+      "name": ""
+    },
     "scope": "",
     "language": "tree_sitter_query",
     "file_language": "tree_sitter_query",
     "content": "; Wildcard child, a negated field, anchors, and quantifiers.\n(call_expression\n  function: (_) @call\n  !type_arguments)",
-    "line_start": 19,
-    "line_end": 22,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 19,
+      "end": 22
     },
     "id": "efd9cbebd9a590b9"
   },
   {
     "blob_sha": "sha1",
     "file_path": "highlights.scm",
-    "kind": "doc_section",
-    "name": "",
+    "role": {
+      "kind": "doc_section",
+      "name": ""
+    },
     "scope": "",
     "language": "tree_sitter_query",
     "file_language": "tree_sitter_query",
     "content": "(array . (identifier) @first (_)* @rest)",
-    "line_start": 24,
-    "line_end": 24,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 24,
+      "end": 24
     },
     "id": "7d959afd205ade46"
   },
   {
     "blob_sha": "sha1",
     "file_path": "highlights.scm",
-    "kind": "doc_section",
-    "name": "",
+    "role": {
+      "kind": "doc_section",
+      "name": ""
+    },
     "scope": "",
     "language": "tree_sitter_query",
     "file_language": "tree_sitter_query",
     "content": "; Groupings with predicates: regex match, alternation, and an injection.\n((identifier) @constant\n  (#match? @constant \"^[A-Z][A-Z_]+$\"))",
-    "line_start": 26,
-    "line_end": 28,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 26,
+      "end": 28
     },
     "id": "0ef0b2c93e4c6519"
   },
   {
     "blob_sha": "sha1",
     "file_path": "highlights.scm",
-    "kind": "doc_section",
-    "name": "",
+    "role": {
+      "kind": "doc_section",
+      "name": ""
+    },
     "scope": "",
     "language": "tree_sitter_query",
     "file_language": "tree_sitter_query",
     "content": "((identifier) @type.builtin\n  (#any-of? @type.builtin \"int\" \"str\" \"bool\"))",
-    "line_start": 30,
-    "line_end": 31,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 30,
+      "end": 31
     },
     "id": "d90c7294ccaddc1d"
   },
   {
     "blob_sha": "sha1",
     "file_path": "highlights.scm",
-    "kind": "doc_section",
-    "name": "",
+    "role": {
+      "kind": "doc_section",
+      "name": ""
+    },
     "scope": "",
     "language": "tree_sitter_query",
     "file_language": "tree_sitter_query",
     "content": "((comment) @injection.content\n  (#set! injection.language \"markdown\"))",
-    "line_start": 33,
-    "line_end": 34,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 33,
+      "end": 34
     },
     "id": "a89ebd6b36363bf2"
   },
   {
     "blob_sha": "sha1",
     "file_path": "highlights.scm",
-    "kind": "doc_section",
-    "name": "definition.function",
+    "role": {
+      "kind": "doc_section",
+      "name": "definition.function"
+    },
     "scope": "",
     "language": "tree_sitter_query",
     "file_language": "tree_sitter_query",
     "content": "; Supertype/subtype match and a MISSING-node pattern.\n(declaration/function_definition) @definition.function",
-    "line_start": 36,
-    "line_end": 37,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 36,
+      "end": 37
     },
     "id": "d208be73ec2bbd8a"
   },
   {
     "blob_sha": "sha1",
     "file_path": "highlights.scm",
-    "kind": "doc_section",
-    "name": "",
+    "role": {
+      "kind": "doc_section",
+      "name": ""
+    },
     "scope": "",
     "language": "tree_sitter_query",
     "file_language": "tree_sitter_query",
     "content": "(binary_expression (MISSING identifier))",
-    "line_start": 39,
-    "line_end": 39,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 39,
+      "end": 39
     },
     "id": "cbe537008a79992a"
   }

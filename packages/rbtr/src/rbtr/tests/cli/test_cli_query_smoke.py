@@ -15,7 +15,16 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.domain.models import ChunkKind, Edge, EdgeKind, FileSnapshot
+from rbtr.domain.models import (
+    ChunkKind,
+    Definition,
+    Edge,
+    EdgeKind,
+    FileSnapshot,
+    Import,
+    ImportMeta,
+    Span,
+)
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
@@ -94,35 +103,29 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
         TokenisedChunk(
             blob_sha="blob_config_v1",
             file_path="src/config.py",
-            kind=ChunkKind.FUNCTION,
-            name=func_name,
+            role=Definition(kind=ChunkKind.FUNCTION, name=func_name),
             content=func_content_v1,
             content_tokens=tokenise_code(func_content_v1),
             name_tokens=tokenise_code(func_name),
-            line_start=1,
-            line_end=2,
+            span=Span(start=1, end=2),
         ),
         TokenisedChunk(
             blob_sha="blob_app",
             file_path="src/app.py",
-            kind=ChunkKind.CLASS,
-            name=class_name,
+            role=Definition(kind=ChunkKind.CLASS, name=class_name),
             content=class_content,
             content_tokens=tokenise_code(class_content),
             name_tokens=tokenise_code(class_name),
-            line_start=3,
-            line_end=4,
+            span=Span(start=3, end=4),
         ),
         TokenisedChunk(
             blob_sha="blob_app",
             file_path="src/app.py",
-            kind=ChunkKind.IMPORT,
-            name=import_name,
+            role=Import(name=import_name, meta=ImportMeta()),
             content=import_content,
             content_tokens=tokenise_code(import_content),
             name_tokens=tokenise_code(import_name),
-            line_start=1,
-            line_end=1,
+            span=Span(start=1, end=1),
         ),
     ]
 
@@ -130,13 +133,11 @@ def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
         TokenisedChunk(
             blob_sha="blob_config_v2",
             file_path="src/config.py",
-            kind=ChunkKind.FUNCTION,
-            name=func_name,
+            role=Definition(kind=ChunkKind.FUNCTION, name=func_name),
             content=func_content_v2,
             content_tokens=tokenise_code(func_content_v2),
             name_tokens=tokenise_code(func_name),
-            line_start=1,
-            line_end=3,
+            span=Span(start=1, end=3),
         ),
         chunks_c1[1],  # class unchanged
         chunks_c1[2],  # import unchanged

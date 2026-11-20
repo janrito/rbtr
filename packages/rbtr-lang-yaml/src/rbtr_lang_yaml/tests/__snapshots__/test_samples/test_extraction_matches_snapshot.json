@@ -2,152 +2,141 @@
   {
     "blob_sha": "sha1",
     "file_path": "api/openapi.yaml",
-    "kind": "config_key",
-    "name": "openapi",
+    "role": {
+      "kind": "config_key",
+      "name": "openapi"
+    },
     "scope": "",
     "language": "yaml",
     "file_language": "yaml",
     "content": "# Refers into its bare sibling, which only resolves relative to this directory.\nopenapi: 3.1.0",
-    "line_start": 1,
-    "line_end": 2,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 2
     },
     "id": "6bf100cae9e931b4"
   },
   {
     "blob_sha": "sha1",
     "file_path": "api/openapi.yaml",
-    "kind": "config_key",
-    "name": "paths",
+    "role": {
+      "kind": "config_key",
+      "name": "paths"
+    },
     "scope": "",
     "language": "yaml",
     "file_language": "yaml",
     "content": "paths:\n  /greeting:\n    $ref: \"paths.yaml\"\n",
-    "line_start": 3,
-    "line_end": 5,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 3,
+      "end": 5
     },
     "id": "ffc37f267764c8bd"
   },
   {
     "blob_sha": "sha1",
     "file_path": "api/openapi.yaml",
-    "kind": "import",
-    "name": "$ref: \"paths.yaml\"",
+    "role": {
+      "kind": "import",
+      "name": "$ref: \"paths.yaml\"",
+      "meta": {
+        "module": "paths.yaml",
+        "names": "",
+        "dots": "",
+        "language_hint": ""
+      }
+    },
     "scope": "",
     "language": "yaml",
     "file_language": "yaml",
     "content": "$ref: \"paths.yaml\"",
-    "line_start": 5,
-    "line_end": 5,
-    "metadata": {
-      "module": "paths.yaml",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 5,
+      "end": 5
     },
     "id": "41cb39ef48e43af8"
   },
   {
     "blob_sha": "sha1",
     "file_path": "api/paths.yaml",
-    "kind": "config_key",
-    "name": "get",
+    "role": {
+      "kind": "config_key",
+      "name": "get"
+    },
     "scope": "",
     "language": "yaml",
     "file_language": "yaml",
     "content": "# Referred to from api/openapi.yaml as a bare sibling.\nget:\n  summary: A greeting\n  responses:\n    \"200\":\n      description: OK\n",
-    "line_start": 1,
-    "line_end": 6,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 6
     },
     "id": "5df3fcb6f09459b7"
   },
   {
     "blob_sha": "sha1",
     "file_path": "yaml.yaml",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "yaml",
     "file_language": "yaml",
     "content": "# Greeter CI workflow.",
-    "line_start": 1,
-    "line_end": 1,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 1
     },
     "id": "97943055c48aca06"
   },
   {
     "blob_sha": "sha1",
     "file_path": "yaml.yaml",
-    "kind": "config_key",
-    "name": "name",
+    "role": {
+      "kind": "config_key",
+      "name": "name"
+    },
     "scope": "",
     "language": "yaml",
     "file_language": "yaml",
     "content": "name: greeter",
-    "line_start": 3,
-    "line_end": 3,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 3,
+      "end": 3
     },
     "id": "029d3b7d58437d49"
   },
   {
     "blob_sha": "sha1",
     "file_path": "yaml.yaml",
-    "kind": "config_key",
-    "name": "on",
+    "role": {
+      "kind": "config_key",
+      "name": "on"
+    },
     "scope": "",
     "language": "yaml",
     "file_language": "yaml",
     "content": "on:\n  push:\n    branches: [main]",
-    "line_start": 5,
-    "line_end": 7,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 5,
+      "end": 7
     },
     "id": "94aa8e807730971c"
   },
   {
     "blob_sha": "sha1",
     "file_path": "yaml.yaml",
-    "kind": "config_key",
-    "name": "jobs",
+    "role": {
+      "kind": "config_key",
+      "name": "jobs"
+    },
     "scope": "",
     "language": "yaml",
     "file_language": "yaml",
     "content": "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: just check\n",
-    "line_start": 9,
-    "line_end": 14,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 9,
+      "end": 14
     },
     "id": "77f31da28a7f1eeb"
   }

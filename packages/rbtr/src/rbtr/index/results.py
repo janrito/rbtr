@@ -126,7 +126,7 @@ class _ChunkIdentity(dy.Schema):
     content = dy.String(nullable=False)
     line_start = dy.Int32(nullable=False)
     line_end = dy.Int32(nullable=False)
-    # An import's metadata; null on every other chunk.
+    # The role's payload, as `ChunkStagingRow` writes it.
     metadata = dy.Struct(
         {
             "module": dy.String(nullable=False),
@@ -204,8 +204,8 @@ class ChunkContentRow(dy.Schema):
     """A subset of chunk columns for content-only lookups.
 
     `chunk_contents` returns this shape so callers that
-    only need identity + source text skip the full
-    `ChunkResultRow` round-trip through `list[Chunk]`.
+    only need identity + source text read fewer columns than
+    `ChunkResultRow`.
 
     Addressing a chunk needs the whole span and the kind, not just
     where it starts: a fenced shell line is a `doc_section` for the

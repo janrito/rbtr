@@ -11,7 +11,15 @@ import pytest
 
 from rbtr.config import config
 from rbtr.daemon.dto import RefOut, SearchHitOut, SearchSignals, SymbolOut, symbols
-from rbtr.domain.models import ChunkKind, ImportMeta, QueryKind, ScoredChunk
+from rbtr.domain.models import (
+    ChunkKind,
+    Definition,
+    Import,
+    ImportMeta,
+    QueryKind,
+    ScoredChunk,
+    Span,
+)
 from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
 
@@ -25,23 +33,18 @@ def replies(index: Index) -> dict[ChunkKind, SymbolOut]:
         TokenisedChunk(
             blob_sha="deadbeef",
             file_path="src/app.py",
-            kind=ChunkKind.FUNCTION,
-            name="load_config",
+            role=Definition(kind=ChunkKind.FUNCTION, name="load_config"),
             language="python",
             content="def load_config(): ...",
-            line_start=10,
-            line_end=20,
+            span=Span(start=10, end=20),
         ),
         TokenisedChunk(
             blob_sha="deadbeef",
             file_path="src/app.py",
-            kind=ChunkKind.IMPORT,
-            name="os",
+            role=Import(name="os", meta=ImportMeta(module="os", names="os")),
             language="python",
             content="import os",
-            line_start=1,
-            line_end=1,
-            metadata=ImportMeta(module="os", names="os"),
+            span=Span(start=1, end=1),
         ),
     ]
     at = index.register("/repo").at("head")

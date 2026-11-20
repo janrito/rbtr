@@ -3,8 +3,8 @@
 These are the API/wire shape returned by the daemon and printed by the
 CLI's `--json`. They are deliberately distinct from the index's rows:
 those carry identity hashes (`id`, `blob_sha`), the embedding flag,
-ranking internals and empty import metadata on every chunk, none of
-which a caller needs. Each is validated straight from a read's frame rows, which
+ranking internals and every role's payload, none of which a caller
+needs. Each is validated straight from a read's frame rows, which
 keeps the public contract flat, minimal and low-noise — agents read
 these payloads straight into their context.
 

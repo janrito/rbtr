@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING
 
 from tree_sitter import Language, Parser, Query, QueryCursor
 
-from rbtr.domain.models import Chunk, ChunkKind, ImportMeta
+from rbtr.domain.models import Chunk, ChunkKind, Import, ImportMeta, Section, Span
 from rbtr.languages.chunks import chunk_plaintext, last_line
 from rbtr.languages.registration import LanguageRegistration, load_query
 
@@ -149,13 +149,11 @@ def _extract_sections(
             {
                 "blob_sha": blob_sha,
                 "file_path": file_path,
-                "kind": ChunkKind.DOC_SECTION,
-                "name": name,
+                "role": Section(kind=ChunkKind.DOC_SECTION, name=name),
                 "scope": scope_segments,
                 "language": "markdown",
                 "content": text,
-                "line_start": line_start,
-                "line_end": last_line(node),
+                "span": Span(start=line_start, end=last_line(node)),
             }
         )
 
@@ -229,13 +227,9 @@ def _extract_links(
             yield Chunk(
                 blob_sha=blob_sha,
                 file_path=file_path,
-                kind=ChunkKind.IMPORT,
-                name=dest,
-                scope="",
+                role=Import(name=dest, meta=ImportMeta(module=module, names=names)),
                 content=dest,
-                metadata=ImportMeta(module=module, names=names),
-                line_start=dest_node.start_point[0] + 1,
-                line_end=last_line(dest_node),
+                span=Span(start=dest_node.start_point[0] + 1, end=last_line(dest_node)),
             )
 
 

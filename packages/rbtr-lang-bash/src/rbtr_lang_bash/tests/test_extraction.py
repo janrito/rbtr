@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pytest_cases import parametrize_with_cases
 
-from rbtr.domain.models import ChunkKind
+from rbtr.domain.models import ChunkKind, Import
 from rbtr.git import FileEntry
 from rbtr.languages.extract import extract_file
 
@@ -48,9 +48,9 @@ source ./env.sh
 . /etc/profile
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "bash")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
     assert len(imports) == 2
-    modules = {c.metadata.module for c in imports}
+    modules = {c.meta.module for c in imports}
     assert modules == {"./env.sh", "/etc/profile"}
 
 

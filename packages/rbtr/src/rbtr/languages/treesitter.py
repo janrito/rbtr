@@ -17,7 +17,17 @@ from typing import TYPE_CHECKING
 from tree_sitter import Language, Parser, Query, QueryCursor, Range
 
 from rbtr.domain.identity import compose_scope
-from rbtr.domain.models import Chunk, ChunkKind, ImportMeta
+from rbtr.domain.models import (
+    Chunk,
+    ChunkKind,
+    Comment,
+    Definition,
+    Import,
+    RawSlice,
+    Role,
+    Section,
+    Span,
+)
 from rbtr.languages._resolvers import NAME_CAPTURE_KEY
 from rbtr.languages.chunks import last_line
 from rbtr.languages.registration import QueryExtraction
@@ -276,21 +286,13 @@ def extract_symbols(
         # still has to drop it so the content does not end with a blank line.
         if end_byte > block[-1].start_byte and content[end_byte - 1 : end_byte] == b"\n":
             end_byte -= 1
-        return Chunk.model_validate(
-            {
-                "blob_sha": blob_sha,
-                "file_path": file_path,
-                "kind": ChunkKind.COMMENT,
-                "name": "",
-                "scope": [],
-                "language": registered_language.id,
-                "content": content[block[0].start_byte : end_byte].decode(
-                    "utf-8", errors="replace"
-                ),
-                "line_start": block[0].start_point[0] + 1,
-                "line_end": last_line(block[-1]),
-                "metadata": ImportMeta(),
-            }
+        return Chunk(
+            blob_sha=blob_sha,
+            file_path=file_path,
+            role=Comment(),
+            language=registered_language.id,
+            content=content[block[0].start_byte : end_byte].decode("utf-8", errors="replace"),
+            span=Span(start=block[0].start_point[0] + 1, end=last_line(block[-1])),
         )
 
     for node, capture_name, capture_dict in items:
@@ -326,9 +328,6 @@ def extract_symbols(
                 yield chunk
             pending = []
 
-        meta = ImportMeta()
-        if capture_name == "import":
-            meta = registered_language.resolve_import(node, capture_dict)
         scopes = _enclosing_scopes(node, extraction.scope_types)
         # The scope override's segments extend the tree-ancestry scope; the
         # default contributes the `@_scope` capture.
@@ -336,23 +335,34 @@ def extract_symbols(
             *_scope_names(scopes),
             *registered_language.resolve_scope(capture_name, node, capture_dict),
         ]
-        actual_kind = _resolve_kind(
+        name = registered_language.resolve_name(capture_name, node, capture_dict)
+        role: Role
+        match _resolve_kind(
             ChunkKind(capture_name),
             nearest_scope_is_class=_nearest_scope_is_class(scopes, extraction.class_scope_types),
-        )
+        ):
+            case ChunkKind.IMPORT:
+                role = Import(
+                    name=name, meta=registered_language.resolve_import(node, capture_dict)
+                )
+            case ChunkKind.DOC_SECTION | ChunkKind.CONFIG_KEY as kind:
+                role = Section(kind=kind, name=name)
+            case ChunkKind.COMMENT:
+                role = Comment()
+            case ChunkKind.RAW_CHUNK:
+                role = RawSlice()
+            case kind:
+                role = Definition(kind=kind, name=name)
         seen.append((node.start_byte, node.end_byte))
         yield Chunk.model_validate(
             {
                 "blob_sha": blob_sha,
                 "file_path": file_path,
-                "kind": actual_kind,
-                "name": registered_language.resolve_name(capture_name, node, capture_dict),
+                "role": role,
                 "scope": scope_names,
                 "language": registered_language.id,
                 "content": content[start_byte : node.end_byte].decode("utf-8", errors="replace"),
-                "line_start": line_start,
-                "line_end": last_line(node),
-                "metadata": meta,
+                "span": Span(start=line_start, end=last_line(node)),
             }
         )
 
