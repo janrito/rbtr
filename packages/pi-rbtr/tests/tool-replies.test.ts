@@ -9,7 +9,8 @@ import type { TSchema } from "typebox";
 import { Check } from "typebox/schema";
 import { describe, expect, inject } from "vitest";
 
-import type { Request } from "../extensions/rbtr/generated/protocol.js";
+import type { Request, Response } from "../extensions/rbtr/generated/protocol.js";
+import { modelText, OUTLINE_EXCLUDES, SEARCH_PREVIEW_LINES } from "../extensions/rbtr/model-text.js";
 import { type Ask, type Call, type PiSession, type ToolEnd, test, textOf, until } from "./session.fixtures.js";
 
 /** The output schema *name* declares in the session. */
@@ -71,7 +72,7 @@ async function checkReplies(pi: PiSession, ask: Ask, cwd: string, steps: [Call, 
       expect(reply, label).toMatchObject(expected.reply);
     }
     expect(end.isError, label).toBe(reply.kind === "error");
-    expect(JSON.parse(textOf(end.result)), label).toEqual(reply);
+    expect(textOf(end.result), label).toBe(modelText(reply as Response));
     const schema = outputSchema(pi, end.name);
     expect(Check(schema, reply), label).toBe(true);
     // The schema is the tool's own: a reply of another kind fails it.
@@ -134,7 +135,7 @@ test.for<[string, [Call, Expected][]]>([
       [
         { name: "rbtr_list_symbols", args: { file: subject.file } },
         {
-          ask: { kind: "list_symbols", file_path: subject.file },
+          ask: { kind: "list_symbols", file_path: subject.file, kinds: { exclude: OUTLINE_EXCLUDES } },
           shows: {
             kind: "list_symbols",
             chunks: expect.arrayContaining([expect.objectContaining({ name: subject.name })]),
@@ -144,13 +145,16 @@ test.for<[string, [Call, Expected][]]>([
       [
         { name: "rbtr_list_symbols", args: { file: `${subject.file}.missing` } },
         {
-          ask: { kind: "list_symbols", file_path: `${subject.file}.missing` },
+          ask: { kind: "list_symbols", file_path: `${subject.file}.missing`, kinds: { exclude: OUTLINE_EXCLUDES } },
           shows: { kind: "list_symbols", chunks: [] },
         },
       ],
       [
         { name: "rbtr_list_symbols", args: { file: subject.file, ...unindexed } },
-        { ask: { kind: "list_symbols", file_path: subject.file, ...unindexed }, shows: refused },
+        {
+          ask: { kind: "list_symbols", file_path: subject.file, kinds: { exclude: OUTLINE_EXCLUDES }, ...unindexed },
+          shows: refused,
+        },
       ],
     ],
   ],
@@ -188,13 +192,16 @@ test.for<[string, [Call, Expected][]]>([
       [
         { name: "rbtr_search", args: { query: subject.name } },
         {
-          ask: { kind: "search", query: subject.name },
+          ask: { kind: "search", query: subject.name, preview_lines: SEARCH_PREVIEW_LINES },
           shows: { kind: "search", results: expect.arrayContaining([expect.objectContaining({ name: subject.name })]) },
         },
       ],
       [
         { name: "rbtr_search", args: { query: subject.name, ...unindexed } },
-        { ask: { kind: "search", query: subject.name, ...unindexed }, shows: refused },
+        {
+          ask: { kind: "search", query: subject.name, preview_lines: SEARCH_PREVIEW_LINES, ...unindexed },
+          shows: refused,
+        },
       ],
     ],
   ],
@@ -219,7 +226,7 @@ test.for<[string, [Call, Expected][]]>([
     ],
   ],
 ])(
-  "%s: each reply is rbtr's response, the same to the model and to scripts",
+  "%s: each reply is rbtr's response: scripts get it, the model reads its text",
   async ([, steps], { ask, repo, processes, pi }) => {
     await pi.start();
     await checkReplies(pi, ask, repo, steps);
@@ -395,7 +402,10 @@ describe("with a daemon of its own", () => {
     expect(fromCli.map((end) => [end.isError, end.result.structuredContent])).toEqual(
       fromDaemon.map((end) => [end.isError, end.result.structuredContent]),
     );
-    for (const end of fromCli) expect(JSON.parse(textOf(end.result))).toEqual(end.result.structuredContent);
+    for (const end of fromCli) {
+      const reply = end.result.structuredContent as Reply;
+      expect(textOf(end.result)).toBe(modelText(reply as Response));
+    }
   });
 });
 
@@ -403,6 +413,14 @@ describe("with codemode", () => {
   test.override({ piSettings: { defaultTools: ["+codemode"] } });
 
   // A tool that asks the user, or loads tools, is the model's to call.
+  test("a script reads a reply's fields from the response, not from the model's text", async ({ pi }) => {
+    await pi.start();
+    const code = `const reply = await tools.rbtr_read_symbol({ symbol: ${JSON.stringify(subject.name)} });
+text(reply.kind + " " + reply.chunks[0].name);`;
+    const [script] = await pi.run({ name: "codemode", args: { code } });
+    expect(textOf(script.result)).toContain(`read_symbol ${subject.name}`);
+  });
+
   test("a script can call the loaded rbtr_status, but not rbtr_gc or the loader", async ({ pi }) => {
     await pi.start();
     await pi.run({ name: "rbtr_index_tools", args: {} });
