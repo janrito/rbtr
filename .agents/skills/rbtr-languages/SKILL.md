@@ -188,7 +188,7 @@ what no capture names.
 Two patterns on one node make one chunk with every import they make (a JSON
 `$ref` key that imports). The narrower kind names it: `@test_function`
 over `@function` / `@method`, any kind over `@import` or `@statement`
-(`KIND_NARROWS`). Any other pair is a defect the build reports as a
+(`narrows`). Any other pair is a defect the build reports as a
 `kind_overlap`; keep such patterns apart with predicates.
 
 The display name comes from the paired `@_*_name` capture via the built-in

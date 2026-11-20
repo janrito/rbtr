@@ -68,7 +68,7 @@ def assert_every_line_in_a_chunk(build: IndexBuild) -> None:
 
 
 def assert_no_undecided_kind_overlaps(build: IndexBuild) -> None:
-    """No span of *build* was captured as two kinds neither narrows (`KIND_NARROWS`); each one that was is listed as `path:line: kinds -> kept`."""
+    """No span of *build* was captured as two kinds neither narrows (`narrows`); each one that was is listed as `path:line: kinds -> kept`."""
     __tracebackhide__ = True
     undecided = [
         f"{overlap.path}:{overlap.line}: {', '.join(overlap.kinds)} -> {overlap.kept}"

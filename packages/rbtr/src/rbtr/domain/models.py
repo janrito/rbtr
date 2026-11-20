@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
@@ -46,28 +46,25 @@ CODE_KINDS: frozenset[ChunkKind] = frozenset(
     {ChunkKind.FUNCTION, ChunkKind.CLASS, ChunkKind.METHOD},
 )
 
-KIND_NARROWS: Mapping[ChunkKind, frozenset[ChunkKind]] = {
-    kind: frozenset(
-        {ChunkKind.IMPORT}
-        | ({ChunkKind.STATEMENT} if kind is not ChunkKind.STATEMENT else set())
-        | (
-            {ChunkKind.FUNCTION, ChunkKind.METHOD}
-            if kind in {ChunkKind.TEST_FUNCTION, ChunkKind.API_ENDPOINT, ChunkKind.MIGRATION}
-            else set()
-        )
-    )
-    for kind in ChunkKind
-    if kind is not ChunkKind.IMPORT
-}
-"""The kinds each kind narrows: of the kinds captured on one span, the one that narrows every other names its chunk.
 
-Every kind narrows `import`, as a key or a section that imports is that
-key or section, carrying the import; every kind narrows `statement`, as
-a declared statement that is also a test is that test; a test, an
-endpoint or a migration narrows the function or method it is. Two kinds neither narrows take
-the first in `ChunkKind` order, and the overlap is the plugin's to fix.
-The only statement of kind precedence.
-"""
+def narrows(kind: ChunkKind, other: ChunkKind) -> bool:
+    """Whether a span captured as *kind* and *other* is a *kind* chunk: the only statement of kind precedence.
+
+    Every kind but `import` narrows `import`, as a key or section that
+    imports is that key or section, and `statement`, as a declared
+    statement that is also a test is that test; a test narrows the
+    function or method it is. Two kinds neither narrows take the first in
+    `ChunkKind` order, and the overlap is the plugin's to fix.
+    """
+    if kind is other or kind is ChunkKind.IMPORT:
+        return False
+    match other:
+        case ChunkKind.IMPORT | ChunkKind.STATEMENT:
+            return True
+        case ChunkKind.FUNCTION | ChunkKind.METHOD:
+            return kind is ChunkKind.TEST_FUNCTION
+        case _:
+            return False
 
 
 class QueryKind(StrEnum):
@@ -703,7 +700,7 @@ class GcCounts:
 class KindOverlap(BaseModel, frozen=True):
     """Captures of more than one kind on one span of a file, and the kind its chunk took.
 
-    `narrowed` is whether `KIND_NARROWS` decided it; one it did not took the
+    `narrowed` is whether `narrows` decided it; one it did not took the
     first of `kinds` in `ChunkKind` order, and is a defect of the language's
     patterns.
     """

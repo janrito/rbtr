@@ -294,7 +294,7 @@ content is exactly its file's bytes from `start_byte` to `end_byte`: trimming wh
 moves the span's end, not the text, and the last line is the line of the span's last
 byte, so a span never ends in whitespace. The chunks of one span are one
 (`one_chunk_per_span`, in `assemble`): its imports are every capture's, in order, and
-its kind the one that narrows every other there (`KIND_NARROWS`), so a JSON `$ref` key
+its kind the one that narrows every other there (`narrows`), so a JSON `$ref` key
 is one `config_key` that imports, and `import os, sys` one import of two modules. A pair
 of kinds neither narrows takes the first in `ChunkKind` order and is reported as a kind
 overlap (`IndexResult.kind_overlaps`, logged `kind_overlap`): a defect of the language's
@@ -1204,7 +1204,7 @@ names a join a read or write makes, which no table declares.
 | --------------------------------------------------------------- | ------------------ | --- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `id`                                                            | `TEXT`             | PK  | first 16 hex of sha256(blob_sha:file_language:start_byte:end_byte): one span of a blob read as one language; edges and the search index key on it |
 | `blob_sha`                                                      | `TEXT NOT NULL`    |     | the blob the chunk is a span of: joins to file_snapshots; re-extraction replaces by blob                                                          |
-| `kind`                                                          | `TEXT NOT NULL`    |     | the chunk's role, the narrowest of its captures (KIND_NARROWS): filters reads, sets the kind boost, picks edge rules                              |
+| `kind`                                                          | `TEXT NOT NULL`    |     | the chunk's role, the narrowest of its captures (`narrows`): filters reads, sets the kind boost, picks edge rules                                 |
 | `name`                                                          | `TEXT NOT NULL`    |     | the name its captures give it, several joined by `,` (`low, high`), `''` when unnamed: name search, read-symbol, find-refs, edge targets          |
 | `scope`                                                         | `TEXT NOT NULL`    |     | the enclosing names (Outer::Inner): qualified names, member lookup, display                                                                       |
 | `language`                                                      | `TEXT NOT NULL`    |     | the chunk's own language (an embedded block's): its serial, hinted resolution, the plugin check                                                   |
@@ -2598,7 +2598,7 @@ multi-line `describe(…)` call): each is one unnamed chunk, and what its query
 captures inside it is a chunk nested in it, as a method is in its class, so the
 statement's text is never cut into fragments around a `def`. Core applies no
 rule of its own on a file's root; a language with no declaration leaves such text
-to fragments. Every captured kind narrows a statement (`KIND_NARROWS`), so a
+to fragments. Every captured kind narrows a statement (`narrows`), so a
 JavaScript `test(…)` captured as a test and as a statement is a test. A
 statement holds the calls written in it, as a fragment does. A query capture
 must name a kind, a metadata capture or a `_` helper: any other name
@@ -2794,7 +2794,7 @@ key that imports, an HCL `module` block a key that imports its `source`, `import
 sys` one import of two modules, `low, high = 1, 9` one variable named `low, high`: its
 name is its captures' names joined by `, `, less an import's text where a key imports.
 Its kind is the narrowest of its captures
-(`KIND_NARROWS`, the one table of kind precedence: a test narrows a function, every kind
+(`narrows`, the one statement of kind precedence: a test narrows a function, every kind
 narrows an import); its imports and calls are every capture's. Indexes that
 cross-reference code hold the same: SCIP gives one occurrence several `symbol_roles`,
 and Kythe hangs several edges off one anchor. Two chunks of one span do not work here:
@@ -2804,7 +2804,7 @@ lower weight applies only to a chunk that is an import alone.
 
 Three other ways of choosing do not work here. A priority per pattern, as Neovim's
 `#set! priority` gives highlights, is a setting no overlap in any plugin needs, since
-`KIND_NARROWS` decides every one the samples hold. The earliest or latest pattern
+`narrows` decides every one the samples hold. The earliest or latest pattern
 winning makes the kind depend on a query's order, and tree-sitter's own runners
 disagree on which (tree-sitter issue #1374). Naming each import by its module, so
 `import os, sys` is two chunks, keeps two chunks over one span. Revisit if a language

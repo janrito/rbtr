@@ -385,7 +385,14 @@ def test_a_capture_naming_no_kind_fails_the_build(indexed: Indexed, capture: str
     with (
         get_manager().limited_to(reg),
         pytest.raises(QueryCaptureError, match=f"faketest query captures @{capture}"),
-        indexed({"test.py": "class C:\n    pass\n"}),
+        indexed(
+            {
+                "test.py": """\
+class C:
+    pass
+"""
+            }
+        ),
     ):
         pass
 
@@ -645,7 +652,14 @@ class Config:
         at = resolve_read_ref(build.index, build.index.repo(str(tmp_path)), None).at
         chunks = build.index.chunks(at=at, file_path="t.py").rows(named=True)
     fragments = [(c["content"], c["scope"]) for c in chunks if c["kind"] == ChunkKind.FRAGMENT]
-    assert fragments == [("class Config:\n    retries = 3", "Config")]
+    assert fragments == [
+        (
+            """\
+class Config:
+    retries = 3""",
+            "Config",
+        )
+    ]
 
 
 def test_a_run_of_code_splits_at_the_chunk_size(

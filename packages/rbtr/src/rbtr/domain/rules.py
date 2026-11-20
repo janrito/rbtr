@@ -17,7 +17,7 @@ from enum import StrEnum
 import dataframely as dy
 import polars as pl
 
-from rbtr.domain.models import KIND_NARROWS, ChunkKind, EdgeKind, Lookup
+from rbtr.domain.models import ChunkKind, EdgeKind, Lookup, narrows
 
 ASCII_WHITESPACE = " \t\n\r\x0b\x0c"
 """What `bytes.strip()` strips: a gap of these, and no blank line, is contiguous."""
@@ -1060,7 +1060,7 @@ def line_windows(
 
 
 class KindOverlapRow(dy.Schema):
-    """Captures of more than one kind on one span: the file, the span's first line, the kinds in `ChunkKind` order, the kind its chunk took, and whether `KIND_NARROWS` decided it."""
+    """Captures of more than one kind on one span: the file, the span's first line, the kinds in `ChunkKind` order, the kind its chunk took, and whether `narrows` decided it."""
 
     path = dy.String(nullable=False)
     line = dy.Int64(nullable=False)
@@ -1082,7 +1082,7 @@ def one_chunk_per_span(
     """*chunks* with the chunks of each span of a file made one, and the spans captured as more than one kind.
 
     A span's chunk takes the kind that narrows every other there
-    (`KIND_NARROWS`), else the first in `ChunkKind` order, and its first
+    (`narrows`), else the first in `ChunkKind` order, and its first
     chunk of that kind gives its scope, docs and content; its order is
     the span's first. Its name is every chunk's, in order, once each,
     joined by `, `, but an import's text when it is no import (a key that
@@ -1098,7 +1098,7 @@ def one_chunk_per_span(
         {
             "kept": [kind.value for kind in ChunkKind],
             "allowed": [
-                sorted({kind.value, *(k.value for k in KIND_NARROWS.get(kind, ()))})
+                sorted({kind.value, *(other.value for other in ChunkKind if narrows(kind, other))})
                 for kind in ChunkKind
             ],
         }

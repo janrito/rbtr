@@ -51,7 +51,7 @@ class Extraction:
 
 
 def kind_overlaps(rows: dy.DataFrame[KindOverlapRow]) -> list[KindOverlap]:
-    """*rows* as `KindOverlap`s, each logged: one `KIND_NARROWS` left undecided as a warning."""
+    """*rows* as `KindOverlap`s, each logged: one `narrows` left undecided as a warning."""
     overlaps = [KindOverlap.model_validate(row) for row in rows.iter_rows(named=True)]
     for overlap in overlaps:
         (log.debug if overlap.narrowed else log.warning)(
