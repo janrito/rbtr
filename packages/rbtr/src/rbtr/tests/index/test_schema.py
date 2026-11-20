@@ -54,7 +54,12 @@ def seeded_commit(fake_repo: str) -> str:
     return str(
         make_commit(
             repo,
-            {"maths.py": b"def add(a, b):\n    return a + b\n"},
+            {
+                "maths.py": b"""\
+def add(a, b):
+    return a + b
+"""
+            },
             parents=[repo.head.peel(pygit2.Commit).id],
         )
     )
@@ -595,7 +600,15 @@ def test_a_project_file_from_2026_10_0_keeps_its_import_metadata(
     sha = str(
         make_commit(
             git,
-            {"app.py": b"import os\n\n\ndef load():\n    pass\n"},
+            {
+                "app.py": b"""\
+import os
+
+
+def load():
+    pass
+"""
+            },
             parents=[git.head.peel(pygit2.Commit).id],
         )
     )
@@ -659,7 +672,20 @@ def test_a_project_file_from_2026_11_0_keeps_its_chunks_and_gives_each_role_empt
     which holds none of them and an import's `dots`; one chunk carries an embedding, which stays.
     """
     path = tmp_path / "data" / "index.duckdb"
-    source = b"import os\n\n\nclass Box:\n    pass\n\n\ndef run():\n    return 1\n\n\nos.environ\n"
+    source = b"""\
+import os
+
+
+class Box:
+    pass
+
+
+def run():
+    return 1
+
+
+os.environ
+"""
     sha = str(
         make_commit(git_repo, {"m.py": source}, parents=[git_repo.head.peel(pygit2.Commit).id])
     )
@@ -719,7 +745,15 @@ def test_a_project_file_from_2026_11_0_keeps_its_chunks_edges_and_embeddings(
     edge naming one, is renamed, and one chunk carries an embedding.
     """
     path = tmp_path / "data" / "index.duckdb"
-    files = {"m.py": b"def fn():\n    return 1\n", "app.py": b"from m import fn\n"}
+    files = {
+        "m.py": b"""\
+def fn():
+    return 1
+""",
+        "app.py": b"""\
+from m import fn
+""",
+    }
     sha = str(make_commit(git_repo, files, parents=[git_repo.head.peel(pygit2.Commit).id]))
     seed = Index(path, writable=True)
     build_index(repo_path, sha, seed)

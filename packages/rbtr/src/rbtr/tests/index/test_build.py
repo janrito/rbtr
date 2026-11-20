@@ -643,7 +643,10 @@ def test_query_cache_produces_identical_chunks(tmp_path: Path) -> None:
     for i in range(10):
         path = tmp_path / "cache_test" / f"mod_{i}.py"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(f"def unique_func_{i}():\n    return {i}\n")
+        path.write_text(f"""\
+def unique_func_{i}():
+    return {i}
+""")
 
     git_index = repo.index
     for i in range(10):
@@ -821,14 +824,16 @@ def multilang_repo(tmp_path: Path) -> pygit2.Repository:
     the orchestrator's per-language serial-map gating using only default
     plugins — no optional plugin required.
     """
-    content = (
-        "# API\n\n"
-        "The handler entry point:\n\n"
-        "```python\n"
-        "def handle(request):\n"
-        "    return 200\n"
-        "```\n"
-    )
+    content = """\
+# API
+
+The handler entry point:
+
+```python
+def handle(request):
+    return 200
+```
+"""
     repo = pygit2.init_repository(str(tmp_path / "docs"), bare=False, initial_head="main")
     (tmp_path / "docs" / "api.md").write_text(content)
     git_index = repo.index
@@ -892,7 +897,12 @@ def test_a_file_whose_language_is_no_longer_installed_is_extracted_again(
     sha = str(
         make_commit(
             repo,
-            {"a.py": b"def f():\n    pass\n"},
+            {
+                "a.py": b"""\
+def f():
+    pass
+"""
+            },
             parents=[repo.head.peel(pygit2.Commit).id],
         )
     )

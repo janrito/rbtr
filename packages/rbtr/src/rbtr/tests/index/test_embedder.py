@@ -53,14 +53,42 @@ def test_an_aborted_embed_ends_with_an_error(embedder: Embedder, abort: threadin
     abort.set()
     try:
         with pytest.raises(RuntimeError):
-            embedder.embed(["def helper():\n    return 42\n"])
+            embedder.embed(
+                [
+                    """\
+def helper():
+    return 42
+"""
+                ]
+            )
     finally:
         abort.clear()
-    assert len(embedder.embed(["def helper():\n    return 42\n"])) == 1
+    assert (
+        len(
+            embedder.embed(
+                [
+                    """\
+def helper():
+    return 42
+"""
+                ]
+            )
+        )
+        == 1
+    )
 
 
 def test_embed_returns_one_vector_per_text(embedder: Embedder) -> None:
-    results = embedder.embed(["def add(a, b):\n    return a + b", "def greet(n):\n    return n"])
+    results = embedder.embed(
+        [
+            """\
+def add(a, b):
+    return a + b""",
+            """\
+def greet(n):
+    return n""",
+        ]
+    )
     assert len(results) == 2
     # Same model → every vector shares the model's width (read, not asserted).
     widths = {len(r.vector) for r in results}
@@ -69,18 +97,24 @@ def test_embed_returns_one_vector_per_text(embedder: Embedder) -> None:
 
 
 def test_embed_single_returns_one_vector(embedder: Embedder) -> None:
-    vector = embedder.embed_single("def add(a, b):\n    return a + b")
+    vector = embedder.embed_single("""\
+def add(a, b):
+    return a + b""")
     assert isinstance(vector, list)
     assert len(vector) > 0
 
 
 def test_embeddings_are_unit_normalised(embedder: Embedder) -> None:
-    vector = embedder.embed_single("def add(a, b):\n    return a + b")
+    vector = embedder.embed_single("""\
+def add(a, b):
+    return a + b""")
     assert math.isclose(math.sqrt(_cosine(vector, vector)), 1.0, abs_tol=1e-3)
 
 
 def test_embeddings_are_deterministic(embedder: Embedder) -> None:
-    text = "def parse(payload):\n    return json.loads(payload)"
+    text = """\
+def parse(payload):
+    return json.loads(payload)"""
     assert _cosine(embedder.embed_single(text), embedder.embed_single(text)) > 0.9999
 
 
@@ -100,9 +134,14 @@ def test_related_code_outranks_unrelated(embedder: Embedder) -> None:
     """A config-parsing query is nearer parsing code than a greeting."""
     query = embedder.embed_single("read and parse a configuration file")
     parsing = embedder.embed_single(
-        "def parse_json(text):\n    import json\n    return json.loads(text)"
+        """\
+def parse_json(text):
+    import json
+    return json.loads(text)"""
     )
-    greeting = embedder.embed_single("def greet(name):\n    return f'hello {name}'")
+    greeting = embedder.embed_single("""\
+def greet(name):
+    return f'hello {name}'""")
     assert _cosine(query, parsing) > _cosine(query, greeting)
 
 
@@ -113,7 +152,12 @@ def save_draft(pr: int) -> None:
     \"\"\"Persist draft to disk.\"\"\"
     pass"""
     row = pl.DataFrame({"name": ["save_draft"], "content": [content]})
-    assert row.select(embedding_text()).item() == f"save_draft\n{content}"
+    assert (
+        row.select(embedding_text()).item()
+        == f"""\
+save_draft
+{content}"""
+    )
 
 
 def test_query_embedding_prepends_instruction(mocker: MockerFixture) -> None:
@@ -123,7 +167,9 @@ def test_query_embedding_prepends_instruction(mocker: MockerFixture) -> None:
     embedder is used to observe the text actually embedded — here the
     collaborator call *is* the behaviour under test.
     """
-    prefix = "Instruct: Given a code search query, retrieve relevant code or documentation\nQuery:"
+    prefix = """\
+Instruct: Given a code search query, retrieve relevant code or documentation
+Query:"""
     embedder = mocker.MagicMock()
     embedder.embed_single.return_value = [0.1, 0.2, 0.3]
 
@@ -135,7 +181,9 @@ def test_query_embedding_prepends_instruction(mocker: MockerFixture) -> None:
 
 def test_query_embedding_prepends_instruction_to_variants(mocker: MockerFixture) -> None:
     """Expansion variants carry the same prefix as the original query."""
-    prefix = "Instruct: Given a code search query, retrieve relevant code or documentation\nQuery:"
+    prefix = """\
+Instruct: Given a code search query, retrieve relevant code or documentation
+Query:"""
     embedder = mocker.MagicMock()
     embedder.embed_single.return_value = [0.1, 0.2, 0.3]
     embedder.embed.return_value = [mocker.MagicMock(vector=[0.4, 0.5, 0.6])]

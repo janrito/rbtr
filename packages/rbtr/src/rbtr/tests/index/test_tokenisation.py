@@ -94,7 +94,13 @@ def test_search_tokens(text: str, expected: str) -> None:
         ("class Handler(Base):", {"class"}),
         ("yield from generator", {"yield", "from"}),
         ("raise ValueError(msg)", {"raise"}),
-        ("try:\n    pass\nexcept Exception as e:", {"try", "except", "as"}),
+        (
+            """\
+try:
+    pass
+except Exception as e:""",
+            {"try", "except", "as"},
+        ),
         ("while running:", {"while"}),
         ("return result", {"return"}),
         ("elif condition:", {"elif"}),

@@ -200,10 +200,22 @@ def case_scoped_to_file() -> DiffScenario:
     Both files change, but scoping to `a.py` surfaces only its
     symbol; `b.py`'s change must not leak in.
     """
-    a_base = b"def a():\n    return 1\n"
-    a_head = b"def a():\n    return 2\n"
-    b_base = b"def b():\n    return 1\n"
-    b_head = b"def b():\n    return 2\n"
+    a_base = b"""\
+def a():
+    return 1
+"""
+    a_head = b"""\
+def a():
+    return 2
+"""
+    b_base = b"""\
+def b():
+    return 1
+"""
+    b_head = b"""\
+def b():
+    return 2
+"""
     return DiffScenario(
         base_files={"a.py": a_base, "b.py": b_base},
         head_files={"a.py": a_head, "b.py": b_head},

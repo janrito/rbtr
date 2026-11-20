@@ -65,16 +65,18 @@ def large_repo(tmp_path: Path) -> tuple[Path, str]:
     repo = pygit2.init_repository(str(repo_path), bare=False, initial_head="main")
     git_index = repo.index
     for i in range(100):
-        content = (
-            f'"""module {i}."""\n\n'
-            f"class Thing{i}:\n"
-            f'    """Docstring {i}."""\n'
-            f"    def method_{i}(self, x):\n"
-            f"        return x + {i}\n\n"
-            f"def helper_{i}(a, b):\n"
-            f'    """Top-level helper {i}."""\n'
-            f"    return a + b + {i}\n"
-        )
+        content = f'''\
+"""module {i}."""
+
+class Thing{i}:
+    """Docstring {i}."""
+    def method_{i}(self, x):
+        return x + {i}
+
+def helper_{i}(a, b):
+    """Top-level helper {i}."""
+    return a + b + {i}
+'''
         rel = f"src/mod_{i}.py"
         full = repo_path / rel
         full.parent.mkdir(parents=True, exist_ok=True)

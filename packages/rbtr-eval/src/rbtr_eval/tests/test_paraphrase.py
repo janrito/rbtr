@@ -114,7 +114,10 @@ def test_output_validator_retries_on_excluded(
     """
     with pytest.raises(UnexpectedModelBehavior):
         paraphrase_agent.run_sync(
-            "```python\ndef connect(): pass\n```",
+            """\
+```python
+def connect(): pass
+```""",
             deps=symbol_deps,
             model=excluded_model,
         )
@@ -140,7 +143,10 @@ def test_an_excluded_name_inside_a_longer_word_is_allowed(excluded: str, text: s
         return ModelResponse(parts=[TextPart(content=json.dumps({"text": text}))])
 
     result = paraphrase_agent.run_sync(
-        "```python\ndef f(): pass\n```",
+        """\
+```python
+def f(): pass
+```""",
         deps=SymbolContext(
             language="python", symbol_kind=ChunkKind.FUNCTION, excluded_identifiers=[excluded]
         ),
@@ -169,7 +175,10 @@ def test_a_paraphrase_that_uses_the_name_is_refused(excluded: str, text: str) ->
 
     with pytest.raises(UnexpectedModelBehavior):
         paraphrase_agent.run_sync(
-            "```python\ndef f(): pass\n```",
+            """\
+```python
+def f(): pass
+```""",
             deps=SymbolContext(
                 language="python", symbol_kind=ChunkKind.FUNCTION, excluded_identifiers=[excluded]
             ),
@@ -182,7 +191,10 @@ def test_output_validator_accepts_clean_response(
 ) -> None:
     """A response without excluded identifiers passes the validator."""
     result = paraphrase_agent.run_sync(
-        "```python\ndef connect(): pass\n```",
+        """\
+```python
+def connect(): pass
+```""",
         deps=symbol_deps,
         model=clean_model,
     )
@@ -295,7 +307,12 @@ def two_repos(tmp_path: Path, index: Index) -> Index:
         head = str(
             make_commit(
                 repo,
-                {"lib.py": f'def greet(name):\n    return f"{greeting} {{name}}"\n'.encode()},
+                {
+                    "lib.py": f"""\
+def greet(name):
+    return f"{greeting} {{name}}"
+""".encode()
+                },
             )
         )
         index.register(normalise_repo_path(repo.workdir))

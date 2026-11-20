@@ -8,13 +8,19 @@ from rbtr.rbtrignore import default_ignore, load_ignore, parse_ignore
 
 
 def test_parse_excludes_matching_file() -> None:
-    spec = parse_ignore("vendor/\n*.gen.go\n")
+    spec = parse_ignore("""\
+vendor/
+*.gen.go
+""")
     assert spec.match_file("vendor/lib.go")
     assert spec.match_file("src/foo.gen.go")
 
 
 def test_parse_negation_includes() -> None:
-    spec = parse_ignore("vendor/\n!vendor/internal/\n")
+    spec = parse_ignore("""\
+vendor/
+!vendor/internal/
+""")
     assert spec.match_file("vendor/lib.go")
     assert not spec.match_file("vendor/internal/core.go")
 
@@ -25,7 +31,11 @@ def test_parse_unmatched_file_not_excluded() -> None:
 
 
 def test_parse_comments_and_blanks_ignored() -> None:
-    spec = parse_ignore("# comment\n\nvendor/\n")
+    spec = parse_ignore("""\
+# comment
+
+vendor/
+""")
     assert spec.match_file("vendor/x")
     assert not spec.match_file("src/x")
 

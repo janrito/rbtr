@@ -24,9 +24,15 @@ def test_commit_makes_writes_visible_during_concurrent_work(
         make_commit(
             repo,
             {
-                "maths.py": b"def add(a, b):\n    return a + b\n",
+                "maths.py": b"""\
+def add(a, b):
+    return a + b
+""",
                 "http.py": b"from maths import add\n",
-                "strings.py": b"def shout(s):\n    return s.upper()\n",
+                "strings.py": b"""\
+def shout(s):
+    return s.upper()
+""",
             },
             parents=[repo.head.peel(pygit2.Commit).id],
         )
@@ -54,7 +60,13 @@ def test_commit_makes_writes_visible_during_concurrent_work(
 def test_concurrent_batch_and_search(fake_repo: str, tmp_path: Path) -> None:
     """A reader gets results while builds of later commits run on another thread."""
     repo = pygit2.Repository(fake_repo)
-    files = {f"src/f{i}.py": f"def func_{i}():\n    common_term\n".encode() for i in range(50)}
+    files = {
+        f"src/f{i}.py": f"""\
+def func_{i}():
+    common_term
+""".encode()
+        for i in range(50)
+    }
     head = make_commit(repo, files, parents=[repo.head.peel(pygit2.Commit).id])
     index = Index(tmp_path / "index.duckdb", writable=True)
     build_index(fake_repo, str(head), index)
@@ -67,7 +79,10 @@ def test_concurrent_batch_and_search(fake_repo: str, tmp_path: Path) -> None:
     def writer() -> None:
         parent = head
         for i in range(5):
-            files[f"src/extra_{i}.py"] = f"def extra_{i}():\n    common_term\n".encode()
+            files[f"src/extra_{i}.py"] = f"""\
+def extra_{i}():
+    common_term
+""".encode()
             parent = make_commit(repo, files, parents=[parent])
             build_index(fake_repo, str(parent), index)
         stop.set()
@@ -105,14 +120,25 @@ def test_index_survives_threads_that_write_and_exit(fake_repo: str) -> None:
     repo = pygit2.Repository(fake_repo)
     one = make_commit(
         repo,
-        {"maths.py": b"def add(a, b):\n    return a + b\n"},
+        {
+            "maths.py": b"""\
+def add(a, b):
+    return a + b
+"""
+        },
         parents=[repo.head.peel(pygit2.Commit).id],
     )
     two = make_commit(
         repo,
         {
-            "maths.py": b"def add(a, b):\n    return a + b\n",
-            "strings.py": b"def shout(s):\n    return s.upper()\n",
+            "maths.py": b"""\
+def add(a, b):
+    return a + b
+""",
+            "strings.py": b"""\
+def shout(s):
+    return s.upper()
+""",
         },
         parents=[one],
     )

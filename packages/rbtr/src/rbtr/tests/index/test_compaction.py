@@ -58,9 +58,15 @@ def churned_index(fake_repo: str, isolated_db: Path) -> Generator[ChurnedIndex]:
         f"    Retry step {line}: wait twice as long as the step before.\n" for line in range(20)
     )
     files = {
-        f"m{m}.py": "\n\n".join(
-            f'def calculate_retry_backoff_{m * 40 + i}(attempt):\n    """\n{doc}    """\n'
-            "    return 2 ** attempt\n"
+        f"m{m}.py": "".join(
+            f'''\
+def calculate_retry_backoff_{m * 40 + i}(attempt):
+    """
+{doc}    """
+    return 2 ** attempt
+
+
+'''
             for i in range(40)
         ).encode()
         for m in range(20)

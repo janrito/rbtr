@@ -547,7 +547,12 @@ def test_snapshots_come_back_in_embed_order(
         sha = str(
             make_commit(
                 git_repo,
-                {f"{label}.py": f"def {label}():\n    pass\n".encode()},
+                {
+                    f"{label}.py": f"""\
+def {label}():
+    pass
+""".encode()
+                },
                 ref=f"refs/heads/{label}",
             )
         )

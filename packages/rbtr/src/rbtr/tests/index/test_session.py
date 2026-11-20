@@ -84,14 +84,25 @@ def test_a_failed_fts_rebuild_keeps_the_previous_index(
     repo = pygit2.Repository(fake_repo)
     before = make_commit(
         repo,
-        {"before.py": b"def before_check():\n    pass\n"},
+        {
+            "before.py": b"""\
+def before_check():
+    pass
+"""
+        },
         parents=[repo.head.peel(pygit2.Commit).id],
     )
     after = make_commit(
         repo,
         {
-            "before.py": b"def before_check():\n    pass\n",
-            "after.py": b"def after_check():\n    pass\n",
+            "before.py": b"""\
+def before_check():
+    pass
+""",
+            "after.py": b"""\
+def after_check():
+    pass
+""",
         },
         parents=[before],
     )
@@ -114,7 +125,13 @@ def test_buffer_flushes_at_batch_size(
     sha = str(
         make_commit(
             repo,
-            {f"f{i}.py": f"def f{i}():\n    pass\n".encode() for i in range(12)},
+            {
+                f"f{i}.py": f"""\
+def f{i}():
+    pass
+""".encode()
+                for i in range(12)
+            },
             parents=[repo.head.peel(pygit2.Commit).id],
         )
     )
@@ -183,7 +200,15 @@ def test_rebuilding_a_commit_leaves_another_commits_files_and_edges(
     first = str(
         make_commit(
             repo,
-            {"a.py": b"from b import f\n", "b.py": b"def f():\n    pass\n"},
+            {
+                "a.py": b"""\
+from b import f
+""",
+                "b.py": b"""\
+def f():
+    pass
+""",
+            },
             ref="refs/heads/first",
             parents=[head],
         )
@@ -191,7 +216,15 @@ def test_rebuilding_a_commit_leaves_another_commits_files_and_edges(
     second = str(
         make_commit(
             repo,
-            {"c.py": b"from d import g\n", "d.py": b"def g():\n    pass\n"},
+            {
+                "c.py": b"""\
+from d import g
+""",
+                "d.py": b"""\
+def g():
+    pass
+""",
+            },
             ref="refs/heads/second",
             parents=[head],
         )
@@ -237,8 +270,14 @@ def test_embedding_and_truncation_are_stored(
         make_commit(
             repo,
             {
-                "short.py": b"def short():\n    pass\n",
-                "long.py": f'def long():\n    """{long_doc}"""\n'.encode(),
+                "short.py": b"""\
+def short():
+    pass
+""",
+                "long.py": f'''\
+def long():
+    """{long_doc}"""
+'''.encode(),
             },
             parents=[repo.head.peel(pygit2.Commit).id],
         )
@@ -368,7 +407,12 @@ def test_a_failed_commit_leaves_the_thread_able_to_read(
     sha = str(
         make_commit(
             repo,
-            {"f.py": b"def f():\n    pass\n"},
+            {
+                "f.py": b"""\
+def f():
+    pass
+"""
+            },
             parents=[repo.head.peel(pygit2.Commit).id],
         )
     )

@@ -19,7 +19,13 @@ _MULTILINE_SELECTOR = """\
     [
         ("findPosX", "findPosX"),
         ("  spaced  ", "spaced"),
-        ("td\n\nth", "td …"),
+        (
+            """\
+td
+
+th""",
+            "td …",
+        ),
         (_MULTILINE_SELECTOR, ".change-list .filtered .results, …"),
         ("\n\n", ""),
         ("", ""),

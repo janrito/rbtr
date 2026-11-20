@@ -585,8 +585,19 @@ def test_read_symbol_and_find_refs_reach_an_inherited_member(
 ) -> None:
     """`Order.check`, where only `Base` defines `check`, reads and finds the refs of `Base.check`."""
     files = {
-        "base.py": b"class Base:\n    def check(self):\n        return True\n",
-        "models.py": b"from base import Base\n\n\nclass Order(Base):\n    def run(self):\n        return self.check()\n",
+        "base.py": b"""\
+class Base:
+    def check(self):
+        return True
+""",
+        "models.py": b"""\
+from base import Base
+
+
+class Order(Base):
+    def run(self):
+        return self.check()
+""",
     }
     sha = str(make_commit(module_repo, files, ref="refs/heads/inherited-handlers"))
     path = normalise_repo_path(module_repo.workdir)

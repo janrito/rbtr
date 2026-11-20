@@ -53,7 +53,9 @@ def case_jsdoc_block_first_sentence() -> tuple[str, str]:
  *
  * @param data input
  */"""
-    expected = "/**\n * Compute a hash."
+    expected = """\
+/**
+ * Compute a hash."""
     return raw, expected
 
 
