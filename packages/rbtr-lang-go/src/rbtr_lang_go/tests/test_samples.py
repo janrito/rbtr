@@ -10,10 +10,11 @@ from tree_sitter import Parser
 
 from rbtr.domain.models import Chunk, ChunkKind, Edge
 from rbtr.git import FileEntry
-from rbtr.languages.edges import build_resolution_map, infer_import_edges
+from rbtr.languages.edges import infer_import_edges
 from rbtr.languages.extract import extract_file
 from rbtr.languages.manager import get_manager
-from rbtr.testing import render_edges
+from rbtr.languages.resolution import build_resolution_map
+from rbtr.testing import edge_rows, render_edges
 
 if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
@@ -54,7 +55,7 @@ def edges(project: list[tuple[str, str]], chunks: list[Chunk]) -> list[Edge]:
     repo_files = {path for path, _ in project}
     manifests = {path: text for path, text in project if path == "go.mod"}
     resolution = build_resolution_map(manager, manifests=manifests)
-    return infer_import_edges(chunks, repo_files, resolution)
+    return infer_import_edges(edge_rows(chunks), repo_files, resolution)
 
 
 def test_emits_expected_kinds(chunks: list[Chunk]) -> None:

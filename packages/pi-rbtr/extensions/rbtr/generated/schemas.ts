@@ -375,7 +375,7 @@ export const PROTOCOL_DEFS = {
   },
   ImportMeta: {
     description:
-      "Structured import data extracted by tree-sitter.\n\nAll fields default to empty — different import styles\npopulate different subsets.  `edges.py` reads these fields\nwithout knowing the source language.",
+      "Structured import data extracted by tree-sitter.\n\nAll fields default to empty — different import styles\npopulate different subsets.  Edge inference and module\nresolution read these fields without knowing the source language.",
     properties: {
       module: { default: "", type: "string" },
       names: { default: "", type: "string" },

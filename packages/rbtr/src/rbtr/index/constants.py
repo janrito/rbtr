@@ -12,7 +12,7 @@ from __future__ import annotations
 # Bump this with every schema change, and add a migration for each
 # kind of file the change touches (`index/migrations.py`).  Uses
 # calver (YYYY.M.NUM) matching the project version format.
-SCHEMA_VERSION = "2026.10.0"
+SCHEMA_VERSION = "2026.11.0"
 
 # Bump this when the embedding text format (i.e. `embedding_text()`)
 # changes.  Stored alongside `config.embedding_model` in the DB's

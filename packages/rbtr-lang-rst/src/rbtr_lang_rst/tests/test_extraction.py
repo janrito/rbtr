@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pytest_cases import parametrize_with_cases
 
-from rbtr.domain.models import ChunkKind
+from rbtr.domain.models import ChunkKind, Import
 from rbtr.git import FileEntry
 from rbtr.languages.extract import extract_file
 
@@ -78,8 +78,8 @@ def test_rst_headingless_file_still_extracts_references() -> None:
     """A document's references are found whether or not it has a heading."""
     src = "See :doc:`guide` and :func:`do_stuff` for details.\n"
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
-    assert [c.metadata.module or c.metadata.names for c in imports] == ["guide", "do_stuff"]
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
+    assert [c.meta.module or c.meta.names for c in imports] == ["guide", "do_stuff"]
 
 
 def test_rst_hierarchy_from_adornment_order() -> None:
@@ -131,10 +131,10 @@ Title
 See :func:`do_stuff` for details.
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
     assert len(imports) == 1
-    assert imports[0].metadata.names == "do_stuff"
-    assert imports[0].metadata.module == ""
+    assert imports[0].meta.names == "do_stuff"
+    assert imports[0].meta.module == ""
 
 
 def test_rst_class_role_produces_import() -> None:
@@ -146,9 +146,9 @@ Title
 See :class:`User` for the model.
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
     assert len(imports) == 1
-    assert imports[0].metadata.names == "User"
+    assert imports[0].meta.names == "User"
 
 
 def test_rst_meth_role_produces_import() -> None:
@@ -160,9 +160,9 @@ Title
 See :meth:`User.save` for persistence.
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
     assert len(imports) == 1
-    assert imports[0].metadata.names == "User.save"
+    assert imports[0].meta.names == "User.save"
 
 
 def test_rst_func_tilde_strips_prefix() -> None:
@@ -174,9 +174,9 @@ Title
 See :func:`~mypackage.utils.do_stuff` for details.
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
     assert len(imports) == 1
-    assert imports[0].metadata.names == "do_stuff"
+    assert imports[0].meta.names == "do_stuff"
 
 
 def test_rst_doc_role_produces_import() -> None:
@@ -188,9 +188,9 @@ Title
 See :doc:`api/module` for the API.
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
     assert len(imports) == 1
-    assert imports[0].metadata.module == "api/module"
+    assert imports[0].meta.module == "api/module"
 
 
 def test_rst_mod_role_produces_import() -> None:
@@ -202,9 +202,9 @@ Title
 See :mod:`mypackage.utils` for helpers.
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
     assert len(imports) == 1
-    assert imports[0].metadata.module == "mypackage.utils"
+    assert imports[0].meta.module == "mypackage.utils"
 
 
 def test_rst_toctree_produces_imports() -> None:
@@ -220,8 +220,8 @@ Title
    api/index
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
-    modules = {c.metadata.module for c in imports}
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
+    modules = {c.meta.module for c in imports}
     assert modules == {"intro", "api/index"}
 
 
@@ -234,9 +234,9 @@ Title
 See `the guide <other.rst>`_ for details.
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
     assert len(imports) == 1
-    assert imports[0].metadata.module == "other.rst"
+    assert imports[0].meta.module == "other.rst"
 
 
 def test_rst_reference_external_skipped() -> None:
@@ -248,7 +248,7 @@ Title
 See `example <https://example.com>`_ for details.
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
     assert imports == []
 
 
@@ -261,5 +261,5 @@ Title
 Call do_stuff to process the data.
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
     assert imports == []

@@ -13,7 +13,7 @@ import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
 from rbtr.config import config
-from rbtr.domain.models import QueryKind, ScoredChunk
+from rbtr.domain.models import ChunkKind, QueryKind, ScoredChunk
 from rbtr.index.results import FusionInputRow
 from rbtr.index.search import fuse_scores, match_preview_exprs, materialise_scored
 
@@ -41,7 +41,11 @@ def fused(scenario: FuseScenario) -> tuple[FuseScenario, list[ScoredChunk]]:
             "name_tokens": [""] * n,
             "line_start": [1] * n,
             "line_end": [1] * n,
-            "metadata": [{"module": "", "names": "", "dots": ""}] * n,
+            # An import is stored with its metadata; other kinds with none.
+            "metadata": [
+                s.metadata.model_dump() if s.kind == ChunkKind.IMPORT else None
+                for s in scenario.chunks
+            ],
             "has_embedding": [False] * n,
             "lexical": [scenario.lexical.get(cid, 0.0) for cid in ids],
             "semantic": [scenario.semantic.get(cid, 0.0) for cid in ids],

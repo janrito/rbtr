@@ -24,7 +24,11 @@ import polars as pl
 import pygit2
 import pytest
 
-from rbtr.domain.models import ChunkKind, FileSnapshot, Repo, SnapshotRef
+from rbtr.domain.models import (
+    FileSnapshot,
+    Repo,
+    SnapshotRef,
+)
 from rbtr.domain.tokenise import tokenise_code
 from rbtr.git import normalise_repo_path
 from rbtr.index.build import build_index
@@ -134,18 +138,18 @@ def chunk(*, file_path: str, kind: str, name: str) -> TokenisedChunk:
     by passing the object around and reading its `.id`.
     """
     content = f"{name}\n"
-    return TokenisedChunk(
-        blob_sha=f"blob_{file_path}",
-        file_path=file_path,
-        kind=ChunkKind(kind),
-        name=name,
-        language="python",
-        file_language="python",
-        content=content,
-        content_tokens=tokenise_code(content),
-        name_tokens=tokenise_code(name),
-        line_start=1,
-        line_end=1,
+    return TokenisedChunk.model_validate(
+        {
+            "blob_sha": f"blob_{file_path}",
+            "file_path": file_path,
+            "role": {"kind": kind, "name": name, "meta": {}},
+            "language": "python",
+            "file_language": "python",
+            "content": content,
+            "content_tokens": tokenise_code(content),
+            "name_tokens": tokenise_code(name),
+            "span": {"start": 1, "end": 1},
+        }
     )
 
 

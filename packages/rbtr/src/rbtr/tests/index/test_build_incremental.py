@@ -28,7 +28,7 @@ def test_incremental_incremental(
     # New function should be visible at head.
     [repo] = index.repos()
     chunks = index.chunks(at=repo.at(head_sha))
-    names = {c.name for c in chunks}
+    names = set(chunks["name"])
     assert "new_func" in names
     assert "serve" in names
 
@@ -62,7 +62,7 @@ def test_incremental_preserves_unchanged(
     # Old symbols should still be visible at head.
     [repo] = index.repos()
     chunks = index.chunks(at=repo.at(head_sha))
-    names = {c.name for c in chunks}
+    names = set(chunks["name"])
     assert "User" in names
     assert "Order" in names
 
@@ -107,7 +107,7 @@ def legacy_only():
 
     build_index(git_repo.workdir, "feature", index, base_sha="main")
     [repo] = index.repos()
-    names_v1 = {c.name for c in index.chunks(at=repo.at("feature"))}
+    names_v1 = set(index.chunks(at=repo.at("feature"))["name"])
     assert "legacy_only" in names_v1
 
     # Feature commit 2: remove that file so head tree matches base again.
@@ -121,7 +121,7 @@ def legacy_only():
     git_repo.create_commit("HEAD", sig, sig, "Remove legacy file", tree_oid, [parent.id])
 
     build_index(git_repo.workdir, "feature", index, base_sha="main")
-    names_v2 = {c.name for c in index.chunks(at=repo.at("feature"))}
+    names_v2 = set(index.chunks(at=repo.at("feature"))["name"])
     assert "legacy_only" not in names_v2
 
 
@@ -169,4 +169,4 @@ def new_func():
     [repo] = index.repos()
     chunks = index.chunks(at=repo.at("feature-branch"))
     assert len(chunks) > 0
-    assert any(c.name == "new_func" for c in chunks)
+    assert (chunks["name"] == "new_func").any()

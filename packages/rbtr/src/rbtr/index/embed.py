@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import itertools
 import time
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 
+import dataframely as dy
 import structlog
 
 from rbtr.config import config
@@ -21,12 +22,20 @@ from rbtr.domain.models import Repo, SnapshotRef
 from rbtr.index.embeddings import Embedder, EmbedResult, embedding_text
 from rbtr.index.index import Index
 from rbtr.index.progress import ProgressCallback, _noop_progress
+from rbtr.index.results import ChunkResultRow, EmbedTextRow
 from rbtr.logging import elapsed_ms
 
 log = structlog.get_logger(__name__)
 
 
 type EmbeddingBatch = Sequence[tuple[str, EmbedResult]]
+
+
+def embedding_batches(page: dy.DataFrame[ChunkResultRow]) -> Iterator[dy.DataFrame[EmbedTextRow]]:
+    """*page*'s chunks in batches of `config.embedding_batch_size`, made one at a time."""
+    texts = page.select("id", embedding_text().alias("text"))
+    for batch in texts.iter_slices(config.embedding_batch_size):
+        yield EmbedTextRow.validate(batch)
 
 
 def write_embedding_batch(index: Index, repo: Repo, batch: EmbeddingBatch) -> None:
@@ -70,17 +79,16 @@ def embed_index(
 
     for page_ids in itertools.batched(pending, config.embedding_page_size, strict=False):
         page = index.chunks_by_id(list(page_ids), at=at)
-        for batch in itertools.batched(page, config.embedding_batch_size, strict=False):
-            texts = [embedding_text(c.name, c.content) for c in batch]
+        for batch in embedding_batches(page):
             try:
-                results = embedder.embed(texts)
+                results = embedder.embed(batch["text"].to_list())
             except (RuntimeError, ValueError):
                 log.warning("embedding_batch_failed", exc_info=True)
                 continue
             write_embedding_batch(
                 index,
                 at.repo,
-                [(chunk.id, result) for chunk, result in zip(batch, results, strict=True)],
+                list(zip(batch["id"], results, strict=True)),
             )
             done += len(batch)
             on_progress("embedding", done, outstanding)

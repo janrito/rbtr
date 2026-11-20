@@ -15,6 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import polars as pl
 import structlog
 from llama_cpp import (
     LLAMA_POOLING_TYPE_UNSPECIFIED,
@@ -186,13 +187,13 @@ class Embedder:
         self._slot.warmup()
 
 
-def embedding_text(name: str, content: str) -> str:
-    """Build the text sent to the embedding model for a chunk.
+def embedding_text() -> pl.Expr:
+    """The text sent to the embedding model for each chunk row.
 
-    Returns `name + newline + content`.  Richer formats were
+    `name + newline + content`.  Richer formats were
     tested (header with kind/path, prepended docstring) and both
     produced net-negative results — the docstring is already in
     the content, so prepending it doubles its token weight and
     shifts cosine similarities unpredictably.
     """
-    return f"{name}\n{content}"
+    return pl.concat_str("name", "content", separator="\n")

@@ -13,11 +13,12 @@ from pathlib import Path
 import duckdb
 import pytest
 from dataframely.exc import ValidationError
+from pydantic import ValidationError as ModelValidationError
 from pytest_cases import parametrize_with_cases
 from pytest_mock import MockerFixture
 
 from rbtr.config import config
-from rbtr.domain.models import Edge, EdgeKind, FileSnapshot, Repo, SnapshotRef
+from rbtr.domain.models import Edge, EdgeKind, FileSnapshot, Repo, SnapshotRef, Span
 from rbtr.errors import RepoNotFoundError
 from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
@@ -35,7 +36,7 @@ def test_clean_exit_commits(index: Index) -> None:
         ws.insert_snapshots([make_snap("c1", "f.py", "blob_a")])
 
     chunks = index.chunks(at=repo.at("c1"))
-    assert any(c.name == "a" for c in chunks)
+    assert (chunks["name"] == "a").any()
 
 
 def test_exception_rolls_back(index: Index) -> None:
@@ -54,7 +55,7 @@ def test_exception_rolls_back(index: Index) -> None:
         _failing_session()
 
     chunks = index.chunks(at=repo.at("c1"))
-    assert chunks == []
+    assert chunks.is_empty()
 
 
 def test_write_outside_session_raises(index: Index) -> None:
@@ -334,7 +335,7 @@ def test_update_embeddings_round_trip(index: Index) -> None:
 
     # Before embedding — chunks have no embedding.
     chunks = index.chunks(at=repo.at("c1"))
-    assert all(not c.has_embedding for c in chunks)
+    assert not chunks["has_embedding"].any()
 
     vec = [0.1, 0.2, 0.3]
     with index.session(repo) as ws:
@@ -343,7 +344,7 @@ def test_update_embeddings_round_trip(index: Index) -> None:
     # After embedding — both flagged as embedded.
     chunks = index.chunks(at=repo.at("c1"))
     assert len(chunks) == 2
-    assert all(c.has_embedding for c in chunks)
+    assert chunks["has_embedding"].all()
 
     # Verify truncation flags in the DB.
     with index.reader(repo) as cur:
@@ -399,24 +400,23 @@ def test_replacing_a_snapshot_with_nothing_hides_its_chunks(
     with index.session(repo) as ws:
         ws.replace_snapshots([], snapshot_sha="head")
 
-    assert index.chunks(at=repo.at("head")) == []
+    assert index.chunks(at=repo.at("head")).is_empty()
     with index.session(repo) as ws:
         assert ws.blob_is_current(math_func.blob_sha, "", {"": 1}) is True
         assert ws.blob_is_current(http_func.blob_sha, "", {"": 1}) is True
 
 
-def test_chunk_with_inverted_span_is_rejected(index: Index, head_ref: SnapshotRef) -> None:
-    """A span that ends before it starts does not reach the table."""
-    inverted = make_chunk("a").model_copy(update={"line_start": 7, "line_end": 6})
-    with pytest.raises(duckdb.ConstraintException):
-        seed_index(index, [inverted], head_ref)
+def test_a_span_cannot_end_before_it_starts() -> None:
+    with pytest.raises(ModelValidationError, match="before it starts"):
+        Span(start=7, end=6)
 
 
 def test_a_failed_commit_leaves_the_thread_able_to_read(
     index: Index, head_ref: SnapshotRef
 ) -> None:
     """A session whose commit fails rolls back, so the thread reads on."""
-    inverted = make_chunk("a").model_copy(update={"line_start": 7, "line_end": 6})
+    # `model_construct` skips the check `Span` makes, so the table's own refuses the row.
+    inverted = make_chunk("a").model_copy(update={"span": Span.model_construct(start=7, end=6)})
     with pytest.raises(duckdb.ConstraintException):
         seed_index(index, [inverted], head_ref)
     assert index.has_indexed(at=head_ref) is False

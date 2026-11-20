@@ -55,7 +55,7 @@ class ModuleStyle(StrEnum):
     """How import module strings map to file paths.
 
     Languages declare this on `LanguageRegistration` to control
-    how `edges.py` resolves module strings to repo files.
+    how module resolution (`resolution.py`) maps module strings to repo files.
 
     `PATH`:
         Slash-separated or bare filenames.  The resolver tries
@@ -187,7 +187,7 @@ class LanguageRegistration:
       or `None`), `injection_query`.
     - **Import resolution** (feeds the edge graph) — `index_files`,
       `import_targets`, `source_roots`, `path_substitutions`,
-      `module_style`.
+      `module_style`, `prose`.
     - **Housekeeping** — `extraction_serial`.
 
     Extraction overrides — a custom name/scope/import resolver or a
@@ -337,6 +337,11 @@ class LanguageRegistration:
     """How import module strings map to file paths — `PATH` (slash-separated
     or bare) or `DOTTED` (dot-separated, e.g. Python/Java).  See
     `ModuleStyle`."""
+    prose: bool = False
+    """Whether the language is prose, which documents what it references
+    rather than importing it: its references make `documents` edges, and one
+    may name a symbol and no file (an rST `:func:` role), found by name
+    anywhere."""
 
     # Extraction overrides — attached via the decorator methods below. Each slot
     # holds the *effective* resolver: a built-in default (a `_Default*`

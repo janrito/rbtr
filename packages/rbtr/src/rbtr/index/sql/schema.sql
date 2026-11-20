@@ -43,7 +43,11 @@ CREATE TABLE IF NOT EXISTS chunks (
   name_tokens TEXT NOT NULL DEFAULT '',
   line_start INTEGER NOT NULL,
   line_end INTEGER NOT NULL,
-  metadata TEXT NOT NULL DEFAULT '{}',
+  -- An import's module, names, relative depth and target language.
+  -- NULL on every other chunk.
+  metadata STRUCT(
+    module TEXT, names TEXT, dots TEXT, language_hint TEXT
+  ),
   -- Variable-length embedding vector; dimension is determined by
   -- the model (see ARCHITECTURE.md "Embedding column").
   embedding FLOAT[] DEFAULT NULL,

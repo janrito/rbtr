@@ -23,7 +23,7 @@ def test_identical_files_are_indexed_at_every_path(dup_index: Index, dup_ref: Sn
     `src/shared.py` and `lib/shared.py` are byte-identical, so they
     share one row; each path must still reach it.
     """
-    paths = {c.file_path for c in dup_index.chunks(at=dup_ref)}
+    paths = set(dup_index.chunks(at=dup_ref)["file_path"])
 
     assert "src/shared.py" in paths
     assert "lib/shared.py" in paths
@@ -35,13 +35,7 @@ def test_list_symbols_finds_the_duplicated_copy(dup_index: Index, dup_ref: Snaps
     The outline of a file cannot depend on whether an identical file
     was indexed first.
     """
-    names = [
-        c.name
-        for c in dup_index.chunks(
-            at=dup_ref,
-            file_path="lib/shared.py",
-        )
-    ]
+    names = dup_index.chunks(at=dup_ref, file_path="lib/shared.py")["name"].to_list()
 
     assert "parse_manifest" in names
 
@@ -57,20 +51,18 @@ def test_same_bytes_in_two_languages_keep_separate_chunks(
     the other's. Keyed on content alone, the second copy would re-extract
     and the delete would take the first's chunks with it.
     """
-    declarations = {
-        c.language
-        for c in dup_index.chunks(
+    declarations = set(
+        dup_index.chunks(
             at=dup_ref,
             file_path="types/api.d.ts",
-        )
-    }
-    bundle = {
-        c.language
-        for c in dup_index.chunks(
+        )["language"]
+    )
+    bundle = set(
+        dup_index.chunks(
             at=dup_ref,
             file_path="dist/api.js",
-        )
-    }
+        )["language"]
+    )
 
     assert declarations == {"typescript"}
     assert bundle == {"javascript"}
@@ -103,7 +95,7 @@ def test_counting_collapses_the_copies(dup_index: Index, dup_ref: SnapshotRef) -
     fanned out would set the progress total above the work there is to do.
     """
     located = dup_index.chunks(at=dup_ref)
-    chunks = {c.id for c in located}
+    chunks = set(located["id"])
     assert len(located) > len(chunks), "nothing was duplicated"
 
     counts = dup_index.chunk_counts_for_snapshot(at=dup_ref)

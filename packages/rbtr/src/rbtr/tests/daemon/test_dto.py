@@ -10,56 +10,62 @@ import json
 import pytest
 
 from rbtr.config import config
-from rbtr.daemon.dto import RefOut, SearchHitOut, SearchSignals, SymbolOut
-from rbtr.domain.models import Chunk, ChunkKind, ImportMeta, QueryKind, ScoredChunk
+from rbtr.daemon.dto import RefOut, SearchHitOut, SearchSignals, SymbolOut, symbols
+from rbtr.domain.models import (
+    ChunkKind,
+    Definition,
+    Import,
+    ImportMeta,
+    QueryKind,
+    ScoredChunk,
+    Span,
+)
+from rbtr.index.index import Index
+from rbtr.index.staging import TokenisedChunk
+
+from ..index.conftest import seed_index
 
 
 @pytest.fixture
-def function_chunk() -> Chunk:
-    """A function chunk — no import metadata."""
-    return Chunk(
-        blob_sha="deadbeef",
-        file_path="src/app.py",
-        kind=ChunkKind.FUNCTION,
-        name="load_config",
-        scope="",
-        language="python",
-        content="def load_config(): ...",
-        line_start=10,
-        line_end=20,
-    )
+def replies(index: Index) -> dict[ChunkKind, SymbolOut]:
+    """A function and an import, written to an index and read back as replies."""
+    written = [
+        TokenisedChunk(
+            blob_sha="deadbeef",
+            file_path="src/app.py",
+            role=Definition(kind=ChunkKind.FUNCTION, name="load_config"),
+            language="python",
+            content="def load_config(): ...",
+            span=Span(start=10, end=20),
+        ),
+        TokenisedChunk(
+            blob_sha="deadbeef",
+            file_path="src/app.py",
+            role=Import(name="os", meta=ImportMeta(module="os", names="os")),
+            language="python",
+            content="import os",
+            span=Span(start=1, end=1),
+        ),
+    ]
+    at = index.register("/repo").at("head")
+    seed_index(index, written, at)
+    return {reply.kind: reply for reply in symbols(index.chunks(at=at))}
 
 
-@pytest.fixture
-def import_chunk() -> Chunk:
-    """An import chunk — carries populated import metadata."""
-    return Chunk(
-        blob_sha="cafef00d",
-        file_path="src/app.py",
-        kind=ChunkKind.IMPORT,
-        name="os",
-        language="python",
-        content="import os",
-        line_start=1,
-        line_end=1,
-        metadata=ImportMeta(module="os", names="os"),
-    )
-
-
-def test_drops_storage_internals(function_chunk: Chunk) -> None:
-    data = json.loads(SymbolOut.from_chunk(function_chunk).model_dump_json())
+def test_drops_storage_internals(replies: dict[ChunkKind, SymbolOut]) -> None:
+    data = json.loads(replies[ChunkKind.FUNCTION].model_dump_json())
     assert "id" not in data
     assert "blob_sha" not in data
     assert "embedding" not in data
 
 
-def test_empty_metadata_is_omitted(function_chunk: Chunk) -> None:
-    data = json.loads(SymbolOut.from_chunk(function_chunk).model_dump_json())
+def test_metadata_is_omitted_on_all_but_imports(replies: dict[ChunkKind, SymbolOut]) -> None:
+    data = json.loads(replies[ChunkKind.FUNCTION].model_dump_json())
     assert "metadata" not in data
 
 
-def test_populated_metadata_is_kept(import_chunk: Chunk) -> None:
-    data = json.loads(SymbolOut.from_chunk(import_chunk).model_dump_json())
+def test_populated_metadata_is_kept(replies: dict[ChunkKind, SymbolOut]) -> None:
+    data = json.loads(replies[ChunkKind.IMPORT].model_dump_json())
     assert data["metadata"] == {
         "module": "os",
         "names": "os",
@@ -68,8 +74,8 @@ def test_populated_metadata_is_kept(import_chunk: Chunk) -> None:
     }
 
 
-def test_identity_fields_preserved(function_chunk: Chunk) -> None:
-    out = SymbolOut.from_chunk(function_chunk)
+def test_identity_fields_preserved(replies: dict[ChunkKind, SymbolOut]) -> None:
+    out = replies[ChunkKind.FUNCTION]
     assert (out.name, out.kind, out.file_path, out.line_start, out.line_end) == (
         "load_config",
         ChunkKind.FUNCTION,

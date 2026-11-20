@@ -19,7 +19,6 @@ import structlog
 from rbtr.config import config
 from rbtr.domain.identity import SCOPE_SEPARATOR
 from rbtr.domain.models import (
-    Chunk,
     ChunkKind,
     ChunkSplit,
     EdgeKind,
@@ -52,17 +51,15 @@ from rbtr.index.results import (
     ScoredChunkResultRow,
     SnapshotCountsRow,
     SnapshotFileRow,
-    _decode_metadata,
     chunk_ids_view,
     file_paths_view,
-    frame_to_chunks,
     frame_to_snapshot_counts,
     snapshot_refs_view,
 )
 from rbtr.index.store import Store
 from rbtr.index.writer import WriteSession
-from rbtr.languages.edges import build_resolution_map, module_files
 from rbtr.languages.manager import get_manager
+from rbtr.languages.resolution import build_resolution_map, module_files
 
 log = structlog.get_logger(__name__)
 
@@ -417,7 +414,9 @@ class Index:
         )
         return [str(r[0]) for r in rows]
 
-    def chunks_by_id(self, chunk_ids: list[str], *, at: SnapshotRef) -> list[Chunk]:
+    def chunks_by_id(
+        self, chunk_ids: list[str], *, at: SnapshotRef
+    ) -> dy.DataFrame[ChunkResultRow]:
         """Return the named chunks as they are seen at *at*, ordered by id.
 
         An id that no longer resolves at *at* is left out of the
@@ -425,18 +424,16 @@ class Index:
         between a work list being drawn up and a page of it being read.
         """
         if not chunk_ids:
-            return []
+            return ChunkResultRow.create_empty()
         params = {"repo_id": at.repo.repo_id, "snapshot_sha": at.snapshot_sha}
         with registered_views(
             self._store.data(at.repo), _chunk_ids=chunk_ids_view(chunk_ids)
         ) as cur:
-            frame = (
+            return (
                 cur.sql(_GET_CHUNKS_BY_ID_SQL, params=params)
                 .pl()
-                .pipe(_decode_metadata)
                 .pipe(ChunkResultRow.validate, cast=True)
             )
-        return frame_to_chunks(frame)
 
     def distinct_chunk_languages(self) -> set[str]:
         """Return every real language present in any project's file.
@@ -455,8 +452,8 @@ class Index:
         file_path: str | None = None,
         kind: ChunkKind | None = None,
         name: str | None = None,
-    ) -> list[Chunk]:
-        """Query chunks visible at *at* with optional filters."""
+    ) -> dy.DataFrame[ChunkResultRow]:
+        """Query chunks visible at *at* with optional filters, one row per location."""
         kind_val = kind.value if kind is not None else None
         params = {
             "repo_id": at.repo.repo_id,
@@ -465,14 +462,12 @@ class Index:
             "kind": kind_val,
             "name": name,
         }
-        frame = (
+        return (
             self._store.data(at.repo)
             .sql(_GET_CHUNKS_SQL, params=params)
             .pl()
-            .pipe(_decode_metadata)
             .pipe(ChunkResultRow.validate, cast=True)
         )
-        return frame_to_chunks(frame)
 
     def inbound_refs(
         self, target_ids: list[str], *, at: SnapshotRef
@@ -596,7 +591,6 @@ class Index:
             return (
                 cur.sql(_CHANGED_SYMBOLS_SQL, params=params)
                 .pl()
-                .pipe(_decode_metadata)
                 .pipe(ChangedSymbolRow.validate, cast=True)
             )
 
@@ -624,7 +618,7 @@ class Index:
         frames = self._within(within, _SEARCH_BY_NAME_SQL, params, _qualifiers=qualifiers)
         if not frames:
             return ChunkResultRow.create_empty()
-        matches = pl.concat(frames).pipe(_decode_metadata).pipe(NameMatchRow.validate, cast=True)
+        matches = pl.concat(frames).pipe(NameMatchRow.validate, cast=True)
         return (
             matches.filter(pl.col("match_tier") == pl.col("match_tier").min())
             .drop("match_tier")
@@ -770,6 +764,5 @@ def _best(frames: list[pl.DataFrame], top_k: int) -> dy.DataFrame[ScoredChunkRes
         pl.concat(frames)
         .sort("score", descending=True)
         .head(top_k)
-        .pipe(_decode_metadata)
         .pipe(ScoredChunkResultRow.validate, cast=True)
     )

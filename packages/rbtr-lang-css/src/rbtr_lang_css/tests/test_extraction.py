@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pytest_cases import parametrize_with_cases
 
-from rbtr.domain.models import ChunkKind
+from rbtr.domain.models import Import
 from rbtr.git import FileEntry
 from rbtr.languages.extract import extract_file
 
@@ -29,6 +29,6 @@ def test_css_import_produces_import_chunk() -> None:
 body { color: #333; }
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "css")
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
     assert len(imports) == 1
-    assert imports[0].metadata.module == "reset.css"
+    assert imports[0].meta.module == "reset.css"

@@ -15,7 +15,7 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
 from rbtr.config import config
-from rbtr.domain.models import Chunk, ChunkKind
+from rbtr.domain.models import Chunk, RawSlice, Span
 from rbtr.languages.plaintext import PLAINTEXT
 
 if TYPE_CHECKING:
@@ -91,12 +91,9 @@ def _raw_chunks(file_path: str, blob_sha: str, content: str) -> Iterator[Chunk]:
             yield Chunk(
                 blob_sha=blob_sha,
                 file_path=file_path,
-                kind=ChunkKind.RAW_CHUNK,
-                name="",
-                scope="",
+                role=RawSlice(),
                 content=text,
-                line_start=start + 1,
-                line_end=end,
+                span=Span(start=start + 1, end=end),
             )
         start += chunk_lines - overlap
 
@@ -131,12 +128,9 @@ def host_presence_chunk(file_path: str, blob_sha: str, language: str) -> Chunk:
     return Chunk(
         blob_sha=blob_sha,
         file_path=file_path,
-        kind=ChunkKind.RAW_CHUNK,
-        name="",
-        scope="",
+        role=RawSlice(),
         content="",
         language=language,
         file_language=language,
-        line_start=1,
-        line_end=1,
+        span=Span(start=1, end=1),
     )

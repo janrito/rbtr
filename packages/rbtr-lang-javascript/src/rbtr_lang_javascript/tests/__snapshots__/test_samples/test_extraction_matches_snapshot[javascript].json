@@ -2,418 +2,386 @@
   {
     "blob_sha": "sha1",
     "file_path": "config.js",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "javascript",
     "file_language": "javascript",
     "content": "// Locale configuration for the greeter.",
-    "line_start": 1,
-    "line_end": 1,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 1
     },
     "id": "1086b120f17a34b9"
   },
   {
     "blob_sha": "sha1",
     "file_path": "config.js",
-    "kind": "variable",
-    "name": "LOCALE",
+    "role": {
+      "kind": "variable",
+      "name": "LOCALE"
+    },
     "scope": "",
     "language": "javascript",
     "file_language": "javascript",
     "content": "LOCALE = \"en\"",
-    "line_start": 2,
-    "line_end": 2,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 2,
+      "end": 2
     },
     "id": "79b96a86c2a4e227"
   },
   {
     "blob_sha": "sha1",
     "file_path": "javascript.js",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "javascript",
     "file_language": "javascript",
     "content": "// Greeter — format greetings for named recipients.\n//\n// The JavaScript plugin extracts function declarations, generator\n// functions, arrow functions bound to consts, classes, module-level\n// const/let variables (including destructuring), imports, and methods\n// (class members, including get/set accessors; object-literal methods are\n// captured without a scope).",
-    "line_start": 1,
-    "line_end": 7,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 7
     },
     "id": "cc08702b255e2178"
   },
   {
     "blob_sha": "sha1",
     "file_path": "javascript.js",
-    "kind": "import",
-    "name": "import { LOCALE } from \"./config.js\";",
+    "role": {
+      "kind": "import",
+      "name": "import { LOCALE } from \"./config.js\";",
+      "meta": {
+        "module": "config",
+        "names": "LOCALE",
+        "dots": "1",
+        "language_hint": ""
+      }
+    },
     "scope": "",
     "language": "javascript",
     "file_language": "javascript",
     "content": "import { LOCALE } from \"./config.js\";",
-    "line_start": 9,
-    "line_end": 9,
-    "metadata": {
-      "module": "config",
-      "names": "LOCALE",
-      "dots": "1",
-      "language_hint": ""
+    "span": {
+      "start": 9,
+      "end": 9
     },
     "id": "19dbd9da06350928"
   },
   {
     "blob_sha": "sha1",
     "file_path": "javascript.js",
-    "kind": "import",
-    "name": "import format from \"formatter\";",
+    "role": {
+      "kind": "import",
+      "name": "import format from \"formatter\";",
+      "meta": {
+        "module": "formatter",
+        "names": "format",
+        "dots": "",
+        "language_hint": ""
+      }
+    },
     "scope": "",
     "language": "javascript",
     "file_language": "javascript",
     "content": "import format from \"formatter\";",
-    "line_start": 10,
-    "line_end": 10,
-    "metadata": {
-      "module": "formatter",
-      "names": "format",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 10,
+      "end": 10
     },
     "id": "b9fdecded9f3899d"
   },
   {
     "blob_sha": "sha1",
     "file_path": "javascript.js",
-    "kind": "import",
-    "name": "import \"./styles.css\";",
+    "role": {
+      "kind": "import",
+      "name": "import \"./styles.css\";",
+      "meta": {
+        "module": "styles",
+        "names": "",
+        "dots": "1",
+        "language_hint": ""
+      }
+    },
     "scope": "",
     "language": "javascript",
     "file_language": "javascript",
     "content": "import \"./styles.css\";",
-    "line_start": 11,
-    "line_end": 11,
-    "metadata": {
-      "module": "styles",
-      "names": "",
-      "dots": "1",
-      "language_hint": ""
+    "span": {
+      "start": 11,
+      "end": 11
     },
     "id": "6f2daecdfe38687e"
   },
   {
     "blob_sha": "sha1",
     "file_path": "javascript.js",
-    "kind": "variable",
-    "name": "DEFAULT_GREETING",
+    "role": {
+      "kind": "variable",
+      "name": "DEFAULT_GREETING"
+    },
     "scope": "",
     "language": "javascript",
     "file_language": "javascript",
     "content": "DEFAULT_GREETING = \"Hello\"",
-    "line_start": 13,
-    "line_end": 13,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 13,
+      "end": 13
     },
     "id": "8486d13cd3f4dad0"
   },
   {
     "blob_sha": "sha1",
     "file_path": "javascript.js",
-    "kind": "variable",
-    "name": "locale",
+    "role": {
+      "kind": "variable",
+      "name": "locale"
+    },
     "scope": "",
     "language": "javascript",
     "file_language": "javascript",
     "content": "{ locale, fallback } = LOCALE",
-    "line_start": 14,
-    "line_end": 14,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 14,
+      "end": 14
     },
     "id": "9aecdd2952d7477d"
   },
   {
     "blob_sha": "sha1",
     "file_path": "javascript.js",
-    "kind": "variable",
-    "name": "fallback",
+    "role": {
+      "kind": "variable",
+      "name": "fallback"
+    },
     "scope": "",
     "language": "javascript",
     "file_language": "javascript",
     "content": "{ locale, fallback } = LOCALE",
-    "line_start": 14,
-    "line_end": 14,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 14,
+      "end": 14
     },
     "id": "8133eb3ed093cf61"
   },
   {
     "blob_sha": "sha1",
     "file_path": "javascript.js",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "javascript",
     "file_language": "javascript",
     "content": "/** Format a greeting for a name. */",
-    "line_start": 16,
-    "line_end": 16,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 16,
+      "end": 16
     },
     "id": "f104f05d5b9c37cb"
   },
   {
     "blob_sha": "sha1",
     "file_path": "javascript.js",
-    "kind": "function",
-    "name": "formatGreeting",
+    "role": {
+      "kind": "function",
+      "name": "formatGreeting"
+    },
     "scope": "",
     "language": "javascript",
     "file_language": "javascript",
     "content": "function formatGreeting(name) {\n  return `${DEFAULT_GREETING}, ${name} (${locale ?? fallback})`;\n}",
-    "line_start": 17,
-    "line_end": 19,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 17,
+      "end": 19
     },
     "id": "de271dc4da07feb0"
   },
   {
     "blob_sha": "sha1",
     "file_path": "javascript.js",
-    "kind": "function",
-    "name": "cachedDefault",
+    "role": {
+      "kind": "function",
+      "name": "cachedDefault"
+    },
     "scope": "",
     "language": "javascript",
     "file_language": "javascript",
     "content": "const cachedDefault = () => DEFAULT_GREETING;",
-    "line_start": 21,
-    "line_end": 21,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 21,
+      "end": 21
     },
     "id": "6a672d8c65feb8f2"
   },
   {
     "blob_sha": "sha1",
     "file_path": "javascript.js",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "javascript",
     "file_language": "javascript",
     "content": "/** Stateful greeter holding a prefix. */",
-    "line_start": 23,
-    "line_end": 23,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 23,
+      "end": 23
     },
     "id": "afd95abe4fefa643"
   },
   {
     "blob_sha": "sha1",
     "file_path": "javascript.js",
-    "kind": "class",
-    "name": "Greeter",
+    "role": {
+      "kind": "class",
+      "name": "Greeter"
+    },
     "scope": "",
     "language": "javascript",
     "file_language": "javascript",
     "content": "class Greeter {\n  constructor(prefix = DEFAULT_GREETING) {\n    this.prefix = prefix;\n  }\n\n  greet(name) {\n    return format(`${this.prefix}, ${name}`);\n  }\n}",
-    "line_start": 24,
-    "line_end": 32,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 24,
+      "end": 32
     },
     "id": "5dc8fd6afa366584"
   },
   {
     "blob_sha": "sha1",
     "file_path": "javascript.js",
-    "kind": "method",
-    "name": "constructor",
+    "role": {
+      "kind": "method",
+      "name": "constructor"
+    },
     "scope": "Greeter",
     "language": "javascript",
     "file_language": "javascript",
     "content": "constructor(prefix = DEFAULT_GREETING) {\n    this.prefix = prefix;\n  }",
-    "line_start": 25,
-    "line_end": 27,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 25,
+      "end": 27
     },
     "id": "f8c2d42e485c98fe"
   },
   {
     "blob_sha": "sha1",
     "file_path": "javascript.js",
-    "kind": "method",
-    "name": "greet",
+    "role": {
+      "kind": "method",
+      "name": "greet"
+    },
     "scope": "Greeter",
     "language": "javascript",
     "file_language": "javascript",
     "content": "greet(name) {\n    return format(`${this.prefix}, ${name}`);\n  }",
-    "line_start": 29,
-    "line_end": 31,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 29,
+      "end": 31
     },
     "id": "54cecd87796a0099"
   },
   {
     "blob_sha": "sha1",
     "file_path": "javascript.js",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "javascript",
     "file_language": "javascript",
     "content": "/** Yield each recipient name in turn. */",
-    "line_start": 34,
-    "line_end": 34,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 34,
+      "end": 34
     },
     "id": "bca733b8c9e46c9d"
   },
   {
     "blob_sha": "sha1",
     "file_path": "javascript.js",
-    "kind": "function",
-    "name": "recipients",
+    "role": {
+      "kind": "function",
+      "name": "recipients"
+    },
     "scope": "",
     "language": "javascript",
     "file_language": "javascript",
     "content": "function* recipients(names) {\n  for (const name of names) {\n    yield name;\n  }\n}",
-    "line_start": 35,
-    "line_end": 39,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 35,
+      "end": 39
     },
     "id": "9fe04be46ef4242e"
   },
   {
     "blob_sha": "sha1",
     "file_path": "javascript.js",
-    "kind": "comment",
-    "name": "",
+    "role": {
+      "kind": "comment"
+    },
     "scope": "",
     "language": "javascript",
     "file_language": "javascript",
     "content": "/** Greeting helpers grouped as an object literal. */",
-    "line_start": 41,
-    "line_end": 41,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 41,
+      "end": 41
     },
     "id": "3107f6745e3b67a3"
   },
   {
     "blob_sha": "sha1",
     "file_path": "javascript.js",
-    "kind": "variable",
-    "name": "helpers",
+    "role": {
+      "kind": "variable",
+      "name": "helpers"
+    },
     "scope": "",
     "language": "javascript",
     "file_language": "javascript",
     "content": "helpers = {\n  shout(name) {\n    return `${name.toUpperCase()}!`;\n  },\n}",
-    "line_start": 42,
-    "line_end": 46,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 42,
+      "end": 46
     },
     "id": "607e8ab8ea7c25fe"
   },
   {
     "blob_sha": "sha1",
     "file_path": "javascript.js",
-    "kind": "method",
-    "name": "shout",
+    "role": {
+      "kind": "method",
+      "name": "shout"
+    },
     "scope": "",
     "language": "javascript",
     "file_language": "javascript",
     "content": "shout(name) {\n    return `${name.toUpperCase()}!`;\n  }",
-    "line_start": 43,
-    "line_end": 45,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 43,
+      "end": 45
     },
     "id": "934493ecda7800b3"
   },
   {
     "blob_sha": "sha1",
     "file_path": "styles.css",
-    "kind": "class",
-    "name": ".greeter",
+    "role": {
+      "kind": "class",
+      "name": ".greeter"
+    },
     "scope": "",
     "language": "css",
     "file_language": "css",
     "content": ".greeter {\n  color: #333;\n}",
-    "line_start": 1,
-    "line_end": 3,
-    "metadata": {
-      "module": "",
-      "names": "",
-      "dots": "",
-      "language_hint": ""
+    "span": {
+      "start": 1,
+      "end": 3
     },
     "id": "6f956de079e5ad55"
   }
