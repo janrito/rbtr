@@ -70,7 +70,13 @@ daemon's status: the first answer says both that rbtr runs
 and where its daemon is. Startup runs one process when a
 daemon is running, and two when it has to start one.
 
-When no candidate answers, pi-rbtr cannot tell why: pi
+Startup moves to the next candidate only when one cannot
+run. A candidate that runs is waited for, up to 30 s, and
+one that has not answered by then ends the search: on a
+busy machine a Python process can take seconds to start,
+and the next candidate may be another installation of rbtr.
+
+When no candidate runs, pi-rbtr cannot tell why: pi
 reports a program that cannot start as a silent exit 1. It
 suggests installing rbtr, the likeliest cause, and does
 nothing more.
@@ -108,6 +114,9 @@ A request can wait for its execution resource and for native work to finish.
 The [core concurrency model](../rbtr/ARCHITECTURE.md#concurrency-model)
 defines those queues and shared controls. A tool call waits 120 s for the daemon,
 and the CLI fallback 150 s, enough to outlast the client it starts.
+A status asked of the CLI, for the footer or `rbtr_status`,
+waits 15 s, as starting or stopping the daemon does.
+A CLI process can take seconds to start on a busy machine.
 An abort from the user ends any wait at once and is never
 retried. The [core protocol](../rbtr/ARCHITECTURE.md#daemon-protocol)
 distinguishes a returned error from a local wait ending without a reply.
@@ -322,7 +331,7 @@ tool results, notifications, footer statuses, and the
 processes the extension starts.
 
 Conditions that are hard to reach use real processes:
-stand-in scripts in `tests/fixtures/` for a missing or
+stand-in scripts in `tests/fixtures/` for a missing, slow or
 stuck rbtr, and `SIGSTOP` for a silent daemon. `FakeDaemon`
 only sends `index_error`, which a real daemon cannot be
 made to send.

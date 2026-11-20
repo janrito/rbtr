@@ -1,301 +1,184 @@
 [
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "comment",
     "file_path": "bash.sh",
-    "role": {
-      "kind": "comment"
-    },
     "scope": "",
     "language": "bash",
-    "file_language": "bash",
     "content": "#!/usr/bin/env bash\n# Greeter — print greetings for named recipients.\n#\n# Bash has no classes or methods; the plugin extracts functions,\n# top-level variable assignments (including export/declare/readonly),\n# aliases, and source/. imports.",
-    "span": {
-      "start": 1,
-      "end": 6
-    },
-    "id": "e4307a2c6ea35a81"
+    "line_start": 1,
+    "line_end": 6
   },
   {
-    "blob_sha": "sha1",
+    "name": "source ./lib/colours.sh",
+    "kind": "import",
     "file_path": "bash.sh",
-    "role": {
-      "kind": "import",
-      "name": "source ./lib/colours.sh",
-      "meta": {
-        "module": "./lib/colours.sh",
-        "names": "",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
     "scope": "",
     "language": "bash",
-    "file_language": "bash",
     "content": "source ./lib/colours.sh",
-    "span": {
-      "start": 8,
-      "end": 8
-    },
-    "id": "9265bcd393cdbfc7"
+    "line_start": 8,
+    "line_end": 8,
+    "metadata": {
+      "module": "./lib/colours.sh",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
   },
   {
-    "blob_sha": "sha1",
+    "name": ". /etc/greeter.conf",
+    "kind": "import",
     "file_path": "bash.sh",
-    "role": {
-      "kind": "import",
-      "name": ". /etc/greeter.conf",
-      "meta": {
-        "module": "/etc/greeter.conf",
-        "names": "",
-        "dots": "",
-        "language_hint": ""
-      }
-    },
     "scope": "",
     "language": "bash",
-    "file_language": "bash",
     "content": ". /etc/greeter.conf",
-    "span": {
-      "start": 9,
-      "end": 9
-    },
-    "id": "9e439113ee561e27"
+    "line_start": 9,
+    "line_end": 9,
+    "metadata": {
+      "module": "/etc/greeter.conf",
+      "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "comment",
     "file_path": "bash.sh",
-    "role": {
-      "kind": "variable",
-      "name": "DEFAULT_GREETING"
-    },
     "scope": "",
     "language": "bash",
-    "file_language": "bash",
-    "content": "DEFAULT_GREETING=\"Hello\"",
-    "span": {
-      "start": 11,
-      "end": 11
-    },
-    "id": "38cfd35861b45035"
-  },
-  {
-    "blob_sha": "sha1",
-    "file_path": "bash.sh",
-    "role": {
-      "kind": "comment"
-    },
-    "scope": "",
-    "language": "bash",
-    "file_language": "bash",
     "content": "# trailing comment: its own chunk",
-    "span": {
-      "start": 11,
-      "end": 11
-    },
-    "id": "c8b87f6c0550268b"
+    "line_start": 11,
+    "line_end": 11
   },
   {
-    "blob_sha": "sha1",
+    "name": "DEFAULT_GREETING",
+    "kind": "variable",
     "file_path": "bash.sh",
-    "role": {
-      "kind": "variable",
-      "name": "LOCALE"
-    },
     "scope": "",
     "language": "bash",
-    "file_language": "bash",
+    "content": "DEFAULT_GREETING=\"Hello\"",
+    "line_start": 11,
+    "line_end": 11
+  },
+  {
+    "name": "LOCALE",
+    "kind": "variable",
+    "file_path": "bash.sh",
+    "scope": "",
+    "language": "bash",
     "content": "# Standalone note, separated by blank lines from any definition.\n# Second line of the same block.\nLOCALE=\"${LANG:-en}\"",
-    "span": {
-      "start": 13,
-      "end": 15
-    },
-    "id": "d74e7f5621a74641"
+    "line_start": 13,
+    "line_end": 15
   },
   {
-    "blob_sha": "sha1",
+    "name": "API_URL",
+    "kind": "variable",
     "file_path": "bash.sh",
-    "role": {
-      "kind": "variable",
-      "name": "API_URL"
-    },
     "scope": "",
     "language": "bash",
-    "file_language": "bash",
     "content": "export API_URL=\"https://example.com\"",
-    "span": {
-      "start": 16,
-      "end": 16
-    },
-    "id": "1139af1e903fa001"
+    "line_start": 16,
+    "line_end": 16
   },
   {
-    "blob_sha": "sha1",
+    "name": "MAX_RETRIES",
+    "kind": "variable",
     "file_path": "bash.sh",
-    "role": {
-      "kind": "variable",
-      "name": "MAX_RETRIES"
-    },
     "scope": "",
     "language": "bash",
-    "file_language": "bash",
     "content": "readonly MAX_RETRIES=3",
-    "span": {
-      "start": 17,
-      "end": 17
-    },
-    "id": "b892bc4e4a150620"
+    "line_start": 17,
+    "line_end": 17
   },
   {
-    "blob_sha": "sha1",
+    "name": "COUNTER",
+    "kind": "variable",
     "file_path": "bash.sh",
-    "role": {
-      "kind": "variable",
-      "name": "COUNTER"
-    },
     "scope": "",
     "language": "bash",
-    "file_language": "bash",
     "content": "declare -i COUNTER=0",
-    "span": {
-      "start": 18,
-      "end": 18
-    },
-    "id": "2a9cfb0b1658749c"
+    "line_start": 18,
+    "line_end": 18
   },
   {
-    "blob_sha": "sha1",
+    "name": "greet",
+    "kind": "variable",
     "file_path": "bash.sh",
-    "role": {
-      "kind": "variable",
-      "name": "greet"
-    },
     "scope": "",
     "language": "bash",
-    "file_language": "bash",
     "content": "alias greet=\"format_greeting\"",
-    "span": {
-      "start": 19,
-      "end": 19
-    },
-    "id": "2b5409aa288fb92c"
+    "line_start": 19,
+    "line_end": 19
   },
   {
-    "blob_sha": "sha1",
+    "name": "format_greeting",
+    "kind": "function",
     "file_path": "bash.sh",
-    "role": {
-      "kind": "function",
-      "name": "format_greeting"
-    },
     "scope": "",
     "language": "bash",
-    "file_language": "bash",
     "content": "# Format a greeting for a single recipient.\nformat_greeting() {\n    local name=\"$1\"\n    echo \"${DEFAULT_GREETING}, ${name} (${LOCALE})\"\n}",
-    "span": {
-      "start": 21,
-      "end": 25
-    },
-    "id": "b57d1fd8270452eb"
+    "line_start": 21,
+    "line_end": 25
   },
   {
-    "blob_sha": "sha1",
+    "name": "greet_all",
+    "kind": "function",
     "file_path": "bash.sh",
-    "role": {
-      "kind": "function",
-      "name": "greet_all"
-    },
     "scope": "",
     "language": "bash",
-    "file_language": "bash",
     "content": "# Greet every argument in turn.\ngreet_all() {\n    for name in \"$@\"; do\n        format_greeting \"$name\"\n    done\n}",
-    "span": {
-      "start": 27,
-      "end": 32
-    },
-    "id": "938eaca775c955f0"
+    "line_start": 27,
+    "line_end": 32
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "doc_section",
     "file_path": "bash.sh",
-    "role": {
-      "kind": "doc_section",
-      "name": ""
-    },
     "scope": "",
     "language": "bash",
-    "file_language": "bash",
     "content": "greet_all \"$@\"",
-    "span": {
-      "start": 34,
-      "end": 34
-    },
-    "id": "28fef2e3cc81696c"
+    "line_start": 34,
+    "line_end": 34
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "doc_section",
     "file_path": "bash.sh",
-    "role": {
-      "kind": "doc_section",
-      "name": ""
-    },
     "scope": "",
     "language": "bash",
-    "file_language": "bash",
     "content": "mkdir -p \"${HOME}/.greeter\"",
-    "span": {
-      "start": 36,
-      "end": 36
-    },
-    "id": "3b9dadb425a9561b"
+    "line_start": 36,
+    "line_end": 36
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "doc_section",
     "file_path": "bash.sh",
-    "role": {
-      "kind": "doc_section",
-      "name": ""
-    },
     "scope": "",
     "language": "bash",
-    "file_language": "bash",
     "content": "if [ -z \"${GREETER_QUIET:-}\" ]; then\n  greet \"$DEFAULT_GREETING\"\nfi",
-    "span": {
-      "start": 38,
-      "end": 40
-    },
-    "id": "1c837acadf784a90"
+    "line_start": 38,
+    "line_end": 40
   },
   {
-    "blob_sha": "sha1",
+    "name": "RED",
+    "kind": "variable",
     "file_path": "lib/colours.sh",
-    "role": {
-      "kind": "variable",
-      "name": "RED"
-    },
     "scope": "",
     "language": "bash",
-    "file_language": "bash",
     "content": "#!/usr/bin/env bash\n# Terminal colour codes.\nRED='\\033[0;31m'",
-    "span": {
-      "start": 1,
-      "end": 3
-    },
-    "id": "a0e8a338025ec509"
+    "line_start": 1,
+    "line_end": 3
   },
   {
-    "blob_sha": "sha1",
+    "name": "RESET",
+    "kind": "variable",
     "file_path": "lib/colours.sh",
-    "role": {
-      "kind": "variable",
-      "name": "RESET"
-    },
     "scope": "",
     "language": "bash",
-    "file_language": "bash",
     "content": "RESET='\\033[0m'",
-    "span": {
-      "start": 4,
-      "end": 4
-    },
-    "id": "19e70f62367c0169"
+    "line_start": 4,
+    "line_end": 4
   }
 ]

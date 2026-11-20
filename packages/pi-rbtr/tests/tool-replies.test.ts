@@ -409,6 +409,19 @@ describe("with a daemon of its own", () => {
   });
 });
 
+describe("with a daemon of its own and the CLI slow to answer", () => {
+  test.override({ ownDaemon: true, slow: { "python3 -m rbtr --json status": 6000 } });
+
+  test("with the daemon gone, rbtr_status answers from the CLI", async ({ cli, processes, pi }) => {
+    await pi.start();
+    await pi.run({ name: "rbtr_index_tools", args: {} });
+    cli("daemon", "stop");
+    const [end] = await pi.run({ name: "rbtr_status", args: {} });
+    expect(processes()).toContain("python3 -m rbtr --json status");
+    expect(end.result.structuredContent).toMatchObject({ kind: "status", state: "indexed" });
+  });
+});
+
 describe("with codemode", () => {
   test.override({ piSettings: { defaultTools: ["+codemode"] } });
 

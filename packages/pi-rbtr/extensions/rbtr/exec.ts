@@ -23,12 +23,17 @@ export interface ResolvedCommand {
 }
 
 /**
- * The rbtr a session runs and what its `daemon status` reported, or the
- * last candidate tried and why its `daemon status` did not answer.
+ * The rbtr a session runs and what its `daemon status` reported; the
+ * last candidate tried and why it did not run; or a candidate that ran
+ * and did not answer within `PROBE_TIMEOUT_MS`.
  */
 export type FoundRbtr =
   | { kind: "found"; command: ResolvedCommand; daemon: DaemonStatusReport }
-  | { kind: "failed"; command: ResolvedCommand; reason: string };
+  | { kind: "failed"; command: ResolvedCommand; reason: string }
+  | { kind: "silent"; command: ResolvedCommand };
+
+/** How long the cascade waits for one candidate's `daemon status`. */
+export const PROBE_TIMEOUT_MS = 30_000;
 
 const UVX_RBTR: ResolvedCommand = { executable: "uvx", baseArgs: ["rbtr", "--json"], description: "uvx rbtr" };
 
@@ -51,7 +56,7 @@ export async function resolveCommand(pi: Pick<ExtensionAPI, "exec">, command: st
     const failed = (reason: string): FoundRbtr => ({ kind: "failed", command: candidate, reason });
     try {
       const result = await pi.exec(candidate.executable, [...candidate.baseArgs, "daemon", "status"], { timeout });
-      if (result.killed) return failed("no answer in time");
+      if (result.killed) return { kind: "silent", command: candidate };
       if (result.code !== 0) return failed(result.stderr.trim().split("\n").at(-1) || `exit ${result.code}`);
       const daemon = statusReport(result.stdout);
       return daemon === null
@@ -68,8 +73,8 @@ export async function resolveCommand(pi: Pick<ExtensionAPI, "exec">, command: st
       { executable: "rbtr", baseArgs: ["--json"], description: "rbtr (PATH)" },
     ];
     for (const candidate of candidates) {
-      const found = await daemonStatus(candidate, 5000);
-      if (found.kind === "found") return found;
+      const found = await daemonStatus(candidate, PROBE_TIMEOUT_MS);
+      if (found.kind !== "failed") return found;
     }
     return daemonStatus(UVX_RBTR);
   }

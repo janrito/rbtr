@@ -102,9 +102,50 @@ encoding the use-case tests already prove.
   of test write rows through a `WriteSession` directly: tests of the
   session and storage themselves (transactions, concurrency,
   schema, migrations, compaction), and tests of a state no use case
-  can produce (crash residue, an orphan, a pre-migration file). A
-  snapshot every test in a module only reads is built once, into
-  `module_index` from `module_repo`.
+  can produce (an orphan, a pre-migration file). Crash residue is a
+  build stopped at its `edges` phase: pass `build_index` a `stop`
+  event and an `on_progress` that sets it. A snapshot every test in a
+  module only reads is built once, into `module_index` from
+  `module_repo`.
+
+### Logic in a test means it starts too low
+
+A test that needs code of its own to set up or read its subject
+usually starts below the level that produces the behaviour, and
+does that level's work itself. The work then drifts from
+production, and every change to an internal shape ripples through
+the tests. Work at these levels:
+
+- **Use cases, the bulk.** Input as files or arguments, results read back through
+  `Index` reads, or through the reply DTOs in `rbtr.daemon.dto` where a reply shape
+  exists. A plugin's sample test reads its built sample through `sample_symbols` and
+  `sample_edges`, plain values with no index or frame behind them, rather than
+  extracting each file and inferring edges itself; an edge case is a set of files built
+  with `build_index`, not chunks written by hand.
+- **A small low-level core.** Only for a rule a use case cannot
+  isolate, such as the order rows reach inference in, or one that
+  would need too many builds, such as module resolution's steps.
+  It takes primitives, or literal rows of the read schema the
+  function consumes.
+- **Delete the overlap.** Once a use-case test covers a low-level
+  test's behaviour, delete the low-level test.
+
+Four checks on any code in a test:
+
+- **No harness doing a use case's work.** If a fixture detects
+  languages, extracts, resolves or infers, call the use case.
+- **No crossing from the write model to the read model.** A test
+  never turns `Chunk` objects into read-model rows; it writes
+  through a use case and reads through the read model.
+- **No oracle that repeats the algorithm it checks.** A check built
+  the same way as the code agrees with it whatever it does. Check
+  an independent fact, such as the lines no chunk spans.
+- **Snapshots record a read shape.** A reply DTO where one exists,
+  never the write model, so a change to how chunks are written or
+  stored changes no snapshot.
+
+Small reshapers of values a test already has are fine:
+`render_edges`, `uncovered_lines`, the eval's row builders.
 
 ## Test structure
 

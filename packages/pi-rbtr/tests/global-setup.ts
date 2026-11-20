@@ -8,7 +8,8 @@
  * rules below from the checkout's Python files, as this checkout is mostly
  * Python. Its history: `base` is the checkout's HEAD; `main` (HEAD) changes
  * the subject function by one line and deletes any `.pi/`; `unindexed` adds
- * a commit on top of `main`. `HEAD` and `base` are indexed, `unindexed` never is.
+ * a commit on top of `main`, made in a worktree so that `HEAD` never names
+ * it. `HEAD` and `base` are indexed, `unindexed` never is.
  *
  * Tests read the repository and never write to it. A test that writes
  * project settings, changes the watch set or watches a build works on a
@@ -172,9 +173,10 @@ export default async function setup(project: TestProject): Promise<() => void> {
   const checkout = execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: here, encoding: "utf8" }).trim();
   const repo = join(root, "repo");
   // Git LFS files stay pointers: a checkout made without LFS objects, as
-  // CI's is, cannot fill them in a clone, and no test reads them.
-  execFileSync("git", ["clone", "-q", checkout, repo], { env: { ...process.env, GIT_LFS_SKIP_SMUDGE: "1" } });
-  const git = (...args: string[]) => execFileSync("git", args, { cwd: repo, encoding: "utf8" });
+  // CI's is, cannot fill them in a clone or its worktrees, and no test reads them.
+  const env = { ...process.env, GIT_LFS_SKIP_SMUDGE: "1" };
+  execFileSync("git", ["clone", "-q", checkout, repo], { env });
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: repo, encoding: "utf8", env });
   git("switch", "-qC", "main");
   git("config", "user.email", "test@example.com");
   git("config", "user.name", "test");
@@ -204,12 +206,15 @@ export default async function setup(project: TestProject): Promise<() => void> {
   // pi and the extension read a project's `.pi/`; the tests write their own.
   git("rm", "-rq", "--ignore-unmatch", ".pi");
   git("commit", "-qam", "Change the subject function by one line");
-  git("switch", "-qc", "unindexed");
+  // The daemon watches HEAD, and builds whatever it names when it looks, so
+  // `unindexed` is committed in a worktree of its own.
+  const unindexed = join(root, "unindexed");
+  git("worktree", "add", "-qb", "unindexed", unindexed);
   const copy = join(dirname(corpus.subject.file), `unindexed_${basename(corpus.subject.file)}`);
-  cpSync(file, join(repo, copy));
-  git("add", ".");
-  git("commit", "-qm", "Add a copy of the subject's file");
-  git("switch", "-q", "main");
+  cpSync(file, join(unindexed, copy));
+  git("-C", unindexed, "add", ".");
+  git("-C", unindexed, "commit", "-qm", "Add a copy of the subject's file");
+  git("worktree", "remove", unindexed);
   await send({ kind: "watch", repo_path: repo, refs: ["HEAD", "base"] }, { rpcEndpoint: chooser.rpc });
   await until(async () => {
     const status = await send({ kind: "status", repo_path: repo }, { rpcEndpoint: chooser.rpc });

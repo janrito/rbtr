@@ -66,6 +66,38 @@ def test_chunks_returns_expected(
     assert sorted(chunks["name"]) == sorted(chunk_query.expected_names)
 
 
+def test_chunks_sharing_a_start_line_come_back_in_one_order(
+    index: Index, git_repo: pygit2.Repository, repo_path: str
+) -> None:
+    """Chunks starting on one line are read by end line, kind and name, so every read agrees.
+
+    Each line holds a constant and the comment after it: two chunks on
+    one line, twelve times over.
+    """
+    source = b"""\
+JAN = 1  # winter
+FEB = 2  # winter
+MAR = 3  # spring
+APR = 4  # spring
+MAY = 5  # spring
+JUN = 6  # summer
+JUL = 7  # summer
+AUG = 8  # summer
+SEP = 9  # autumn
+OCT = 10  # autumn
+NOV = 11  # autumn
+DEC = 12  # winter
+"""
+    sha = str(make_commit(git_repo, {"months.py": source}, ref="refs/heads/months"))
+    build_index(repo_path, sha, index)
+
+    chunks = index.chunks(at=index.register(repo_path).at(sha))
+
+    assert chunks.select("line_start", "kind").rows() == [
+        (line, kind) for line in range(1, 13) for kind in ("comment", "variable")
+    ]
+
+
 @fixture
 @parametrize_with_cases("scenario", has_tag="blob_is_current")
 def blob_query(scenario: BlobCurrentScenario, index: Index) -> tuple[Index, BlobCurrentScenario]:

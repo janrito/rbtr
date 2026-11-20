@@ -2,89 +2,68 @@
 
 from __future__ import annotations
 
-import dataframely as dy
+import polars as pl
+import pygit2
+import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.domain.models import (
-    Chunk,
-    EdgeKind,
-)
-from rbtr.git import FileEntry
-from rbtr.languages.edges import (
-    InferredEdgeRow,
-    infer_import_edges,
-)
-from rbtr.languages.extract import extract_file
+from rbtr.domain.models import SnapshotRef
+from rbtr.index.build import build_index
+from rbtr.index.index import Index
+from rbtr.languages.edges import EdgeChunkRow, infer_import_edges
 from rbtr.languages.manager import get_manager
 from rbtr.languages.resolution import build_resolution_map
-from rbtr.testing import edge_rows
+from rbtr.testing import render_edges
 
+from ..conftest import make_commit
 from .cases_edges import EdgeScenario
 
 
 @fixture
 @parametrize_with_cases("scenario", cases=".cases_edges")
-def inferred(
-    scenario: EdgeScenario,
-) -> tuple[EdgeScenario, dy.DataFrame[InferredEdgeRow], dict[str, str]]:
-    """Build the scenario's chunks and keep each spec handle's real id.
-
-    A `ChunkSpec.id` is a handle a case can refer to; a chunk's actual id
-    is derived from its content, so expectations written in handles are
-    translated through this map.
-    """
-    chunks = [
-        Chunk.model_validate(
-            {
-                "blob_sha": f"sha_{spec.id}",
-                "file_path": spec.file_path,
-                "role": {"kind": spec.kind, "name": spec.name, "meta": spec.metadata},
-                "language": spec.language,
-                "content": spec.content,
-                "span": {"start": 1, "end": 1},
-            }
-        )
-        for spec in scenario.chunks
-    ]
-    ids = {spec.id: chunk.id for spec, chunk in zip(scenario.chunks, chunks, strict=True)}
-    edges = infer_import_edges(edge_rows(chunks), set(scenario.repo_files), scenario.resolution_map)
-    return scenario, edges, ids
+def edge_scenario(scenario: EdgeScenario) -> EdgeScenario:
+    return scenario
 
 
-def test_inference_produces_expected_edges(
-    inferred: tuple[EdgeScenario, dy.DataFrame[InferredEdgeRow], dict[str, str]],
+@pytest.fixture
+def edge_scenario_ref(
+    edge_scenario: EdgeScenario, index: Index, git_repo: pygit2.Repository, repo_path: str
+) -> SnapshotRef:
+    sha = str(make_commit(git_repo, edge_scenario.files, ref="refs/heads/case"))
+    build_index(repo_path, sha, index)
+    return index.register(repo_path).at(sha)
+
+
+def test_a_build_infers_the_edges_its_imports_make(
+    edge_scenario: EdgeScenario, edge_scenario_ref: SnapshotRef, index: Index
 ) -> None:
-    scenario, edges, ids = inferred
-    pairs = frozenset(zip(edges["source_id"], edges["target_id"], strict=True))
-    expected = frozenset((ids[src], ids[dst]) for src, dst in scenario.expected)
-    assert pairs == expected
-
-
-def test_inference_edge_kind_is_correct(
-    inferred: tuple[EdgeScenario, dy.DataFrame[InferredEdgeRow], dict[str, str]],
-) -> None:
-    scenario, edges, _ids = inferred
-    expected_kind = scenario.expected_edge_kind or EdgeKind.IMPORTS
-    assert set(edges["kind"]) <= {expected_kind}
+    chunks = index.chunks(at=edge_scenario_ref)
+    edges = index.edges(within=[edge_scenario_ref])
+    assert render_edges(edges, chunks) == edge_scenario.expected
 
 
 def test_a_name_twice_in_a_file_is_reached_at_its_first_line() -> None:
     """Of two definitions an import names in one file, it reaches the one earlier in the file.
 
-    The rows arrive later line first, so row order cannot decide it.
+    The rows arrive later line first, so row order cannot decide it. A
+    build cannot choose the order its rows arrive in, so these are the
+    rows inference reads, written out.
     """
-    importer = extract_file(FileEntry("a.py", "sha_a", b"from b import f\n"), "python")
-    target_source = b"""\
-def f():
-    return 1
-
-
-def f():
-    return 2
-"""
-    target = extract_file(FileEntry("b.py", "sha_b", target_source), "python")
-    rows = edge_rows([*importer, *target][::-1])
+    rows = pl.DataFrame(
+        {
+            "id": ["import", "later", "earlier"],
+            "file_path": ["a.py", "b.py", "b.py"],
+            "line_start": [1, 5, 1],
+            "kind": ["import", "function", "function"],
+            "name": ["from b import f", "f", "f"],
+            "language": ["python", "python", "python"],
+            "module": ["b", None, None],
+            "names": ["f", None, None],
+            "dots": ["", None, None],
+            "language_hint": ["", None, None],
+        }
+    ).pipe(EdgeChunkRow.validate, cast=True)
 
     edges = infer_import_edges(rows, {"a.py", "b.py"}, build_resolution_map(get_manager()))
 
-    assert edges["target_id"].to_list() == [c.id for c in target if c.span.start == 1]
+    assert edges["target_id"].to_list() == ["earlier"]

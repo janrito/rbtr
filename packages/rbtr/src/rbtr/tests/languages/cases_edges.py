@@ -1,901 +1,773 @@
-"""Scenarios for the edge-inference functions.
+"""Repositories, and the edges a build of each infers.
 
-Each case returns an `EdgeScenario` describing the chunks present,
-the repo's file set, and the expected edge IDs.  Tests in
-`test_edge_inference.py` run `infer_import_edges` and assert the
-result.
+Each case gives a repository's files and the edges `render_edges` reads
+back from its build, as `source -> target [kind]` lines naming each end
+by `path::name`. The one-per-language cases import a file in that
+language's own syntax; the others pin a rule of how imports resolve.
 
-Chunks are declared as `ChunkSpec` tuples of the fields that
-matter for edge inference.  The fixture fills in pydantic-required
-boilerplate (`blob_sha`, `line_start`, `line_end`, empty
-`content` when unused).
+The language cases use nested directories on purpose. A reference
+resolved from the repository root happens to work when both files sit
+at the root, which hides the most common shape of all: a file naming
+its sibling.
+
+A language that cannot yet follow its own syntax belongs here with a
+strict `xfail` naming what is missing, so closing the gap turns the case
+red and prompts the mark's removal.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from rbtr.domain.models import ChunkKind, EdgeKind, FragmentMeta, ImportMeta
-from rbtr.languages.registration import ModuleStyle
-from rbtr.languages.resolution import ImportResolution
-
-from ..index.cases_common import ChunkSpec
+import pytest
 
 
 @dataclass(frozen=True)
 class EdgeScenario:
-    chunks: list[ChunkSpec]
-    repo_files: frozenset[str] = frozenset()
-    # Expected set of (source_id, target_id) pairs in the result,
-    # regardless of order.  Empty = no edges expected.
-    expected: frozenset[tuple[str, str]] = frozenset()
-    resolution_map: dict[str, ImportResolution] | None = None
-    # Override the default edge-kind check (IMPORT→IMPORTS, etc.).
-    # Used when prose-language imports produce DOCUMENTS edges.
-    expected_edge_kind: EdgeKind | None = None
+    """A repository's files, by path, and the edges a build of them infers."""
+
+    files: dict[str, bytes]
+    expected: list[str]
 
 
-_PYTHON_RESOLUTION = ImportResolution(
-    extensions=(".py", ".pyi"),
-    index_files=("__init__.py",),
-    source_roots=("", "src"),
-    path_substitutions=(),
-    module_style=ModuleStyle.DOTTED,
-)
-_PYTHON_MAP: dict[str, ImportResolution] = {"python": _PYTHON_RESOLUTION}
-
-
-def case_import_from_import() -> EdgeScenario:
-    """from src.models import User — module + names → exact target."""
+def case_python() -> EdgeScenario:
+    """Python resolves a dotted module to a package file."""
     return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name="from src.models import User",
-                file_path="src/app.py",
-                language="python",
-                metadata=ImportMeta(module="src.models", names="User"),
-            ),
-            ChunkSpec(
-                id="user1",
-                kind=ChunkKind.CLASS,
-                name="User",
-                file_path="src/models.py",
-            ),
+        files={
+            "pkg/a.py": b"""\
+from pkg.b import helper
+""",
+            "pkg/b.py": b"""\
+def helper():
+    return 1
+""",
+        },
+        expected=[
+            "pkg/a.py::from pkg.b import helper -> pkg/b.py::helper [imports]",
         ],
-        repo_files=frozenset({"src/app.py", "src/models.py"}),
-        resolution_map=_PYTHON_MAP,
-        expected=frozenset({("imp1", "user1")}),
     )
 
 
-def case_import_variable_target() -> EdgeScenario:
-    """from src.config import config — named import of a module-level VARIABLE."""
+def case_javascript() -> EdgeScenario:
+    """JavaScript resolves a relative specifier with an extension."""
     return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp_cfg",
-                kind=ChunkKind.IMPORT,
-                name="from src.config import config",
-                file_path="src/app.py",
-                language="python",
-                metadata=ImportMeta(module="src.config", names="config"),
-            ),
-            ChunkSpec(
-                id="var_cfg",
-                kind=ChunkKind.VARIABLE,
-                name="config",
-                file_path="src/config.py",
-            ),
+        files={
+            "src/a.js": b"""\
+import { helper } from './b.js';
+""",
+            "src/b.js": b"""\
+export function helper() {}
+""",
+        },
+        expected=[
+            "src/a.js::import { helper } from './b.js'; -> src/b.js::helper [imports]",
         ],
-        repo_files=frozenset({"src/app.py", "src/config.py"}),
-        resolution_map=_PYTHON_MAP,
-        expected=frozenset({("imp_cfg", "var_cfg")}),
     )
 
 
-def case_import_destructured_variable_target() -> EdgeScenario:
-    """from src.config import a — `a` came from `a, b = load()`, still links."""
+def case_typescript() -> EdgeScenario:
+    """TypeScript resolves an extensionless relative specifier."""
     return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp_a",
-                kind=ChunkKind.IMPORT,
-                name="from src.config import a",
-                file_path="src/app.py",
-                language="python",
-                metadata=ImportMeta(module="src.config", names="a"),
-            ),
-            ChunkSpec(
-                id="var_a",
-                kind=ChunkKind.VARIABLE,
-                name="a",
-                file_path="src/config.py",
-            ),
+        files={
+            "src/a.ts": b"""\
+import { helper } from './b';
+""",
+            "src/b.ts": b"""\
+export function helper(): number {
+  return 1;
+}
+""",
+        },
+        expected=[
+            "src/a.ts::import { helper } from './b'; -> src/b.ts::helper [imports]",
         ],
-        repo_files=frozenset({"src/app.py", "src/config.py"}),
-        resolution_map=_PYTHON_MAP,
-        expected=frozenset({("imp_a", "var_a")}),
     )
 
 
-def case_import_bare_module() -> EdgeScenario:
-    """import src.models — bare import → edges to all non-import chunks."""
+def case_tsx() -> EdgeScenario:
+    """TSX resolves an extensionless relative specifier."""
     return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name="import src.models",
-                file_path="src/app.py",
-                language="python",
-                metadata=ImportMeta(module="src.models"),
-            ),
-            ChunkSpec(
-                id="fn1",
-                kind=ChunkKind.FUNCTION,
-                name="create_user",
-                file_path="src/models.py",
-            ),
-            ChunkSpec(
-                id="cls1",
-                kind=ChunkKind.CLASS,
-                name="User",
-                file_path="src/models.py",
-            ),
+        files={
+            "src/a.tsx": b"""\
+import { Helper } from './b';
+""",
+            "src/b.tsx": b"""\
+export function Helper() {
+  return null;
+}
+""",
+        },
+        expected=[
+            "src/a.tsx::import { Helper } from './b'; -> src/b.tsx::Helper [imports]",
         ],
-        repo_files=frozenset({"src/app.py", "src/models.py"}),
-        resolution_map=_PYTHON_MAP,
-        expected=frozenset({("imp1", "fn1"), ("imp1", "cls1")}),
     )
 
 
-def case_import_relative() -> EdgeScenario:
-    """from .models import Chunk — dots=1 + module + names."""
+def case_rust() -> EdgeScenario:
+    """Rust resolves a crate-relative `use` path."""
     return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name="from .models import Chunk",
-                file_path="src/rbtr/index/store.py",
-                language="python",
-                metadata=ImportMeta(dots="1", module="models", names="Chunk"),
-            ),
-            ChunkSpec(
-                id="chunk1",
-                kind=ChunkKind.CLASS,
-                name="Chunk",
-                file_path="src/rbtr/index/models.py",
-            ),
+        files={
+            "src/a.rs": b"""\
+use crate::b::helper;
+""",
+            "src/b.rs": b"""\
+pub fn helper() -> u32 {
+    1
+}
+""",
+        },
+        expected=[
+            "src/a.rs::use crate::b::helper; -> src/b.rs::helper [imports]",
         ],
-        repo_files=frozenset({"src/rbtr/index/store.py", "src/rbtr/index/models.py"}),
-        resolution_map=_PYTHON_MAP,
-        expected=frozenset({("imp1", "chunk1")}),
     )
 
 
-def case_import_relative_dot_only_unresolved() -> EdgeScenario:
-    """from . import utils — dots=1 only; package __init__ missing.
+def case_java() -> EdgeScenario:
+    """Java resolves a package-qualified import."""
+    return EdgeScenario(
+        files={
+            "a/A.java": b"""\
+import a.B;
 
-    Python names a directory's stand-in with `index_files`, so a package
-    without `__init__.py` resolves to nothing. A directory is only a unit
-    in a language that says so, and Python does not: `import pkg` binds
-    the package, not the modules beside it.
+class A {}
+""",
+            "a/B.java": b"""\
+class B {}
+""",
+        },
+        expected=[
+            "a/A.java::import a.B; -> a/B.java::B [imports]",
+        ],
+    )
+
+
+def case_c() -> EdgeScenario:
+    """C resolves a quoted `#include` to a sibling header."""
+    return EdgeScenario(
+        files={
+            "src/a.c": b"""\
+#include "b.h"
+""",
+            "src/b.h": b"""\
+int helper(void);
+""",
+        },
+        expected=[
+            'src/a.c::#include "b.h" -> src/b.h::helper [imports]',
+        ],
+    )
+
+
+def case_cpp() -> EdgeScenario:
+    """C++ resolves a quoted `#include` to a sibling header."""
+    return EdgeScenario(
+        files={
+            "src/a.cpp": b"""\
+#include "b.hpp"
+""",
+            "src/b.hpp": b"""\
+int helper();
+""",
+        },
+        expected=[
+            'src/a.cpp::#include "b.hpp" -> src/b.hpp::helper [imports]',
+        ],
+    )
+
+
+def case_bash() -> EdgeScenario:
+    """Bash resolves a sourced sibling script."""
+    return EdgeScenario(
+        files={
+            "bin/a.sh": b"""\
+source ./b.sh
+""",
+            "bin/b.sh": b"""\
+helper() {
+  :
+}
+""",
+        },
+        expected=[
+            "bin/a.sh::source ./b.sh -> bin/b.sh::helper [imports]",
+        ],
+    )
+
+
+def case_svelte() -> EdgeScenario:
+    """A Svelte component resolves the script block's import."""
+    return EdgeScenario(
+        files={
+            "src/A.svelte": b"""\
+<script>
+  import { helper } from './b.js';
+</script>
+""",
+            "src/b.js": b"""\
+export function helper() {}
+""",
+        },
+        expected=[
+            "src/A.svelte::import { helper } from './b.js'; -> src/b.js::helper [imports]",
+        ],
+    )
+
+
+def case_vue() -> EdgeScenario:
+    """A Vue component resolves the script block's import."""
+    return EdgeScenario(
+        files={
+            "src/A.vue": b"""\
+<script>
+import { helper } from './b.js';
+</script>
+""",
+            "src/b.js": b"""\
+export function helper() {}
+""",
+        },
+        expected=[
+            "src/A.vue::import { helper } from './b.js'; -> src/b.js::helper [imports]",
+        ],
+    )
+
+
+def case_css() -> EdgeScenario:
+    """CSS `@import` names a sibling stylesheet."""
+    return EdgeScenario(
+        files={
+            "css/a.css": b"""\
+@import "b.css";
+""",
+            "css/b.css": b"""\
+.x {
+  color: red;
+}
+""",
+        },
+        expected=[
+            'css/a.css::@import "b.css"; -> css/b.css::.x [imports]',
+        ],
+    )
+
+
+def case_scss() -> EdgeScenario:
+    """SCSS `@use` names a sibling stylesheet."""
+    return EdgeScenario(
+        files={
+            "scss/a.scss": b"""\
+@use "b";
+""",
+            "scss/b.scss": b"""\
+$colour: red;
+""",
+        },
+        expected=[
+            'scss/a.scss::@use "b"; -> scss/b.scss::$colour [imports]',
+        ],
+    )
+
+
+def case_less() -> EdgeScenario:
+    """Less `@import` names a sibling stylesheet."""
+    return EdgeScenario(
+        files={
+            "less/a.less": b"""\
+@import "b.less";
+""",
+            "less/b.less": b"""\
+@colour: red;
+""",
+        },
+        expected=[
+            'less/a.less::@import "b.less"; -> less/b.less::@colour [imports]',
+        ],
+    )
+
+
+def case_html() -> EdgeScenario:
+    """An HTML `<script src>` names a sibling script."""
+    return EdgeScenario(
+        files={
+            "web/a.html": b"""\
+<script src="b.js"></script>
+""",
+            "web/b.js": b"""\
+export function helper() {}
+""",
+        },
+        expected=[
+            'web/a.html::<script src="b.js"></script> -> web/b.js::helper [imports]',
+        ],
+    )
+
+
+def case_markdown() -> EdgeScenario:
+    """A Markdown link names a sibling document."""
+    return EdgeScenario(
+        files={
+            "docs/a.md": b"""\
+See [the guide](b.md) for details.
+""",
+            "docs/b.md": b"""\
+# Guide
+
+Body.
+""",
+        },
+        expected=[
+            "docs/a.md::b.md -> docs/b.md::Guide [documents]",
+        ],
+    )
+
+
+def case_rst() -> EdgeScenario:
+    """An rST `:doc:` role names a sibling document."""
+    return EdgeScenario(
+        files={
+            "docs/a.rst": b"""\
+Title
+=====
+
+See :doc:`b` for details.
+""",
+            "docs/b.rst": b"""\
+Guide
+=====
+
+Body.
+""",
+        },
+        expected=[
+            "docs/a.rst:::doc:`b` -> docs/b.rst::Guide [documents]",
+        ],
+    )
+
+
+def case_ruby() -> EdgeScenario:
+    """Ruby resolves a `require_relative` sibling."""
+    return EdgeScenario(
+        files={
+            "lib/a.rb": b"""\
+require_relative 'b'
+""",
+            "lib/b.rb": b"""\
+def helper
+  1
+end
+""",
+        },
+        expected=[
+            "lib/a.rb::require_relative 'b' -> lib/b.rb::helper [imports]",
+        ],
+    )
+
+
+def case_go() -> EdgeScenario:
+    """Go resolves an import naming a package directory inside the module.
+
+    The imported file is named for what it holds rather than for its
+    directory, because a Go package is the directory and a file in it may
+    be called anything. `go.mod` declares the prefix the import carries.
     """
     return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name="from . import utils",
-                file_path="src/rbtr/index/store.py",
-                language="python",
-                metadata=ImportMeta(dots="1", names="utils"),
-            ),
-            ChunkSpec(
-                id="utils1",
-                kind=ChunkKind.FUNCTION,
-                name="utils",
-                file_path="src/rbtr/index/utils.py",
-            ),
-        ],
-        repo_files=frozenset({"src/rbtr/index/store.py", "src/rbtr/index/utils.py"}),
-        resolution_map=_PYTHON_MAP,
-        expected=frozenset(),  # no package file resolves
-    )
+        files={
+            "go.mod": b"""\
+module example.com/m
 
+go 1.24
+""",
+            "a/main.go": b"""\
+package main
 
-def case_import_stdlib_module_skipped() -> EdgeScenario:
-    """import os — module doesn't resolve to a repo file."""
-    return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name="import os",
-                file_path="src/app.py",
-                language="python",
-                metadata=ImportMeta(module="os"),
-            ),
-        ],
-        repo_files=frozenset({"src/app.py"}),
-        resolution_map=_PYTHON_MAP,
-        expected=frozenset(),
-    )
+import "example.com/m/b"
+""",
+            "b/lib.go": b"""\
+package b
 
-
-def case_import_target_symbol_missing() -> EdgeScenario:
-    """Named import but symbol doesn't exist in target file."""
-    return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name="from src.models import Missing",
-                file_path="src/app.py",
-                language="python",
-                metadata=ImportMeta(module="src.models", names="Missing"),
-            ),
-            ChunkSpec(
-                id="fn1",
-                kind=ChunkKind.FUNCTION,
-                name="existing",
-                file_path="src/models.py",
-            ),
-        ],
-        repo_files=frozenset({"src/app.py", "src/models.py"}),
-        resolution_map=_PYTHON_MAP,
-        expected=frozenset(),
-    )
-
-
-def case_import_multiple_names() -> EdgeScenario:
-    """from src.models import Chunk, Edge — names list parsed."""
-    return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name="from src.models import Chunk, Edge",
-                file_path="src/app.py",
-                language="python",
-                metadata=ImportMeta(module="src.models", names="Chunk,Edge"),
-            ),
-            ChunkSpec(
-                id="chunk1",
-                kind=ChunkKind.CLASS,
-                name="Chunk",
-                file_path="src/models.py",
-            ),
-            ChunkSpec(
-                id="edge1",
-                kind=ChunkKind.CLASS,
-                name="Edge",
-                file_path="src/models.py",
-            ),
-        ],
-        repo_files=frozenset({"src/app.py", "src/models.py"}),
-        resolution_map=_PYTHON_MAP,
-        expected=frozenset({("imp1", "chunk1"), ("imp1", "edge1")}),
-    )
-
-
-def case_import_monorepo_absolute_suffix() -> EdgeScenario:
-    """Absolute import resolves across a packages/*/src layout via suffix."""
-    return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name="from rbtr.index.store import IndexStore",
-                file_path="packages/app/src/app/main.py",
-                language="python",
-                metadata=ImportMeta(module="rbtr.index.store", names="IndexStore"),
-            ),
-            ChunkSpec(
-                id="cls1",
-                kind=ChunkKind.CLASS,
-                name="IndexStore",
-                file_path="packages/rbtr/src/rbtr/index/store.py",
-            ),
-        ],
-        repo_files=frozenset(
-            {
-                "packages/app/src/app/main.py",
-                "packages/rbtr/src/rbtr/index/store.py",
-            }
-        ),
-        resolution_map=_PYTHON_MAP,
-        expected=frozenset({("imp1", "cls1")}),
-    )
-
-
-def case_import_suffix_helpers_non_collision() -> EdgeScenario:
-    """Full-path suffix resolves to the right file, not a same-named stem."""
-    return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name="from rbtr.utils.helpers import format_path",
-                file_path="packages/app/src/app/main.py",
-                language="python",
-                metadata=ImportMeta(module="rbtr.utils.helpers", names="format_path"),
-            ),
-            ChunkSpec(
-                id="fn1",
-                kind=ChunkKind.FUNCTION,
-                name="format_path",
-                file_path="packages/rbtr/src/rbtr/utils/helpers.py",
-            ),
-            ChunkSpec(
-                id="fn2",
-                kind=ChunkKind.FUNCTION,
-                name="format_path",
-                file_path="other/helpers.py",
-            ),
-        ],
-        repo_files=frozenset(
-            {
-                "packages/app/src/app/main.py",
-                "packages/rbtr/src/rbtr/utils/helpers.py",
-                "other/helpers.py",
-            }
-        ),
-        resolution_map=_PYTHON_MAP,
-        expected=frozenset({("imp1", "fn1")}),
-    )
-
-
-def case_import_suffix_collision_dropped() -> EdgeScenario:
-    """Same full-path suffix in two packages is ambiguous → no edge."""
-    return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name="from common.io import read_blob",
-                file_path="packages/a/src/a/main.py",
-                language="python",
-                metadata=ImportMeta(module="common.io", names="read_blob"),
-            ),
-            ChunkSpec(
-                id="fn1",
-                kind=ChunkKind.FUNCTION,
-                name="read_blob",
-                file_path="packages/a/src/common/io.py",
-            ),
-            ChunkSpec(
-                id="fn2",
-                kind=ChunkKind.FUNCTION,
-                name="read_blob",
-                file_path="packages/b/src/common/io.py",
-            ),
-        ],
-        repo_files=frozenset(
-            {
-                "packages/a/src/a/main.py",
-                "packages/a/src/common/io.py",
-                "packages/b/src/common/io.py",
-            }
-        ),
-        resolution_map=_PYTHON_MAP,
-        expected=frozenset(),
-    )
-
-
-def case_import_suffix_single_segment_guard() -> EdgeScenario:
-    """A single-segment module never matches a nested file via suffix."""
-    return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name="import models",
-                file_path="packages/a/src/a/main.py",
-                language="python",
-                metadata=ImportMeta(module="models"),
-            ),
-            ChunkSpec(
-                id="fn1",
-                kind=ChunkKind.FUNCTION,
-                name="build",
-                file_path="deep/nested/models.py",
-            ),
-        ],
-        repo_files=frozenset({"packages/a/src/a/main.py", "deep/nested/models.py"}),
-        resolution_map=_PYTHON_MAP,
-        expected=frozenset(),
-    )
-
-
-def case_import_text_fallback_file_stem_match() -> EdgeScenario:
-    """No metadata → text search matches repo file stem."""
-    return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name="require 'models'",
-                file_path="src/app.rb",
-            ),
-            ChunkSpec(
-                id="fn1",
-                kind=ChunkKind.FUNCTION,
-                name="create_user",
-                file_path="src/models.rb",
-            ),
-        ],
-        repo_files=frozenset({"src/app.rb", "src/models.rb"}),
-        expected=frozenset({("imp1", "fn1")}),
-    )
-
-
-def case_import_text_fallback_no_match() -> EdgeScenario:
-    """No metadata + no file stem match."""
-    return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name="require 'nonexistent'",
-                file_path="src/app.rb",
-            ),
-        ],
-        repo_files=frozenset({"src/app.rb"}),
-        expected=frozenset(),
-    )
-
-
-def case_import_text_fallback_short_stem_skipped() -> EdgeScenario:
-    """File stems shorter than 3 chars are ignored by text search."""
-    return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name="require 'io'",
-                file_path="src/app.rb",
-            ),
-            ChunkSpec(
-                id="fn1",
-                kind=ChunkKind.FUNCTION,
-                name="read",
-                file_path="src/io.rb",
-            ),
-        ],
-        repo_files=frozenset({"src/app.rb", "src/io.rb"}),
-        expected=frozenset(),
-    )
-
-
-def case_import_relative_overflow() -> EdgeScenario:
-    """Relative import with more dots than path depth."""
-    return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name="from .....deep import thing",
-                file_path="a/b.py",
-                language="python",
-                metadata=ImportMeta(dots="5", module="deep", names="thing"),
-            ),
-            ChunkSpec(
-                id="fn1",
-                kind=ChunkKind.FUNCTION,
-                name="thing",
-                file_path="deep.py",
-            ),
-        ],
-        repo_files=frozenset({"a/b.py", "deep.py"}),
-        resolution_map=_PYTHON_MAP,
-        expected=frozenset(),
-    )
-
-
-def case_import_metadata_without_module_or_dots() -> EdgeScenario:
-    """Metadata only has `names` — no way to resolve."""
-    return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name="import something",
-                file_path="src/app.py",
-                language="python",
-                metadata=ImportMeta(names="Foo"),
-            ),
-            ChunkSpec(
-                id="fn1",
-                kind=ChunkKind.FUNCTION,
-                name="Foo",
-                file_path="src/foo.py",
-            ),
-        ],
-        repo_files=frozenset({"src/app.py", "src/foo.py"}),
-        resolution_map=_PYTHON_MAP,
-        expected=frozenset(),
-    )
-
-
-_DOC_RESOLUTION: dict[str, ImportResolution] = {
-    "markdown": ImportResolution(
-        extensions=(".md", ".rst", ".py"),
-        index_files=(),
-        source_roots=("",),
-        path_substitutions=(),
-        prose=True,
-    ),
-    "rst": ImportResolution(
-        extensions=(".rst", ".md", ".py"),
-        index_files=(),
-        source_roots=("",),
-        path_substitutions=(),
-        prose=True,
-    ),
+func Helper() int {
+	return 1
 }
-
-
-def case_doc_md_link_to_code() -> EdgeScenario:
-    """MD [link](../src/foo.py) → DOCUMENTS edges to all symbols."""
-    return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name="[source](../src/foo.py)",
-                file_path="docs/guide.md",
-                language="markdown",
-                metadata=ImportMeta(module="../src/foo.py"),
-            ),
-            ChunkSpec(
-                id="fn1",
-                kind=ChunkKind.FUNCTION,
-                name="do_stuff",
-                file_path="src/foo.py",
-            ),
-            ChunkSpec(
-                id="fn2",
-                kind=ChunkKind.FUNCTION,
-                name="other",
-                file_path="src/foo.py",
-            ),
-        ],
-        repo_files=frozenset({"docs/guide.md", "src/foo.py"}),
-        resolution_map=_DOC_RESOLUTION,
-        expected=frozenset({("imp1", "fn1"), ("imp1", "fn2")}),
-        expected_edge_kind=EdgeKind.DOCUMENTS,
-    )
-
-
-def case_doc_md_link_to_doc() -> EdgeScenario:
-    """MD [link](other.md) → DOCUMENTS edges to all DOC_SECTIONs."""
-    return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name="[guide](other.md)",
-                file_path="docs/index.md",
-                language="markdown",
-                metadata=ImportMeta(module="./other.md"),
-            ),
-            ChunkSpec(
-                id="sec1",
-                kind=ChunkKind.DOC_SECTION,
-                name="Intro",
-                file_path="docs/other.md",
-                language="markdown",
-            ),
-            ChunkSpec(
-                id="sec2",
-                kind=ChunkKind.DOC_SECTION,
-                name="Details",
-                file_path="docs/other.md",
-                language="markdown",
-            ),
-        ],
-        repo_files=frozenset({"docs/index.md", "docs/other.md"}),
-        resolution_map=_DOC_RESOLUTION,
-        expected=frozenset({("imp1", "sec1"), ("imp1", "sec2")}),
-        expected_edge_kind=EdgeKind.DOCUMENTS,
-    )
-
-
-def case_doc_md_link_with_fragment() -> EdgeScenario:
-    """MD [link](other.md#details) → targeted DOCUMENTS edge."""
-    return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name="[ref](other.md#details)",
-                file_path="docs/index.md",
-                language="markdown",
-                metadata=ImportMeta(module="./other.md", names="details"),
-            ),
-            ChunkSpec(
-                id="sec1",
-                kind=ChunkKind.DOC_SECTION,
-                name="Intro",
-                file_path="docs/other.md",
-                language="markdown",
-            ),
-            ChunkSpec(
-                id="sec2",
-                kind=ChunkKind.DOC_SECTION,
-                name="details",
-                file_path="docs/other.md",
-                language="markdown",
-            ),
-        ],
-        repo_files=frozenset({"docs/index.md", "docs/other.md"}),
-        resolution_map=_DOC_RESOLUTION,
-        expected=frozenset({("imp1", "sec2")}),
-        expected_edge_kind=EdgeKind.DOCUMENTS,
-    )
-
-
-def case_doc_md_bare_mention_no_edge() -> EdgeScenario:
-    """Prose mentions do_stuff without a link → no edge."""
-    return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="doc1",
-                kind=ChunkKind.DOC_SECTION,
-                name="Usage",
-                file_path="README.md",
-                language="markdown",
-                content="Call do_stuff to process the data.",
-            ),
-            ChunkSpec(
-                id="fn1",
-                kind=ChunkKind.FUNCTION,
-                name="do_stuff",
-                file_path="src/foo.py",
-            ),
-        ],
-        expected=frozenset(),
-    )
-
-
-def case_doc_no_references_no_edges() -> EdgeScenario:
-    """DOC_SECTION only, no IMPORT chunks → no edges."""
-    return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="doc1",
-                kind=ChunkKind.DOC_SECTION,
-                name="Readme",
-                file_path="README.md",
-                language="markdown",
-                content="Hello world.",
-            ),
-        ],
-        expected=frozenset(),
-    )
-
-
-def case_import_html_script_src_relative() -> EdgeScenario:
-    """HTML <script src="./app.js"> → JS function via language_hint."""
-    return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name='<script src="./app.js"></script>',
-                file_path="site/index.html",
-                language="html",
-                metadata=ImportMeta(module="./app.js", language_hint="javascript"),
-            ),
-            ChunkSpec(
-                id="fn1",
-                kind=ChunkKind.FUNCTION,
-                name="init",
-                file_path="site/app.js",
-                language="javascript",
-            ),
-        ],
-        repo_files=frozenset({"site/index.html", "site/app.js"}),
-        resolution_map={
-            "javascript": ImportResolution(
-                extensions=(".js",),
-                index_files=(),
-                source_roots=("",),
-                path_substitutions=(),
-            ),
+""",
         },
-        expected=frozenset({("imp1", "fn1")}),
+        expected=[
+            'a/main.go::"example.com/m/b" -> b/lib.go::Helper [imports]',
+        ],
     )
 
 
-def case_import_html_script_src_parent() -> EdgeScenario:
-    """HTML <script src="../lib/core.js"> → all chunks in JS file via ../."""
+def case_hcl() -> EdgeScenario:
+    """Terraform resolves a module block's source directory."""
     return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name='<script src="../lib/core.js"></script>',
-                file_path="site/pages/index.html",
-                language="html",
-                metadata=ImportMeta(module="../lib/core.js", language_hint="javascript"),
-            ),
-            ChunkSpec(
-                id="fn1",
-                kind=ChunkKind.FUNCTION,
-                name="core_init",
-                file_path="site/lib/core.js",
-                language="javascript",
-            ),
-        ],
-        repo_files=frozenset({"site/pages/index.html", "site/lib/core.js"}),
-        resolution_map={
-            "javascript": ImportResolution(
-                extensions=(".js",),
-                index_files=(),
-                source_roots=("",),
-                path_substitutions=(),
-            ),
+        files={
+            "tf/a.tf": b"""\
+module "x" {
+  source = "./b"
+}
+""",
+            "tf/b/main.tf": b"""\
+resource "null_resource" "y" {}
+""",
         },
-        expected=frozenset({("imp1", "fn1")}),
+        expected=[
+            'tf/a.tf::module "x" {\n  source = "./b"\n} -> tf/b/main.tf::resource null_resource y [imports]',
+        ],
     )
 
 
-def case_import_js_css_via_language_hint() -> EdgeScenario:
-    """JS import './styles.css' → edges to all DOC_SECTION chunks in CSS file."""
+def case_toml() -> EdgeScenario:
+    """Cargo resolves a path dependency."""
     return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name="import './styles.css'",
-                file_path="src/app.js",
-                language="javascript",
-                metadata=ImportMeta(module="styles", dots="1"),
-            ),
-            ChunkSpec(
-                id="css1",
-                kind=ChunkKind.DOC_SECTION,
-                name="body",
-                file_path="src/styles.css",
-                language="css",
-            ),
-            ChunkSpec(
-                id="css2",
-                kind=ChunkKind.DOC_SECTION,
-                name=".header",
-                file_path="src/styles.css",
-                language="css",
-            ),
-            ChunkSpec(
-                id="css3",
-                kind=ChunkKind.DOC_SECTION,
-                name=".footer",
-                file_path="src/styles.css",
-                language="css",
-            ),
-        ],
-        repo_files=frozenset({"src/app.js", "src/styles.css"}),
-        resolution_map={
-            "javascript": ImportResolution(
-                extensions=(".js", ".css"),
-                index_files=(),
-                source_roots=("",),
-                path_substitutions=(),
-            ),
+        files={
+            "Cargo.toml": b"""\
+[dependencies]
+helper = { path = "crates/helper" }
+""",
+            "crates/helper/Cargo.toml": b"""\
+[package]
+name = "helper"
+""",
         },
-        expected=frozenset({("imp1", "css1"), ("imp1", "css2"), ("imp1", "css3")}),
+        expected=[
+            'Cargo.toml::path = "crates/helper" -> crates/helper/Cargo.toml::package [imports]',
+        ],
     )
 
 
-def case_import_html_link_href_css() -> EdgeScenario:
-    """HTML <link href="styles.css"> → edges to all chunks in CSS file."""
+def case_json() -> EdgeScenario:
+    """A JSON Schema resolves a `$ref` to another schema."""
     return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name='<link href="styles.css">',
-                file_path="site/index.html",
-                language="html",
-                metadata=ImportMeta(module="./styles.css", language_hint="css"),
-            ),
-            ChunkSpec(
-                id="css1",
-                kind=ChunkKind.DOC_SECTION,
-                name="body",
-                file_path="site/styles.css",
-                language="css",
-            ),
-            ChunkSpec(
-                id="css2",
-                kind=ChunkKind.DOC_SECTION,
-                name=".nav",
-                file_path="site/styles.css",
-                language="css",
-            ),
-        ],
-        repo_files=frozenset({"site/index.html", "site/styles.css"}),
-        resolution_map={
-            "css": ImportResolution(
-                extensions=(".css",),
-                index_files=(),
-                source_roots=("",),
-                path_substitutions=(),
-            ),
+        files={
+            "schema/thing.json": b"""\
+{
+  "allOf": [{ "$ref": "defs.json#/Named" }]
+}
+""",
+            "schema/defs.json": b"""\
+{
+  "Named": { "type": "string" }
+}
+""",
         },
-        expected=frozenset({("imp1", "css1"), ("imp1", "css2")}),
+        expected=[
+            'schema/thing.json::"$ref": "defs.json#/Named" -> schema/defs.json::Named [imports]',
+        ],
     )
 
 
-def case_import_bare_excludes_import_chunks() -> EdgeScenario:
-    """Bare import fans out to all chunks except IMPORT chunks in target."""
+def case_yaml() -> EdgeScenario:
+    """An OpenAPI document resolves a `$ref` to another document."""
     return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name='@import "base.css"',
-                file_path="site/main.css",
-                language="css",
-                metadata=ImportMeta(module="./styles.css"),
-            ),
-            ChunkSpec(
-                id="css_imp",
-                kind=ChunkKind.IMPORT,
-                name='@import "reset.css"',
-                file_path="site/styles.css",
-                language="css",
-                metadata=ImportMeta(module="./reset.css"),
-            ),
-            ChunkSpec(
-                id="css1",
-                kind=ChunkKind.DOC_SECTION,
-                name="body",
-                file_path="site/styles.css",
-                language="css",
-            ),
-        ],
-        repo_files=frozenset({"site/main.css", "site/styles.css"}),
-        resolution_map={
-            "css": ImportResolution(
-                extensions=(".css",),
-                index_files=(),
-                source_roots=("",),
-                path_substitutions=(),
-            ),
+        files={
+            "api/openapi.yaml": b"""\
+paths:
+  /greeting:
+    $ref: "paths/greeting.yaml"
+""",
+            "api/paths/greeting.yaml": b"""\
+get:
+  summary: A greeting
+""",
         },
-        # css_imp is an IMPORT chunk → excluded from fan-out.
-        expected=frozenset({("imp1", "css1")}),
+        expected=[
+            'api/openapi.yaml::$ref: "paths/greeting.yaml" -> api/paths/greeting.yaml::get [imports]',
+        ],
     )
 
 
-def case_import_bare_skips_fragments() -> EdgeScenario:
-    """A bare import reaches a module's definitions, not the code no query names."""
+def case_python_named_imports() -> EdgeScenario:
+    """A named import reaches each name: a function, a class, variables, and a relative module's class."""
     return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name="import src.models",
-                file_path="src/app.py",
-                language="python",
-                metadata=ImportMeta(module="src.models"),
-            ),
-            ChunkSpec(id="cls1", kind=ChunkKind.CLASS, name="User", file_path="src/models.py"),
-            ChunkSpec(
-                id="frag1",
-                kind=ChunkKind.FRAGMENT,
-                name="",
-                file_path="src/models.py",
-                metadata=FragmentMeta(node_types=("expression_statement",)),
-            ),
+        files={
+            "pkg/a.py": b"""\
+from pkg.b import helper, Config
+from pkg.config import settings, high
+from .models import User
+""",
+            "pkg/b.py": b"""\
+def helper():
+    return 1
+
+
+class Config:
+    pass
+""",
+            "pkg/config.py": b"""\
+settings = {}
+low, high = 1, 9
+""",
+            "pkg/models.py": b"""\
+class User:
+    pass
+""",
+        },
+        expected=[
+            "pkg/a.py::from .models import User -> pkg/models.py::User [imports]",
+            "pkg/a.py::from pkg.b import helper, Config -> pkg/b.py::Config [imports]",
+            "pkg/a.py::from pkg.b import helper, Config -> pkg/b.py::helper [imports]",
+            "pkg/a.py::from pkg.config import settings, high -> pkg/config.py::high [imports]",
+            "pkg/a.py::from pkg.config import settings, high -> pkg/config.py::settings [imports]",
         ],
-        repo_files=frozenset({"src/app.py", "src/models.py"}),
-        resolution_map=_PYTHON_MAP,
-        expected=frozenset({("imp1", "cls1")}),
+    )
+
+
+def case_python_bare_import() -> EdgeScenario:
+    """A bare import reaches a module's definitions, not its imports or the code no query names."""
+    return EdgeScenario(
+        files={
+            "pkg/a.py": b"""\
+import pkg.models
+""",
+            "pkg/models.py": b"""\
+import os
+
+
+class User:
+    pass
+
+
+def load():
+    return User()
+
+
+load()
+""",
+        },
+        expected=[
+            "pkg/a.py::import pkg.models -> pkg/models.py::User [imports]",
+            "pkg/a.py::import pkg.models -> pkg/models.py::load [imports]",
+        ],
+    )
+
+
+def case_python_suffix_in_a_monorepo() -> EdgeScenario:
+    """An absolute import resolves across a `packages/*/src` layout by its full path suffix.
+
+    `other`'s `helpers.py` shares the file name but not the suffix, so it
+    is not reached.
+    """
+    return EdgeScenario(
+        files={
+            "packages/app/src/app/main.py": b"""\
+from core.models import Model
+from core.helpers import assist
+""",
+            "packages/core/src/core/models.py": b"""\
+class Model:
+    pass
+""",
+            "packages/core/src/core/helpers.py": b"""\
+def assist():
+    return 1
+""",
+            "packages/other/src/other/helpers.py": b"""\
+def assist():
+    return 2
+""",
+        },
+        expected=[
+            "packages/app/src/app/main.py::from core.helpers import assist -> packages/core/src/core/helpers.py::assist [imports]",
+            "packages/app/src/app/main.py::from core.models import Model -> packages/core/src/core/models.py::Model [imports]",
+        ],
+    )
+
+
+def case_python_suffix_in_two_packages() -> EdgeScenario:
+    """A full path suffix two packages share is ambiguous, so it reaches neither."""
+    return EdgeScenario(
+        files={
+            "packages/app/src/app/main.py": b"""\
+from core.models import Model
+""",
+            "packages/a/src/core/models.py": b"""\
+class Model:
+    pass
+""",
+            "packages/b/src/core/models.py": b"""\
+class Model:
+    pass
+""",
+        },
+        expected=[],
+    )
+
+
+def case_python_imports_that_reach_nothing() -> EdgeScenario:
+    """Imports whose module the repository does not hold reach nothing.
+
+    - `os` is not a repository file.
+    - `from . import utils` names a package with no `__init__.py`: Python
+      binds the package, not the modules beside it.
+    - `Missing` is not defined in `pkg/models.py`.
+    - Five dots climb past the repository root.
+    - `helpers` is one segment, which never matches a nested file by
+      suffix.
+    """
+    return EdgeScenario(
+        files={
+            "pkg/app.py": b"""\
+import os
+from . import utils
+from .models import Missing
+from ..... import deep
+import helpers
+""",
+            "pkg/utils.py": b"""\
+def util():
+    return 1
+""",
+            "pkg/models.py": b"""\
+class User:
+    pass
+""",
+            "deep/nested/helpers.py": b"""\
+def assist():
+    return 1
+""",
+        },
+        expected=[],
+    )
+
+
+def case_python_import_with_no_module() -> EdgeScenario:
+    """An import its extractor records nothing for reaches files its words name.
+
+    `from __future__ import annotations` names no repository module; its
+    word `annotations` is the stem of `pkg/annotations.py`, whose first
+    symbol it reaches.
+    """
+    return EdgeScenario(
+        files={
+            "pkg/a.py": b"""\
+from __future__ import annotations
+""",
+            "pkg/annotations.py": b"""\
+def note():
+    return 1
+
+
+def other():
+    return 2
+""",
+        },
+        expected=[
+            "pkg/a.py::from __future__ import annotations -> pkg/annotations.py::note [imports]",
+        ],
+    )
+
+
+def case_javascript_imports_a_stylesheet() -> EdgeScenario:
+    """A JavaScript import of a stylesheet reaches the stylesheet's rules."""
+    return EdgeScenario(
+        files={
+            "src/a.js": b"""\
+import './styles.css';
+""",
+            "src/styles.css": b"""\
+.banner {
+  color: red;
+}
+""",
+        },
+        expected=[
+            "src/a.js::import './styles.css'; -> src/styles.css::.banner [imports]",
+        ],
+    )
+
+
+def case_html_scripts_and_a_stylesheet() -> EdgeScenario:
+    """HTML resolves `<script src>` beside it and above it, and `<link href>` to a stylesheet."""
+    return EdgeScenario(
+        files={
+            "web/index.html": b"""\
+<script src="./app.js"></script>
+<script src="../lib/core.js"></script>
+<link rel="stylesheet" href="styles.css">
+""",
+            "web/app.js": b"""\
+export function start() {}
+""",
+            "lib/core.js": b"""\
+export function boot() {}
+
+export function halt() {}
+""",
+            "web/styles.css": b"""\
+.banner {
+  color: red;
+}
+""",
+        },
+        expected=[
+            'web/index.html::<link rel="stylesheet" href="styles.css"> -> web/styles.css::.banner [imports]',
+            'web/index.html::<script src="../lib/core.js"></script> -> lib/core.js::boot [imports]',
+            'web/index.html::<script src="../lib/core.js"></script> -> lib/core.js::halt [imports]',
+            'web/index.html::<script src="./app.js"></script> -> web/app.js::start [imports]',
+        ],
+    )
+
+
+def case_markdown_links() -> EdgeScenario:
+    """A Markdown link documents what it names: a code file's symbols, or a document's sections.
+
+    A name mentioned without a link documents nothing.
+    """
+    return EdgeScenario(
+        files={
+            "docs/a.md": b"""\
+# Overview
+
+See [the guide](b.md).
+
+The [loader](../src/loader.py) reads files; `do_stuff` is only mentioned.
+""",
+            "docs/b.md": b"""\
+# Guide
+
+Body.
+
+## Details
+
+More.
+""",
+            "src/loader.py": b"""\
+def load():
+    return 1
+
+
+def do_stuff():
+    return 2
+""",
+        },
+        expected=[
+            "docs/a.md::../src/loader.py -> src/loader.py::do_stuff [documents]",
+            "docs/a.md::../src/loader.py -> src/loader.py::load [documents]",
+            "docs/a.md::b.md -> docs/b.md::Details [documents]",
+            "docs/a.md::b.md -> docs/b.md::Guide [documents]",
+        ],
+    )
+
+
+@pytest.mark.xfail(
+    reason="a link names a heading by its anchor (`#details`), a section by its text (`Details`)",
+    strict=True,
+)
+def case_markdown_link_to_a_heading() -> EdgeScenario:
+    """A Markdown link to a heading's anchor documents that section alone."""
+    return EdgeScenario(
+        files={
+            "docs/a.md": b"""\
+See [the details](b.md#details).
+""",
+            "docs/b.md": b"""\
+# Guide
+
+Body.
+
+## Details
+
+More.
+""",
+        },
+        expected=["docs/a.md::b.md#details -> docs/b.md::Details [documents]"],
     )
