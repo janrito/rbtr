@@ -1010,8 +1010,8 @@ first and the scope after it.
 ### Registered frames as query inputs
 
 Both reads and writes pass polars frames into DuckDB by
-**registering them as named views** (`register` →
-`execute` → `unregister` in a `finally`), rather than
+**registering them as named views** (`register` → query →
+`unregister`), rather than
 interpolating values into SQL or issuing one query per
 row. The motive is speed: it collapses N round trips into
 one set-based operation — one table scan instead of N, one
@@ -1044,6 +1044,16 @@ no locking needed. Registered frames carry a `dataframely`
 schema like any other frame, so the view's column types
 match the table it joins against. The caller-side
 convention lives in the `rbtr-data` skill.
+
+Reads run through `cur.sql(...)` and are read to the end with
+`.pl()` or `.fetchall()`; `execute()` runs DDL and DML, and any
+rows it returns are read with `.fetchall()`. DuckDB holds a
+cursor while an `execute()` result is unread, and refuses
+`register`, `unregister` and relation reads on it until then.
+The store caches one cursor per thread and file, so one
+half-read result would break every later call on that thread. A
+relation has no `fetchone()`, so a read through one cannot be
+left half-read; it costs about 60 µs more per statement.
 
 ### Completion tracking
 

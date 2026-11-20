@@ -158,7 +158,7 @@ can't leak a view onto the cursor:
 ```python
 with self._registered_views(_snapshot_refs=snapshot_refs_view(within)) as cur:
     return (
-        cur.execute(_SEARCH_SQL, {"top_k": top_k})
+        cur.sql(_SEARCH_SQL, params={"top_k": top_k})
         .pl()
         .pipe(ScoredChunkResultRow.validate, cast=True)
     )
@@ -166,6 +166,11 @@ with self._registered_views(_snapshot_refs=snapshot_refs_view(within)) as cur:
 
 Rules:
 
+- **Read through `cur.sql()`, change state through `execute()`.**
+  A read is `cur.sql(SQL, params=...)` followed by `.pl()` or
+  `.fetchall()`, consumed before the cursor is used again.
+  `execute()` is for DDL and DML, and any rows it returns are read
+  with `.fetchall()`.
 - **Name views with a leading underscore** (`_snapshot_refs`,
   `_qvecs`, `_stg`) so the SQL clearly marks them as transient
   bind inputs, not real tables. The SQL `JOIN _snapshot_refs` /
