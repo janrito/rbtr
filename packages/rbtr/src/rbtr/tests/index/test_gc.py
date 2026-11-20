@@ -7,7 +7,6 @@ we exercise the actual code path, not mocks.
 
 from __future__ import annotations
 
-import threading
 from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,7 +19,7 @@ from rbtr.domain.models import (
     GcMode,
     Repo,
 )
-from rbtr.errors import BuildStopped, RbtrError
+from rbtr.errors import RbtrError
 from rbtr.git import normalise_repo_path, worktree_tree_sha
 from rbtr.index.build import build_index, drop_stale_worktree_shas
 from rbtr.index.gc import run_gc, run_gc_all
@@ -159,37 +158,6 @@ def test_orphans_never_drops_indexed_snapshots(gc: GcFixture) -> None:
     assert gc.index.has_indexed(at=gc.registered.at(gc.c1)) is True
     assert gc.index.has_indexed(at=gc.registered.at(gc.c2)) is True
     assert gc.index.has_indexed(at=gc.registered.at(gc.c3)) is True
-
-
-def test_orphans_sweeps_crashed_residue(gc: GcFixture) -> None:
-    """A gc in orphans mode removes the snapshot a build stopped at its edges left."""
-    crashed = str(
-        make_commit(
-            gc.repo,
-            {
-                "x.py": b"""\
-def x():
-    pass
-"""
-            },
-            ref="refs/heads/crashed",
-        )
-    )
-    stop = threading.Event()
-    with pytest.raises(BuildStopped):
-        build_index(
-            gc.repo_path,
-            crashed,
-            gc.index,
-            stop=stop,
-            on_progress=lambda phase, *_: stop.set() if phase == "edges" else None,
-        )
-    assert gc.index.count_file_snapshots(at=gc.registered.at(crashed)) > 0
-    run_gc(gc.index, gc.repo_path, mode=GcMode.ORPHANS, refs=[], dry_run=False)
-    # Orphan snapshot is gone (swept on session entry or by GC).
-    assert gc.index.count_file_snapshots(at=gc.registered.at(crashed)) == 0
-    # Completed commits untouched.
-    assert gc.index.has_indexed(at=gc.registered.at(gc.c1)) is True
 
 
 def test_dry_run_reports_without_writing(gc: GcFixture) -> None:

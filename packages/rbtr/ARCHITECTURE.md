@@ -101,16 +101,19 @@ chunks and edges. It reads files from git, resolves their languages and
 reuses extractions that are already current. The remaining files pass
 through [extraction](#extraction) a hundred at a time.
 
-A build has three transactions:
+A build is one transaction of three steps, so a failure or a stop leaves
+the index as it was:
 
-1. **Extract:** write the snapshot's file list and any new chunks.
-2. **Infer edges:** connect the snapshot's full chunk set, including
-   reused chunks, through imports and documentation references.
-3. **Finalise:** mark the snapshot indexed and remove unfinished-build
-   residue.
+1. **Extract:** write any new chunks and the snapshot's file list.
+2. **Edges:** connect the snapshot's full chunk set, including reused
+   chunks, through imports, calls and documentation references; and
+   again for every other indexed snapshot that lists a blob this build
+   extracted again.
+3. **Finish:** mark the snapshot indexed and delete what no snapshot
+   claims.
 
-![How a build indexes a snapshot: three transactions, for extraction,
-edges and finishing, and the tables each writes](docs/diagrams/build.png)
+![How a build indexes a snapshot: one transaction of three steps, for
+extraction, edges and finishing, and the tables each writes](docs/diagrams/build.png)
 
 Embedding runs afterwards as a lower-priority job. Name and keyword
 search work as soon as indexing finishes; semantic search uses the
@@ -178,6 +181,15 @@ its embedding while its content is unchanged: the model reads its name,
 which its id covers, and its content. So a serial bump re-embeds only the
 chunks it changes. Other host-language extractions of the same bytes are
 retained.
+
+Every indexed snapshot that lists the blob, in any checkout of the
+project, now reads the new chunks, so its stored edges are inferred again
+from them, in the same transaction: an edge names chunk ids, and a
+chunk that changed may have changed its id or what it imports and calls.
+A stop between the chunks and those edges would leave a snapshot whose
+edges name chunks it no longer reads. This happens when an extraction
+serial changes; an ordinary edit makes a new blob, which no older
+snapshot lists.
 
 ### Extraction
 
@@ -2032,11 +2044,8 @@ state to reconcile after a crash. The embedding outcome distinguishes
 finishing a pass from standing aside or stopping, with stored counts showing
 the snapshot's actual completeness.
 
-A build retains writer access instead of yielding between phases. Cleanup
-in a competing checkout's build can remove chunks whose snapshot is not yet
-marked complete; allowing that cleanup into an unfinished build would break
-the completion boundary. Embedding has a safe yield point after each finite
-commit, whereas a build needs the wider protected workflow.
+A build holds writer access for its one transaction, which has no point
+to yield at. Embedding has a safe yield point after each finite commit.
 
 ### Daemon startup
 
@@ -2097,8 +2106,8 @@ Notification transport remains available until those producers finish.
 Only afterwards can models and sockets be closed.
 
 Background work stops cooperatively at boundaries it can safely leave.
-An interrupted build transaction rolls back while earlier committed phases
-remain. An embedding run reports its stopped outcome, retaining committed
+An interrupted build rolls its transaction back, leaving the index as it
+was. An embedding run reports its stopped outcome, retaining committed
 batches. Maintenance already running finishes with writer access retained.
 Cooperative stopping is not an indexing failure.
 
@@ -2122,10 +2131,11 @@ completion records identify finished builds; missing vectors identify
 outstanding embedding. A restart selects work from those inputs rather
 than restoring a transient job queue.
 
-Only the active transaction rolls back on failure. Earlier committed build
-phases and embedding batches remain available for reuse. A later build or
-collection removes snapshot rows never marked complete, while a new
-embedding run reads the remaining missing vectors. Standing aside and
+Only the active transaction rolls back on failure. A build is one
+transaction, so a failure leaves every snapshot's chunks, file list and
+edges as they were; embedding batches committed earlier remain, and a new
+embedding run reads the remaining missing vectors. Clean-up still removes
+snapshot rows never marked complete wherever it finds them. Standing aside and
 crashing therefore resume through the same stored state.
 
 Partially built or retired project files are reconciled against the registry
@@ -2622,7 +2632,39 @@ Callers name what they read by value: a `Repo` from the registry,
 search. The store routes each to its file. A `WriteSession` is bound
 to one file and one repo: a DuckDB transaction writes one file, and a
 session that took a repo with every write could file rows under a
-repo of another project.
+repo of another project. Two of its writes reach the project's other
+checkouts, because chunks are shared by all of them: clean-up sweeps
+the chunks no snapshot claims, and re-extracting a blob re-infers the
+edges of every snapshot that lists it, which is why `edge_chunks` and
+`replace_edges` take a `SnapshotRef`.
+
+**A blob's chunks and the edges read from them commit together.**
+The build that re-extracts a blob re-infers, in its transaction, the
+edges of every other indexed snapshot that lists it.
+On this repository (1,075 files, 24,080 chunks) inferring and storing
+one snapshot's edges takes 0.23 to 0.29 s, so a plugin upgrade costs
+that per older indexed commit, with the writer held; reads go on
+against the last committed state. Two other shapes do not work here.
+Removing the older snapshots' indexed marks, for the watcher to
+rebuild them, makes a missing mark mean two things: clean-up reads it
+as a build that never finished and deletes the snapshot's file list
+and the chunks only it lists, embeddings included. A stored flag of
+stale edges, cleared by the worker one snapshot per transaction, adds
+state to read and keep right for a cost paid only when a serial
+changes. Revisit if re-inferring older snapshots grows long enough to
+hold the writer noticeably.
+
+**A build is one transaction.** Extraction, every edge it changes, the
+snapshot's file list and its indexed mark commit together, so no build
+commits a state a later step must repair. Splitting it (extract; edges;
+finish) keeps the extraction when a stop falls after the first commit,
+but the window that buys is the edge and finishing steps, 0.37 to 0.43 s
+on this repository (1,082 files) against 4.6 to 6.8 s of extraction,
+and the price is
+committing what is not yet whole: chunks no file list claims, which
+`WriteSession`'s commit check refuses, or a file list not marked
+indexed, which clean-up must sweep. Revisit if those steps grow long
+enough that a stop in them loses noticeable work.
 
 Two other shapes were considered and rejected. A store, or a DuckDB
 instance, per repo or per project breaks four things: the memory and

@@ -105,11 +105,9 @@ encoding the use-case tests already prove.
   failure is injected into a build (one of its SQL statements
   patched to fail), and a test of a state no build makes is
   deleted. Watched refs are written with `add_watched_refs`, as the
-  watch handler writes them. Crash residue is a
-  build stopped at its `edges` phase: pass `build_index` a `stop`
-  event and an `on_progress` that sets it. A snapshot every test in a
-  module only reads is built once, into `module_index` from
-  `module_repo`.
+  watch handler writes them. A build that stops or fails rolls back
+  the snapshot. A snapshot every test in a module only reads is built
+  once, into `module_index` from `module_repo`.
 
 ### Logic in a test means it starts too low
 

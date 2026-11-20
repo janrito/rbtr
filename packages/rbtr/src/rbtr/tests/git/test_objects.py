@@ -58,44 +58,12 @@ def test_is_binary_null_beyond_sample() -> None:
     assert not is_binary(data, sample_size=50)
 
 
-def test_read_blob_existing_file(sample_repo: SampleRepo, handler_v1: bytes) -> None:
-    blob = read_blob(sample_repo.repo.workdir, str(sample_repo.base), "src/handler.py")
-    assert blob is not None
-    assert blob.data == handler_v1
+def test_read_blob_by_its_sha(sample_repo: SampleRepo, handler_v1: bytes) -> None:
+    assert read_blob(sample_repo.repo.workdir, str(pygit2.hash(handler_v1))) == handler_v1
 
 
-def test_read_blob_nested_path(sample_repo: SampleRepo, utils_content: bytes) -> None:
-    blob = read_blob(sample_repo.repo.workdir, str(sample_repo.base), "src/utils.py")
-    assert blob is not None
-    assert blob.data == utils_content
-
-
-def test_read_blob_missing_file(sample_repo: SampleRepo) -> None:
-    blob = read_blob(sample_repo.repo.workdir, str(sample_repo.base), "nonexistent.py")
-    assert blob is None
-
-
-def test_read_blob_missing_ref(sample_repo: SampleRepo) -> None:
-    blob = read_blob(sample_repo.repo.workdir, "nonexistent-branch", "src/handler.py")
-    assert blob is None
-
-
-def test_read_blob_binary_file(sample_repo: SampleRepo, binary_png_content: bytes) -> None:
-    blob = read_blob(sample_repo.repo.workdir, "feature", "binary.png")
-    assert blob is not None
-    assert blob.data == binary_png_content
-
-
-def test_read_blob_deleted_file(sample_repo: SampleRepo) -> None:
-    """readme.md exists at base but is deleted at head."""
-    assert read_blob(sample_repo.repo.workdir, str(sample_repo.base), "readme.md") is not None
-    assert read_blob(sample_repo.repo.workdir, "feature", "readme.md") is None
-
-
-def test_read_blob_by_branch_name(sample_repo: SampleRepo, readme_content: bytes) -> None:
-    blob = read_blob(sample_repo.repo.workdir, "main", "readme.md")
-    assert blob is not None
-    assert blob.data == readme_content
+def test_read_blob_git_does_not_hold(sample_repo: SampleRepo) -> None:
+    assert read_blob(sample_repo.repo.workdir, str(pygit2.hash(b"never committed\n"))) is None
 
 
 def test_list_files_at_base(sample_repo: SampleRepo) -> None:

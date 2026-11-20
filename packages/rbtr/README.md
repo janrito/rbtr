@@ -1127,7 +1127,11 @@ anything that shapes the chunks it emits — bump
 `extraction_serial` on the registration. Each stored chunk records its
 own language's serial. On the next build, a file whose chunks carry an
 different contributor serial needs re-extraction; leaving the serial
-unchanged keeps the existing chunks. It is independent of the package version —
+unchanged keeps the existing chunks. That build also brings up to date
+what every other indexed commit sharing those files knows of them: their
+references are worked out again from the new chunks, so `find-refs` at an
+older commit answers from what the plugin extracts now. It is independent
+of the package version —
 bump it whenever extraction output changes, including during development
 before a release. See
 [ARCHITECTURE.md][arch-dedup]

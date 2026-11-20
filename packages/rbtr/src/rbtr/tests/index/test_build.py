@@ -481,42 +481,6 @@ def test_build_index_marks_commit_indexed(
     assert index.has_indexed(at=repo.at(snapshot_sha)) is True
 
 
-def test_build_index_sweeps_residue_from_crashed_builds(
-    git_repo: pygit2.Repository, repo_path: str, index: Index, snapshot_sha: str
-) -> None:
-    """A successful build cleans up the snapshot and edges a build stopped at its edges left."""
-    crashed = str(
-        make_commit(
-            git_repo,
-            {
-                "leftover.py": b"""\
-def leftover():
-    pass
-"""
-            },
-            ref="refs/heads/crashed",
-        )
-    )
-    stop = threading.Event()
-    with pytest.raises(BuildStopped):
-        build_index(
-            repo_path,
-            crashed,
-            index,
-            stop=stop,
-            on_progress=lambda phase, *_: stop.set() if phase == "edges" else None,
-        )
-    repo = index.register(repo_path)
-    assert index.count_file_snapshots(at=repo.at(crashed)) > 0
-    assert index.has_indexed(at=repo.at(crashed)) is False
-
-    build_index(repo_path, snapshot_sha, index)
-
-    # The legit commit is indexed; the crashed residue is gone.
-    assert index.has_indexed(at=repo.at(snapshot_sha)) is True
-    assert index.count_file_snapshots(at=repo.at(crashed)) == 0
-
-
 def test_a_stopped_build_leaves_its_snapshot_for_the_next_build(
     git_repo: pygit2.Repository, index: Index, snapshot_sha: str
 ) -> None:
@@ -541,75 +505,35 @@ def test_a_stopped_build_leaves_its_snapshot_for_the_next_build(
 
 
 @pytest.mark.parametrize("built_before", [True, False], ids=["later_build", "first_build"])
-def test_a_build_that_failed_after_extracting_is_rebuilt_in_full(
+def test_a_build_that_fails_leaves_the_index_as_it_was(
     git_repo: pygit2.Repository,
     index: Index,
     two_commits: tuple[str, str],
     mocker: MockerFixture,
     built_before: bool,
 ) -> None:
-    """A build that dies after its chunks commit leaves them claimed only by
-    an unfinished snapshot.  The next build reuses them, replaces the
-    snapshot's rows and marks it indexed, whether or not the repo was
-    built before, and ends as a build that never failed."""
+    """A build that dies at its last step, inferring the snapshot's edges,
+    commits nothing: no file list and no chunks. The next build ends as a
+    build that never failed, whether or not the repo was built before."""
     base_sha, head_sha = two_commits
     shas = [base_sha, head_sha] if built_before else [head_sha]
     for sha in shas[:-1]:
         build_index(git_repo.workdir, sha, index)
-    crash = mocker.patch(
-        "rbtr.index.build.infer_and_store_edges", side_effect=RuntimeError("crash")
-    )
+    crash = mocker.patch("rbtr.index.build.snapshot_edges", side_effect=RuntimeError("crash"))
     with pytest.raises(RuntimeError, match="crash"):
         build_index(git_repo.workdir, head_sha, index)
     mocker.stop(crash)
+    [repo] = index.repos()
+    at = repo.at(head_sha)
+    assert index.count_file_snapshots(at=at) == 0
+    assert index.count_orphan_chunks() == 0
 
     build_index(git_repo.workdir, head_sha, index)
 
     uninterrupted = Index(writable=True)
     for sha in shas:
         build_index(git_repo.workdir, sha, uninterrupted)
-    [repo] = index.repos()
-    at = repo.at(head_sha)
     assert set(index.chunks(at=at)["name"]) == set(uninterrupted.chunks(at=at)["name"])
-
-
-def test_a_build_leaves_its_sibling_checkouts_unfinished_snapshot(
-    git_repo: pygit2.Repository,
-    linked_worktree: pygit2.Repository,
-    project_index: Index,
-    snapshot_sha: str,
-) -> None:
-    """A linked checkout reuses chunks from a stopped build and leaves its file list intact."""
-    index = project_index
-    main, worktree = index.repos()
-    at = main.at(snapshot_sha)
-    stop = threading.Event()
-    with pytest.raises(BuildStopped):
-        build_index(
-            git_repo.workdir,
-            snapshot_sha,
-            index,
-            stop=stop,
-            on_progress=lambda phase, *_: stop.set() if phase == "edges" else None,
-        )
-    files = index.count_file_snapshots(at=at)
-    assert files > 0
-    assert not index.has_indexed(at=at)
-
-    build_index(linked_worktree.workdir, snapshot_sha, index)
-
-    assert index.count_file_snapshots(at=at) == files
-    assert not index.has_indexed(at=at)
-    build_index(git_repo.workdir, snapshot_sha, index)
-
-    uninterrupted = Index(writable=True)
-    build_index(git_repo.workdir, snapshot_sha, uninterrupted)
-    [alone] = uninterrupted.repos()
-    expected = set(uninterrupted.chunks(at=alone.at(snapshot_sha))["name"])
-    for repo in (main, worktree):
-        assert index.has_indexed(at=repo.at(snapshot_sha))
-        assert set(index.chunks(at=repo.at(snapshot_sha))["name"]) == expected
-    assert index.count_orphan_chunks() == 0
 
 
 def test_build_index_empty_repo(tmp_path: Path, index: Index) -> None:

@@ -257,7 +257,7 @@ def test_edge_chunks_are_every_location_in_path_order(
         .pipe(EdgeChunkRow.validate, cast=True)
     )
     with dup_index.session(dup_ref.repo) as session:
-        assert session.edge_chunks(dup_ref.snapshot_sha).equals(expected)
+        assert session.edge_chunks(at=dup_ref).equals(expected)
 
 
 def test_embedding_and_truncation_are_stored(

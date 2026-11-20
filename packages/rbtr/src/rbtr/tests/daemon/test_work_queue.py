@@ -19,7 +19,6 @@ from rbtr.daemon.messages import (
     notification_adapter,
 )
 from rbtr.daemon.server import Daemon
-from rbtr.errors import BuildStopped
 from rbtr.index.build import build_index
 from rbtr.index.embed import embed_index
 from rbtr.index.embeddings import Embedder
@@ -51,7 +50,6 @@ def next_job_shas(
     """
     repos = {"a": fake_repo, "b": second_repo}
     shas: dict[str, str] = {}
-    stop = threading.Event()
     for n, snap in enumerate(next_job.snapshots):
         path = repos[snap.repo]
         source = f"""\
@@ -60,21 +58,7 @@ def fn{n}():
 """.encode()
         files = {f"f{n}.py": source}
         sha = str(make_commit(pygit2.Repository(path), files, ref=f"refs/heads/{snap.label}"))
-        if snap.indexed:
-            build_index(path, sha, index)
-        else:
-            stop.clear()
-            with pytest.raises(BuildStopped):
-                build_index(
-                    path,
-                    sha,
-                    index,
-                    stop=stop,
-                    # Stopped once its chunks are written, before it marks the snapshot indexed.
-                    on_progress=lambda phase, _done, _total: (
-                        stop.set() if phase == "edges" else None
-                    ),
-                )
+        build_index(path, sha, index)
         if snap.embedded:
             embed_index(index, at=index.register(path).at(sha), embedder=stubbed_embedder)
         shas[snap.label] = sha

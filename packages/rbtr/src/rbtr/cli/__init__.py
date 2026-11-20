@@ -380,13 +380,19 @@ class Watch(BaseModel):
         )
         repo = index.register(resolved_repo)
 
-        with progress_reporter("Parsing files", "Embedding") as (on_parse, on_embed):
+        with progress_reporter("Parsing files", "Inferring edges", "Embedding") as (
+            on_parse,
+            on_edges,
+            on_embed,
+        ):
 
             def on_progress(phase: str, done: int, total: int) -> None:
                 if phase == "embedding":
                     on_embed(done, total)
                 elif phase == "parsing":
                     on_parse(done, total)
+                elif phase == "edges":
+                    on_edges(done, total)
 
             # Each ref is an independent full build.
             result = build_index(

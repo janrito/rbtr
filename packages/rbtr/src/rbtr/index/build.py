@@ -1,12 +1,13 @@
 """Index building — extract chunks and infer edges for a commit.
 
-`build_index` is the entry point.  It runs three phases, each in its own
-transactional session:
+`build_index` is the entry point.  It indexes a snapshot in one
+transaction, so a failure or a stop leaves the index as it was:
 
-1. **Extract** — stream files from git, extract chunks via tree-sitter or
-   plugin chunkers, write chunks + snapshots.
-2. **Edges** — infer import/test/doc edges from the committed chunk set.
-3. **Finalise** — mark the commit indexed, clean up orphans.
+1. **Extract** — stream files from git, extract the blobs whose chunks
+   are not current, write the snapshot's file list.
+2. **Edges** — infer the snapshot's edges, and again those of every
+   indexed snapshot listing a blob extracted here.
+3. **Finish** — mark the snapshot indexed, clean up orphans.
 
 Embedding is a separate step — see `embed_index` in `rbtr.index.embed`.
 
@@ -24,9 +25,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+import dataframely as dy
 import structlog
 
 from rbtr.config import config
+from rbtr.domain.edge_frames import EdgeChunkRow, InferredEdgeRow
 from rbtr.domain.edges import infer_edges
 from rbtr.domain.models import (
     FileOutcome,
@@ -35,7 +38,14 @@ from rbtr.domain.models import (
     Repo,
 )
 from rbtr.errors import BuildStopped
-from rbtr.git import FileEntry, changed_files, list_files, non_commit_shas, normalise_repo_path
+from rbtr.git import (
+    FileEntry,
+    changed_files,
+    list_files,
+    non_commit_shas,
+    normalise_repo_path,
+    read_blob,
+)
 from rbtr.index.index import Index
 from rbtr.index.progress import ProgressCallback, _noop_progress
 from rbtr.index.staging import serial_map_view, staged_chunks
@@ -132,35 +142,69 @@ def listed_files(
     return listed
 
 
-@dataclass(frozen=True, slots=True)
-class _Extracted:
-    """What extraction leaves behind for the edge pass.
+def snapshot_edges(
+    repo_path: str, chunks: dy.DataFrame[EdgeChunkRow], files: dict[str, str]
+) -> dy.DataFrame[InferredEdgeRow]:
+    """The edges a snapshot's *chunks* make, its files *files* (`{path: blob_sha}`).
 
-    The edge pass reads no files, so anything it needs from their content
-    has to be carried here: *manifests* holds the text of the files
-    languages declare as their `manifest`.
+    The manifests among *files* are read by blob from *repo_path*'s object
+    store, which every checkout of the project shares; a blob git no
+    longer holds is read as no manifest.
     """
+    registrations = get_manager().registrations()
+    names = {registration.manifest for registration in registrations if registration.manifest}
+    manifests = {
+        path: text.decode(errors="replace")
+        for path, blob_sha in files.items()
+        if path in names and (text := read_blob(repo_path, blob_sha)) is not None
+    }
+    resolutions = language_resolutions(registrations, manifests=manifests)
+    return infer_edges(chunks, set(files), resolutions, steps=config.follow_steps)
 
-    result: IndexResult
-    repo_files: set[str]
-    manifests: dict[str, str]
 
-
-def extract_and_store_chunks(
-    *,
-    index: Index,
+def build_index(
     repo_path: str,
     snapshot_sha: str,
-    repo: Repo,
+    index: Index,
+    *,
     base_sha: str | None = None,
     on_progress: ProgressCallback = _noop_progress,
     stop: threading.Event | None = None,
-) -> _Extracted:
-    """Stream files, extract chunks, write snapshots.
+) -> IndexResult:
+    """Build (or incrementally update) the index for *snapshot_sha*, in one transaction.
+
+    Lists all files at *snapshot_sha*, extracts the blobs whose chunks
+    are not current, infers the snapshot's edges, and again those of
+    every indexed snapshot listing a blob extracted here, then marks the
+    commit indexed and cleans up.  The commit becomes queryable via
+    FTS/name/edges immediately — embedding is handled separately by
+    `embed_index`.
+
+    *repo_path* may be any path inside the repository; it is resolved
+    to the root and registered if not already known, since indexing a
+    path is what puts a repo in the index.  The repo comes from
+    that lookup rather than from the caller, so it always matches the
+    path being built.  A linked worktree resolves to its own
+    directory, and so is built as a repo of its own, in its main
+    checkout's project.
 
     When *base_sha* is provided, only files that changed between
-    *base_sha* and *snapshot_sha* are extracted.
+    *base_sha* and *snapshot_sha* are considered for extraction.
+    Unchanged files are skipped whatever the blob check says.
+
+    When *stop* is set, the build raises `BuildStopped` before its next
+    file, or before inferring the next snapshot's edges. The index is
+    left as it was, as a build that died there would leave it, and the
+    next build of it starts again.
     """
+    t0 = time.monotonic()
+
+    # Register before writing anything that refers to the repo, so a
+    # crash part-way through leaves an unused repos row rather than
+    # indexed rows that nothing can find.
+    repo_path = normalise_repo_path(repo_path)
+    repo = index.register(repo_path)
+
     mgr = get_manager()
     # Each chunk is stamped with its OWN language's extraction serial, not
     # the host file's. They coincide for single-language files; they differ
@@ -180,15 +224,9 @@ def extract_and_store_chunks(
 
     snapshots: list[FileSnapshot] = []
     result = IndexResult()
-    repo_files: set[str] = set()  # collected for edge inference
-    # Files a language declares as its manifest, read while their content is
-    # in hand: resolution needs them, and the edge pass sees only paths.
-    manifest_names = {
-        reg.manifest
-        for lang_id in mgr.all_language_ids()
-        if (reg := mgr.get_registration(lang_id)) is not None and reg.manifest
-    }
-    manifests: dict[str, str] = {}
+    # The `(blob_sha, file_language)` extractions this build writes: the
+    # indexed snapshots listing one of them have their edges re-inferred.
+    extracted: set[tuple[str, str]] = set()
 
     with index.session(repo) as session:
         # Stream files from git.  A file's content is held until its
@@ -218,14 +256,12 @@ def extract_and_store_chunks(
             if to_extract:
                 chunks, failed = extract_files(file_rows(to_extract))
                 session.replace_chunks(staged_chunks(chunks, serial_by_language))
+                extracted.update((entry.blob_sha, language) for entry, language in to_extract)
 
             for listed_file in batch:
                 if stop is not None and stop.is_set():
                     raise BuildStopped
                 entry = listed_file.entry
-                repo_files.add(entry.path)
-                if entry.path in manifest_names:
-                    manifests[entry.path] = entry.content.decode(errors="replace")
                 match listed_file:
                     case StoredFile(outcome=outcome):
                         result.stats.record(outcome)
@@ -245,44 +281,27 @@ def extract_and_store_chunks(
                 on_progress("parsing", result.stats.total_files, result.stats.total_files)
 
         session.replace_snapshots(snapshots, snapshot_sha=snapshot_sha)
-
-    # Every outcome that occurred, by name, so a run's file count is
-    # accounted for in the log line that reports it.
-    log.info(
-        "extracted_files",
-        total=result.stats.total_files,
-        sha=snapshot_sha[:12],
-        **{outcome.value: count for outcome, count in result.stats.outcomes.items()},
-    )
-    return _Extracted(result=result, repo_files=repo_files, manifests=manifests)
-
-
-def infer_and_store_edges(
-    *,
-    index: Index,
-    repo_files: set[str],
-    manifests: dict[str, str],
-    snapshot_sha: str,
-    repo: Repo,
-    on_progress: ProgressCallback,
-) -> tuple[int, int]:
-    """Infer the snapshot's edges and replace its stored ones; return edge and chunk counts."""
-    on_progress("edges", 0, 0)
-    resolutions = language_resolutions(get_manager().registrations(), manifests=manifests)
-    with index.session(repo) as session:
-        chunks = session.edge_chunks(snapshot_sha)
-        edges = infer_edges(chunks, repo_files, resolutions, steps=config.follow_steps)
-        session.replace_edges(edges, snapshot_sha=snapshot_sha)
-    log.info("inferred_edges", edges=len(edges))
-    return len(edges), len(chunks)
-
-
-def mark_indexed_and_cleanup(
-    *, index: Index, repo: Repo, snapshot_sha: str, on_progress: ProgressCallback
-) -> None:
-    """Mark the commit indexed and remove orphaned data."""
-    on_progress("finalising", 0, 0)
-    with index.session(repo) as session:
+        # The snapshot's edges, and those of every indexed snapshot listing a
+        # blob extracted here, which reads its new chunks (ARCHITECTURE, "A
+        # blob's chunks and the edges read from them commit together").
+        built = repo.at(snapshot_sha)
+        inferred = list(
+            dict.fromkeys([built, *session.snapshots_listing(extracted, repos=index.repos())])
+        )
+        for done, at in enumerate(inferred):
+            if stop is not None and stop.is_set():
+                raise BuildStopped
+            on_progress("edges", done, len(inferred))
+            listed = session.snapshot_files(at=at)
+            located = session.edge_chunks(at=at)
+            edges = snapshot_edges(repo_path, located, listed)
+            session.replace_edges(edges, at=at)
+            log.info(
+                "inferred_edges", repo=at.repo.repo_path, sha=at.snapshot_sha[:12], edges=len(edges)
+            )
+            if at == built:
+                result.stats.total_edges, result.stats.total_chunks = len(edges), len(located)
+        on_progress("finalising", 0, 0)
         session.mark_indexed(snapshot_sha=snapshot_sha)
         cleaned = session.cleanup()
         if cleaned.file_snapshots or cleaned.edges or cleaned.chunks:
@@ -293,79 +312,14 @@ def mark_indexed_and_cleanup(
                 chunks=cleaned.chunks,
             )
 
-
-def build_index(
-    repo_path: str,
-    snapshot_sha: str,
-    index: Index,
-    *,
-    base_sha: str | None = None,
-    on_progress: ProgressCallback = _noop_progress,
-    stop: threading.Event | None = None,
-) -> IndexResult:
-    """Build (or incrementally update) the index for *snapshot_sha*.
-
-    Lists all files at *snapshot_sha*, extracts chunks, infers
-    edges, and marks the commit indexed.  The commit becomes
-    queryable via FTS/name/edges immediately — embedding is
-    handled separately by `embed_index`.
-
-    *repo_path* may be any path inside the repository; it is resolved
-    to the root and registered if not already known, since indexing a
-    path is what puts a repo in the index.  The repo comes from
-    that lookup rather than from the caller, so it always matches the
-    path being built.  A linked worktree resolves to its own
-    directory, and so is built as a repo of its own, in its main
-    checkout's project.
-
-    When *base_sha* is provided, only files that changed between
-    *base_sha* and *snapshot_sha* are considered for extraction.
-    Unchanged files are skipped whatever the blob check says.
-
-    When *stop* is set, the build raises `BuildStopped` before its next
-    file or phase. The snapshot is left unindexed, as a build that died
-    there would leave it, and the next build of it starts again.
-    """
-    t0 = time.monotonic()
-
-    # Register before writing anything that refers to the repo, so a
-    # crash part-way through leaves an unused repos row rather than
-    # indexed rows that nothing can find.
-    repo_path = normalise_repo_path(repo_path)
-    repo = index.register(repo_path)
-
-    # Phase 1: extract chunks from git, write to DB.
-    extracted = extract_and_store_chunks(
-        index=index,
-        repo_path=repo_path,
-        snapshot_sha=snapshot_sha,
-        repo=repo,
-        base_sha=base_sha,
-        on_progress=on_progress,
-        stop=stop,
+    # Every outcome that occurred, by name, so a run's file count is
+    # accounted for in the log line that reports it.
+    log.info(
+        "extracted_files",
+        total=result.stats.total_files,
+        sha=snapshot_sha[:12],
+        **{outcome.value: count for outcome, count in result.stats.outcomes.items()},
     )
-    if stop is not None and stop.is_set():
-        raise BuildStopped
-
-    result = extracted.result
-
-    # Phase 2: infer cross-file edges.
-    result.stats.total_edges, result.stats.total_chunks = infer_and_store_edges(
-        index=index,
-        repo_files=extracted.repo_files,
-        manifests=extracted.manifests,
-        snapshot_sha=snapshot_sha,
-        repo=repo,
-        on_progress=on_progress,
-    )
-    if stop is not None and stop.is_set():
-        raise BuildStopped
-
-    # Phase 3: mark complete and remove orphaned data.
-    mark_indexed_and_cleanup(
-        index=index, repo=repo, snapshot_sha=snapshot_sha, on_progress=on_progress
-    )
-
     result.stats.elapsed_seconds = time.monotonic() - t0
     log.info(
         "index_complete",
