@@ -3,10 +3,10 @@
 `markdown` reads a document's blocks. Each headed section is a
 `doc_section` named by its heading, scoped by the headings above it, and
 holding its text up to its first subsection. Fenced code is extracted in
-the fence's language.
+the fence's language, and raw HTML as HTML.
 
 `markdown_inline` reads the text inside each block, which Markdown's
-injections hand it: a link is an import.
+injections hand it: a link is an import, and an HTML tag is HTML.
 
 Extracted chunks::
 
@@ -26,7 +26,12 @@ from __future__ import annotations
 
 import re
 
-from rbtr.languages.registration import LanguageRegistration, QueryExtraction, load_query
+from rbtr.languages.registration import (
+    LanguageRegistration,
+    QueryExtraction,
+    SectionNames,
+    load_query,
+)
 
 markdown = LanguageRegistration(
     id="markdown",
@@ -39,19 +44,21 @@ markdown = LanguageRegistration(
     prose=True,
     # ATX headings and fenced code.
     content_signals=(re.compile(r"^#{1,6}\s+", re.MULTILINE), re.compile(r"^```", re.MULTILINE)),
-    extraction_serial=6,
+    section_names=SectionNames.FOLDED,
+    extraction_serial=7,
 )
 
 # The grammar's inline half: emphasis, code spans, links and HTML tags
 # inside a block's text, which the block grammar leaves as one `inline`
 # node. It has no files of its own; Markdown's injections hand it each
-# block's text. Its links document what they name, and resolve as
-# Markdown's do.
+# block's text, and its own hand the HTML tags in it to HTML. Its links
+# document what they name, and resolve as Markdown's do.
 markdown_inline = LanguageRegistration(
     id="markdown_inline",
     grammar_module="tree_sitter_markdown",
     grammar_entry="inline_language",
     extraction=QueryExtraction(query=load_query(__package__, "links"), fragments=False),
+    injection_query=load_query(__package__, "inline_injections"),
     import_targets=frozenset({"markdown"}),
     prose=True,
 )

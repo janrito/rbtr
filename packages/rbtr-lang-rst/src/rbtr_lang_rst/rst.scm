@@ -5,9 +5,17 @@
 ((section "adornment"? @_level (title) @_section_name "adornment" @_level
   (#strip! @_level "(?<=^.).*")) @doc_section)
 
-; A role naming a symbol: `:func:`format_greeting``, `:class:`~pkg.Greeter``
-; (`~` shows the last component, which is the name).
+; A label or hyperlink target (`.. _intro:`, `.. _docs: https://…`): a
+; section named as a `:ref:` role or a link names it.
+((target (name) @_section_name) @doc_section
+  (#strip! @_section_name "^_|:$"))
+
+; A role naming a Python object: `:func:`format_greeting``,
+; `:class:`~pkg.Greeter`` (`~` shows the last component, which is the name).
+; The name lives in Python, Sphinx's default domain.
+; (`#set!` first: py-tree-sitter 0.26.1 frees a predicate before it twice.)
 ((interpreted_text (role) @_role "interpreted_text" @_import_names) @import
+  (#set! import.language_hint "python")
   (#any-of? @_role ":func:" ":class:" ":meth:" ":attr:")
   (#strip! @_import_names "^`~[^`]*\\.|^`|`$"))
 
@@ -15,6 +23,13 @@
 ((interpreted_text (role) @_role "interpreted_text" @_import_module) @import
   (#any-of? @_role ":doc:" ":mod:")
   (#strip! @_import_module "^`|`$"))
+
+; A role naming a label, wherever in the documents it is set:
+; `:ref:`intro``, `:ref:`the intro <intro>``. The name lives in rST.
+((interpreted_text (role) @_role "interpreted_text" @_import_names) @import
+  (#set! import.language_hint "rst")
+  (#eq? @_role ":ref:")
+  (#strip! @_import_names "^`([^`<]*<)?|>?`$"))
 
 ; A hyperlink with an embedded target in the repository:
 ; `the guide <guide.rst#setup>`_. An external URL (a scheme, `//`) is not a

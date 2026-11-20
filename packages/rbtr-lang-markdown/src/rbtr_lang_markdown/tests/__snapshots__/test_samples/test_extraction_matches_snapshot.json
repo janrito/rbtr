@@ -10,12 +10,12 @@
     "line_end": 1
   },
   {
-    "name": "format-greeting",
+    "name": "Format a greeting — the helper",
     "kind": "doc_section",
     "file_path": "api.md",
     "scope": "API",
     "language": "markdown",
-    "content": "## format-greeting\n\nFormats a greeting for a name.\n\nCall it from Python:\n\n```python\nfrom greeter import format_greeting\n\n\ndef demo() -> str:\n    return format_greeting(\"Ada\")\n```\n\nOr wrap it in a shell helper:\n\n```sh\ngreet() {\n  format-greeting \"$1\"\n}\n```",
+    "content": "## Format a greeting — the helper\n\nFormats a greeting for a name.\n\nCall it from Python:\n\n```python\nfrom greeter import format_greeting\n\n\ndef demo() -> str:\n    return format_greeting(\"Ada\")\n```\n\nOr wrap it in a shell helper:\n\n```sh\ngreet() {\n  format-greeting \"$1\"\n}\n```",
     "line_start": 3,
     "line_end": 23
   },
@@ -64,6 +64,56 @@
     "content": "# Configuration\n\nGreeter configuration options.",
     "line_start": 1,
     "line_end": 3
+  },
+  {
+    "name": "Locale options {#locale}",
+    "kind": "doc_section",
+    "file_path": "config.md",
+    "scope": "Configuration",
+    "language": "markdown",
+    "content": "## Locale options {#locale}\n\nThe default locale, and the fallback when a name has none.\n\n<a id=\"install-notes\"></a>Install it before configuring it.\n\n<div id=\"legacy-options\">\n\nOptions older releases read.\n\n</div>",
+    "line_start": 5,
+    "line_end": 15
+  },
+  {
+    "name": "install-notes",
+    "kind": "doc_section",
+    "file_path": "config.md",
+    "scope": "",
+    "language": "html",
+    "content": "<a id=\"install-notes\">",
+    "line_start": 9,
+    "line_end": 9
+  },
+  {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "config.md",
+    "scope": "",
+    "language": "html",
+    "content": "</a>",
+    "line_start": 9,
+    "line_end": 9
+  },
+  {
+    "name": "legacy-options",
+    "kind": "doc_section",
+    "file_path": "config.md",
+    "scope": "",
+    "language": "html",
+    "content": "<div id=\"legacy-options\">",
+    "line_start": 11,
+    "line_end": 11
+  },
+  {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "config.md",
+    "scope": "",
+    "language": "html",
+    "content": "</div>",
+    "line_start": 15,
+    "line_end": 15
   },
   {
     "name": "Embedding",
@@ -273,9 +323,9 @@
     "file_path": "markdown.md",
     "scope": "Greeter",
     "language": "markdown",
-    "content": "## Usage\n\nConfigure it via [the config file](config.md), then call the\n[format helper](api.md#format-greeting).\n\nFor background, see [an external guide](https://example.com), which is\nnot treated as a cross-reference.",
+    "content": "## Usage\n\nConfigure it via [the config file](config.md), then call the\n[format helper](api.md#format-a-greeting-the-helper),\nwith [locale options](config.md#locale), after the\n[install notes](config.md#install-notes); older releases read the\n[legacy options](config.md#legacy-options).\n\nFor background, see [an external guide](https://example.com), which is\nnot treated as a cross-reference.",
     "line_start": 5,
-    "line_end": 11
+    "line_end": 14
   },
   {
     "name": "config.md",
@@ -294,17 +344,65 @@
     }
   },
   {
-    "name": "api.md#format-greeting",
+    "name": "api.md#format-a-greeting-the-helper",
     "kind": "import",
     "file_path": "markdown.md",
     "scope": "",
     "language": "markdown_inline",
-    "content": "api.md#format-greeting",
+    "content": "api.md#format-a-greeting-the-helper",
     "line_start": 8,
     "line_end": 8,
     "metadata": {
       "module": "api.md",
-      "names": "format-greeting",
+      "names": "format-a-greeting-the-helper",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "name": "config.md#locale",
+    "kind": "import",
+    "file_path": "markdown.md",
+    "scope": "",
+    "language": "markdown_inline",
+    "content": "config.md#locale",
+    "line_start": 9,
+    "line_end": 9,
+    "metadata": {
+      "module": "config.md",
+      "names": "locale",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "name": "config.md#install-notes",
+    "kind": "import",
+    "file_path": "markdown.md",
+    "scope": "",
+    "language": "markdown_inline",
+    "content": "config.md#install-notes",
+    "line_start": 10,
+    "line_end": 10,
+    "metadata": {
+      "module": "config.md",
+      "names": "install-notes",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "name": "config.md#legacy-options",
+    "kind": "import",
+    "file_path": "markdown.md",
+    "scope": "",
+    "language": "markdown_inline",
+    "content": "config.md#legacy-options",
+    "line_start": 11,
+    "line_end": 11,
+    "metadata": {
+      "module": "config.md",
+      "names": "legacy-options",
       "dots": "",
       "language_hint": ""
     }
@@ -316,8 +414,8 @@
     "scope": "Greeter::Usage",
     "language": "markdown",
     "content": "### Locales\n\nSupported locales are documented in [the locales table](locales.md).\nJump to [the usage section](#usage) for examples.\n\nStart with [the setup guide](guides/setup.md).",
-    "line_start": 13,
-    "line_end": 18
+    "line_start": 16,
+    "line_end": 21
   },
   {
     "name": "locales.md",
@@ -326,11 +424,27 @@
     "scope": "",
     "language": "markdown_inline",
     "content": "locales.md",
-    "line_start": 15,
-    "line_end": 15,
+    "line_start": 18,
+    "line_end": 18,
     "metadata": {
       "module": "locales.md",
       "names": "",
+      "dots": "",
+      "language_hint": ""
+    }
+  },
+  {
+    "name": "#usage",
+    "kind": "import",
+    "file_path": "markdown.md",
+    "scope": "",
+    "language": "markdown_inline",
+    "content": "#usage",
+    "line_start": 19,
+    "line_end": 19,
+    "metadata": {
+      "module": "markdown.md",
+      "names": "usage",
       "dots": "",
       "language_hint": ""
     }
@@ -342,8 +456,8 @@
     "scope": "",
     "language": "markdown_inline",
     "content": "guides/setup.md",
-    "line_start": 18,
-    "line_end": 18,
+    "line_start": 21,
+    "line_end": 21,
     "metadata": {
       "module": "guides/setup.md",
       "names": "",

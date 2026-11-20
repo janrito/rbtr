@@ -239,9 +239,9 @@ stays a fragment: that is what fragments are for.
 
 ## Shaping captures, and grammar gaps
 
-Syntax a grammar leaves inside one leaf (backticks, `<target>`, a `~`)
-is stripped in the query with `#strip!`, which the engine applies; never
-in Python. `#set!` comes before a pattern's predicates (see Gotchas).
+Syntax a grammar leaves inside one leaf (backticks, `<target>`, a `~`, a label's `_` and
+`:`) is stripped in the query with `#strip!`, which the engine applies; never in Python.
+`#set!` comes before a pattern's predicates (see Gotchas).
 
 Two engine rules stand in for nodes a grammar does not give. Use one only
 where the grammar lacks the node; where it gives the node, an ordinary
@@ -257,6 +257,16 @@ pattern is the answer. Say why in a comment beside the pattern.
 
 Each rule is deleted when its grammar gives the node. A new rule needs the
 same case: a node the grammar does not give, and an exit.
+
+## Names a reference uses
+
+A link's fragment or a role reaches a section by its name. Capture
+whatever defines such a name (an `id`, a label) as a section of that
+name, with a query; declare `section_names=SectionNames.FOLDED` when the
+language's renderers turn a heading into an anchor. Test it with links
+written as the renderers themselves write them, in an imports sample. How
+and why: the `rbtr` README ("How your language's references resolve") and
+ARCHITECTURE ("Dependency graph").
 
 ## Scope & promotion (engine layers — already generic)
 

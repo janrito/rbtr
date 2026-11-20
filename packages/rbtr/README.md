@@ -714,7 +714,8 @@ becomes a chunk.
 strip it in the query with tree-sitter's `#strip!` directive, which the
 engine applies to the name and import values a capture gives:
 `` (#strip! @_import_names "^`~[^`]*\\.|^`|`$") `` names the rST role
-`` :func:`~pkg.greet` `` `greet`. Put `#set!` before a pattern's
+`` :func:`~pkg.greet` `` `greet`, and `(#strip! @_section_name "^_|:$")`
+the rST label `.. _intro:` `intro`. Put `#set!` before a pattern's
 predicates (py-tree-sitter 0.26.1 crashes otherwise).
 
 **Imports.** `@_import_module` populates `ImportMeta.module` straight
@@ -772,14 +773,15 @@ An `@import` capture gives the edge graph a module string. Turning that
 into a file is the registration's job, and every language spells it
 differently:
 
-| Field                | Says                                                                                         |
-| -------------------- | -------------------------------------------------------------------------------------------- |
-| `module_style`       | whether a reference is a path (`./b`, `b.css`) or a dotted name (`pkg.b`)                    |
-| `source_roots`       | directory prefixes tried in turn, for a language whose imports are written from a `src` root |
-| `path_substitutions` | prefix rewrites, for an alias that is not a directory — Rust's `crate::` under `src/`        |
-| `index_files`        | the file that stands for a directory: `__init__.py`, `index.js`, `mod.rs`, `Cargo.toml`      |
-| `package_directory`  | that a directory *is* a unit, so a reference to one reaches every file in it                 |
-| `manifest`           | a repository file whose text supplies further substitutions, read per repository             |
+| Field                | Says                                                                                                |
+| -------------------- | --------------------------------------------------------------------------------------------------- |
+| `module_style`       | whether a reference is a path (`./b`, `b.css`) or a dotted name (`pkg.b`)                           |
+| `source_roots`       | directory prefixes tried in turn, for a language whose imports are written from a `src` root        |
+| `path_substitutions` | prefix rewrites, for an alias that is not a directory — Rust's `crate::` under `src/`               |
+| `index_files`        | the file that stands for a directory: `__init__.py`, `index.js`, `mod.rs`, `Cargo.toml`             |
+| `package_directory`  | that a directory *is* a unit, so a reference to one reaches every file in it                        |
+| `manifest`           | a repository file whose text supplies further substitutions, read per repository                    |
+| `section_names`      | how a link's fragment compares with a section's name: as written, or folded like a heading's anchor |
 
 A path-style reference naming no directory is resolved beside the file
 making it, so `@import "b.css"` in `css/a.css` reaches `css/b.css`. Set
@@ -800,6 +802,13 @@ def go_module_prefix(text: str) -> tuple[tuple[str, str], ...]:
     match = re.search(r"^\s*module\s+(\S+)", text, re.MULTILINE)
     return ((f"{match.group(1)}/", ""),) if match else ()
 ```
+
+A link's fragment, or a role such as rST's `:ref:`, reaches a section
+by its name. Make whatever a reference can name a section of that name,
+a label as well as a heading. If your renderers turn a heading into an
+anchor (`Getting Started` → `#getting-started`), declare
+`section_names=SectionNames.FOLDED`. A role that names something and no
+file says where it lives with `(#set! import.language_hint "<language>")`.
 
 Put a file in the plugin's sample that references a sibling inside a
 subdirectory, so the sample's edge snapshot records the edge a build

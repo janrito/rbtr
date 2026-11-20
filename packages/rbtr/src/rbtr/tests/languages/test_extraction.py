@@ -247,6 +247,24 @@ Call it.
     ]
 
 
+def test_set_directive_names_where_an_import_finds_its_name() -> None:
+    """`#set! import.language_hint` says which language's chunks hold the name, as a module would."""
+    grammar = get_manager().grammar("python")
+    assert grammar is not None
+    query = """\
+((call function: (identifier) @_f arguments: (argument_list (string (string_content) @_import_names))) @import
+  (#set! import.language_hint "rst")
+  (#eq? @_f "ref"))
+"""
+    reg = LanguageRegistration(id="faketest", extraction=QueryExtraction(query=query))
+    [meta] = [
+        c.role.meta
+        for c in extract_symbols(reg, "a.py", "sha1", b'ref("intro")\n', grammar)
+        if isinstance(c.role, Import)
+    ]
+    assert (meta.names, meta.language_hint) == ("intro", "rst")
+
+
 def test_unknown_capture_name_ignored() -> None:
     """Captures not in CAPTURE_KINDS are silently skipped."""
     grammar = get_manager().grammar("python")

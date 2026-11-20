@@ -15,10 +15,14 @@ as docutils reads it. Cross-references are extracted as imports.
   holding their text up to the next heading, with `scope` the `::` chain of
   enclosing sections. A document with no heading at all — a README, a
   changelog — gives each top-level block a fragment of its own.
-- **References** — the `:func:` / `:class:` / `:meth:` / `:mod:` / `:doc:`
-  roles, `` `text <target>`_ `` references, and `.. toctree::` entries →
-  imports; a `#fragment` names a part of its document. External URLs are
-  skipped.
+- **Labels** — `.. _intro:` and other link targets → a doc section named
+  `intro`.
+- **References** — the `:func:` / `:class:` / `:meth:` / `:mod:` / `:doc:` /
+  `:ref:` roles, `` `text <target>`_ `` references, and `.. toctree::` entries
+  → imports. A role says where its name lives: `:func:` and its kin look
+  in Python, `:ref:` in rST, where it reaches a label or a title; a
+  `#fragment` reaches the section whose title it is, as docutils writes it.
+  External URLs are skipped.
 
 ## Chunks produced
 

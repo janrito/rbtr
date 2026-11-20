@@ -13,9 +13,13 @@ Two tree-sitter query plugins, one for each half of the grammar:
 - **Sections** — headings → doc sections holding their text up to their
   first subsection; `scope` is the `::` chain of enclosing headings. Text
   under no heading becomes fragments.
-- **Links** — local `[text](path.md)` and `[text](path.md#fragment)` →
-  imports (the fragment becomes `names`). External and fragment-only links
-  are skipped.
+- **Links** — local `[text](path.md)`, `[text](path.md#fragment)` and
+  `[text](#fragment)` → imports (the fragment becomes `names`). A fragment
+  reaches the section whose heading it is, as renderers write it
+  (`#getting-started` for `## Getting Started`). External links are skipped.
+- **Raw HTML** — `<div id="x">` on its own lines and `<a id="x">` in a
+  paragraph are HTML, so an element with an `id` or `name` is a section a
+  link reaches.
 - **Fenced code** — delegated to the block's language (see below).
 
 ## Chunks produced

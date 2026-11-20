@@ -4,6 +4,11 @@
   or a document's sections.
 - `link-to-a-heading`: A Markdown link to a heading's anchor documents that
   section alone.
+- `renderer-anchors`: A link written with the anchor a renderer gives a
+  heading documents it. The anchors are what the renderers themselves
+  produced for the guide's headings: `github-slugger` 2.0.0 (GitHub;
+  GitLab, Hugo and kramdown's GFM parser agree), Python-Markdown 3.11.3
+  (MkDocs), Pandoc 3.13, and kramdown's own rule from its source.
 """
 
 from __future__ import annotations
@@ -21,13 +26,8 @@ if TYPE_CHECKING:
     scope="module",
     params=[
         "links",
-        pytest.param(
-            "link-to-a-heading",
-            marks=pytest.mark.xfail(
-                reason="a link names a heading by its anchor (`#details`), a section by its text",
-                strict=True,
-            ),
-        ),
+        "link-to-a-heading",
+        "renderer-anchors",
     ],
 )
 def sample_dir(request: pytest.FixtureRequest) -> Path:

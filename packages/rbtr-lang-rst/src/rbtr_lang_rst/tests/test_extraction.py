@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pytest_cases import parametrize_with_cases
 
-from rbtr.domain.models import ChunkKind, Import
+from rbtr.domain.models import ChunkKind, Import, Section
 from rbtr.git import FileEntry
 from rbtr.languages.extract import extract_file
 
@@ -45,10 +45,11 @@ To create an HTML version of the docs:
 
 
 def test_rst_headingless_file_yields_every_top_level_block() -> None:
-    """Without headings, each top-level block is a fragment of its own.
+    """Without headings, each top-level block is a chunk of its own.
 
     A bullet list, a link target and a directive are content someone
-    searches for, so none is dropped for want of a heading above it.
+    searches for, so none is dropped for want of a heading above it: each
+    block is a fragment, and a link target a section of its name.
     """
     src = """\
 An opening paragraph.
@@ -64,29 +65,13 @@ An opening paragraph.
 .. _ReST: https://docutils.sourceforge.io/rst.html
 """
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
-    blocks = [c.content.split("\n")[0] for c in chunks if c.kind == ChunkKind.FRAGMENT]
+    blocks = sorted((c.line_start, c.kind, c.content.split("\n")[0]) for c in chunks)
     assert blocks == [
-        "An opening paragraph.",
-        "* a bullet item",
-        "1. an enumerated item",
-        ".. note::",
-        ".. _ReST: https://docutils.sourceforge.io/rst.html",
-    ]
-
-
-def test_rst_reference_fragment_names_an_anchor() -> None:
-    """RST `text <path#id>`_ names an anchor in that file; `text <#id>`_ one in this file."""
-    src = """\
-Title
-=====
-
-See `the setup <guide.rst#setup>`_ and `the title <#title>`_.
-"""
-    chunks = extract_file(FileEntry("docs/index.rst", "sha1", src.encode()), "rst")
-    imports = [c.role for c in chunks if isinstance(c.role, Import)]
-    assert [(i.meta.module, i.meta.names) for i in imports] == [
-        ("guide.rst", "setup"),
-        ("index.rst", "title"),
+        (1, ChunkKind.FRAGMENT, "An opening paragraph."),
+        (3, ChunkKind.FRAGMENT, "* a bullet item"),
+        (6, ChunkKind.FRAGMENT, "1. an enumerated item"),
+        (8, ChunkKind.FRAGMENT, ".. note::"),
+        (11, ChunkKind.DOC_SECTION, ".. _ReST: https://docutils.sourceforge.io/rst.html"),
     ]
 
 
@@ -253,6 +238,59 @@ See `the guide <other.rst>`_ for details.
     imports = [c.role for c in chunks if isinstance(c.role, Import)]
     assert len(imports) == 1
     assert imports[0].meta.module == "other.rst"
+
+
+def test_rst_reference_fragment_names_an_anchor() -> None:
+    """RST `text <path#id>`_ names an anchor in that file; `text <#id>`_ one in this file."""
+    src = """\
+Title
+=====
+
+See `the setup <guide.rst#setup>`_ and `the title <#title>`_.
+"""
+    chunks = extract_file(FileEntry("docs/index.rst", "sha1", src.encode()), "rst")
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
+    assert [(i.meta.module, i.meta.names) for i in imports] == [
+        ("guide.rst", "setup"),
+        ("index.rst", "title"),
+    ]
+
+
+def test_rst_ref_role_names_a_label() -> None:
+    """RST :ref:`label` and :ref:`text <label>` name the label as written, to be found in rST."""
+    src = """\
+Title
+=====
+
+See :ref:`intro-label` and :ref:`the intro <Other Label>`.
+"""
+    chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
+    imports = [c.role for c in chunks if isinstance(c.role, Import)]
+    assert [(i.meta.module, i.meta.names, i.meta.language_hint) for i in imports] == [
+        ("", "intro-label", "rst"),
+        ("", "Other Label", "rst"),
+    ]
+
+
+def test_rst_label_is_a_section_named_by_it() -> None:
+    """A label or hyperlink target is a section of its name, in source order, with headings or none."""
+    headed = """\
+.. _intro:
+.. _Other Label:
+
+Title
+=====
+
+.. _docs: https://example.com
+"""
+    plain = """\
+.. _lone:
+
+Text.
+"""
+    for src, names in ((headed, ["intro", "Other Label", "Title", "docs"]), (plain, ["lone"])):
+        chunks = extract_file(FileEntry("input", "sha1", src.encode()), "rst")
+        assert [c.role.name for c in chunks if isinstance(c.role, Section)] == names
 
 
 def test_rst_reference_external_skipped() -> None:
