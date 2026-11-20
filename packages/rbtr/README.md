@@ -237,6 +237,14 @@ Full source of a symbol by name.
 rbtr read-symbol fuse_scores
 ```
 
+Qualify a name to pick one of several: by class, by module, or
+both, separating the parts with `::`, `.`, `#` or `/`:
+
+```bash
+rbtr read-symbol EngineArgs.add_cli_args
+rbtr read-symbol vllm.engine.arg_utils.EngineArgs.add_cli_args
+```
+
 When a name lives in several files, narrow it with
 `--file-path` (repeatable):
 

@@ -17,6 +17,7 @@ import polars as pl
 import structlog
 
 from rbtr.config import config
+from rbtr.domain.identity import SCOPE_SEPARATOR
 from rbtr.domain.models import (
     Chunk,
     ChunkKind,
@@ -44,8 +45,10 @@ from rbtr.index.results import (
     InboundRefResultRow,
     IndexedSnapshotRow,
     NameMatchRow,
+    QualifierRow,
     ScoredChunkResultRow,
     SnapshotCountsRow,
+    SnapshotFileRow,
     _decode_metadata,
     chunk_ids_view,
     file_paths_view,
@@ -55,6 +58,8 @@ from rbtr.index.results import (
 )
 from rbtr.index.store import Store
 from rbtr.index.writer import WriteSession
+from rbtr.languages.edges import build_resolution_map, module_files
+from rbtr.languages.manager import get_manager
 
 log = structlog.get_logger(__name__)
 
@@ -81,6 +86,7 @@ _COUNT_EDGES_SQL = load_sql("count_edges.sql")
 _UNEMBEDDED_CHUNK_IDS_SQL = load_sql("unembedded_chunk_ids.sql")
 _GET_CHUNKS_BY_ID_SQL = load_sql("get_chunks_by_id.sql")
 _SNAPSHOTS_TO_EMBED_SQL = load_sql("snapshots_to_embed.sql")
+_SNAPSHOT_FILE_PATHS_SQL = load_sql("snapshot_file_paths.sql")
 
 
 class Index:
@@ -574,9 +580,20 @@ class Index:
         Resolution is tiered: exact → case-insensitive exact →
         prefix → substring.  Only the best tier that has matches
         is returned, across every file *within* spans.
+
+        A qualified *pattern* (`Foo::bar`, or any separator in
+        `config.qualifier_separators`: `Foo.bar`, `mod.Foo.bar`) also
+        matches its last part, by the same tiers, where the rest
+        places it (`_qualifiers`).  The whole *pattern* still matches
+        as a literal name, so a name holding a separator resolves.
         """
-        params = {"name": pattern, "pattern": f"%{pattern}%"}
-        frames = self._within(within, _SEARCH_BY_NAME_SQL, params)
+        canonical = pattern
+        for separator in config.qualifier_separators:
+            canonical = canonical.replace(separator, SCOPE_SEPARATOR)
+        *qualifier, name = [part for part in canonical.split(SCOPE_SEPARATOR) if part] or [pattern]
+        qualifiers = self._qualifiers(qualifier, within)
+        params = {"literal": pattern, "name": name, "qualified": bool(qualifier)}
+        frames = self._within(within, _SEARCH_BY_NAME_SQL, params, _qualifiers=qualifiers)
         if not frames:
             return ChunkResultRow.create_empty()
         matches = pl.concat(frames).pipe(_decode_metadata).pipe(NameMatchRow.validate, cast=True)
@@ -585,6 +602,58 @@ class Index:
             .drop("match_tier")
             .sort("file_path", "line_start")
             .pipe(ChunkResultRow.validate, cast=True)
+        )
+
+    def _qualifiers(
+        self, qualifier: list[str], within: list[SnapshotRef]
+    ) -> dy.DataFrame[QualifierRow]:
+        """Where *qualifier* (outermost-first) may place a symbol.
+
+        Read whole as a scope, it matches a symbol whose scope ends with
+        it.  Its leading parts may instead name a module: each split
+        resolves them as an import would (`module_files`, for each
+        language in the snapshot) and asks the symbol to be in a file
+        they name, with the remaining parts as its exact scope.
+        An empty *qualifier* (a bare name) places nothing.
+        """
+        if not qualifier:
+            return QualifierRow.create_empty()
+        # Registrations only: a read has no manifest text, so Go's `go.mod`
+        # substitutions are not applied.
+        resolutions = build_resolution_map(get_manager())
+        files = _concat(self._within(within, _SNAPSHOT_FILE_PATHS_SQL, {}), SnapshotFileRow)
+        splits = pl.DataFrame(
+            [
+                {
+                    "module": "/".join(qualifier[:split]),
+                    "scope": SCOPE_SEPARATOR.join(qualifier[split:]),
+                }
+                for split in range(1, len(qualifier) + 1)
+            ]
+        )
+        in_modules = (
+            files.select("repo_id", language="detected_language")
+            .unique()
+            .filter(pl.col("language").is_in(list(resolutions)))
+            .join(files.group_by("repo_id").agg(repo_files="file_path"), on="repo_id")
+            .join(splits, how="cross")
+            .with_columns(
+                file_path=pl.struct("module", "repo_files", "language").map_elements(
+                    lambda place: module_files(
+                        place["module"], set(place["repo_files"]), resolutions[place["language"]]
+                    ),
+                    return_dtype=pl.List(pl.String),
+                )
+            )
+            .explode("file_path")
+            .drop_nulls("file_path")
+            .select("repo_id", "file_path", "scope")
+        )
+        anywhere = pl.DataFrame({"scope": [SCOPE_SEPARATOR.join(qualifier)]})
+        return (
+            pl.concat([anywhere, in_modules], how="diagonal_relaxed")
+            .unique()
+            .pipe(QualifierRow.validate, cast=True)
         )
 
     def similar_matches(
