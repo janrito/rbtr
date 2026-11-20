@@ -252,43 +252,23 @@
     "line_end": 15
   },
   {
-    "name": "",
-    "kind": "comment",
+    "name": "greeter_default",
+    "kind": "function",
     "file_path": "greeter.h",
     "scope": "",
     "language": "c",
-    "content": "/* Build a greeter with the default prefix. */",
+    "content": "/* Build a greeter with the default prefix. */\nGreeter greeter_default(void);",
     "line_start": 17,
-    "line_end": 17
-  },
-  {
-    "name": "",
-    "kind": "fragment",
-    "file_path": "greeter.h",
-    "scope": "",
-    "language": "c",
-    "content": "Greeter greeter_default(void);",
-    "line_start": 18,
     "line_end": 18
   },
   {
-    "name": "",
-    "kind": "comment",
+    "name": "format_greeting",
+    "kind": "function",
     "file_path": "greeter.h",
     "scope": "",
     "language": "c",
-    "content": "/* Format a greeting for `name` into `buf`. */",
+    "content": "/* Format a greeting for `name` into `buf`. */\nint format_greeting(const Greeter *g, const char *name, char *buf, int n);",
     "line_start": 20,
-    "line_end": 20
-  },
-  {
-    "name": "",
-    "kind": "fragment",
-    "file_path": "greeter.h",
-    "scope": "",
-    "language": "c",
-    "content": "int format_greeting(const Greeter *g, const char *name, char *buf, int n);",
-    "line_start": 21,
     "line_end": 21
   },
   {
@@ -430,8 +410,8 @@
     "line_end": 4
   },
   {
-    "name": "",
-    "kind": "fragment",
+    "name": "text_length",
+    "kind": "function",
     "file_path": "util/text.h",
     "scope": "",
     "language": "c",

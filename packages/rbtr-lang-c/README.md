@@ -7,10 +7,12 @@ itself (`pip install rbtr`).
 
 ## What it ingests
 
-- **Functions** — function definitions and prototypes.
+- **Functions** — function definitions and prototypes, including those
+  inside a header's include guard or another `#if` / `#ifdef`.
 - **Classes** — `struct` / `enum` / `union` and `typedef` types (a
   `typedef struct G G;` yields two: the definition and the alias).
-- **Variables** — top-level variables and enum constants (C enum constants
+- **Variables** — top-level variables, inside conditionals too, and enum
+  constants (C enum constants
   leak into the enclosing scope, so they are file-scope variables).
 - **Imports** — `#include <system>` and `#include "local"` headers.
 - **Calls** — each function's calls. A call reaching the prototype a header

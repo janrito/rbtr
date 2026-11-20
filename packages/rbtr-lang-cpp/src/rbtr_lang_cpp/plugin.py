@@ -4,7 +4,8 @@ Provides symbol extraction (functions, prototypes, classes, structs,
 unions, enums, type aliases, namespaces, methods including operator
 overloads, namespace/global variables, and function/object-like
 macros) and include directive capture.  Namespaces are both a symbol
-(class) and a naming scope.
+(class) and a naming scope.  CUDA sources (`.cu`, `.cuh`) are read as
+C++.
 
 Extracted chunks::
 
@@ -25,7 +26,7 @@ from rbtr.languages.registration import LanguageRegistration, QueryExtraction, l
 
 cpp = LanguageRegistration(
     id="cpp",
-    extensions=frozenset({".cpp", ".cc", ".cxx", ".hpp", ".hxx"}),
+    extensions=frozenset({".cpp", ".cc", ".cxx", ".hpp", ".hxx", ".cu", ".cuh"}),
     grammar_module="tree_sitter_cpp",
     extraction=QueryExtraction(
         query=load_query(__package__, "cpp") + load_query(__package__, "references"),
@@ -36,5 +37,5 @@ cpp = LanguageRegistration(
     source_roots=("", "include", "src"),
     members_in_scope=True,
     linked_functions=True,
-    extraction_serial=9,
+    extraction_serial=10,
 )

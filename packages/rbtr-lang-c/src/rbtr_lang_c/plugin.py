@@ -32,5 +32,5 @@ c = LanguageRegistration(
     ),
     source_roots=("", "include", "src"),
     linked_functions=True,
-    extraction_serial=7,
+    extraction_serial=8,
 )

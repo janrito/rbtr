@@ -7,16 +7,20 @@ itself (`pip install rbtr`).
 
 ## What it ingests
 
-- **Functions** — free functions, function templates, and members defined
-  outside their class (`void Order::save() { … }`).
+- **Functions** — free functions, function templates and their
+  specialisations, and members defined outside their class
+  (`Order::~Order()`, `Order::operator<<`).
 - **Classes** — classes, structs, and enums.
-- **Methods** — member functions and constructors, scoped to their class.
-- **Variables** — namespace-level and top-level variables.
+- **Methods** — member functions, constructors, destructors and operators,
+  scoped to their class.
+- **Variables** — namespace-level and top-level variables, and with
+  prototypes, those inside `#if` / `#ifdef` and `extern "C"` blocks.
 - **Imports** — `#include` headers, C's `.h` too.
 - **Calls** — each function's calls. A call reaching a function's
   prototype also reaches its definitions, in C++ or C, as in C.
 
-Scope uses `::` and includes the enclosing namespace.
+Scope uses `::` and includes the enclosing namespace. CUDA sources (`.cu`,
+`.cuh`) are read as C++.
 
 ## Chunks produced
 
