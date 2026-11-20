@@ -170,6 +170,7 @@ describe("renderStatusResult", () => {
         elapsed_seconds: 12,
       },
       { work: { kind: "collect" }, phase: "collecting", current: 1, total: 4, elapsed_seconds: 3 },
+      { work: { kind: "migrate" }, phase: "migrating", current: 2, total: 4, elapsed_seconds: 5 },
     ],
   };
 
@@ -186,6 +187,7 @@ describe("renderStatusResult", () => {
     expect(lines).toContain("⟳ Building: eeeeeeeeeeee — chunking 3/10 (30%) — 1m05s");
     expect(lines).toContain("\u21BB Embedding: eeeeeeeeeeee — 5/20 (25%) — 12s");
     expect(lines).toContain("⟳ Collecting: 1/4 (25%) — 3s");
+    expect(lines).toContain("⟳ Migrating index files: 2/4 (50%) — 5s");
   });
 
   test("suppresses the percentage when the job has no total yet", ({ theme }) => {
@@ -207,6 +209,10 @@ describe("renderStatusResult", () => {
 
   test.for<{ response: StatusResponse; line: string }>([
     { response: { kind: "status", state: "no_index" }, line: "✗ the index does not exist" },
+    {
+      response: { kind: "status", state: "migrating" },
+      line: "! migrating the index's files; reads wait until it ends",
+    },
     {
       response: { kind: "status", state: "repo_not_indexed", repo_path: "/repo", db_size_bytes: 2 ** 20 },
       line: "✗ this repo is not indexed · 1.0 MiB",

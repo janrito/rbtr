@@ -577,7 +577,14 @@ class CollectWork(BaseModel):
     kind: Literal["collect"] = "collect"
 
 
-Work = Annotated[BuildWork | EmbedWork | CollectWork, Field(discriminator="kind")]
+class MigrateWork(BaseModel):
+    """Migrating the index's files to the schema this rbtr reads."""
+
+    model_config = _STRICT
+    kind: Literal["migrate"] = "migrate"
+
+
+Work = Annotated[BuildWork | EmbedWork | CollectWork | MigrateWork, Field(discriminator="kind")]
 """What a piece of background work does, and what it does it to.
 
 Work on a snapshot names its repository; other work names none and
@@ -642,12 +649,16 @@ class IndexState(StrEnum):
                          fall back to the latest indexed commit
                          (`RefSource.LATEST_INDEXED`).
     `INDEXED`          — reads find the snapshot they ask for.
+    `MIGRATING`        — the daemon is migrating the index's files, and
+                         reads that need them reply `index_in_progress`
+                         until it ends.
     """
 
     NO_INDEX = "no_index"
     REPO_NOT_INDEXED = "repo_not_indexed"
     REF_NOT_INDEXED = "ref_not_indexed"
     INDEXED = "indexed"
+    MIGRATING = "migrating"
 
 
 class StatusResponse(BaseModel):
@@ -826,13 +837,21 @@ class GcEndedNotification(BaseModel):
     kind: Literal["gc_ended"] = "gc_ended"
 
 
+class MigrationEndedNotification(BaseModel):
+    """Migrating the index's files ended, however it ended."""
+
+    model_config = _STRICT
+    kind: Literal["migration_ended"] = "migration_ended"
+
+
 Notification = Annotated[
     ProgressNotification
     | ReadyNotification
     | EmbedEndedNotification
     | AutoRebuildNotification
     | IndexErrorNotification
-    | GcEndedNotification,
+    | GcEndedNotification
+    | MigrationEndedNotification,
     Field(discriminator="kind"),
 ]
 

@@ -234,6 +234,11 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     let ended = false;
     let wake = () => {};
     const stop = session.onNotification((notification) => {
+      // Reads reply `index_in_progress` while the daemon migrates, too.
+      if (notification.kind === "migration_ended") {
+        ended = true;
+        wake();
+      }
       if (notificationRepo(notification) !== repoRoot) return;
       if (notification.kind === "progress" && waiting) onUpdate?.(waitingFor(notification));
       if (notification.kind === "ready" || notification.kind === "index_error") {
@@ -480,7 +485,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     cli = "available";
 
     if (decision.kind === "no-repo") inRepository = false;
-    if (decision.kind === "indexed" || decision.kind === "no-repo") {
+    // While the daemon migrates, the footer says so; its end decides on indexing.
+    if (decision.kind === "indexed" || decision.kind === "no-repo" || decision.kind === "migrating") {
       const shown = statusFooter(status, session.available);
       footer?.setStatic(shown.color, shown.text);
       return;
@@ -537,8 +543,8 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
         const shown = statusFooter(status, true);
         footer?.setStatic(shown.color, shown.text);
         startSubscription(ctx);
-        // A daemon back without this repository, as after an index
-        // replaced on a schema change, indexes it as session start does.
+        // A daemon back without this repository, as after replacing an index
+        // too old to migrate, indexes it as session start does.
         const decision = decideStartupDecision(status, settings.autoIndex);
         if (decision.kind === "empty" && decision.index) void triggerIndex(ctx);
         break;
@@ -565,12 +571,23 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     try {
       session.subscribe((notification) => {
         if (!footer) return;
-        // One gc covers every repo the daemon watches, so its notifications name none.
-        if (notification.kind === "progress" && notification.work.kind === "collect") {
+        // A gc or a migration covers every repo the daemon watches, so its notifications name none.
+        if (notification.kind === "progress" && notificationRepo(notification) === null) {
           const { current, total } = notification;
+          const doing = notification.work.kind === "migrate" ? "migrating index files" : "collecting";
           footer.setSpinner("muted", (frame) =>
-            total > 0 ? `rbtr: ${frame} collecting ${current}/${total}…` : `rbtr: ${frame} collecting…`,
+            total > 0 ? `rbtr: ${frame} ${doing} ${current}/${total}…` : `rbtr: ${frame} ${doing}…`,
           );
+          return;
+        }
+        if (notification.kind === "migration_ended") {
+          // Startup left indexing to the end of the migration.
+          void queryIndexStatus(ctx.cwd).then((status) => {
+            const shown = statusFooter(status, true);
+            footer?.setStatic(shown.color, shown.text);
+            const decision = decideStartupDecision(status, settings.autoIndex);
+            if (decision.kind === "empty" && decision.index) void triggerIndex(ctx);
+          });
           return;
         }
         if (notification.kind === "gc_ended") {

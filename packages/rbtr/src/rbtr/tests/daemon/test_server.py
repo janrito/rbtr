@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
+from collections.abc import Generator
 from pathlib import Path
 
 import duckdb
@@ -27,9 +29,12 @@ from rbtr.daemon.messages import (
     ErrorResponse,
     GcAllRequest,
     GcEndedNotification,
+    IndexState,
+    MigrateWork,
     Notification,
     OkResponse,
     ProgressNotification,
+    ReadSymbolRequest,
     ShutdownRequest,
     StatusAllRequest,
     StatusRequest,
@@ -40,9 +45,11 @@ from rbtr.daemon.messages import (
 from rbtr.daemon.server import Daemon
 from rbtr.domain.models import GcMode
 from rbtr.errors import DaemonBusyError, RbtrError
+from rbtr.index.constants import SCHEMA_VERSION
 from rbtr.index.embeddings import Embedder, EmbedResult
 from rbtr.index.index import Index
-from rbtr.index.progress import RepoProgressCallback
+from rbtr.index.migrations import Migrate
+from rbtr.index.progress import ProgressCallback, RepoProgressCallback
 from rbtr.tests.daemon.cases_server import MalformedMessage, StopScenario
 
 from .conftest import serving, subscribed
@@ -227,6 +234,90 @@ def test_a_gc_that_fails_still_ends(
     ]
     assert isinstance(status, StatusResponse)
     assert not [job for job in status.active if isinstance(job.work, CollectWork)]
+
+
+@pytest.fixture
+def migration_sql() -> str:
+    """The project migration `migrating_index` waits for; a test parametrises it to override."""
+    return "ALTER TABLE chunks ADD COLUMN note TEXT;"
+
+
+@pytest.fixture
+def migrating_index(
+    tmp_path: Path, fake_repo: str, chains: Path, migration_sql: str, mocker: MockerFixture
+) -> Generator[Index]:
+    """An on-disk index opened with `Migrate.LATER`, its one project file waiting for 2099.1.0."""
+    path = tmp_path / "data" / "index.duckdb"
+    seed = Index(path, writable=True)
+    seed.register(fake_repo)
+    seed.close()
+    (chains / "project").mkdir()
+    (chains / "project" / f"{SCHEMA_VERSION}__2099.1.0.sql").write_text(migration_sql)
+    mocker.patch("rbtr.index.store.SCHEMA_VERSION", "2099.1.0")
+    index = Index(path, writable=True, migrate=Migrate.LATER)
+    yield index
+    index.close()
+
+
+def test_a_daemon_answers_while_it_migrates_and_indexes_after(
+    runtime_dir: Path,
+    migrating_index: Index,
+    fake_repo: str,
+    stub_embedding_model: None,
+    mocker: MockerFixture,
+) -> None:
+    """The daemon is ready before it migrates; meanwhile status says so and reads reply `index_in_progress`."""
+    held, released = threading.Event(), threading.Event()
+    migrate = Index.migrate
+
+    def held_migrate(index: Index, on_progress: ProgressCallback) -> None:
+        held.set()
+        assert released.wait(20), "the migration was not released"
+        migrate(index, on_progress)
+
+    mocker.patch.object(Index, "migrate", held_migrate)
+    server = Daemon(runtime_dir, index=migrating_index, idle_poll_interval=0.2)
+    with serving(server), DaemonClient(server.runtime_dir) as client:
+        assert held.wait(10), "the migration did not start"
+        read = client.send(ReadSymbolRequest(repo_path=fake_repo, symbol="load_config"))
+        status = client.send(StatusAllRequest())
+        released.set()
+        assert isinstance(read, ErrorResponse)
+        assert read.code is ErrorCode.INDEX_IN_PROGRESS
+        assert isinstance(status, StatusResponse)
+        assert status.state is IndexState.MIGRATING
+        assert [type(job.work) for job in status.active] == [MigrateWork]
+        deadline = time.monotonic() + 30
+        while True:
+            after = client.send(StatusRequest(repo_path=fake_repo))
+            if isinstance(after, StatusResponse) and after.state is IndexState.INDEXED:
+                break
+            assert time.monotonic() < deadline, f"the daemon did not index after migrating: {after}"
+            time.sleep(0.1)
+
+
+@pytest.mark.parametrize("migration_sql", ["SELECT * FROM no_such_table;"])
+def test_a_failing_migration_stops_the_daemon_and_keeps_the_old_file(
+    runtime_dir: Path, migrating_index: Index, tmp_path: Path
+) -> None:
+    """The daemon stops with the migration's error; the registry still names the file it had."""
+    (old_file,) = (tmp_path / "data" / "index").glob("*.duckdb")
+    server = Daemon(runtime_dir, index=migrating_index)
+    failure: list[BaseException] = []
+
+    def serve() -> None:
+        try:
+            asyncio.run(server.serve())
+        except duckdb.Error as exc:
+            failure.append(exc)
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    assert server.wait_ready(), "daemon did not start"
+    thread.join(30)
+    assert not thread.is_alive(), "daemon did not stop"
+    assert [type(exc) for exc in failure] == [duckdb.CatalogException]
+    assert list((tmp_path / "data" / "index").glob("*.duckdb")) == [old_file]
 
 
 def test_an_idle_daemon_runs_maintenance(

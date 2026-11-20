@@ -115,8 +115,10 @@ def dirty_unindexed_repo(tmp_path: Path) -> str:
 
 @pytest.fixture
 def dirty_index(dirty_unindexed_repo: str, index: Index) -> Index:
-    """Store with the dirty repo registered, nothing indexed."""
-    index.register(dirty_unindexed_repo)
+    """Store with the dirty repo registered and watching HEAD, as `run` seeds it; nothing indexed."""
+    repo = index.register(dirty_unindexed_repo)
+    with index.session(repo) as ws:
+        ws.add_watched_refs(["HEAD"])
     return index
 
 
@@ -127,7 +129,7 @@ def test_find_next_job_prefers_stale_watched_ref(
 ) -> None:
     """`_find_next_job` derives a build from the stale watched ref.
 
-    The repo's HEAD (backfilled watch) is un-indexed *and* its worktree
+    The repo's HEAD (watched) is un-indexed *and* its worktree
     is dirty, so both are stale; returning HEAD's SHA proves the build
     is derived from `watched_refs` and that watched refs win over the
     dirty worktree (the core regression — impossible before).
