@@ -218,7 +218,7 @@ def test_a_stale_index_is_replaced_by_an_empty_one(tmp_path: Path) -> None:
     path = tmp_path / "index.duckdb"
     _seed_one_chunk(path)
     con = duckdb.connect(str(path))
-    con.execute("CREATE TABLE padding AS SELECT range AS x FROM range(2000000)")
+    con.execute("CREATE TABLE padding AS SELECT md5(range::VARCHAR) AS x FROM range(200000)")
     con.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '2000.1.1')")
     con.close()
     size_before = path.stat().st_size

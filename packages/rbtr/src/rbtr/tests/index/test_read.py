@@ -195,6 +195,15 @@ def test_inbound_refs_resolves_source(index: Index) -> None:
     assert row["edge"] == "imports"
 
 
+def test_a_read_leaves_the_cursor_free_for_the_next(index: Index, head_ref: SnapshotRef) -> None:
+    """A read consumes its whole result, so the thread's next read can
+    register views on the same cached cursor."""
+    chunk = make_chunk("a")
+    seed_index(index, [chunk], head_ref)
+    assert index.count_edges(at=head_ref) == 0
+    assert [c.id for c in index.chunks_by_id([chunk.id], at=head_ref)] == [chunk.id]
+
+
 def test_inbound_refs_empty_targets(index: Index, head_ref: SnapshotRef) -> None:
     """No target IDs returns an empty frame without touching the store."""
     assert index.inbound_refs([], at=head_ref).is_empty()
