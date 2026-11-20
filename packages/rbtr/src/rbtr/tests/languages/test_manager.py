@@ -14,6 +14,7 @@ from types import SimpleNamespace
 import pytest
 from tree_sitter import Query
 
+from rbtr.config import config
 from rbtr.errors import MissingLanguagePluginsError, RbtrError
 from rbtr.languages.manager import get_manager, reset_manager
 from rbtr.languages.registration import LanguageRegistration, QueryExtraction
@@ -187,13 +188,19 @@ def two_sniffed_languages(monkeypatch: pytest.MonkeyPatch, fresh_manager: None) 
         pytest.param("%% one\n&& two\n&& three\n", "beta", id="most-matches-wins"),
         pytest.param("&& one\n%% two\n", "alpha", id="tie-to-first-id"),
         pytest.param("plain text\n", None, id="no-match"),
-        pytest.param(" " * 2048 + "\n%% late\n", None, id="past-first-2-kib"),
     ],
 )
 def test_a_file_named_by_no_path_takes_the_language_its_content_signals_most(
     two_sniffed_languages: None, text: str, language: str | None
 ) -> None:
     assert get_manager().detect_language_by_content(text) == language
+
+
+def test_content_past_the_configured_sample_is_not_read(
+    two_sniffed_languages: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(config, "content_sniff_chars", 10)
+    assert get_manager().detect_language_by_content("plain text\n%% late\n") is None
 
 
 #

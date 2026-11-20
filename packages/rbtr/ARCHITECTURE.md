@@ -362,7 +362,8 @@ order:
    applied. If no language was detected (unknown
    extension), `LanguageManager.detect_language_by_content`
    counts each registration's `content_signals` in the first
-   2 KiB and takes the language with the most, a tie won by
+   `content_sniff_chars` characters and takes the language with
+   the most, a tie won by
    the first id in sort order: Markdown declares ATX headings
    and code fences, rST title underlines, directives and roles.
    Core names no language here. Otherwise,

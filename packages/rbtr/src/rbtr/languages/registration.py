@@ -259,7 +259,8 @@ class LanguageRegistration:
     """Patterns whose matches in a file's text suggest this language, for a
     file its path names no language for — Markdown's ATX headings, rST's
     directives.  The language whose signals match most often in the file's
-    first 2 KiB is chosen (`LanguageManager.detect_language_by_content`).
+    first `config.content_sniff_chars` characters is chosen
+    (`LanguageManager.detect_language_by_content`).
     Empty → never chosen by content."""
     grammar_module: str | None = None
     """Python module exposing a tree-sitter grammar factory, e.g.

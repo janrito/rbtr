@@ -37,13 +37,11 @@ from pathlib import PurePosixPath
 import structlog
 from tree_sitter import Language
 
+from rbtr.config import config
 from rbtr.errors import MissingLanguagePluginsError, RbtrError
 from rbtr.languages.registration import LanguageRegistration
 
 log = structlog.get_logger(__name__)
-
-# How much of a file `detect_language_by_content` reads.
-_CONTENT_SAMPLE = 2048
 
 
 class LanguageManager:
@@ -118,12 +116,13 @@ class LanguageManager:
         return self._ext_map.get(p.suffix)
 
     def detect_language_by_content(self, text: str) -> str | None:
-        """The language whose `content_signals` match *text*'s first 2 KiB most often.
+        """The language whose `content_signals` match the start of *text* most often.
 
-        For a file whose path names no language.  A tie is won by the
+        For a file whose path names no language; the first
+        `config.content_sniff_chars` characters are read.  A tie is won by the
         language id first in sort order; `None` when no signal matches.
         """
-        sample = text[:_CONTENT_SAMPLE]
+        sample = text[: config.content_sniff_chars]
         counts = {
             language_id: sum(len(signal.findall(sample)) for signal in reg.content_signals)
             for language_id, reg in sorted(self._registrations.items())
