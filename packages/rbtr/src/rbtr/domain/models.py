@@ -352,6 +352,17 @@ class Repo:
         return SnapshotRef(repo=self, snapshot_sha=snapshot_sha)
 
 
+class ReplacedIndex(BaseModel, frozen=True):
+    """An index replaced on open, because its schema is too old to migrate.
+
+    `stored` is the schema version it recorded, `None` when it recorded
+    none; `replaced_at` is when this rbtr replaced it with an empty one.
+    """
+
+    stored: str | None
+    replaced_at: datetime
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ChunkSplit:
     """A gc drop set's candidate chunks: those it frees, and those another ref keeps."""

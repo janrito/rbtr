@@ -10,9 +10,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import duckdb
 import pygit2
 import pytest
 
+from rbtr.config import config
 from rbtr.git import normalise_repo_path
 from rbtr.index.index import Index
 from rbtr.tests.conftest import run_cli
@@ -57,6 +59,27 @@ def test_fresh_repo_indexes_end_to_end(
         assert counts.embedded == 0, "embedded with embedding off"
     finally:
         index.close()
+
+
+def test_a_watch_that_replaces_an_index_older_than_migrations_warns(
+    git_repo: pygit2.Repository, isolated_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Opening an index too old to migrate replaces it, and the command logs a warning on stderr."""
+    monkeypatch.setenv("RBTR_EMBED", "false")
+    with duckdb.connect(str(config.db_path)) as con:
+        con.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        con.execute("INSERT INTO meta VALUES ('schema_version', '2026.8.2')")
+
+    result = run_cli(["watch", "--no-daemon", "--repo-path", str(git_repo.workdir)])
+
+    assert result.returncode == 0, result.stderr
+    [warning] = [
+        entry
+        for line in result.stderr.splitlines()
+        if (entry := json.loads(line))["event"] == "index_replaced"
+    ]
+    assert warning["level"] == "warning"
+    assert warning["stored"] == "2026.8.2"
 
 
 def test_unwatch_stale_drops_unresolvable_refs(repo_with_stale_watch: str) -> None:

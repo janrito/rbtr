@@ -24,6 +24,7 @@ from rbtr.domain.models import (
     ChunkSplit,
     EdgeKind,
     IndexedSnapshot,
+    ReplacedIndex,
     Repo,
     SnapshotCounts,
     SnapshotRange,
@@ -100,15 +101,28 @@ class Index:
     Read-only by default: registry writes and `session` require `writable=True`
     or raise `RuntimeError`. The caller owns the handle and closes it after all
     users finish.
+
+    Opening brings every file to this schema version, or replaces an index
+    too old to migrate; a read-only open refuses to change a file.
     """
 
-    def __init__(self, db_path: Path | str | None = None, *, writable: bool = False) -> None:
+    def __init__(
+        self,
+        db_path: Path | str | None = None,
+        *,
+        writable: bool = False,
+    ) -> None:
         self._store = Store(db_path, writable=writable)
 
     @property
     def db_path(self) -> str | None:
         """The registry's path; `None` for an in-memory index."""
         return self._store.db_path
+
+    @property
+    def replaced(self) -> ReplacedIndex | None:
+        """The index replaced when this one was opened; see `Store.replaced`."""
+        return self._store.replaced
 
     @classmethod
     def from_config(cls, *, writable: bool = False) -> Index:
