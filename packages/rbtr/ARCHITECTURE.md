@@ -19,9 +19,9 @@ after editing one, `just diagrams` renders the PNGs beside them.
 ### The path a file takes
 
 A build walks a git tree. Each file is matched to a language
-and, unless its bytes have been chunked already, handed to
-that language's plugin, which returns chunks — named spans of
-source, each with a kind, a scope, and a line range. The
+and, unless its extraction is already current, read using that
+language's plugin. The result is chunks: spans of source, each with
+a kind, a scope, and a line range. The
 chunks go into the project's DuckDB file; an edge pass infers imports and
 doc links between them; a later, lower-priority pass embeds
 them.
@@ -41,7 +41,7 @@ keeping their own.
 Modules only import from layers below them — no upward
 dependencies. Top to bottom: `cli` → `daemon` → `index`
 → `languages` → `domain` (the pure kernel: data models,
-identity, tokenisation). `config` sits just above the
+extraction rules, identity and tokenisation). `config` sits just above the
 kernel; `git` and `errors` are foundations below. The
 layering is a DAG enforced by import-linter (run in
 `just lint`), so boundary drift fails the build instead
@@ -71,9 +71,8 @@ finite write sessions](docs/diagrams/index-code.png)
 ### Chunk and symbol
 
 The two words name the same thing from either side of the
-API boundary. Internally it is a **chunk**: content-addressed,
-keyed by a hash of its own bytes, and shared between every
-repo that holds those bytes. On the wire it is a **symbol**,
+API boundary. Internally it is a **chunk**: a source span shared
+by snapshots that refer to the same extraction. On the wire it is a **symbol**,
 because that is what a caller navigates by — in one of several
 shapes, according to how much of it the command returns.
 `rbtr.daemon.dto` is where one becomes the other, dropping the
@@ -90,373 +89,233 @@ persistence detail on the way out — see
 3. **Incremental.** Builds are keyed by git blob SHA, and
    chunks are content-addressed: only changed files are
    re-extracted, embeddings persist, and byte-identical content
-   is shared across worktrees, clones, and repos rather than
-   re-indexed.
+   is shared across a project's checkouts. Clones have separate
+   project files and extract their own copies.
 
 ## Indexing
 
 ### Index pipeline
 
-The indexing pipeline flows in one direction: files come
-in, chunks come out, and the store makes them searchable.
+`build_index` turns a commit or working-tree snapshot into searchable
+chunks and edges. It reads files from git, resolves their languages and
+reuses extractions that are already current. The remaining files pass
+through [extraction](#extraction) a hundred at a time.
+
+A build has three transactions:
+
+1. **Extract:** write the snapshot's file list and any new chunks.
+2. **Infer edges:** connect the snapshot's full chunk set, including
+   reused chunks, through imports and documentation references.
+3. **Finalise:** mark the snapshot indexed and remove unfinished-build
+   residue.
 
 ![How a build indexes a snapshot: three transactions, for extraction,
 edges and finishing, and the tables each writes](docs/diagrams/build.png)
 
+Embedding runs afterwards as a lower-priority job. Name and keyword
+search work as soon as indexing finishes; semantic search uses the
+vectors as they become available. With `embed` off, the daemon creates
+no embedder and retains existing vectors without using them.
+
 ![How chunks get vectors: a job after the build reads the chunks still
 without one, embeds them in batches and stores each batch](docs/diagrams/embed.png)
 
-`build_index` drives the pipeline. It detects each
-file's language, keeps the files whose chunks are already
-stored, and extracts the rest a hundred at a time (see
-[Extraction](#extraction)); each file is read by one of
-three strategies (see
-[Language decomposition](#language-decomposition)).
-Chunks and edges are written to the repo's project file via the index
-(see [Index files](#index-files)); embedding is a separate step
-(`embed_index`), and search reads from the same index.
+### Language detection
 
-### Language plugin routing
+Each git entry carries its path, blob SHA and bytes. The language
+manager first matches a registered filename or extension. If neither
+claims the file, the build uses the language recorded for that path in
+an earlier snapshot. For a new or changed file still unclaimed, it
+checks the content signals plugins declare, within
+`content_sniff_chars`. The fallback language is `plaintext`.
 
-Plugins register capabilities via `LanguageRegistration`.
-`build_index` routes each file to the most specific
-extraction path available:
-
-![Which extraction a file gets: a tree-sitter query, a plugin's chunker,
-or line-based raw chunks](docs/diagrams/plugin-routing.png)
-
-Plugins provide whatever combination of fields their
-language needs. A query-based plugin (most languages, prose and data
-formats included) gets structural extraction automatically.
-A chunker-based plugin (svelte, vue) handles cases where
-query captures can't express the structure. Languages
-without a plugin get line-based chunking.
+The build stores that choice as `file_snapshots.detected_language`, so
+an extension-less file detected by content can reuse its language on
+the next build. The selected plugin determines the file's extraction
+strategy; see [Dispatch chain](#dispatch-chain).
 
 ### Content-addressed chunks and blob dedup
+
+Snapshots share chunks within one project: a main checkout and its
+linked worktrees use the same data file. A clone has its own project
+file and extracts its own copy. [Index files](#index-files) describes
+that boundary; [Record identity](#record-identity) defines the keys.
 
 ![How files become chunks once: two snapshots name the same blob for an
 unchanged file, so they share its chunks](docs/diagrams/content-addressing.png)
 
-Because chunks are content-addressed and shared by a project's
-checkouts (see [Data model](#data-model) for the keying), a blob
-already chunked by any of them need not be parsed again: a main
-checkout and its linked worktrees share `.git` object SHAs, so
-their blobs and chunk `id`s coincide, and the existing chunks
-are reused — no re-parsing, no re-embedding. A clone is a
-project of its own, so it parses and embeds its content again.
+For each batch, `session.current_blobs` returns the current
+`(blob_sha, file_language)` extractions. A pair is current when it has
+stored chunks and every contributing language's extraction serial
+matches the registry. The build reuses it only when its host language
+matches the file's detected language. Reused files still receive a
+snapshot row, which makes their existing chunks visible in the new
+snapshot.
 
-The build checks each batch of files before extracting it, in one
-query (`session.current_blobs`) with their blob SHAs as a bound list
-parameter. It returns the current `(blob_sha, file_language)`
-extractions; a file is skipped when its blob and detected host language
-match a returned pair. The check spans the repo's project, so a blob
-already chunked by any of its checkouts is reused. A blob is **up to
-date** — the file skipped and only its `file_snapshots` row written —
-iff it has at least one chunk in that host language *and* every stored
-chunk is at its language's current extraction serial. The query joins
-chunks against a registered `_serial_map` view of the current registry
-(a `LEFT JOIN`; a chunk with no matching serial row is stale).
+For example, `Panel.svelte` may contain Svelte markup, TypeScript and
+CSS. Every chunk carries Svelte as its `file_language` and its own
+language's extraction serial:
 
-Two things force re-extraction; when the new chunks are
-stored, the blob's old chunks in that language are deleted
-first (`WriteSession.replace_chunks`: the new extraction may
-produce different IDs the upsert can't reconcile):
+| Change                                                                | Build action                                                       |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Same blob, host language and contributor serials in a linked worktree | Reuse the extraction                                               |
+| File content changes                                                  | Extract the new blob                                               |
+| A newly installed plugin changes the detected host language           | Extract under that language                                        |
+| TypeScript's extraction serial changes                                | Replace the whole Svelte extraction, including its embedded chunks |
 
-- **Detected language changed.** A blob indexed as plaintext
-  (`language=""`), then a plugin registered for its extension,
-  has no chunk in the new language → miss → re-extract. Prose
-  (Markdown/RST) is detected by extension or content sniff and
-  persisted on the snapshot, so the dedup check sees its real
-  language and dedups normally.
-- **A plugin's extraction serial bumped.** Chunks stored at the
-  old serial no longer match the map → re-extract.
+Every file leaves at least one chunk in its host language. When it has
+none naturally, such as an empty `__init__.py` or a script-only
+component, extraction adds a content-less presence chunk. The stored
+host chunk records that the file has been read even when its useful
+content is entirely in embedded languages.
 
-**Every file leaves a host-language chunk.** Extraction
-guarantees at least one chunk in the file's own language — the
-real definitions for most files, and a content-less
-*host-presence chunk* for a file that would otherwise produce
-none: an empty file (an empty `__init__.py`), unextractable
-content, or a multi-language file whose host contributes no
-content (a script-only SFC). This is what makes the
-detected-language check and multi-language dedup reliable.
-
-Multi-language files (single-file components: `.svelte`,
-`.vue`) hold chunks in several languages — the `<script>`
-delegates to TypeScript, the `<style>` to CSS/SCSS, and the
-markup template is the host `svelte`/`vue` chunk. Each chunk
-carries *its own* language's extraction serial (see
-[Versioning](#versioning)). The map lists the host and every
-embedded language, so such a file dedups like any other: a
-bump to *any* contributor (the host or a delegated language)
-re-extracts it, and an unchanged file is skipped.
-
-The build service batches the git entries, fetches their stored
-languages (`snapshot_languages`) and checks their blobs
-(`current_blobs`). Between the queries, `file_languages` pairs each
-entry with its resolved language: file extension → stored
-`detected_language` → a content sniff for never-seen files. Persisting
-the detected language lets a file identified by its content skip the
-sniff on subsequent builds. `listed_files` classifies those resolved
-pairs using the current extractions and changed paths. The service
-extracts the files that need it and writes the batch's results.
-
-### Write path
-
-A repo's rows are written through a `WriteSession`, obtained via
-`Index.session(repo)`. The session is a context manager:
-
-- `__enter__`: begins a transaction on the cursor the store
-  gave it.
-- `__exit__`: flushes buffered chunks, commits the
-  transaction, and rebuilds the FTS index if chunks
-  were modified. Rolls back on exception.
-
-A build's last session runs `ws.cleanup()`, which deletes its
-repo's residue from builds that stopped part-way and the chunks no
-snapshot claims any more.
-
-![A write session: writes and the reads inside a write go through
-one session, which holds one cursor and one repo](docs/diagrams/write-session.png)
-
-A build registers the repo first, in a registry transaction (see
-[Repo registration](#repo-registration)), so a crash part-way
-through leaves an empty `repos` row rather than indexed rows that
-nothing can find. It then opens one session for each of its three
-transactions: extraction, edges, and finishing. Embedding is a
-separate job.
-
-Embedding is deferred and lower-priority. After
-indexing completes, the daemon submits an `EmbedJob`
-to the work queue's low-priority deque. The index is
-fully queryable (FTS + name search) before embeddings
-exist; semantic search degrades gracefully when
-embeddings are absent.
-
-A daemon started with `embed` off never embeds: it creates
-no embedder, picks no embed job, and its searches leave out
-the semantic signal, so no model is loaded. Embeddings
-already stored stay, unread; a daemon started later with
-`embed` on embeds whatever is missing. The setting is the
-daemon's, fixed when it starts, because one daemon serves
-every repository and client. A daemon reads it from the
-environment and the config file, as every rbtr process does.
+When re-extracting, `WriteSession.replace_chunks` deletes the old
+chunks for that `(blob_sha, file_language)` before inserting the new
+ones. Other host-language extractions of the same bytes are retained.
 
 ### Extraction
 
-The build hands extraction its files a hundred at a time
-(`extract_files`, `BATCH_FILES` in `rbtr.languages.extract`); a
-batch whose extraction raises is halved, down to the file that
-raises, which keeps only its presence chunk. `extract_batch`
-lists the steps:
+The service in `rbtr.languages.extract` coordinates the adapter and
+domain rules. They exchange typed frames rather than retaining parse
+trees across the batch:
 
-```python
-captures, chunked, plain = read(files, languages)
-return assemble(
-    files,
-    capture_chunks(files, captures),
-    chunked,
-    line_windows(files, plain, config.chunk_lines, config.chunk_overlap, PLAINTEXT),
-)
+```text
+FileRow (path, blob, detected language, bytes)
+  → adapter: parse files and embedded blocks
+CaptureRow (names, scopes, spans), plus custom chunks and fallback files
+  → domain rules: fold comments, materialise text, classify and order
+PlacedChunkRow (chunk columns, file number and order)
+  → staging: add identity, search tokens and extraction serial
+ChunkStagingRow → WriteSession
 ```
 
 ![A batch of files to its chunks: the adapter reads the files into
 rows, the rules make and order the chunks, staging gives them ids and
 tokens, and the write session stores them](docs/diagrams/extraction.png)
 
-- **The adapter**, `read` in `rbtr.languages.treesitter`, works one
-  file at a time and one parse at a time: the file, then each block it
-  hands another language (`sources`). It runs the language's query
-  (`query_captures`) or chunker, settles each capture's span, and
-  records what only the tree or a plugin knows: names, scopes,
-  docstring spans, whether the nearest scope is class-like, the column
-  a span starts at. While the tree is in hand it finds `fragments` for
-  the lines no capture covers. It gives rows and applies no rule: a
-  `CaptureRow` per span, the chunkers' chunks, and the files no
-  language reads.
-- **The rules**, in `rbtr.domain.rules`, are polars over every row of
-  the batch at once. `capture_chunks` folds comments into the symbols
-  they document (`fold_comments`), takes each chunk's text from the
-  file's bytes and its documentation from its spans, makes a function
-  in a class a method, and reads an import's `#`. `line_windows` cuts
-  the files no language reads into windows of lines. `assemble` gives a
-  presence chunk to a file with none in its own language, and puts
-  each file's chunks in order.
-- **The frames between them** are `FileRow` (a file of the batch),
-  `CaptureRow`, `PlacedChunkRow` (a chunk at its place in the batch:
-  its file and its order there) and `ChunkRow` (a chunk, as the store
-  takes it).
+The adapter (`rbtr.languages.treesitter`) owns tree-dependent work:
+query matching, plugin resolvers, scope ancestry and capture spans. It
+also finds fragments for code no query names. Each tree is needed only
+while its source is read; the rows retain the facts later rules need.
+A custom chunker returns `Chunk` values, which the adapter converts to
+the same chunk columns.
 
-Staging (`staged_chunks`) gives each chunk its id, its search tokens
-(`search_tokens`) and its extraction serial, and
-`WriteSession.replace_chunks` stores the batch. Why the work is split
-this way is in [Git and extraction](#git-and-extraction).
+The domain rules (`rbtr.domain.rules`) work over the batch's values.
+They fold comments into definitions, slice source text by byte offset,
+promote functions whose nearest scope is class-like to methods, and
+build plaintext windows. Assembly combines the results, adds any required
+[host-presence chunks](#content-addressed-chunks-and-blob-dedup), and
+orders each file's chunks. `PlacedChunkRow` adds file and order to the
+shared `ChunkRow` columns; those placement fields last only as long as
+assembly and grouping need them. The input bytes preserve offsets even
+when invalid UTF-8 bytes must be replaced.
 
-## Language decomposition
+For example, this `client.py`:
 
-The extraction engine lives in `rbtr.languages`, beside the
-`LanguageRegistration` contract and the manager that runs it: `treesitter`
-(the adapter: parsing, injection and query captures), `extract` (the
-batch's steps, and the per-file entry point plugin tests drive), `edges`
-(import/doc inference), and `chunks` (the span arithmetic every chunker
-shares, and chunks as rows). The rules extraction applies to the rows are
-in the kernel, `rbtr.domain.rules`.
-`rbtr.index` depends on `languages` in just two places — the build loop,
-which composes extraction with storage, and `classify`, which reuses the
-language registry for search — while `languages` reaches down only to the
-`rbtr.domain` kernel (`models`, `identity`, `rules`), so the dependency
-stays one-directional.
+```python
+from time import sleep
 
-Each file is routed to one of three extraction strategies
-by the language plugin:
 
-- **Tree-sitter** - grammar + query → functions, classes,
-  methods, variables, imports as structured `Chunk` objects.
-- **Custom chunker** - plugin-provided, for what a query cannot
-  express (an SFC's markup).
-- **Plaintext fallback** - fixed-size overlapping line
-  chunks.
+class Client:
+    # Wait before trying again.
+    def retry(self):
+        sleep(1)
+```
 
-The first two are a discriminated union on the registration's
-`extraction` field (`QueryExtraction` | `ChunkExtraction` | `None`),
-so a file has exactly one primary strategy — "query and chunker both
-set" is unrepresentable — and `read` dispatches by type.
-Injection (`injection_query`) is orthogonal and runs in addition.
+produces:
 
-Scope addressing: each chunk's `scope` is the full path of its
-enclosing named scopes, outermost-first, joined by `::` (e.g.
-`Outer::Inner`, `make_adder::handler`), composed by walking the
-parse tree's scope-bearing nodes (per the plugin's
-`QueryExtraction.scope_types`). A scope node is named by its `name`
-field, or, when the query captures it, as its capture names it: a
-Markdown `section` by its heading. A grammar that leaves sections flat
-nests them by their `@_level` captures instead (see
-[Grammar gaps](#git-and-extraction)). A function becomes a `METHOD` only when its
-nearest enclosing scope is class-like
-(`QueryExtraction.class_scope_types`), so a closure inside a function
-or method stays a function.
+| Kind   | Name                     | Scope    | Lines |
+| ------ | ------------------------ | -------- | ----- |
+| import | `from time import sleep` | —        | 1–1   |
+| class  | `Client`                 | —        | 4–7   |
+| method | `retry`                  | `Client` | 5–7   |
 
-Variable chunks cover module-level bindings only; class
-attributes and function-locals stay within their enclosing
-chunk.
+The query identifies a function and its enclosing class; the rules
+make `retry` a method and fold its leading comment into both its span
+and its documentation. The class still contains its body. Comments
+inside definitions remain in their text; standalone comment blocks
+become searchable `COMMENT` chunks. Scope paths join enclosing names
+with `::`, so a nested class would give a method a scope such as
+`Outer::Client`.
 
-Comments: every tree-sitter plugin captures its grammar's comment
-nodes as `@comment`, scoped to the file root, plus the module
-docstring where the language has one (Python's bare top-level
-string). `fold_comments` groups consecutive captured comments into
-blank-line-delimited blocks and routes each one. A block sitting flush
-above a definition folds into that definition's chunk, so a symbol
-carries its own documentation; a block inside a symbol's body is
-already part of that chunk; every other block — a licence or banner
-header, a note between definitions, a comment at end of file — becomes
-a standalone chunk of kind `COMMENT` at module level (empty scope). A
-comment trailing code on its line documents that statement, so it never
-folds into what follows. Comment text is therefore indexed and
-searchable wherever it sits, not only when it happens to precede a
-symbol.
+Staging (`staged_chunks`) adds the stable [chunk id](#record-identity),
+[search tokens](#fts-index-lifecycle) and each chunk's extraction
+serial. Staging keeps the stored chunk columns, leaving documentation
+and placement in the extraction frames. The store receives a validated
+`ChunkStagingRow` frame.
 
-A file can also *embed* another language — a Markdown fenced
-block, or an SFC/HTML `<script>`/`<style>`. A host plugin's
-`injection_query` marks each embedded block; the engine
-delegates the block's byte range to the target's full
-extraction (chunker or query) and recurses into that
-target's own injection, so nested embeds (an HTML block
-inside Markdown) resolve too. Delegated chunks carry the
-embedded language. See [Language plugins](#language-plugins)
-for the dispatch chain.
+If a batch raises during extraction, `extract_files` halves it and
+retries until it isolates the failing file. That file is logged and
+keeps only its presence chunk, so it remains reachable by its snapshot.
+
+### Write path
+
+A repo's rows are written through a `WriteSession`, obtained via
+`Index.session(repo)`. Entry begins a transaction on the repo's project
+cursor. The session buffers chunk writes, flushes them before commit,
+and rolls back on exception. After a commit that changed chunks, it
+rebuilds the file's FTS index; see [FTS index lifecycle](#fts-index-lifecycle).
+
+![A write session: writes and the reads inside a write go through
+one session, which holds one cursor and one repo](docs/diagrams/write-session.png)
+
+The session also owns reads the transaction depends on, including
+current-blob checks and stored-language lookups. They see changes made
+on that cursor. A build registers its repo before opening the first
+session, and its final session cleans up residue from unfinished
+builds. [Repo registration](#repo-registration) and
+[Garbage collection](#garbage-collection) describe those lifetimes.
 
 ## Language plugins
 
-Each plugin is a package (a `plugin.py` plus its tree-sitter
-queries as sibling `.scm` files, loaded via `load_query`) that
-exposes module-level `LanguageRegistration` values. A plugin
-provides whatever combination of fields its language needs -
-there are no tiers or categories. Discovery is by entry point
-(see below); there is no hook framework — the domain is
-single-dispatch by language id, so a plain registry suffices.
+Each language is an installable `rbtr-lang-*` package exposing a
+`LanguageRegistration` and its queries or chunker. The registration
+supplies language-specific facts; the shared engine applies the
+[extraction process](#extraction).
 
-For the plugin author's API (field reference, examples,
-capture conventions), see
+For the plugin author's API, examples and capture conventions, see
 [Writing a language plugin](README.md#writing-a-language-plugin).
 
 ### Dispatch chain
 
-Each file's chunks come in this order:
+A registration's `extraction` field selects one primary strategy:
 
-1. **Primary extraction** - a registered `chunker` if the
-   language has one (`chunker(path, sha, content, grammar,
-   ranges)`; svelte, vue), else the tree-sitter query
-   (`query_captures`) for a `grammar` + `query` (python,
-   rust, go, ...; markdown, rst; json, css, html, toml, yaml,
-   hcl; and `tree_sitter_query` itself, indexing `.scm` files).
-   After the query's captures, `fragments` walks the
-   same tree for the code they leave and emits it as
-   `FRAGMENT` chunks (see
-   [Fragments for code no query names](#git-and-extraction)).
-2. **Injection (additive)** - if the registration has an
-   `injection_query`, the engine *also* runs it
-   (`injections`): it matches embedded blocks
-   (`@injection.content`), determines each block's target
-   language, resolves overlaps by highest
-   `injection.priority`, and reads each range as another
-   source in that language (`sources`). The target is either a
-   static `#set! injection.language` on the pattern
-   (HTML and Svelte/Vue `<script>` / `<style>`) or a
-   dynamic
-   `@injection.language` capture whose text is resolved to a
-   language id (a Markdown fence's info string — `python`,
-   `sh`). Injection runs *alongside* the host chunker
-   (step 1), not instead of it.
-3. **Plaintext fallback** - only if neither of the above
-   applied. If no language was detected (unknown
-   extension), `LanguageManager.detect_language_by_content`
-   counts each registration's `content_signals` in the first
-   `content_sniff_chars` characters and takes the language with
-   the most, a tie won by
-   the first id in sort order: Markdown declares ATX headings
-   and code fences, rST title underlines, directives and roles.
-   Core names no language here. Otherwise,
-   line-based raw chunks (`RAW_CHUNK`, fixed-size
-   overlapping windows: `line_windows`).
-4. **Host-language trace** - if no chunk so far carried the
-   file's detected language, `assemble` appends a
-   content-less host-presence chunk (see
-   [Content-addressed chunks and blob dedup](#content-addressed-chunks-and-blob-dedup))
-   so the blob-dedup check can skip the file on later builds.
+| Registration       | Extraction                                                                                   |
+| ------------------ | -------------------------------------------------------------------------------------------- |
+| `QueryExtraction`  | Match a tree-sitter query for definitions, sections, imports and other searchable constructs |
+| `ChunkExtraction`  | Run a custom chunker for structure a query cannot express, such as an SFC's markup template  |
+| Plaintext fallback | Build overlapping line windows when no language reads the file                               |
 
-**We author our own injection queries** rather than reuse a
-grammar's shipped `injections.scm`, which over-matches — a
-bare `(raw_text)` fallback catches every block, including
-styles. `injection.priority` disambiguates: a `lang`-tagged
-block outranks the bare fallback. The language mapping (step
-2) stays out of Python — static `#set!` values, and
-free-form hints resolved through the registry's own
-id/extension maps — so delegation is language-agnostic, with
-no per-language code.
+![Which extraction a file gets: a tree-sitter query, a plugin's chunker,
+or line-based raw chunks](docs/diagrams/plugin-routing.png)
 
-Delegation runs the target's *full* primary extraction
-(its chunker or query, range-scoped via `included_ranges`),
-so the block extracts as if it were its
-own file of that language: query targets (python, ts, html,
-...) and chunker targets (yaml, toml, ...) alike, imports
-included. Delegation also recurses into the target's own
-injection, so an HTML block inside Markdown that contains an
-inline `<script>` yields its js too (bounded by a depth
-cap). Only per-file orchestration — the plaintext fallback
-and host-presence trace — is not re-run per block.
+Embedded-language extraction runs in addition to the primary strategy.
+The host's `injection_query` marks block ranges with
+`@injection.content`. A static `#set! injection.language` names the
+target directly, or an `@injection.language` capture supplies a hint
+resolved through the registry's id and extension maps. Priority picks
+between overlapping matches. rbtr authors these queries because a
+grammar's generic fallback can match blocks intended for another
+language.
+
+Each block runs the target's primary extraction within its original
+byte range, so its chunks retain the file's line numbers. An HTML
+`<script>` uses JavaScript's query; a Svelte block uses its chunker.
+Targets can have injections of their own: HTML inside a Markdown fence
+can contain another JavaScript block. A depth cap bounds that recursion.
+The host and embedded chunks join the same batch for materialisation.
 
 ### External plugins
 
-Every language registers through the `rbtr.languages`
-entry-point group, and every language is a separate
-`rbtr-lang-*` distribution — core declares none of its own. Eight
-are required dependencies of `rbtr`, so they arrive with it; the
-rest are extras. See the README for a step-by-step guide to
-writing a plugin.
+Every language registers through the `rbtr.languages` entry-point group, and every
+language is a separate `rbtr-lang-*` distribution — core declares none of its own.
+Default plugins are dependencies of `rbtr`; the rest are extras. See the README for a
+step-by-step guide to writing a plugin.
 
 The entry-point *value* resolves to a module-level
 `LanguageRegistration`, named by its language id
 (`my_pkg.plugin:swift`, where `swift = LanguageRegistration(...)`).
-The manager (`rbtr.languages.LanguageManager`) collects them via
+The manager (`rbtr.languages.manager.LanguageManager`) collects them via
 `importlib.metadata.entry_points`; a duplicate language id raises,
 and a plugin whose module fails to import is logged and skipped.
 
@@ -788,7 +647,7 @@ Next poll: worktree_tree_sha = tree_A (same edit)
 ```
 
 Every later edit repeats this against a new tree SHA, and each
-build ends by calling `_drop_stale_worktree_shas`, which drops
+build ends by calling `drop_stale_worktree_shas`, which drops
 any indexed tree SHA that is not the one just built — so at
 most one worktree snapshot survives per repo.
 
@@ -804,7 +663,7 @@ poll_watched → WatchedTarget(ref=HEAD, sha=def456)
 Indexer.next_job → BuildJob(refs=(def456,))  # watched refs first
 
 build_index(def456) completes.
-_drop_stale_worktree_shas → drops tree_A.
+drop_stale_worktree_shas → drops tree_A.
 
 Next poll: worktree_tree_sha = tree_C (against new HEAD)
          → has_indexed(tree_C) = False → rebuild
@@ -821,7 +680,7 @@ tree_A row lingers in indexed_snapshots but is inert:
   → falls back to HEAD.
 
 tree_A is cleaned up by:
-  - The next build (commit or worktree) via _drop_stale_worktree_shas
+  - The next build (commit or worktree) via drop_stale_worktree_shas
   - GC (tree SHAs are not reachable from any ref)
 ```
 
@@ -833,7 +692,7 @@ tree_A is cleaned up by:
 2. **The watcher is read-only.** All writes go through
    `WriteSession`, under `_write_sem`.
 3. **Stale worktree SHAs are cleaned eagerly.** After each
-   build, `_drop_stale_worktree_shas` scans
+   build, `drop_stale_worktree_shas` scans
    `indexed_snapshots` and drops any indexed SHA that is not a
    commit and is not the one just built. The cleanup asks whether
    a SHA *is not a commit*, rather than whether it is a tree,
@@ -877,9 +736,9 @@ a repo meets content is **`file_snapshots`**, which maps
   path all come from that join, never from the chunk. A chunk carries no
   path: identical content at four paths is one row reached four ways,
   and a search result lists every location it was found at.
-- Byte-identical content in several repos/worktrees/clones is **one**
-  physical `chunks` row, shared. `file_snapshots` rows (one per repo)
-  point at it.
+- Byte-identical content in a project's checkouts and paths shares one
+  physical `chunks` row. Their `file_snapshots` rows point at it.
+  Another project holds a separate copy in its own file.
 - `edges` and `indexed_snapshots` stay per-repo (they carry `repo_id`);
   only `chunks` is shared.
 
@@ -1115,18 +974,13 @@ win (7–32× for 3 vectors).
   `_stg` (chunks / snapshots / edges) and `_emb_stg`
   (embeddings), via `WriteSession._bulk_insert`.
 
-The schemas behind these frames are split by direction:
-write/staging schemas live in `index/staging.py`, read-result
-schemas in `index/results.py`, kept independent by import-linter
-(a physical CQRS seam). The writer takes what each producer
-makes. Extraction works one file at a time and builds objects:
-`Chunk`, whose span and role are checked as it is built, and the
-file's `FileSnapshot`. Edge inference works on sets and returns an
-`InferredEdgeRow` frame, which `staged_edges` scopes to a snapshot
-without converting it. Reads return frames and build no `Chunk`:
-the
-handlers validate rows straight into the reply DTOs, search into
-`ScoredChunk`, and edge inference and the embedder work on the frame.
+Write/staging schemas live in `index/staging.py` and read-result
+schemas in `index/results.py`, kept independent by import-linter.
+[Extraction](#extraction) and edge inference supply frames, which
+staging prepares for storage. Snapshot writes start from `FileSnapshot`
+values. Reads keep rows in frames: handlers validate them into reply
+DTOs, search builds `ScoredChunk` results, and edge inference and the
+embedder consume the read frames directly.
 
 Registration is cursor-scoped, and the store uses one
 thread-local cursor per thread (see
@@ -1700,7 +1554,14 @@ This avoids N separate table scans — benchmarked at
 ### FTS index lifecycle
 
 Lexical search uses DuckDB's FTS extension, scoring with BM25F
-over `name_tokens` and `content_tokens`. An FTS index is ordinary
+over `name_tokens` and `content_tokens`. Both columns and incoming
+queries use `search_tokens`: identifiers contribute their lower-case
+whole and split forms, with duplicates removed. For example,
+`AgentDeps` becomes `agentdeps agent deps`, so a query for either the
+name or its component words can match. Preview anchors use those same
+query tokens.
+
+An FTS index is ordinary
 tables and SQL macros (`match_bm25`) that the extension writes
 into the file. It persists across close and reopen, and does
 **not** update after `INSERT` or `DELETE`.
@@ -1768,10 +1629,8 @@ when the hit has no literal match; the nine search signals
 collapse to a single `score` unless
 the request sets `explain`, which attaches a nested
 `SearchSignals` (used by the eval tuners). The DTOs are
-output-only — never fed to the write/staging path — which is
-what lets them omit fields freely; the storage models, which
-the same `model_dump` serialises into DuckDB staging frames,
-cannot.
+output-only. Write frames instead supply the columns staging validates
+for storage.
 
 ## Daemon
 
@@ -2127,7 +1986,9 @@ A concrete search exchange:
 A progress notification (PUB):
 
 ```json
-{"kind": "progress", "repo_path": "/path/to/repo", "phase": "parsing", "current": 42, "total": 177}
+{"kind": "progress",
+ "work": {"kind": "build", "repo_path": "/path/to/repo", "ref": "abc123"},
+ "phase": "parsing", "current": 42, "total": 177}
 ```
 
 Error responses carry a `code` field:
@@ -2384,84 +2245,32 @@ way around writing a pattern:
 Each rule is deleted when tree-sitter-rst gives the node: entries in a
 `toctree`'s content, sections nesting their body.
 
-**Extraction runs a batch of files through polars.** The rules that
-span neighbouring captures (the comment fold), each chunk's text and
-documentation, its search tokens, presence chunks and order are set
-operations over rows, so they run once for a hundred files rather than
-once per file. A run per file does not work here: a run of the rules
-costs about 9 ms whatever its size, five times a file's whole extraction,
-and from about a hundred files a run the cost per file stops falling.
-On Django, with every rule run per file in Python, tokenising takes
-9.5 s against about 2 s, and deleting and inserting 4.7 s against
-0.6 s. Extraction alone costs 8%
-more per file (1.89 ms against 1.77 ms): the adapter's per-file work is
-unchanged, and the rules add their run. A batch with nothing to extract
-runs no rules and stores nothing.
+**Batch extraction amortises frame processing.** Comment folding, text
+materialisation, ordering and tokenisation operate on sets of rows. A
+polars run of the extraction rules costs about 9 ms even for one file;
+batching a hundred files amortises that cost while bounding the source
+content held in memory. The trade-off is batch setup: extraction alone
+costs about 8% more per file than the Python implementation, while bulk
+tokenisation and persistence benefit from processing rows together.
+The single-file API uses the same process so plugin tests exercise the
+same rules as a build.
 
-**The blob check runs once per batch.** Each batch's files are checked
-against the store in one query, and their stored languages looked up in
-another. On Django's 5,668 files, against a store that holds their
-chunks, a query per file takes 18.2 s. Per batch of a hundred, a bound
-list of blob SHAs takes 0.14 s against 0.30 s for constructing,
-validating and registering a frame of `(blob_sha, language)` pairs.
-The SHAs start as Python values, and the table already holds each
-extraction's host language, so the bound list supplies the filter
-directly. One query for the whole tree takes about 0.01 s, but the build streams
-each file's content from git with its listing; checking the whole tree
-first would mean listing it twice, and checking again the files whose
-language only their content names. Building the five evaluation
-repositories takes 24 s against 57 s with a query per file and every rule
-run per file in Python, and rebuilding them with nothing changed 3 s
-against 24 s, at about 950 MiB peak against about 1,100 MiB.
+**Tree-dependent work ends before batch rules run.** Names, scopes,
+injection ranges and some capture spans need tree-sitter nodes or
+plugin callbacks. The adapter resolves them while each source's tree
+is alive and passes plain rows onwards. Keeping nodes in the frames
+would retain every tree until the batch finished and couple the domain
+rules to the parser. Value-only rules instead use polars expressions.
 
-**The adapter settles spans; the rules decide from values.**
-`rbtr.languages.treesitter` is the only code that holds a tree-sitter
-object or calls a plugin, and every one of its loops is over files,
-parses, matches or nodes: tree-sitter's objects and the plugins'
-functions are Python, and a polars column cannot hold a node. Fragments
-are found from the captures' spans while a source's tree is in hand, so
-a rule that changes a span stays there too: a section's end, a flat
-section's scope and end, one import per line. A rule that needs only
-values (a function's promotion to a method, an import's `#`, whether a
-comment starts its line, the comment fold, a chunk's text) is a polars
-expression in `rbtr.domain.rules`, testable on rows. Moving the span
-rules into polars would mean holding every tree of a batch until they
-had run.
-
-**A comment block ends where the furthest of its comments ends.** A
-grammar can capture a comment inside another: Rust's `#[allow(…)]`
-holds a comment, and the query captures both. Ending the block at its
-last comment cuts the attribute in two, and the lines after the cut
-reach no chunk, because fragments are found from the captures before
-the fold. Ending it at the furthest makes the documented function take
-the whole block, as every other documented function does.
-
-**A chunk's text is a slice of the file, read as text.** A file is read
-with each byte that is not UTF-8 replaced by one `?`, so every offset
-stays and every slice decodes; polars cannot decode such bytes (casting
-them to a string raises, even when not strict). In the evaluation
-repositories 2 of 6,527 source files hold such bytes, and store `?`
-where a decoding in Python would give `U+FFFD`.
-
-**A chunk and a chunk at its place are two schemas.** A chunk's place in
-a batch (its file, and its order among the file's chunks) is read only
-to order a batch's chunks and to group them by file. The store, staging
-and the tests that seed the store deal in chunks with no place, so
-`ChunkRow` has none, and `PlacedChunkRow` adds it, never null. Each
-file's chunks share one running order, given as the adapter emits them,
-so no source number is needed to sort them.
-
-**Chunk ids are hashed in Python.** polars has no blake2b, and its own
-hash is not stable across versions; DuckDB offers md5, sha1 and sha256,
-and its crypto extension a 512-bit blake2b fetched at `INSTALL`. Ids are
-one pass over a batch's rows in `staged_chunks`.
-
-**Search tokens are one polars expression.** `search_tokens` splits each
-text's distinct identifiers at their boundaries in polars: 3.2 s over
-the 373,452 chunk texts and names of the evaluation repositories, where
-the same rules in Python per text take 7.5 s. One query costs 0.29 ms
-to tokenise, where the rules in Python cost 6 µs; a search tokenises its query twice
-(for BM25, and for the preview anchor), about 1% of a 59 ms search.
+**Store lookups follow the streaming batch.** A query per file repeats planning and
+serial-map preparation; one lookup per batch checks all its blobs against a serial map
+built once per build. A whole-tree lookup would require changing how git listing and
+content reading are streamed, including the files whose language needs a content sniff.
+The batch already holds Python SHA values, so the query binds that list and reads stored
+host languages directly. Across Django's 5,668 files in batches of a hundred, this takes
+about 0.15 s against 0.30 s for constructing and registering a frame of pairs. Frames
+already produced by extraction and edge inference remain registered inputs for bulk
+writes; see [Registered frames as query inputs](#registered-frames-as-query-inputs).
 
 ### Storage
 
@@ -2487,25 +2296,17 @@ from the version it records. Replacing the index on every breaking
 change does not work here: it re-extracts every checkout and
 re-embeds every chunk to change a column.
 
-**A chunk's role is one value; its row spreads it.** A chunk holds
-one role (`Definition`, `Section`, `Import`, `Comment`, `RawSlice`,
-`Fragment`) carrying exactly the data that kind of chunk has, so a comment cannot
-have a name and only an import has import metadata; `kind` and `name`
-are read from the role. The `chunks` table keeps a column for each of
-`kind`, `name`, `line_start` and `line_end`, which SQL filters and the
-id use, and stores whatever else the role carries in `metadata`, a
-`STRUCT` holding the union of the role payloads' fields (`NULL` for a
-role with none). `staged_chunks` spreads a chunk into that row with
-polars expressions over the whole frame. Reads keep the row: the role's
-invariants hold because the write checked them, and gathering role and
-span back into a `Chunk` on every read checked them again and made
-reading a snapshot's chunks measurably slower than reading flat rows.
-JSON text
-in `metadata` does not work here: it moves encoding and parsing into
-per-row Python, where a struct passes between DuckDB and polars as
-Arrow. A `Chunk` subtype per kind does not work here either: every
-consumer of `Chunk` would change, where a role changes only the code
-that builds chunks.
+**Roles describe chunks; rows expose their fields.** A custom chunker
+returns `Chunk` values whose roles (`Definition`, `Section`, `Import`,
+`Comment`, `RawSlice`, `Fragment`) carry the data for that kind. Query
+extraction produces the corresponding columns directly. Both paths
+reach `ChunkRow`: `kind`, `name` and span columns support filtering and
+identity, while `metadata` is a `STRUCT` of role payload fields, null
+where a role has none. `chunk_rows` flattens the chunker's values;
+staging adds the storage columns. Reads keep those rows rather than
+reconstructing write models. A struct passes between DuckDB and polars
+as Arrow; storing metadata as JSON would add per-row encoding and
+parsing.
 
 **Opening the index migrates it.** Migration belongs to the `index`
 layer and reports through the log; the CLI just opens the index, and
@@ -2788,6 +2589,8 @@ notification delivery while querying actual status, establishing state
 correctness separately from publication timing.
 
 **Test location.** In-package: `src/rbtr/tests/`. The
-pi-rbtr tests live at `packages/pi-rbtr/tests/` with
-a `fake-daemon.ts` test double and case files
-(`*.cases.ts`) separating data from assertions.
+pi-rbtr tests live at `packages/pi-rbtr/tests/`. They exercise the
+extension in pi sessions against a real rbtr daemon. A run shares a
+repository and daemon; tests that stop or freeze a daemon get their
+own. `session.fixtures.ts` owns session and process isolation, and
+Vitest scenario tables keep test data beside assertions.

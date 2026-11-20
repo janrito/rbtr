@@ -3,7 +3,7 @@
 `extract_batch` reads every file of a batch, and every block it embeds,
 through tree-sitter and the language plugins (`rbtr.languages.treesitter`),
 then folds comments and assembles chunks over all of them at once
-(`rbtr.languages.rules`). The indexer extracts its files `BATCH_FILES` at
+(`rbtr.domain.rules`). The indexer extracts its files `BATCH_FILES` at
 a time through `extract_files`; `extract_file` runs one file the same
 way, for plugin tests and third-party language packages.
 """
