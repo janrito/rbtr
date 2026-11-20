@@ -5,7 +5,6 @@
     "file_path": "main.tf",
     "scope": "",
     "language": "hcl",
-    "content": "# Greeter service infrastructure.\n#\n# The HCL plugin extracts each top-level block as a doc section, named by its\n# type and labels: a bare block by its type (terraform), a variable/output by\n# its name, a resource by its type and name.",
     "line_start": 1,
     "line_end": 5
   },
@@ -15,7 +14,6 @@
     "file_path": "main.tf",
     "scope": "",
     "language": "hcl",
-    "content": "terraform {\n  required_version = \">= 1.5\"\n}",
     "line_start": 7,
     "line_end": 9
   },
@@ -25,7 +23,6 @@
     "file_path": "main.tf",
     "scope": "",
     "language": "hcl",
-    "content": "variable \"region\" {\n  description = \"Deployment region for the greeter service.\"\n  type        = string\n  default     = \"us-east-1\"\n}",
     "line_start": 11,
     "line_end": 15
   },
@@ -35,7 +32,6 @@
     "file_path": "main.tf",
     "scope": "",
     "language": "hcl",
-    "content": "resource \"aws_instance\" \"greeter\" {\n  ami           = \"ami-0abc123\"\n  instance_type = \"t3.micro\"\n\n  tags = {\n    Name = \"greeter\"\n  }\n}",
     "line_start": 17,
     "line_end": 24
   },
@@ -45,7 +41,6 @@
     "file_path": "main.tf",
     "scope": "",
     "language": "hcl",
-    "content": "output \"greeter_ip\" {\n  description = \"Public IP of the greeter instance.\"\n  value       = aws_instance.greeter.public_ip\n}",
     "line_start": 26,
     "line_end": 29
   },
@@ -55,7 +50,6 @@
     "file_path": "main.tf",
     "scope": "",
     "language": "hcl",
-    "content": "module \"greeter\" {\n  source = \"./modules/greeter\"\n}",
     "line_start": 31,
     "line_end": 33
   },
@@ -65,7 +59,6 @@
     "file_path": "main.tf",
     "scope": "",
     "language": "hcl",
-    "content": "module \"greeter\" {\n  source = \"./modules/greeter\"\n}",
     "line_start": 31,
     "line_end": 33,
     "metadata": {
@@ -81,7 +74,6 @@
     "file_path": "modules/greeter/main.tf",
     "scope": "",
     "language": "hcl",
-    "content": "# The module main.tf reads via `source = \"./modules/greeter\"`. A Terraform\n# module is a directory, so the reference reaches every .tf file in it.\nvariable \"name\" {\n  type    = string\n  default = \"world\"\n}",
     "line_start": 1,
     "line_end": 6
   },
@@ -91,7 +83,6 @@
     "file_path": "modules/greeter/main.tf",
     "scope": "",
     "language": "hcl",
-    "content": "output \"greeting\" {\n  value = \"Hello, ${var.name}\"\n}",
     "line_start": 8,
     "line_end": 10
   },
@@ -101,7 +92,6 @@
     "file_path": "modules/greeter/versions.tf",
     "scope": "",
     "language": "hcl",
-    "content": "# A second file of the same module, reached by the same reference.\nterraform {\n  required_version = \">= 1.6\"\n}",
     "line_start": 1,
     "line_end": 4
   },
@@ -111,7 +101,6 @@
     "file_path": "tf/a.tf",
     "scope": "",
     "language": "hcl",
-    "content": "module \"x\" {\n  source = \"./b\"\n}",
     "line_start": 1,
     "line_end": 3
   },
@@ -121,7 +110,6 @@
     "file_path": "tf/a.tf",
     "scope": "",
     "language": "hcl",
-    "content": "module \"x\" {\n  source = \"./b\"\n}",
     "line_start": 1,
     "line_end": 3,
     "metadata": {
@@ -137,7 +125,6 @@
     "file_path": "tf/b/main.tf",
     "scope": "",
     "language": "hcl",
-    "content": "resource \"null_resource\" \"y\" {}",
     "line_start": 1,
     "line_end": 1
   }

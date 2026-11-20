@@ -5,7 +5,6 @@
     "file_path": "cpp.cpp",
     "scope": "",
     "language": "cpp",
-    "content": "// Greeter — format greetings for named recipients.\n//\n// The C++ plugin extracts free functions, prototypes, classes/structs/\n// unions, type aliases, namespaces (as classes and scopes), member\n// functions and operator overloads (as methods), namespace/global\n// variables (including pointer globals), macros, and #include imports.",
     "line_start": 1,
     "line_end": 6
   },
@@ -15,7 +14,6 @@
     "file_path": "cpp.cpp",
     "scope": "",
     "language": "cpp",
-    "content": "#include <string>\n",
     "line_start": 8,
     "line_end": 8,
     "metadata": {
@@ -31,7 +29,6 @@
     "file_path": "cpp.cpp",
     "scope": "",
     "language": "cpp",
-    "content": "#include \"greeter.hpp\"\n",
     "line_start": 10,
     "line_end": 10,
     "metadata": {
@@ -47,7 +44,6 @@
     "file_path": "cpp.cpp",
     "scope": "",
     "language": "cpp",
-    "content": "#define GREET_VERSION 2\n",
     "line_start": 12,
     "line_end": 12
   },
@@ -57,7 +53,6 @@
     "file_path": "cpp.cpp",
     "scope": "",
     "language": "cpp",
-    "content": "// trailing comment: its own chunk",
     "line_start": 14,
     "line_end": 14
   },
@@ -67,7 +62,6 @@
     "file_path": "cpp.cpp",
     "scope": "",
     "language": "cpp",
-    "content": "const char *kAppName = \"greeter\";",
     "line_start": 14,
     "line_end": 14
   },
@@ -77,7 +71,6 @@
     "file_path": "cpp.cpp",
     "scope": "",
     "language": "cpp",
-    "content": "// Standalone note, separated by blank lines from any definition.\n// Second line of the same block.",
     "line_start": 16,
     "line_end": 17
   },
@@ -87,7 +80,6 @@
     "file_path": "cpp.cpp",
     "scope": "",
     "language": "cpp",
-    "content": "namespace greet {\n\nconst std::string DEFAULT_PREFIX = \"Hello\";\n\n// A short alias for a recipient name.\nusing Name = std::string;\n\n// Anything convertible to a std::string can name a recipient.\ntemplate <typename T>\nconcept Nameable = std::convertible_to<T, std::string>;\n\n// A tagged greeting payload.\nunion Payload {\n    int code;\n    const char *text;\n};\n\n// Build a greeter with the default prefix (declared here).\nGreeter make_default();\n\n// A greeter holding a prefix.\nclass Greeter {\n   public:\n    explicit Greeter(std::string prefix) : prefix_(std::move(prefix)) {}\n\n    // Greet a single recipient.\n    std::string greet(const std::string &name) const {\n        return prefix_ + \", \" + name;\n    }\n\n    // Two greeters are equal when their prefixes match.\n    bool operator==(const Greeter &other) const {\n        return prefix_ == other.prefix_;\n    }\n\n   private:\n    std::string prefix_;\n};\n\n// Format a greeting using a greeter.\nstd::string format_greeting(const Greeter &g, const std::string &name) {\n    return g.greet(name);\n}\n\n}",
     "line_start": 19,
     "line_end": 63
   },
@@ -97,7 +89,6 @@
     "file_path": "cpp.cpp",
     "scope": "greet",
     "language": "cpp",
-    "content": "const std::string DEFAULT_PREFIX = \"Hello\";",
     "line_start": 21,
     "line_end": 21
   },
@@ -107,7 +98,6 @@
     "file_path": "cpp.cpp",
     "scope": "greet",
     "language": "cpp",
-    "content": "// A short alias for a recipient name.\nusing Name = std::string;",
     "line_start": 23,
     "line_end": 24
   },
@@ -117,7 +107,6 @@
     "file_path": "cpp.cpp",
     "scope": "greet",
     "language": "cpp",
-    "content": "concept Nameable = std::convertible_to<T, std::string>;",
     "line_start": 28,
     "line_end": 28
   },
@@ -127,7 +116,6 @@
     "file_path": "cpp.cpp",
     "scope": "greet",
     "language": "cpp",
-    "content": "// A tagged greeting payload.\nunion Payload {\n    int code;\n    const char *text;\n}",
     "line_start": 30,
     "line_end": 34
   },
@@ -137,7 +125,6 @@
     "file_path": "cpp.cpp",
     "scope": "greet",
     "language": "cpp",
-    "content": "// Build a greeter with the default prefix (declared here).\nGreeter make_default();",
     "line_start": 36,
     "line_end": 37
   },
@@ -147,7 +134,6 @@
     "file_path": "cpp.cpp",
     "scope": "greet",
     "language": "cpp",
-    "content": "// A greeter holding a prefix.\nclass Greeter {\n   public:\n    explicit Greeter(std::string prefix) : prefix_(std::move(prefix)) {}\n\n    // Greet a single recipient.\n    std::string greet(const std::string &name) const {\n        return prefix_ + \", \" + name;\n    }\n\n    // Two greeters are equal when their prefixes match.\n    bool operator==(const Greeter &other) const {\n        return prefix_ == other.prefix_;\n    }\n\n   private:\n    std::string prefix_;\n}",
     "line_start": 39,
     "line_end": 56
   },
@@ -157,7 +143,6 @@
     "file_path": "cpp.cpp",
     "scope": "greet::Greeter",
     "language": "cpp",
-    "content": "explicit Greeter(std::string prefix) : prefix_(std::move(prefix)) {}",
     "line_start": 42,
     "line_end": 42
   },
@@ -167,7 +152,6 @@
     "file_path": "cpp.cpp",
     "scope": "greet::Greeter",
     "language": "cpp",
-    "content": "// Greet a single recipient.\n    std::string greet(const std::string &name) const {\n        return prefix_ + \", \" + name;\n    }",
     "line_start": 44,
     "line_end": 47
   },
@@ -177,7 +161,6 @@
     "file_path": "cpp.cpp",
     "scope": "greet::Greeter",
     "language": "cpp",
-    "content": "// Two greeters are equal when their prefixes match.\n    bool operator==(const Greeter &other) const {\n        return prefix_ == other.prefix_;\n    }",
     "line_start": 49,
     "line_end": 52
   },
@@ -187,7 +170,6 @@
     "file_path": "cpp.cpp",
     "scope": "greet",
     "language": "cpp",
-    "content": "// Format a greeting using a greeter.\nstd::string format_greeting(const Greeter &g, const std::string &name) {\n    return g.greet(name);\n}",
     "line_start": 58,
     "line_end": 61
   },
@@ -197,7 +179,6 @@
     "file_path": "cpp.cpp",
     "scope": "",
     "language": "cpp",
-    "content": "// namespace greet",
     "line_start": 63,
     "line_end": 63
   },
@@ -207,7 +188,6 @@
     "file_path": "greeter.hpp",
     "scope": "",
     "language": "cpp",
-    "content": "// Header companion for cpp.cpp — declares the greeter API.\n//\n// Exercises in-class *declared-only* methods (no inline body): the\n// constructor and member functions are captured as methods scoped to\n// their class, just like inline definitions.",
     "line_start": 1,
     "line_end": 5
   },
@@ -217,7 +197,6 @@
     "file_path": "greeter.hpp",
     "scope": "",
     "language": "cpp",
-    "content": "#pragma once",
     "line_start": 6,
     "line_end": 6
   },
@@ -227,7 +206,6 @@
     "file_path": "greeter.hpp",
     "scope": "",
     "language": "cpp",
-    "content": "#include <string>\n",
     "line_start": 8,
     "line_end": 8,
     "metadata": {
@@ -243,7 +221,6 @@
     "file_path": "greeter.hpp",
     "scope": "",
     "language": "cpp",
-    "content": "namespace greet {\n\nclass Greeting {\npublic:\n    Greeting(std::string prefix);\n    std::string render(const std::string &name) const;\n    static Greeting withDefault();\n\nprivate:\n    std::string prefix_;\n};\n\n}",
     "line_start": 10,
     "line_end": 22
   },
@@ -253,7 +230,6 @@
     "file_path": "greeter.hpp",
     "scope": "greet",
     "language": "cpp",
-    "content": "class Greeting {\npublic:\n    Greeting(std::string prefix);\n    std::string render(const std::string &name) const;\n    static Greeting withDefault();\n\nprivate:\n    std::string prefix_;\n}",
     "line_start": 12,
     "line_end": 20
   },
@@ -263,7 +239,6 @@
     "file_path": "greeter.hpp",
     "scope": "greet::Greeting",
     "language": "cpp",
-    "content": "Greeting(std::string prefix);",
     "line_start": 14,
     "line_end": 14
   },
@@ -273,7 +248,6 @@
     "file_path": "greeter.hpp",
     "scope": "greet::Greeting",
     "language": "cpp",
-    "content": "std::string render(const std::string &name) const;",
     "line_start": 15,
     "line_end": 15
   },
@@ -283,7 +257,6 @@
     "file_path": "greeter.hpp",
     "scope": "greet::Greeting",
     "language": "cpp",
-    "content": "static Greeting withDefault();",
     "line_start": 16,
     "line_end": 16
   },
@@ -293,7 +266,6 @@
     "file_path": "greeter.hpp",
     "scope": "",
     "language": "cpp",
-    "content": "// namespace greet",
     "line_start": 22,
     "line_end": 22
   },
@@ -303,7 +275,6 @@
     "file_path": "shop/model.cpp",
     "scope": "",
     "language": "cpp",
-    "content": "#include \"model.hpp\"\n",
     "line_start": 1,
     "line_end": 1,
     "metadata": {
@@ -319,7 +290,6 @@
     "file_path": "shop/model.cpp",
     "scope": "",
     "language": "cpp",
-    "content": "namespace shop {\n\nbool Model::check() { return true; }\n\nbool Model::save() { return check(); }\n\n}",
     "line_start": 3,
     "line_end": 9
   },
@@ -329,7 +299,6 @@
     "file_path": "shop/model.cpp",
     "scope": "shop::Model",
     "language": "cpp",
-    "content": "bool Model::check() { return true; }",
     "line_start": 5,
     "line_end": 5
   },
@@ -339,7 +308,6 @@
     "file_path": "shop/model.cpp",
     "scope": "shop::Model",
     "language": "cpp",
-    "content": "bool Model::save() { return check(); }",
     "line_start": 7,
     "line_end": 7
   },
@@ -349,7 +317,6 @@
     "file_path": "shop/model.cpp",
     "scope": "",
     "language": "cpp",
-    "content": "// namespace shop",
     "line_start": 9,
     "line_end": 9
   },
@@ -359,7 +326,6 @@
     "file_path": "shop/model.hpp",
     "scope": "",
     "language": "cpp",
-    "content": "#pragma once",
     "line_start": 1,
     "line_end": 1
   },
@@ -369,7 +335,6 @@
     "file_path": "shop/model.hpp",
     "scope": "",
     "language": "cpp",
-    "content": "namespace shop {\n\nclass Model {\npublic:\n    bool check();\n    bool save();\n};\n\n}",
     "line_start": 3,
     "line_end": 11
   },
@@ -379,7 +344,6 @@
     "file_path": "shop/model.hpp",
     "scope": "shop",
     "language": "cpp",
-    "content": "class Model {\npublic:\n    bool check();\n    bool save();\n}",
     "line_start": 5,
     "line_end": 9
   },
@@ -389,7 +353,6 @@
     "file_path": "shop/model.hpp",
     "scope": "shop::Model",
     "language": "cpp",
-    "content": "bool check();",
     "line_start": 7,
     "line_end": 7
   },
@@ -399,7 +362,6 @@
     "file_path": "shop/model.hpp",
     "scope": "shop::Model",
     "language": "cpp",
-    "content": "bool save();",
     "line_start": 8,
     "line_end": 8
   },
@@ -409,7 +371,6 @@
     "file_path": "shop/model.hpp",
     "scope": "",
     "language": "cpp",
-    "content": "// namespace shop",
     "line_start": 11,
     "line_end": 11
   },
@@ -419,7 +380,6 @@
     "file_path": "shop/order.cpp",
     "scope": "",
     "language": "cpp",
-    "content": "#include \"order.hpp\"\n",
     "line_start": 1,
     "line_end": 1,
     "metadata": {
@@ -435,7 +395,6 @@
     "file_path": "shop/order.cpp",
     "scope": "",
     "language": "cpp",
-    "content": "namespace shop {\n\nbool Order::save() {\n    Model::save();\n    return this->check();\n}\n\n}",
     "line_start": 3,
     "line_end": 10
   },
@@ -445,7 +404,6 @@
     "file_path": "shop/order.cpp",
     "scope": "shop::Order",
     "language": "cpp",
-    "content": "bool Order::save() {\n    Model::save();\n    return this->check();\n}",
     "line_start": 5,
     "line_end": 8
   },
@@ -455,7 +413,6 @@
     "file_path": "shop/order.cpp",
     "scope": "",
     "language": "cpp",
-    "content": "// namespace shop",
     "line_start": 10,
     "line_end": 10
   },
@@ -465,7 +422,6 @@
     "file_path": "shop/order.hpp",
     "scope": "",
     "language": "cpp",
-    "content": "#pragma once",
     "line_start": 1,
     "line_end": 1
   },
@@ -475,7 +431,6 @@
     "file_path": "shop/order.hpp",
     "scope": "",
     "language": "cpp",
-    "content": "#include \"model.hpp\"\n",
     "line_start": 3,
     "line_end": 3,
     "metadata": {
@@ -491,7 +446,6 @@
     "file_path": "shop/order.hpp",
     "scope": "",
     "language": "cpp",
-    "content": "namespace shop {\n\nclass Order : public Model {\npublic:\n    bool save();\n};\n\n}",
     "line_start": 5,
     "line_end": 12
   },
@@ -501,7 +455,6 @@
     "file_path": "shop/order.hpp",
     "scope": "shop",
     "language": "cpp",
-    "content": "class Order : public Model {\npublic:\n    bool save();\n}",
     "line_start": 7,
     "line_end": 10
   },
@@ -511,7 +464,6 @@
     "file_path": "shop/order.hpp",
     "scope": "shop::Order",
     "language": "cpp",
-    "content": "bool save();",
     "line_start": 9,
     "line_end": 9
   },
@@ -521,7 +473,6 @@
     "file_path": "shop/order.hpp",
     "scope": "",
     "language": "cpp",
-    "content": "// namespace shop",
     "line_start": 12,
     "line_end": 12
   },
@@ -531,7 +482,6 @@
     "file_path": "util/text.cpp",
     "scope": "",
     "language": "cpp",
-    "content": "// Includes its own sibling by bare name.",
     "line_start": 1,
     "line_end": 1
   },
@@ -541,7 +491,6 @@
     "file_path": "util/text.cpp",
     "scope": "",
     "language": "cpp",
-    "content": "#include \"text.hpp\"\n",
     "line_start": 2,
     "line_end": 2,
     "metadata": {
@@ -557,7 +506,6 @@
     "file_path": "util/text.cpp",
     "scope": "",
     "language": "cpp",
-    "content": "namespace util {\nint text_length(const char *s) {\n  int n = 0;\n  while (s[n] != '\\0') {\n    n++;\n  }\n  return n;\n}\n}",
     "line_start": 4,
     "line_end": 12
   },
@@ -567,7 +515,6 @@
     "file_path": "util/text.cpp",
     "scope": "util",
     "language": "cpp",
-    "content": "int text_length(const char *s) {\n  int n = 0;\n  while (s[n] != '\\0') {\n    n++;\n  }\n  return n;\n}",
     "line_start": 5,
     "line_end": 11
   },
@@ -577,7 +524,6 @@
     "file_path": "util/text.cpp",
     "scope": "",
     "language": "cpp",
-    "content": "// namespace util",
     "line_start": 12,
     "line_end": 12
   },
@@ -587,7 +533,6 @@
     "file_path": "util/text.hpp",
     "scope": "",
     "language": "cpp",
-    "content": "// Included by util/text.cpp as a bare sibling, which only resolves relative\n// to this directory.",
     "line_start": 1,
     "line_end": 2
   },
@@ -597,7 +542,6 @@
     "file_path": "util/text.hpp",
     "scope": "",
     "language": "cpp",
-    "content": "#pragma once",
     "line_start": 3,
     "line_end": 3
   },
@@ -607,7 +551,6 @@
     "file_path": "util/text.hpp",
     "scope": "",
     "language": "cpp",
-    "content": "namespace util {\nint text_length(const char *s);\n}",
     "line_start": 5,
     "line_end": 7
   },
@@ -617,7 +560,6 @@
     "file_path": "util/text.hpp",
     "scope": "util",
     "language": "cpp",
-    "content": "int text_length(const char *s);",
     "line_start": 6,
     "line_end": 6
   }

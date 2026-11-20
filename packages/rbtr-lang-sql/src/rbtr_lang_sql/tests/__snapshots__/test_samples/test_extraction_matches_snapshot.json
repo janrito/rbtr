@@ -5,7 +5,6 @@
     "file_path": "sql.sql",
     "scope": "",
     "language": "sql",
-    "content": "-- Greeter schema — tables, views, and statements for greetings.\n--\n-- The SQL plugin extracts one chunk per top-level statement: CREATE\n-- TABLE/VIEW (as classes), CREATE FUNCTION and DML/CTEs (as functions),\n-- and CREATE SCHEMA/INDEX/SEQUENCE (as variables). There is no import\n-- concept. CREATE PROCEDURE and PRAGMA do not parse and live in the\n-- xfail registry instead.",
     "line_start": 1,
     "line_end": 7
   },
@@ -15,7 +14,6 @@
     "file_path": "sql.sql",
     "scope": "",
     "language": "sql",
-    "content": "-- trailing comment: its own chunk",
     "line_start": 9,
     "line_end": 9
   },
@@ -25,7 +23,6 @@
     "file_path": "sql.sql",
     "scope": "",
     "language": "sql",
-    "content": "CREATE SCHEMA greet",
     "line_start": 9,
     "line_end": 9
   },
@@ -35,7 +32,6 @@
     "file_path": "sql.sql",
     "scope": "",
     "language": "sql",
-    "content": "-- Standalone note, separated by blank lines from any statement.\n-- Second line of the same block.",
     "line_start": 11,
     "line_end": 12
   },
@@ -45,7 +41,6 @@
     "file_path": "sql.sql",
     "scope": "",
     "language": "sql",
-    "content": "CREATE TABLE greeters (\n    id INTEGER PRIMARY KEY,\n    prefix TEXT NOT NULL\n)",
     "line_start": 14,
     "line_end": 17
   },
@@ -55,7 +50,6 @@
     "file_path": "sql.sql",
     "scope": "",
     "language": "sql",
-    "content": "CREATE INDEX idx_greeters_prefix ON greeters (prefix)",
     "line_start": 19,
     "line_end": 19
   },
@@ -65,7 +59,6 @@
     "file_path": "sql.sql",
     "scope": "",
     "language": "sql",
-    "content": "CREATE SEQUENCE greeting_id_seq",
     "line_start": 21,
     "line_end": 21
   },
@@ -75,7 +68,6 @@
     "file_path": "sql.sql",
     "scope": "",
     "language": "sql",
-    "content": "CREATE VIEW active_greeters AS\nSELECT id, prefix FROM greeters WHERE prefix IS NOT NULL",
     "line_start": 23,
     "line_end": 24
   },
@@ -85,7 +77,6 @@
     "file_path": "sql.sql",
     "scope": "",
     "language": "sql",
-    "content": "CREATE FUNCTION shout(message TEXT) RETURNS TEXT AS 'SELECT upper(message)'",
     "line_start": 26,
     "line_end": 26
   },
@@ -95,7 +86,6 @@
     "file_path": "sql.sql",
     "scope": "",
     "language": "sql",
-    "content": "recent AS (\n    SELECT id FROM greeters\n)",
     "line_start": 28,
     "line_end": 30
   },
@@ -105,7 +95,6 @@
     "file_path": "sql.sql",
     "scope": "",
     "language": "sql",
-    "content": "WITH recent AS (\n    SELECT id FROM greeters\n)\n\nSELECT id FROM recent",
     "line_start": 28,
     "line_end": 32
   },
@@ -115,7 +104,6 @@
     "file_path": "sql.sql",
     "scope": "",
     "language": "sql",
-    "content": "INSERT INTO greeters (id, prefix) VALUES (1, 'Hello')",
     "line_start": 34,
     "line_end": 34
   },
@@ -125,7 +113,6 @@
     "file_path": "sql.sql",
     "scope": "",
     "language": "sql",
-    "content": "UPDATE greeters SET prefix = 'Hi' WHERE id = 1",
     "line_start": 36,
     "line_end": 36
   },
@@ -135,7 +122,6 @@
     "file_path": "sql.sql",
     "scope": "",
     "language": "sql",
-    "content": "DELETE FROM greeters WHERE id = 1",
     "line_start": 38,
     "line_end": 38
   }

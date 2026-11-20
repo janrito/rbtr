@@ -5,7 +5,6 @@
     "file_path": "base.less",
     "scope": "",
     "language": "less",
-    "content": "// Imported by less.less via `@import \"base\"`.",
     "line_start": 1,
     "line_end": 1
   },
@@ -15,7 +14,6 @@
     "file_path": "base.less",
     "scope": "",
     "language": "less",
-    "content": "@bg: #ffffff;",
     "line_start": 3,
     "line_end": 3
   },
@@ -25,7 +23,6 @@
     "file_path": "less.less",
     "scope": "",
     "language": "less",
-    "content": "// Greeter theme (Less).\n//\n// The Less plugin extracts @-variables, .mixin() definitions, rule sets\n// and @media/@charset/@keyframes as doc sections, and @import as imports.\n// Mixin calls (e.g. `.rounded(8px)`) are references, not definitions.",
     "line_start": 1,
     "line_end": 5
   },
@@ -35,7 +32,6 @@
     "file_path": "less.less",
     "scope": "",
     "language": "less",
-    "content": "@import \"base\";",
     "line_start": 7,
     "line_end": 7,
     "metadata": {
@@ -51,7 +47,6 @@
     "file_path": "less.less",
     "scope": "",
     "language": "less",
-    "content": "@primary: #333;",
     "line_start": 9,
     "line_end": 9
   },
@@ -61,7 +56,6 @@
     "file_path": "less.less",
     "scope": "",
     "language": "less",
-    "content": "@spacing: 8px;",
     "line_start": 10,
     "line_end": 10
   },
@@ -71,7 +65,6 @@
     "file_path": "less.less",
     "scope": "",
     "language": "less",
-    "content": ".rounded(@radius: 4px) {\n  border-radius: @radius;\n}",
     "line_start": 12,
     "line_end": 14
   },
@@ -81,7 +74,6 @@
     "file_path": "less.less",
     "scope": "",
     "language": "less",
-    "content": ".greeter {\n  color: @primary;\n  padding: @spacing;\n  .rounded(8px);\n  .greeting-label {\n    text-transform: uppercase;\n  }\n}",
     "line_start": 16,
     "line_end": 23
   },
@@ -91,7 +83,6 @@
     "file_path": "less.less",
     "scope": ".greeter",
     "language": "less",
-    "content": ".greeting-label {\n    text-transform: uppercase;\n  }",
     "line_start": 20,
     "line_end": 22
   },
@@ -101,7 +92,6 @@
     "file_path": "less.less",
     "scope": "",
     "language": "less",
-    "content": "@media (max-width: 600px) {\n  .greeter {\n    font-size: 14px;\n  }\n}",
     "line_start": 25,
     "line_end": 29
   },
@@ -111,7 +101,6 @@
     "file_path": "less.less",
     "scope": "",
     "language": "less",
-    "content": ".greeter {\n    font-size: 14px;\n  }",
     "line_start": 26,
     "line_end": 28
   },
@@ -121,7 +110,6 @@
     "file_path": "less.less",
     "scope": "",
     "language": "less",
-    "content": "@keyframes greeting-fade {\n  from {\n    opacity: 0;\n  }\n  to {\n    opacity: 1;\n  }\n}",
     "line_start": 31,
     "line_end": 38
   },
@@ -131,7 +119,6 @@
     "file_path": "less.less",
     "scope": "",
     "language": "less",
-    "content": "@import \"partials/dark.less\";",
     "line_start": 40,
     "line_end": 40,
     "metadata": {
@@ -147,7 +134,6 @@
     "file_path": "partials/dark.less",
     "scope": "",
     "language": "less",
-    "content": "// Imported by less.less. Imports its own sibling by bare name, which only\n// resolves relative to this directory.",
     "line_start": 1,
     "line_end": 2
   },
@@ -157,7 +143,6 @@
     "file_path": "partials/dark.less",
     "scope": "",
     "language": "less",
-    "content": "@import \"tokens.less\";",
     "line_start": 3,
     "line_end": 3,
     "metadata": {
@@ -173,7 +158,6 @@
     "file_path": "partials/dark.less",
     "scope": "",
     "language": "less",
-    "content": ".greeting--dark {\n  color: @ink;\n}",
     "line_start": 5,
     "line_end": 7
   },
@@ -183,7 +167,6 @@
     "file_path": "partials/tokens.less",
     "scope": "",
     "language": "less",
-    "content": "// Imported by partials/dark.less as a bare sibling.\n@ink: #eeeeee;",
     "line_start": 1,
     "line_end": 2
   }

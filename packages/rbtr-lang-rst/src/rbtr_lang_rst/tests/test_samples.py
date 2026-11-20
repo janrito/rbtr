@@ -1,7 +1,7 @@
-"""reStructuredText sample extraction: the `samples/rst/` project built as rbtr builds a repository.
+"""reStructuredText sample extraction: the `samples/rst/` project built as rbtr builds a repository and read as an agent reads it.
 
 The project includes a helpers.py the docs cross-reference, so the snapshot captures
-the doc sections, the python chunks, and the rst->python reference edges.
+the doc sections and the python chunks, and its edges include the rst->python references.
 """
 
 from __future__ import annotations
@@ -9,42 +9,55 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import pytest
-
-from rbtr.domain.models import ChunkKind
+from rbtr.testing import Indexed
+from rbtr.testing.assertions import assert_every_line_in_a_chunk, assert_reached
+from rbtr.testing.reads import outline
 
 if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
 
-    from rbtr.daemon.dto import SymbolOut
+
+def test_extraction_matches_snapshot(indexed: Indexed, snapshot_json: SnapshotAssertion) -> None:
+    with indexed(Path(__file__).parent / "samples" / "rst") as index:
+        symbols = outline(index)
+    assert symbols == snapshot_json
 
 
-@pytest.fixture(scope="module")
-def sample_dir() -> Path:
-    """The `samples/rst/` project."""
-    return Path(__file__).parent / "samples" / "rst"
+def test_every_edge_reaches_what_it_names(indexed: Indexed) -> None:
+    """Each target the sample's edges reach is reached by exactly the chunks named, by any edge."""
+    reached = {
+        ("config.rst", "Config"): {("rst.rst", ":doc:`config`", "documents")},
+        ("guide.rst", "Greeting options"): {("rst.rst", "`the guide <guide.rst>`_", "documents")},
+        ("guide.rst", "Greetings Table"): {
+            ("rst.rst", ":ref:`the greetings table <greetings table>`", "documents"),
+            ("rst.rst", "`the guide <guide.rst>`_", "documents"),
+        },
+        ("guide.rst", "Guide"): {("rst.rst", "`the guide <guide.rst>`_", "documents")},
+        ("guide.rst", "Salutations"): {("rst.rst", "`the guide <guide.rst>`_", "documents")},
+        ("guide.rst", "format_greeting"): {
+            ("rst.rst", ":ref:`format_greeting`", "documents"),
+            ("rst.rst", "`the guide <guide.rst>`_", "documents"),
+        },
+        ("guide.rst", "greeting-options"): {
+            ("rst.rst", ":ref:`the options <greeting-options>`", "documents"),
+            ("rst.rst", "`the guide <guide.rst>`_", "documents"),
+            ("rst.rst", "`the guide's options <guide.rst#greeting-options>`_", "documents"),
+        },
+        ("guide.rst", "salutations"): {
+            ("rst.rst", ":ref:`salutations`", "documents"),
+            ("rst.rst", "`the guide <guide.rst>`_", "documents"),
+        },
+        ("helpers.py", "Greeter"): {("rst.rst", ":class:`Greeter`", "documents")},
+        ("helpers.py", "format_greeting"): {("rst.rst", ":func:`format_greeting`", "documents")},
+        ("rst.rst", "Usage"): {("rst.rst", "`usage <#usage>`_", "documents")},
+        ("topics/detail.rst", "Detail"): {("topics/intro.rst", ":doc:`detail`", "documents")},
+        ("topics/intro.rst", "Intro"): {("rst.rst", ":doc:`topics/intro`", "documents")},
+    }
+    with indexed(Path(__file__).parent / "samples" / "rst") as index:
+        assert_reached(index, reached)
 
 
-def test_emits_expected_kinds(sample_symbols: list[SymbolOut]) -> None:
-    """The sample exercises RST's doc-section and import (reference) chunks."""
-    assert {ChunkKind.DOC_SECTION, ChunkKind.IMPORT} <= {s.kind for s in sample_symbols}
-
-
-def test_parses_cleanly(sample_parse_errors: list[str]) -> None:
-    """Every source file is valid in the language the build read it as."""
-    assert sample_parse_errors == []
-
-
-def test_extraction_matches_snapshot(
-    sample_symbols: list[SymbolOut], snapshot_json: SnapshotAssertion
-) -> None:
-    assert sample_symbols == snapshot_json
-
-
-def test_edges_match_snapshot(sample_edges: list[str], snapshot_json: SnapshotAssertion) -> None:
-    assert sample_edges == snapshot_json
-
-
-def test_every_line_is_in_a_chunk(sample_uncovered_lines: list[str]) -> None:
+def test_every_line_is_in_a_chunk(indexed: Indexed) -> None:
     """No line of the sample's code falls outside a chunk."""
-    assert sample_uncovered_lines == []
+    with indexed(Path(__file__).parent / "samples" / "rst") as index:
+        assert_every_line_in_a_chunk(index)

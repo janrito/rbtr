@@ -1,48 +1,46 @@
-"""HCL sample extraction: the `samples/hcl/` project, built as rbtr builds a repository."""
+"""HCL sample extraction: the `samples/hcl/` project, built as rbtr builds a repository and read as an agent reads it."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import pytest
-
-from rbtr.domain.models import ChunkKind
+from rbtr.testing import Indexed
+from rbtr.testing.assertions import assert_every_line_in_a_chunk, assert_reached
+from rbtr.testing.reads import outline
 
 if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
 
-    from rbtr.daemon.dto import SymbolOut
+
+def test_extraction_matches_snapshot(indexed: Indexed, snapshot_json: SnapshotAssertion) -> None:
+    with indexed(Path(__file__).parent / "samples" / "hcl") as index:
+        symbols = outline(index)
+    assert symbols == snapshot_json
 
 
-@pytest.fixture(scope="module")
-def sample_dir() -> Path:
-    """The `samples/hcl/` project."""
-    return Path(__file__).parent / "samples" / "hcl"
-
-
-def test_emits_expected_kinds(sample_symbols: list[SymbolOut]) -> None:
-    """The sample exercises HCL's config-key, comment and import chunks."""
-    assert {ChunkKind.CONFIG_KEY, ChunkKind.COMMENT, ChunkKind.IMPORT} <= {
-        s.kind for s in sample_symbols
+def test_every_edge_reaches_what_it_names(indexed: Indexed) -> None:
+    """Each target the sample's edges reach is reached by exactly the chunks named, by any edge."""
+    # A module block is an import named by its whole text.
+    greeter = """\
+module "greeter" {
+  source = "./modules/greeter"
+}"""
+    module_x = """\
+module "x" {
+  source = "./b"
+}"""
+    reached = {
+        ("modules/greeter/main.tf", "output greeting"): {("main.tf", greeter, "imports")},
+        ("modules/greeter/main.tf", "variable name"): {("main.tf", greeter, "imports")},
+        ("modules/greeter/versions.tf", "terraform"): {("main.tf", greeter, "imports")},
+        ("tf/b/main.tf", "resource null_resource y"): {("tf/a.tf", module_x, "imports")},
     }
+    with indexed(Path(__file__).parent / "samples" / "hcl") as index:
+        assert_reached(index, reached)
 
 
-def test_parses_cleanly(sample_parse_errors: list[str]) -> None:
-    """Every source file is valid in the language the build read it as."""
-    assert sample_parse_errors == []
-
-
-def test_extraction_matches_snapshot(
-    sample_symbols: list[SymbolOut], snapshot_json: SnapshotAssertion
-) -> None:
-    assert sample_symbols == snapshot_json
-
-
-def test_edges_match_snapshot(sample_edges: list[str], snapshot_json: SnapshotAssertion) -> None:
-    assert sample_edges == snapshot_json
-
-
-def test_every_line_is_in_a_chunk(sample_uncovered_lines: list[str]) -> None:
+def test_every_line_is_in_a_chunk(indexed: Indexed) -> None:
     """No line of the sample's code falls outside a chunk."""
-    assert sample_uncovered_lines == []
+    with indexed(Path(__file__).parent / "samples" / "hcl") as index:
+        assert_every_line_in_a_chunk(index)

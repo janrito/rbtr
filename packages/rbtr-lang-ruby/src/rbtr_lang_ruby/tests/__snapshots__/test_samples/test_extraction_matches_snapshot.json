@@ -5,7 +5,6 @@
     "file_path": "config.rb",
     "scope": "",
     "language": "ruby",
-    "content": "# frozen_string_literal: true",
     "line_start": 1,
     "line_end": 1
   },
@@ -15,7 +14,6 @@
     "file_path": "config.rb",
     "scope": "",
     "language": "ruby",
-    "content": "# Greeter configuration.\nDEFAULT_LOCALE = \"en\"",
     "line_start": 3,
     "line_end": 4
   },
@@ -25,7 +23,6 @@
     "file_path": "lib/a.rb",
     "scope": "",
     "language": "ruby",
-    "content": "require_relative 'b'",
     "line_start": 1,
     "line_end": 1,
     "metadata": {
@@ -41,7 +38,6 @@
     "file_path": "lib/b.rb",
     "scope": "",
     "language": "ruby",
-    "content": "def helper\n  1\nend",
     "line_start": 1,
     "line_end": 3
   },
@@ -51,7 +47,6 @@
     "file_path": "lib/model.rb",
     "scope": "",
     "language": "ruby",
-    "content": "# A base whose members a subclass reaches without naming `self`.\nclass Model\n  def save\n    check()\n  end\n\n  def check\n    true\n  end\nend",
     "line_start": 1,
     "line_end": 10
   },
@@ -61,7 +56,6 @@
     "file_path": "lib/model.rb",
     "scope": "Model",
     "language": "ruby",
-    "content": "def save\n    check()\n  end",
     "line_start": 3,
     "line_end": 5
   },
@@ -71,7 +65,6 @@
     "file_path": "lib/model.rb",
     "scope": "Model",
     "language": "ruby",
-    "content": "def check\n    true\n  end",
     "line_start": 7,
     "line_end": 9
   },
@@ -81,7 +74,6 @@
     "file_path": "lib/order.rb",
     "scope": "",
     "language": "ruby",
-    "content": "require_relative \"model\"",
     "line_start": 1,
     "line_end": 1,
     "metadata": {
@@ -97,7 +89,6 @@
     "file_path": "lib/order.rb",
     "scope": "",
     "language": "ruby",
-    "content": "# A subclass of a required base.\nclass Order < Model\n  def save\n    check() && self.check\n  end\n\n  def self.build\n    Order.new\n  end\nend",
     "line_start": 3,
     "line_end": 12
   },
@@ -107,7 +98,6 @@
     "file_path": "lib/order.rb",
     "scope": "Order",
     "language": "ruby",
-    "content": "def save\n    check() && self.check\n  end",
     "line_start": 5,
     "line_end": 7
   },
@@ -117,7 +107,6 @@
     "file_path": "lib/order.rb",
     "scope": "Order",
     "language": "ruby",
-    "content": "def self.build\n    Order.new\n  end",
     "line_start": 9,
     "line_end": 11
   },
@@ -127,7 +116,6 @@
     "file_path": "ruby.rb",
     "scope": "",
     "language": "ruby",
-    "content": "# frozen_string_literal: true",
     "line_start": 1,
     "line_end": 1
   },
@@ -137,7 +125,6 @@
     "file_path": "ruby.rb",
     "scope": "",
     "language": "ruby",
-    "content": "# Greeter — format greetings for named recipients.\n#\n# The Ruby plugin extracts top-level defs (as functions), classes and\n# modules, defs inside them (as methods), constant assignments (as\n# variables, scoped to their class/module), the RSpec describe/it DSL\n# (groups as classes, examples as functions), and require /\n# require_relative imports.",
     "line_start": 3,
     "line_end": 9
   },
@@ -147,7 +134,6 @@
     "file_path": "ruby.rb",
     "scope": "",
     "language": "ruby",
-    "content": "require \"json\"",
     "line_start": 11,
     "line_end": 11,
     "metadata": {
@@ -163,7 +149,6 @@
     "file_path": "ruby.rb",
     "scope": "",
     "language": "ruby",
-    "content": "require_relative \"./config\"",
     "line_start": 12,
     "line_end": 12,
     "metadata": {
@@ -179,7 +164,6 @@
     "file_path": "ruby.rb",
     "scope": "",
     "language": "ruby",
-    "content": "# trailing comment: its own chunk",
     "line_start": 14,
     "line_end": 14
   },
@@ -189,7 +173,6 @@
     "file_path": "ruby.rb",
     "scope": "",
     "language": "ruby",
-    "content": "DEFAULT_GREETING = \"Hello\"",
     "line_start": 14,
     "line_end": 14
   },
@@ -199,7 +182,6 @@
     "file_path": "ruby.rb",
     "scope": "",
     "language": "ruby",
-    "content": "# Standalone note, separated by blank lines from any definition.\n# Second line of the same block.",
     "line_start": 16,
     "line_end": 17
   },
@@ -209,7 +191,6 @@
     "file_path": "ruby.rb",
     "scope": "",
     "language": "ruby",
-    "content": "# Mixin providing a shout helper.\nmodule Shoutable\n  def shout(message)\n    message.upcase\n  end\nend",
     "line_start": 19,
     "line_end": 24
   },
@@ -219,7 +200,6 @@
     "file_path": "ruby.rb",
     "scope": "Shoutable",
     "language": "ruby",
-    "content": "def shout(message)\n    message.upcase\n  end",
     "line_start": 21,
     "line_end": 23
   },
@@ -229,7 +209,6 @@
     "file_path": "ruby.rb",
     "scope": "",
     "language": "ruby",
-    "content": "# Formats greetings with a prefix.\nclass Greeter\n  include Shoutable\n\n  MAX_NAME_LENGTH = 64\n\n  def initialize(prefix = DEFAULT_GREETING)\n    @prefix = prefix\n  end\n\n  # Greet a single recipient.\n  def greet(name)\n    \"#{@prefix}, #{name}\"\n  end\n\n  def self.default\n    new(DEFAULT_GREETING)\n  end\nend",
     "line_start": 26,
     "line_end": 44
   },
@@ -239,7 +218,6 @@
     "file_path": "ruby.rb",
     "scope": "Greeter",
     "language": "ruby",
-    "content": "MAX_NAME_LENGTH = 64",
     "line_start": 30,
     "line_end": 30
   },
@@ -249,7 +227,6 @@
     "file_path": "ruby.rb",
     "scope": "Greeter",
     "language": "ruby",
-    "content": "def initialize(prefix = DEFAULT_GREETING)\n    @prefix = prefix\n  end",
     "line_start": 32,
     "line_end": 34
   },
@@ -259,7 +236,6 @@
     "file_path": "ruby.rb",
     "scope": "Greeter",
     "language": "ruby",
-    "content": "# Greet a single recipient.\n  def greet(name)\n    \"#{@prefix}, #{name}\"\n  end",
     "line_start": 36,
     "line_end": 39
   },
@@ -269,7 +245,6 @@
     "file_path": "ruby.rb",
     "scope": "Greeter",
     "language": "ruby",
-    "content": "def self.default\n    new(DEFAULT_GREETING)\n  end",
     "line_start": 41,
     "line_end": 43
   },
@@ -279,7 +254,6 @@
     "file_path": "ruby.rb",
     "scope": "",
     "language": "ruby",
-    "content": "# Top-level helper that builds a greeter and greets.\ndef format_greeting(name)\n  Greeter.new.greet(name)\nend",
     "line_start": 46,
     "line_end": 49
   },
@@ -289,7 +263,6 @@
     "file_path": "ruby.rb",
     "scope": "",
     "language": "ruby",
-    "content": "# RSpec-style specification exercising the describe/it DSL.\nRSpec.describe Greeter do\n  describe \"#greet\" do\n    it \"includes the configured prefix\" do\n      expect(Greeter.new.greet(\"Sam\")).to include(\"Hello\")\n    end\n  end\nend",
     "line_start": 51,
     "line_end": 58
   },
@@ -299,7 +272,6 @@
     "file_path": "ruby.rb",
     "scope": "",
     "language": "ruby",
-    "content": "describe \"#greet\" do\n    it \"includes the configured prefix\" do\n      expect(Greeter.new.greet(\"Sam\")).to include(\"Hello\")\n    end\n  end",
     "line_start": 53,
     "line_end": 57
   },
@@ -309,7 +281,6 @@
     "file_path": "ruby.rb",
     "scope": "",
     "language": "ruby",
-    "content": "it \"includes the configured prefix\" do\n      expect(Greeter.new.greet(\"Sam\")).to include(\"Hello\")\n    end",
     "line_start": 54,
     "line_end": 56
   }

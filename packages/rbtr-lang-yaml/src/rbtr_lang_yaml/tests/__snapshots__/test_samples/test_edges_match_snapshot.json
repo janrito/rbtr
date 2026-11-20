@@ -1,3 +1,0 @@
-[
-  "api/openapi.yaml::$ref: \"paths.yaml\" -> api/paths.yaml::get [imports]"
-]

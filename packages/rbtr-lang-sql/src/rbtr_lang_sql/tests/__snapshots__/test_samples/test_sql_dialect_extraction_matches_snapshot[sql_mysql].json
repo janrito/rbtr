@@ -1,52 +1,29 @@
 [
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "comment",
     "file_path": "sql_mysql.sql",
-    "role": {
-      "kind": "comment"
-    },
     "scope": "",
     "language": "sql",
-    "file_language": "sql",
-    "content": "-- MySQL dialect sample — backtick identifiers, UNSIGNED AUTO_INCREMENT, ENGINE.",
-    "span": {
-      "start": 1,
-      "end": 1
-    },
-    "id": "2f9502a1d42e6fb8"
+    "line_start": 1,
+    "line_end": 1
   },
   {
-    "blob_sha": "sha1",
+    "name": "`users`",
+    "kind": "class",
     "file_path": "sql_mysql.sql",
-    "role": {
-      "kind": "class",
-      "name": "`users`"
-    },
     "scope": "",
     "language": "sql",
-    "file_language": "sql",
-    "content": "CREATE TABLE `users` (\n    `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,\n    `email` VARCHAR(255) NOT NULL,\n    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n    PRIMARY KEY (`id`),\n    UNIQUE KEY `uq_email` (`email`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
-    "span": {
-      "start": 3,
-      "end": 9
-    },
-    "id": "db84c326bc0cbc3d"
+    "line_start": 3,
+    "line_end": 9
   },
   {
-    "blob_sha": "sha1",
+    "name": "`idx_email`",
+    "kind": "variable",
     "file_path": "sql_mysql.sql",
-    "role": {
-      "kind": "variable",
-      "name": "`idx_email`"
-    },
     "scope": "",
     "language": "sql",
-    "file_language": "sql",
-    "content": "CREATE INDEX `idx_email` ON `users` (`email`)",
-    "span": {
-      "start": 11,
-      "end": 11
-    },
-    "id": "086a1ff7acc9fcbb"
+    "line_start": 11,
+    "line_end": 11
   }
 ]

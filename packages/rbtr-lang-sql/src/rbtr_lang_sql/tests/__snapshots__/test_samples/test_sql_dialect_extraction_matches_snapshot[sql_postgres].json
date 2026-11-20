@@ -1,103 +1,56 @@
 [
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "comment",
     "file_path": "sql_postgres.sql",
-    "role": {
-      "kind": "comment"
-    },
     "scope": "",
     "language": "sql",
-    "file_language": "sql",
-    "content": "-- PostgreSQL dialect sample — SERIAL, JSONB, arrays, ENUM type, plpgsql.",
-    "span": {
-      "start": 1,
-      "end": 1
-    },
-    "id": "2f9502a1d42e6fb8"
+    "line_start": 1,
+    "line_end": 1
   },
   {
-    "blob_sha": "sha1",
+    "name": "\"uuid-ossp\"",
+    "kind": "variable",
     "file_path": "sql_postgres.sql",
-    "role": {
-      "kind": "variable",
-      "name": "\"uuid-ossp\""
-    },
     "scope": "",
     "language": "sql",
-    "file_language": "sql",
-    "content": "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"",
-    "span": {
-      "start": 3,
-      "end": 3
-    },
-    "id": "796be4469c3387fe"
+    "line_start": 3,
+    "line_end": 3
   },
   {
-    "blob_sha": "sha1",
+    "name": "mood",
+    "kind": "class",
     "file_path": "sql_postgres.sql",
-    "role": {
-      "kind": "class",
-      "name": "mood"
-    },
     "scope": "",
     "language": "sql",
-    "file_language": "sql",
-    "content": "CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy')",
-    "span": {
-      "start": 5,
-      "end": 5
-    },
-    "id": "dceef41adc02a19d"
+    "line_start": 5,
+    "line_end": 5
   },
   {
-    "blob_sha": "sha1",
+    "name": "users",
+    "kind": "class",
     "file_path": "sql_postgres.sql",
-    "role": {
-      "kind": "class",
-      "name": "users"
-    },
     "scope": "",
     "language": "sql",
-    "file_language": "sql",
-    "content": "CREATE TABLE users (\n    id SERIAL PRIMARY KEY,\n    email TEXT UNIQUE NOT NULL,\n    profile JSONB DEFAULT '{}'::jsonb,\n    tags TEXT[],\n    created_at TIMESTAMPTZ DEFAULT now()\n)",
-    "span": {
-      "start": 7,
-      "end": 13
-    },
-    "id": "4137dee7e9375fd4"
+    "line_start": 7,
+    "line_end": 13
   },
   {
-    "blob_sha": "sha1",
+    "name": "greet",
+    "kind": "function",
     "file_path": "sql_postgres.sql",
-    "role": {
-      "kind": "function",
-      "name": "greet"
-    },
     "scope": "",
     "language": "sql",
-    "file_language": "sql",
-    "content": "CREATE FUNCTION greet(name TEXT) RETURNS TEXT\nLANGUAGE sql AS $$ SELECT 'Hello, ' || name $$",
-    "span": {
-      "start": 15,
-      "end": 16
-    },
-    "id": "985b0bd98706e521"
+    "line_start": 15,
+    "line_end": 16
   },
   {
-    "blob_sha": "sha1",
+    "name": "idx_users_email",
+    "kind": "variable",
     "file_path": "sql_postgres.sql",
-    "role": {
-      "kind": "variable",
-      "name": "idx_users_email"
-    },
     "scope": "",
     "language": "sql",
-    "file_language": "sql",
-    "content": "CREATE INDEX idx_users_email ON users (email)",
-    "span": {
-      "start": 18,
-      "end": 18
-    },
-    "id": "4db91d45672e5b2e"
+    "line_start": 18,
+    "line_end": 18
   }
 ]

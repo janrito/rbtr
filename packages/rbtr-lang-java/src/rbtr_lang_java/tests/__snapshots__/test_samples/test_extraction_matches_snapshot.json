@@ -5,7 +5,6 @@
     "file_path": "com/example/format/Formatter.java",
     "scope": "",
     "language": "java",
-    "content": "package com.example.format;",
     "line_start": 1,
     "line_end": 1
   },
@@ -15,7 +14,6 @@
     "file_path": "com/example/format/Formatter.java",
     "scope": "",
     "language": "java",
-    "content": "/** Formats a greeting for a recipient. */\npublic interface Formatter {\n    String format(String name);\n}",
     "line_start": 3,
     "line_end": 6
   },
@@ -25,7 +23,6 @@
     "file_path": "com/example/format/Formatter.java",
     "scope": "Formatter",
     "language": "java",
-    "content": "String format(String name);",
     "line_start": 5,
     "line_end": 5
   },
@@ -35,7 +32,6 @@
     "file_path": "com/example/shop/Model.java",
     "scope": "",
     "language": "java",
-    "content": "package com.example.shop;",
     "line_start": 1,
     "line_end": 1
   },
@@ -45,7 +41,6 @@
     "file_path": "com/example/shop/Model.java",
     "scope": "",
     "language": "java",
-    "content": "/** A base whose members a subclass reaches without naming them. */\npublic class Model {\n    public boolean save() {\n        return check();\n    }\n\n    public boolean check() {\n        return true;\n    }\n}",
     "line_start": 3,
     "line_end": 12
   },
@@ -55,7 +50,6 @@
     "file_path": "com/example/shop/Model.java",
     "scope": "Model",
     "language": "java",
-    "content": "public boolean save() {\n        return check();\n    }",
     "line_start": 5,
     "line_end": 7
   },
@@ -65,7 +59,6 @@
     "file_path": "com/example/shop/Model.java",
     "scope": "Model",
     "language": "java",
-    "content": "public boolean check() {\n        return true;\n    }",
     "line_start": 9,
     "line_end": 11
   },
@@ -75,7 +68,6 @@
     "file_path": "com/example/shop/Order.java",
     "scope": "",
     "language": "java",
-    "content": "package com.example.shop;",
     "line_start": 1,
     "line_end": 1
   },
@@ -85,7 +77,6 @@
     "file_path": "com/example/shop/Order.java",
     "scope": "",
     "language": "java",
-    "content": "import com.example.format.Formatter;",
     "line_start": 3,
     "line_end": 3,
     "metadata": {
@@ -106,7 +97,6 @@
     "file_path": "com/example/shop/Order.java",
     "scope": "",
     "language": "java",
-    "content": "/** A subclass: `Model` is in its package, so it needs no import. */\npublic class Order extends Model {\n    @Override\n    public boolean save() {\n        super.save();\n        return check() && this.check();\n    }\n\n    static Order build() {\n        return new Order();\n    }\n}",
     "line_start": 5,
     "line_end": 16
   },
@@ -116,7 +106,6 @@
     "file_path": "com/example/shop/Order.java",
     "scope": "Order",
     "language": "java",
-    "content": "@Override\n    public boolean save() {\n        super.save();\n        return check() && this.check();\n    }",
     "line_start": 7,
     "line_end": 11
   },
@@ -126,7 +115,6 @@
     "file_path": "com/example/shop/Order.java",
     "scope": "Order",
     "language": "java",
-    "content": "static Order build() {\n        return new Order();\n    }",
     "line_start": 13,
     "line_end": 15
   },
@@ -136,7 +124,6 @@
     "file_path": "java.java",
     "scope": "",
     "language": "java",
-    "content": "// Greeter — format greetings for named recipients.\n//\n// The Java plugin extracts classes, methods (including constructors),\n// fields (as variables), and imports. Interfaces, enums, and records are\n// captured as classes, and their members scope to them.",
     "line_start": 1,
     "line_end": 5
   },
@@ -146,7 +133,6 @@
     "file_path": "java.java",
     "scope": "",
     "language": "java",
-    "content": "package com.example.greet;",
     "line_start": 6,
     "line_end": 6
   },
@@ -156,7 +142,6 @@
     "file_path": "java.java",
     "scope": "",
     "language": "java",
-    "content": "import java.util.List;",
     "line_start": 8,
     "line_end": 8,
     "metadata": {
@@ -177,7 +162,6 @@
     "file_path": "java.java",
     "scope": "",
     "language": "java",
-    "content": "import static java.util.Collections.emptyList;",
     "line_start": 9,
     "line_end": 9,
     "metadata": {
@@ -198,7 +182,6 @@
     "file_path": "java.java",
     "scope": "",
     "language": "java",
-    "content": "import com.example.format.Formatter;",
     "line_start": 11,
     "line_end": 11,
     "metadata": {
@@ -219,7 +202,6 @@
     "file_path": "java.java",
     "scope": "",
     "language": "java",
-    "content": "// Standalone note at top level, separated by blank lines.\n// Second line of the same block.",
     "line_start": 13,
     "line_end": 14
   },
@@ -229,7 +211,6 @@
     "file_path": "java.java",
     "scope": "",
     "language": "java",
-    "content": "/** Formats greetings with a configurable prefix. */\npublic class Greeter implements Formatter {\n    private final String prefix;\n\n    public Greeter(String prefix) {\n        this.prefix = prefix;\n    }\n\n    /** Format a greeting (implements the Formatter contract). */\n    @Override\n    public String format(String name) {\n        return greet(name);\n    }\n\n    /** Greet a single recipient. */\n    public String greet(String name) {\n        return prefix + \", \" + name;\n    }\n\n    /** Build a greeter with the default prefix. */\n    public static Greeter withDefault() {\n        return new Greeter(\"Hello\");\n    }\n\n    /** A nested formatter. */\n    static class Formatter {\n        String format(String name) {\n            return name.trim();\n        }\n    }\n}",
     "line_start": 16,
     "line_end": 46
   },
@@ -239,7 +220,6 @@
     "file_path": "java.java",
     "scope": "Greeter",
     "language": "java",
-    "content": "private final String prefix;",
     "line_start": 18,
     "line_end": 18
   },
@@ -249,7 +229,6 @@
     "file_path": "java.java",
     "scope": "Greeter",
     "language": "java",
-    "content": "public Greeter(String prefix) {\n        this.prefix = prefix;\n    }",
     "line_start": 20,
     "line_end": 22
   },
@@ -259,7 +238,6 @@
     "file_path": "java.java",
     "scope": "Greeter",
     "language": "java",
-    "content": "/** Format a greeting (implements the Formatter contract). */\n    @Override\n    public String format(String name) {\n        return greet(name);\n    }",
     "line_start": 24,
     "line_end": 28
   },
@@ -269,7 +247,6 @@
     "file_path": "java.java",
     "scope": "Greeter",
     "language": "java",
-    "content": "/** Greet a single recipient. */\n    public String greet(String name) {\n        return prefix + \", \" + name;\n    }",
     "line_start": 30,
     "line_end": 33
   },
@@ -279,7 +256,6 @@
     "file_path": "java.java",
     "scope": "Greeter",
     "language": "java",
-    "content": "/** Build a greeter with the default prefix. */\n    public static Greeter withDefault() {\n        return new Greeter(\"Hello\");\n    }",
     "line_start": 35,
     "line_end": 38
   },
@@ -289,7 +265,6 @@
     "file_path": "java.java",
     "scope": "Greeter",
     "language": "java",
-    "content": "/** A nested formatter. */\n    static class Formatter {\n        String format(String name) {\n            return name.trim();\n        }\n    }",
     "line_start": 40,
     "line_end": 45
   },
@@ -299,7 +274,6 @@
     "file_path": "java.java",
     "scope": "Greeter::Formatter",
     "language": "java",
-    "content": "String format(String name) {\n            return name.trim();\n        }",
     "line_start": 42,
     "line_end": 44
   },
@@ -309,7 +283,6 @@
     "file_path": "java.java",
     "scope": "",
     "language": "java",
-    "content": "/** A greeting strategy contract. */\ninterface Strategy {\n    String render(String name);\n}",
     "line_start": 48,
     "line_end": 51
   },
@@ -319,7 +292,6 @@
     "file_path": "java.java",
     "scope": "Strategy",
     "language": "java",
-    "content": "String render(String name);",
     "line_start": 50,
     "line_end": 50
   },
@@ -329,7 +301,6 @@
     "file_path": "java.java",
     "scope": "",
     "language": "java",
-    "content": "/** Supported greeting tones. */\nenum Tone {\n    FORMAL,\n    CASUAL;\n\n    /** Human-readable label for this tone. */\n    String label() {\n        return name().toLowerCase();\n    }\n}",
     "line_start": 53,
     "line_end": 62
   },
@@ -339,7 +310,6 @@
     "file_path": "java.java",
     "scope": "Tone",
     "language": "java",
-    "content": "FORMAL",
     "line_start": 55,
     "line_end": 55
   },
@@ -349,7 +319,6 @@
     "file_path": "java.java",
     "scope": "Tone",
     "language": "java",
-    "content": "CASUAL",
     "line_start": 56,
     "line_end": 56
   },
@@ -359,7 +328,6 @@
     "file_path": "java.java",
     "scope": "Tone",
     "language": "java",
-    "content": "/** Human-readable label for this tone. */\n    String label() {\n        return name().toLowerCase();\n    }",
     "line_start": 58,
     "line_end": 61
   },
@@ -369,7 +337,6 @@
     "file_path": "java.java",
     "scope": "",
     "language": "java",
-    "content": "/** An immutable named recipient. */\nrecord Recipient(String name, String locale) {\n    /** Full display name including locale. */\n    String display() {\n        return name + \" (\" + locale + \")\";\n    }\n}",
     "line_start": 64,
     "line_end": 70
   },
@@ -379,7 +346,6 @@
     "file_path": "java.java",
     "scope": "Recipient",
     "language": "java",
-    "content": "String locale",
     "line_start": 65,
     "line_end": 65
   },
@@ -389,7 +355,6 @@
     "file_path": "java.java",
     "scope": "Recipient",
     "language": "java",
-    "content": "String name",
     "line_start": 65,
     "line_end": 65
   },
@@ -399,7 +364,6 @@
     "file_path": "java.java",
     "scope": "Recipient",
     "language": "java",
-    "content": "/** Full display name including locale. */\n    String display() {\n        return name + \" (\" + locale + \")\";\n    }",
     "line_start": 66,
     "line_end": 69
   },
@@ -409,7 +373,6 @@
     "file_path": "java.java",
     "scope": "",
     "language": "java",
-    "content": "/** Marks a greeter method as audited. */\n@interface Audited {\n    String value();\n}",
     "line_start": 72,
     "line_end": 75
   },
@@ -419,7 +382,6 @@
     "file_path": "java.java",
     "scope": "Audited",
     "language": "java",
-    "content": "String value();",
     "line_start": 74,
     "line_end": 74
   }

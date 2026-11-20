@@ -1,4 +1,4 @@
-"""Python sample extraction: the `samples/python/` project, built as rbtr builds a repository.
+"""Python sample extraction: the `samples/python/` project, built as rbtr builds a repository and outlined with `list-symbols`.
 
 The snapshots are the golden record of what Python extraction produces.
 Engine-wide invariants are covered once in core.
@@ -9,49 +9,66 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import pytest
-
-from rbtr.domain.models import ChunkKind
+from rbtr.testing import Indexed
+from rbtr.testing.assertions import assert_every_line_in_a_chunk, assert_reached
+from rbtr.testing.reads import outline
 
 if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
 
-    from rbtr.daemon.dto import SymbolOut
+
+def test_extraction_matches_snapshot(indexed: Indexed, snapshot_json: SnapshotAssertion) -> None:
+    with indexed(Path(__file__).parent / "samples" / "python") as index:
+        symbols = outline(index)
+    assert symbols == snapshot_json
 
 
-@pytest.fixture(scope="module")
-def sample_dir() -> Path:
-    """The `samples/python/` project."""
-    return Path(__file__).parent / "samples" / "python"
+def test_every_edge_reaches_what_it_names(indexed: Indexed) -> None:
+    """Each target the sample's edges reach is reached by exactly the chunks named, by any edge."""
+    reached = {
+        ("config.py", "LOCALE"): {
+            ("orders.py", "from .config import LOCALE as locale_name", "imports"),
+            ("python.py", "from .config import LOCALE", "imports"),
+        },
+        ("orders.py", "Model"): {("orders.py", "Order", "inherits")},
+        ("orders.py", "Order"): {("orders.py", "inner", "calls")},
+        ("orders.py", "check"): {("orders.py", "save", "calls"), ("orders.py", "total", "calls")},
+        ("orders.py", "inner"): {("orders.py", "build", "calls")},
+        ("orders.py", "register"): {("orders.py", "build", "calls")},
+        ("orders.py", "save"): {("orders.py", "save", "calls")},
+        ("pkg/b.py", "helper"): {("pkg/a.py", "from pkg.b import helper", "imports")},
+        ("python.py", "DEFAULT_GREETING"): {("orders.py", "from .python import *", "imports")},
+        ("python.py", "FALLBACK"): {("orders.py", "from .python import *", "imports")},
+        ("python.py", "Greeter"): {
+            ("orders.py", "from .python import *", "imports"),
+            ("orders.py", "save", "calls"),
+        },
+        ("python.py", "GreetingList"): {("orders.py", "from .python import *", "imports")},
+        ("python.py", "LOCALES"): {("orders.py", "from .python import *", "imports")},
+        ("python.py", "MAX_RECIPIENTS"): {("orders.py", "from .python import *", "imports")},
+        ("python.py", "__init__"): {("orders.py", "from .python import *", "imports")},
+        ("python.py", "cached_default"): {("orders.py", "from .python import *", "imports")},
+        ("python.py", "config_path"): {("orders.py", "from .python import *", "imports")},
+        ("python.py", "default"): {("orders.py", "from .python import *", "imports")},
+        ("python.py", "fetch_remote_greeting"): {("orders.py", "from .python import *", "imports")},
+        ("python.py", "format_greeting"): {
+            ("orders.py", "", "calls"),
+            ("orders.py", "from .python import *", "imports"),
+            ("python.py", "greet", "calls"),
+        },
+        ("python.py", "greet"): {("orders.py", "from .python import *", "imports")},
+        ("python.py", "normalise"): {
+            ("orders.py", "from .python import *", "imports"),
+            ("python.py", "format_greeting", "calls"),
+        },
+        ("python.py", "seen"): {("orders.py", "from .python import *", "imports")},
+        ("python.py", "shout"): {("orders.py", "from .python import *", "imports")},
+    }
+    with indexed(Path(__file__).parent / "samples" / "python") as index:
+        assert_reached(index, reached)
 
 
-def test_emits_expected_kinds(sample_symbols: list[SymbolOut]) -> None:
-    """The sample exercises Python's function, class, method, variable, and import chunks."""
-    assert {
-        ChunkKind.FUNCTION,
-        ChunkKind.CLASS,
-        ChunkKind.METHOD,
-        ChunkKind.VARIABLE,
-        ChunkKind.IMPORT,
-        ChunkKind.COMMENT,
-    } <= {s.kind for s in sample_symbols}
-
-
-def test_parses_cleanly(sample_parse_errors: list[str]) -> None:
-    """Every source file is valid in the language the build read it as."""
-    assert sample_parse_errors == []
-
-
-def test_extraction_matches_snapshot(
-    sample_symbols: list[SymbolOut], snapshot_json: SnapshotAssertion
-) -> None:
-    assert sample_symbols == snapshot_json
-
-
-def test_edges_match_snapshot(sample_edges: list[str], snapshot_json: SnapshotAssertion) -> None:
-    assert sample_edges == snapshot_json
-
-
-def test_every_line_is_in_a_chunk(sample_uncovered_lines: list[str]) -> None:
+def test_every_line_is_in_a_chunk(indexed: Indexed) -> None:
     """No line of the sample's code falls outside a chunk."""
-    assert sample_uncovered_lines == []
+    with indexed(Path(__file__).parent / "samples" / "python") as index:
+        assert_every_line_in_a_chunk(index)

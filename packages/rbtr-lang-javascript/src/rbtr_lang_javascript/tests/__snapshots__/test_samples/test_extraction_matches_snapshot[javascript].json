@@ -5,7 +5,6 @@
     "file_path": "bootstrap.js",
     "scope": "",
     "language": "javascript",
-    "content": "// Start the greeter when the page loads.",
     "line_start": 1,
     "line_end": 1
   },
@@ -15,7 +14,6 @@
     "file_path": "bootstrap.js",
     "scope": "",
     "language": "javascript",
-    "content": "console.log(\"greeter loaded\");",
     "line_start": 2,
     "line_end": 2
   },
@@ -25,7 +23,6 @@
     "file_path": "bootstrap.js",
     "scope": "",
     "language": "javascript",
-    "content": "module.exports = {\n  name: \"greeter\",\n};",
     "line_start": 4,
     "line_end": 6
   },
@@ -35,7 +32,6 @@
     "file_path": "config.js",
     "scope": "",
     "language": "javascript",
-    "content": "// Locale configuration for the greeter.",
     "line_start": 1,
     "line_end": 1
   },
@@ -45,7 +41,6 @@
     "file_path": "config.js",
     "scope": "",
     "language": "javascript",
-    "content": "LOCALE = \"en\"",
     "line_start": 2,
     "line_end": 2
   },
@@ -55,7 +50,6 @@
     "file_path": "javascript.js",
     "scope": "",
     "language": "javascript",
-    "content": "// Greeter — format greetings for named recipients.\n//\n// The JavaScript plugin extracts function declarations, generator\n// functions, arrow functions bound to consts, classes, module-level\n// const/let variables (including destructuring), imports, and methods\n// (class members, including get/set accessors; object-literal methods are\n// captured without a scope).",
     "line_start": 1,
     "line_end": 7
   },
@@ -65,7 +59,6 @@
     "file_path": "javascript.js",
     "scope": "",
     "language": "javascript",
-    "content": "import { LOCALE } from \"./config.js\";",
     "line_start": 9,
     "line_end": 9,
     "metadata": {
@@ -86,7 +79,6 @@
     "file_path": "javascript.js",
     "scope": "",
     "language": "javascript",
-    "content": "import format from \"formatter\";",
     "line_start": 10,
     "line_end": 10,
     "metadata": {
@@ -107,7 +99,6 @@
     "file_path": "javascript.js",
     "scope": "",
     "language": "javascript",
-    "content": "import \"./styles.css\";",
     "line_start": 11,
     "line_end": 11,
     "metadata": {
@@ -123,7 +114,6 @@
     "file_path": "javascript.js",
     "scope": "",
     "language": "javascript",
-    "content": "DEFAULT_GREETING = \"Hello\"",
     "line_start": 13,
     "line_end": 13
   },
@@ -133,7 +123,6 @@
     "file_path": "javascript.js",
     "scope": "",
     "language": "javascript",
-    "content": "{ locale, fallback } = LOCALE",
     "line_start": 14,
     "line_end": 14
   },
@@ -143,7 +132,6 @@
     "file_path": "javascript.js",
     "scope": "",
     "language": "javascript",
-    "content": "{ locale, fallback } = LOCALE",
     "line_start": 14,
     "line_end": 14
   },
@@ -153,7 +141,6 @@
     "file_path": "javascript.js",
     "scope": "",
     "language": "javascript",
-    "content": "/** Format a greeting for a name. */",
     "line_start": 16,
     "line_end": 16
   },
@@ -163,7 +150,6 @@
     "file_path": "javascript.js",
     "scope": "",
     "language": "javascript",
-    "content": "function formatGreeting(name) {\n  return `${DEFAULT_GREETING}, ${name} (${locale ?? fallback})`;\n}",
     "line_start": 17,
     "line_end": 19
   },
@@ -173,7 +159,6 @@
     "file_path": "javascript.js",
     "scope": "",
     "language": "javascript",
-    "content": "const cachedDefault = () => DEFAULT_GREETING;",
     "line_start": 21,
     "line_end": 21
   },
@@ -183,7 +168,6 @@
     "file_path": "javascript.js",
     "scope": "",
     "language": "javascript",
-    "content": "/** Stateful greeter holding a prefix. */",
     "line_start": 23,
     "line_end": 23
   },
@@ -193,7 +177,6 @@
     "file_path": "javascript.js",
     "scope": "",
     "language": "javascript",
-    "content": "class Greeter {\n  constructor(prefix = DEFAULT_GREETING) {\n    this.prefix = prefix;\n  }\n\n  greet(name) {\n    return format(`${this.prefix}, ${name}`);\n  }\n}",
     "line_start": 24,
     "line_end": 32
   },
@@ -203,7 +186,6 @@
     "file_path": "javascript.js",
     "scope": "Greeter",
     "language": "javascript",
-    "content": "constructor(prefix = DEFAULT_GREETING) {\n    this.prefix = prefix;\n  }",
     "line_start": 25,
     "line_end": 27
   },
@@ -213,7 +195,6 @@
     "file_path": "javascript.js",
     "scope": "Greeter",
     "language": "javascript",
-    "content": "greet(name) {\n    return format(`${this.prefix}, ${name}`);\n  }",
     "line_start": 29,
     "line_end": 31
   },
@@ -223,7 +204,6 @@
     "file_path": "javascript.js",
     "scope": "",
     "language": "javascript",
-    "content": "/** Yield each recipient name in turn. */",
     "line_start": 34,
     "line_end": 34
   },
@@ -233,7 +213,6 @@
     "file_path": "javascript.js",
     "scope": "",
     "language": "javascript",
-    "content": "function* recipients(names) {\n  for (const name of names) {\n    yield name;\n  }\n}",
     "line_start": 35,
     "line_end": 39
   },
@@ -243,7 +222,6 @@
     "file_path": "javascript.js",
     "scope": "",
     "language": "javascript",
-    "content": "/** Greeting helpers grouped as an object literal. */",
     "line_start": 41,
     "line_end": 41
   },
@@ -253,7 +231,6 @@
     "file_path": "javascript.js",
     "scope": "",
     "language": "javascript",
-    "content": "helpers = {\n  shout(name) {\n    return `${name.toUpperCase()}!`;\n  },\n}",
     "line_start": 42,
     "line_end": 46
   },
@@ -263,7 +240,6 @@
     "file_path": "javascript.js",
     "scope": "",
     "language": "javascript",
-    "content": "shout(name) {\n    return `${name.toUpperCase()}!`;\n  }",
     "line_start": 43,
     "line_end": 45
   },
@@ -273,7 +249,6 @@
     "file_path": "orders.js",
     "scope": "",
     "language": "javascript",
-    "content": "// Orders — calls of each shape the call graph resolves, and two it leaves.",
     "line_start": 1,
     "line_end": 1
   },
@@ -283,7 +258,6 @@
     "file_path": "orders.js",
     "scope": "",
     "language": "javascript",
-    "content": "import * as greeter from \"./javascript.js\";",
     "line_start": 3,
     "line_end": 3,
     "metadata": {
@@ -304,7 +278,6 @@
     "file_path": "orders.js",
     "scope": "",
     "language": "javascript",
-    "content": "import { formatGreeting as greet } from \"./javascript.js\";",
     "line_start": 4,
     "line_end": 4,
     "metadata": {
@@ -325,7 +298,6 @@
     "file_path": "orders.js",
     "scope": "",
     "language": "javascript",
-    "content": "class Model {\n  save() {\n    return this.check();\n  }\n\n  check() {\n    return true;\n  }\n}",
     "line_start": 6,
     "line_end": 14
   },
@@ -335,7 +307,6 @@
     "file_path": "orders.js",
     "scope": "Model",
     "language": "javascript",
-    "content": "save() {\n    return this.check();\n  }",
     "line_start": 7,
     "line_end": 9
   },
@@ -345,7 +316,6 @@
     "file_path": "orders.js",
     "scope": "Model",
     "language": "javascript",
-    "content": "check() {\n    return true;\n  }",
     "line_start": 11,
     "line_end": 13
   },
@@ -355,7 +325,6 @@
     "file_path": "orders.js",
     "scope": "",
     "language": "javascript",
-    "content": "class Order extends Model {\n  save() {\n    super.save();\n    return new greeter.Greeter().greet(greet(\"order\"));\n  }\n\n  total(items) {\n    // `sum` is defined nowhere here, and `items[0]` is a value: no edge.\n    return sum(items) + Number(this.check()) + items[0].valueOf();\n  }\n}",
     "line_start": 16,
     "line_end": 26
   },
@@ -365,7 +334,6 @@
     "file_path": "orders.js",
     "scope": "Order",
     "language": "javascript",
-    "content": "save() {\n    super.save();\n    return new greeter.Greeter().greet(greet(\"order\"));\n  }",
     "line_start": 17,
     "line_end": 20
   },
@@ -375,7 +343,6 @@
     "file_path": "orders.js",
     "scope": "Order",
     "language": "javascript",
-    "content": "total(items) {\n    // `sum` is defined nowhere here, and `items[0]` is a value: no edge.\n    return sum(items) + Number(this.check()) + items[0].valueOf();\n  }",
     "line_start": 22,
     "line_end": 25
   },
@@ -385,7 +352,6 @@
     "file_path": "orders.js",
     "scope": "",
     "language": "javascript",
-    "content": "function build() {\n  const inner = () => new Order();\n  return inner();\n}",
     "line_start": 28,
     "line_end": 31
   },
@@ -395,7 +361,6 @@
     "file_path": "orders.js",
     "scope": "build",
     "language": "javascript",
-    "content": "const inner = () => new Order();",
     "line_start": 29,
     "line_end": 29
   },
@@ -405,7 +370,6 @@
     "file_path": "src/a.js",
     "scope": "",
     "language": "javascript",
-    "content": "import { helper } from './b.js';",
     "line_start": 1,
     "line_end": 1,
     "metadata": {
@@ -426,7 +390,6 @@
     "file_path": "src/b.js",
     "scope": "",
     "language": "javascript",
-    "content": "function helper() {}",
     "line_start": 1,
     "line_end": 1
   },
@@ -436,7 +399,6 @@
     "file_path": "styles.css",
     "scope": "",
     "language": "css",
-    "content": ".greeter {\n  color: #333;\n}",
     "line_start": 1,
     "line_end": 3
   }

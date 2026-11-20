@@ -5,7 +5,6 @@
     "file_path": "go.go",
     "scope": "",
     "language": "go",
-    "content": "// Package greet formats greetings for named recipients.\n//\n// The Go plugin extracts functions, methods (functions with a\n// receiver), type declarations (struct, interface, and alias, as\n// classes), const/var declarations (as variables), and imports.",
     "line_start": 1,
     "line_end": 5
   },
@@ -15,7 +14,6 @@
     "file_path": "go.go",
     "scope": "",
     "language": "go",
-    "content": "package greet",
     "line_start": 6,
     "line_end": 6
   },
@@ -25,7 +23,6 @@
     "file_path": "go.go",
     "scope": "",
     "language": "go",
-    "content": "import",
     "line_start": 8,
     "line_end": 8
   },
@@ -35,7 +32,6 @@
     "file_path": "go.go",
     "scope": "",
     "language": "go",
-    "content": "\"fmt\"",
     "line_start": 9,
     "line_end": 9,
     "metadata": {
@@ -56,7 +52,6 @@
     "file_path": "go.go",
     "scope": "",
     "language": "go",
-    "content": "\"example.com/greeter/greeter\"",
     "line_start": 11,
     "line_end": 11,
     "metadata": {
@@ -77,7 +72,6 @@
     "file_path": "go.go",
     "scope": "",
     "language": "go",
-    "content": ")",
     "line_start": 12,
     "line_end": 12
   },
@@ -87,7 +81,6 @@
     "file_path": "go.go",
     "scope": "",
     "language": "go",
-    "content": "// DefaultGreeting is the fallback prefix.",
     "line_start": 14,
     "line_end": 14
   },
@@ -97,7 +90,6 @@
     "file_path": "go.go",
     "scope": "",
     "language": "go",
-    "content": "DefaultGreeting = \"Hello\"",
     "line_start": 15,
     "line_end": 15
   },
@@ -107,7 +99,6 @@
     "file_path": "go.go",
     "scope": "",
     "language": "go",
-    "content": "// trailing comment: its own chunk, not folded",
     "line_start": 17,
     "line_end": 17
   },
@@ -117,7 +108,6 @@
     "file_path": "go.go",
     "scope": "",
     "language": "go",
-    "content": "fallbackLocale = \"en\"",
     "line_start": 17,
     "line_end": 17
   },
@@ -127,7 +117,6 @@
     "file_path": "go.go",
     "scope": "",
     "language": "go",
-    "content": "// Temperature is an alias for the underlying float type.\ntype Temperature = float64",
     "line_start": 19,
     "line_end": 20
   },
@@ -137,7 +126,6 @@
     "file_path": "go.go",
     "scope": "",
     "language": "go",
-    "content": "// Greeter holds a greeting prefix.\ntype Greeter struct {\n\tPrefix string\n}",
     "line_start": 22,
     "line_end": 25
   },
@@ -147,7 +135,6 @@
     "file_path": "go.go",
     "scope": "",
     "language": "go",
-    "content": "// Formatter renders a greeting for a name.\ntype Formatter interface {\n\tFormat(name string) string\n}",
     "line_start": 27,
     "line_end": 30
   },
@@ -157,7 +144,6 @@
     "file_path": "go.go",
     "scope": "Formatter",
     "language": "go",
-    "content": "Format(name string) string",
     "line_start": 29,
     "line_end": 29
   },
@@ -167,7 +153,6 @@
     "file_path": "go.go",
     "scope": "",
     "language": "go",
-    "content": "// Standalone note, separated by blank lines from any definition.\n// Second line of the same block.",
     "line_start": 32,
     "line_end": 33
   },
@@ -177,7 +162,6 @@
     "file_path": "go.go",
     "scope": "Greeter",
     "language": "go",
-    "content": "// Greet greets a single recipient.\nfunc (g Greeter) Greet(name string) string {\n\treturn fmt.Sprintf(\"%s, %s\", g.Prefix, greeter.Trim(name))\n}",
     "line_start": 35,
     "line_end": 38
   },
@@ -187,7 +171,6 @@
     "file_path": "go.go",
     "scope": "",
     "language": "go",
-    "content": "// FormatGreeting formats a greeting via a Greeter.\nfunc FormatGreeting(g Greeter, name string) string {\n\treturn g.Greet(name)\n}",
     "line_start": 40,
     "line_end": 43
   },
@@ -197,7 +180,6 @@
     "file_path": "go.mod",
     "scope": "",
     "language": "plaintext",
-    "content": "module example.com/greeter\n\ngo 1.24",
     "line_start": 1,
     "line_end": 3
   },
@@ -207,7 +189,6 @@
     "file_path": "greeter/text.go",
     "scope": "",
     "language": "go",
-    "content": "// Package util holds greeting helpers.\n//\n// Imported as example.com/greeter/greeter: the path carries the module\n// prefix go.mod declares, and this file is named for what it holds rather\n// than for the directory that is the package.",
     "line_start": 1,
     "line_end": 5
   },
@@ -217,7 +198,6 @@
     "file_path": "greeter/text.go",
     "scope": "",
     "language": "go",
-    "content": "package util",
     "line_start": 6,
     "line_end": 6
   },
@@ -227,7 +207,6 @@
     "file_path": "greeter/text.go",
     "scope": "",
     "language": "go",
-    "content": "\"strings\"",
     "line_start": 8,
     "line_end": 8,
     "metadata": {
@@ -248,7 +227,6 @@
     "file_path": "greeter/text.go",
     "scope": "",
     "language": "go",
-    "content": "// Trim removes surrounding whitespace from a name.\nfunc Trim(name string) string {\n\treturn strings.TrimSpace(name)\n}",
     "line_start": 10,
     "line_end": 13
   },
@@ -258,7 +236,6 @@
     "file_path": "shop/model.go",
     "scope": "",
     "language": "go",
-    "content": "// Package shop holds orders; its files share their names without imports.",
     "line_start": 1,
     "line_end": 1
   },
@@ -268,7 +245,6 @@
     "file_path": "shop/model.go",
     "scope": "",
     "language": "go",
-    "content": "package shop",
     "line_start": 2,
     "line_end": 2
   },
@@ -278,7 +254,6 @@
     "file_path": "shop/model.go",
     "scope": "",
     "language": "go",
-    "content": "// Model is embedded in Order, which gets its methods.\ntype Model struct{}",
     "line_start": 4,
     "line_end": 5
   },
@@ -288,7 +263,6 @@
     "file_path": "shop/model.go",
     "scope": "Model",
     "language": "go",
-    "content": "// Check reports whether a model is valid.\nfunc (m Model) Check() bool {\n\treturn valid()\n}",
     "line_start": 7,
     "line_end": 10
   },
@@ -298,7 +272,6 @@
     "file_path": "shop/model.go",
     "scope": "",
     "language": "go",
-    "content": "func valid() bool {\n\treturn true\n}",
     "line_start": 12,
     "line_end": 14
   },
@@ -308,7 +281,6 @@
     "file_path": "shop/order.go",
     "scope": "",
     "language": "go",
-    "content": "package shop",
     "line_start": 1,
     "line_end": 1
   },
@@ -318,7 +290,6 @@
     "file_path": "shop/order.go",
     "scope": "",
     "language": "go",
-    "content": "// Order embeds Model.\ntype Order struct {\n\tModel\n\tName string\n}",
     "line_start": 3,
     "line_end": 7
   },
@@ -328,7 +299,6 @@
     "file_path": "shop/order.go",
     "scope": "",
     "language": "go",
-    "content": "// NewOrder builds an order with a function its package's other file defines.\nfunc NewOrder(name string) Order {\n\tif !valid() {\n\t\treturn Order{}\n\t}\n\treturn Order{Name: name}\n}",
     "line_start": 9,
     "line_end": 15
   }

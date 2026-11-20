@@ -5,7 +5,6 @@
     "file_path": "api/openapi.yaml",
     "scope": "",
     "language": "yaml",
-    "content": "# Refers into its bare sibling, which only resolves relative to this directory.\nopenapi: 3.1.0",
     "line_start": 1,
     "line_end": 2
   },
@@ -15,7 +14,6 @@
     "file_path": "api/openapi.yaml",
     "scope": "",
     "language": "yaml",
-    "content": "paths:\n  /greeting:\n    $ref: \"paths.yaml\"\n",
     "line_start": 3,
     "line_end": 5
   },
@@ -25,7 +23,6 @@
     "file_path": "api/openapi.yaml",
     "scope": "",
     "language": "yaml",
-    "content": "$ref: \"paths.yaml\"",
     "line_start": 5,
     "line_end": 5,
     "metadata": {
@@ -41,7 +38,6 @@
     "file_path": "api/paths.yaml",
     "scope": "",
     "language": "yaml",
-    "content": "# Referred to from api/openapi.yaml as a bare sibling.\nget:\n  summary: A greeting\n  responses:\n    \"200\":\n      description: OK\n",
     "line_start": 1,
     "line_end": 6
   },
@@ -51,7 +47,6 @@
     "file_path": "recipients.yaml",
     "scope": "",
     "language": "yaml",
-    "content": "# Recipients the greeter writes to, in order.",
     "line_start": 1,
     "line_end": 1
   },
@@ -61,7 +56,6 @@
     "file_path": "recipients.yaml",
     "scope": "",
     "language": "yaml",
-    "content": "- name: world\n  greeting: hello\n- name: team\n  greeting: hi",
     "line_start": 2,
     "line_end": 5
   },
@@ -71,7 +65,6 @@
     "file_path": "yaml.yaml",
     "scope": "",
     "language": "yaml",
-    "content": "# Greeter CI workflow.",
     "line_start": 1,
     "line_end": 1
   },
@@ -81,7 +74,6 @@
     "file_path": "yaml.yaml",
     "scope": "",
     "language": "yaml",
-    "content": "name: greeter",
     "line_start": 3,
     "line_end": 3
   },
@@ -91,7 +83,6 @@
     "file_path": "yaml.yaml",
     "scope": "",
     "language": "yaml",
-    "content": "on:\n  push:\n    branches: [main]",
     "line_start": 5,
     "line_end": 7
   },
@@ -101,7 +92,6 @@
     "file_path": "yaml.yaml",
     "scope": "",
     "language": "yaml",
-    "content": "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: just check\n",
     "line_start": 9,
     "line_end": 14
   }

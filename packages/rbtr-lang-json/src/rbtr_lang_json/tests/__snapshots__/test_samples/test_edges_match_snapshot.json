@@ -1,3 +1,0 @@
-[
-  "schema/greeting.json::\"$ref\": \"defs.json#/Name\" -> schema/defs.json::Name [imports]"
-]

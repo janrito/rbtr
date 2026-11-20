@@ -5,7 +5,6 @@
     "file_path": "crates/helper/Cargo.toml",
     "scope": "",
     "language": "toml",
-    "content": "# Reached from the root manifest's `path` dependency: the reference names\n# this directory, and this manifest stands for it.\n[package]\nname = \"helper\"\nversion = \"0.1.0\"\n",
     "line_start": 1,
     "line_end": 5
   },
@@ -15,7 +14,6 @@
     "file_path": "toml.toml",
     "scope": "",
     "language": "toml",
-    "content": "# Greeter configuration.",
     "line_start": 1,
     "line_end": 1
   },
@@ -25,7 +23,6 @@
     "file_path": "toml.toml",
     "scope": "",
     "language": "toml",
-    "content": "[project]\nname = \"greeter\"\nversion = \"1.0.0\"\n\n",
     "line_start": 3,
     "line_end": 6
   },
@@ -35,7 +32,6 @@
     "file_path": "toml.toml",
     "scope": "tool",
     "language": "toml",
-    "content": "[tool.greeter]\ndefault_greeting = \"Hello\"\nlocale = \"en\"\n\n",
     "line_start": 7,
     "line_end": 10
   },
@@ -45,7 +41,6 @@
     "file_path": "toml.toml",
     "scope": "tool::greeter",
     "language": "toml",
-    "content": "[tool.greeter.limits]\nmax_length = 280\n\n",
     "line_start": 11,
     "line_end": 13
   },
@@ -55,7 +50,6 @@
     "file_path": "toml.toml",
     "scope": "",
     "language": "toml",
-    "content": "[[locales]]\ncode = \"en\"\n\n",
     "line_start": 14,
     "line_end": 16
   },
@@ -65,7 +59,6 @@
     "file_path": "toml.toml",
     "scope": "",
     "language": "toml",
-    "content": "[[locales]]\ncode = \"fr\"\n\n",
     "line_start": 17,
     "line_end": 19
   },
@@ -75,7 +68,6 @@
     "file_path": "toml.toml",
     "scope": "",
     "language": "toml",
-    "content": "[dependencies]\nhelper = { path = \"crates/helper\" }\n",
     "line_start": 20,
     "line_end": 21
   },
@@ -85,7 +77,6 @@
     "file_path": "toml.toml",
     "scope": "",
     "language": "toml",
-    "content": "path = \"crates/helper\"",
     "line_start": 21,
     "line_end": 21,
     "metadata": {

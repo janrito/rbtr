@@ -1,73 +1,38 @@
 [
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "comment",
     "file_path": "sql_clickhouse.sql",
-    "role": {
-      "kind": "comment"
-    },
     "scope": "",
     "language": "sql",
-    "file_language": "sql",
-    "content": "-- ClickHouse dialect sample — MergeTree engine, ORDER BY, special types.",
-    "span": {
-      "start": 1,
-      "end": 1
-    },
-    "id": "2f9502a1d42e6fb8"
+    "line_start": 1,
+    "line_end": 1
   },
   {
-    "blob_sha": "sha1",
+    "name": "events",
+    "kind": "class",
     "file_path": "sql_clickhouse.sql",
-    "role": {
-      "kind": "class",
-      "name": "events"
-    },
     "scope": "",
     "language": "sql",
-    "file_language": "sql",
-    "content": "CREATE TABLE events (\n    event_date Date,\n    user_id UInt64,\n    name LowCardinality(String),\n    props Array(String),\n    value Nullable(Float64)\n)\nENGINE = MergeTree\nPARTITION BY toYYYYMM(event_date)",
-    "span": {
-      "start": 3,
-      "end": 11
-    },
-    "id": "aec4805aaebd3d0c"
+    "line_start": 3,
+    "line_end": 11
   },
   {
-    "blob_sha": "sha1",
+    "name": "",
+    "kind": "fragment",
     "file_path": "sql_clickhouse.sql",
-    "role": {
-      "kind": "class",
-      "name": "events_mv"
-    },
     "scope": "",
     "language": "sql",
-    "file_language": "sql",
-    "content": "CREATE MATERIALIZED VIEW events_mv\nENGINE = SummingMergeTree\nORDER BY user_id\nAS SELECT user_id, count() AS c FROM events GROUP BY user_id",
-    "span": {
-      "start": 14,
-      "end": 17
-    },
-    "id": "9d4b2f74f892dbb1"
+    "line_start": 12,
+    "line_end": 12
   },
   {
-    "blob_sha": "sha1",
+    "name": "events_mv",
+    "kind": "class",
     "file_path": "sql_clickhouse.sql",
-    "role": {
-      "kind": "fragment",
-      "meta": {
-        "node_types": [
-          "ERROR"
-        ]
-      }
-    },
     "scope": "",
     "language": "sql",
-    "file_language": "sql",
-    "content": "ORDER BY (user_id, event_date);",
-    "span": {
-      "start": 12,
-      "end": 12
-    },
-    "id": "82fbd2ca56df5a92"
+    "line_start": 14,
+    "line_end": 17
   }
 ]
