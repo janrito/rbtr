@@ -1,32 +1,39 @@
-"""Edge inference — imports and docs relationships.
+"""Edge inference: the chunks each import reaches.
 
-All public functions are pure: chunks in, edges out.  No I/O, no
-store access.  The orchestrator feeds them chunks and writes
-the results.
+`infer_import_edges` takes a snapshot's chunks as a frame and returns
+an edge from each import to every chunk it reaches.  It reads only the
+chunks and the repository's file list; the build writes the edges.
 
-Two resolution strategies are used:
+Each import takes one `ImportWay`:
 
-- **Structural (tree-sitter):** Import metadata is extracted by
-  `treesitter.py` during parsing and stored in `chunk.metadata`.
-  This gives exact module paths and symbol names.  Used for languages
-  with a tree-sitter import extractor (Python, JavaScript, TypeScript,
-  Ruby, Rust).
+- `MODULE`: its metadata names a module or a relative depth, which
+  `_resolve_import_targets` turns into files.  An import naming symbols
+  (`from x import Y`, a link to `doc.md#heading`) reaches each named
+  symbol in those files, or else a doc section of that name; one
+  naming none (`import x`, `#include "x.h"`) reaches every chunk the
+  files bring into scope.
+- `NAME`: prose naming a symbol and no file (an rST `:func:` role)
+  reaches the first symbol of that name anywhere.
+- `TEXT`: an import whose extractor recorded nothing usable; each word
+  of its text that is a file's stem reaches that file's first symbol.
+  Imprecise, and the only way left.
 
-- **Text search fallback:** When tree-sitter metadata is unavailable
-  (unsupported language, doc sections, config files), we fall back to
-  text matching — scanning chunk content for known symbol names or
-  file-path fragments.  Less precise but works everywhere.
-
-Doc↔code edges always use text search since docs are prose, not code.
+Prose documents what it references, so its `MODULE` and `NAME` edges
+are `DOCUMENTS`; every other edge is `IMPORTS`.
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import PurePosixPath
 
-from rbtr.domain.models import Chunk, ChunkKind, Edge, EdgeKind, ImportMeta
+import dataframely as dy
+import polars as pl
+
+from rbtr.domain.models import ChunkKind, Edge, EdgeKind, Edges, ImportMeta
 from rbtr.languages.manager import LanguageManager
 from rbtr.languages.registration import ModuleStyle, parse_path_relative
 
@@ -355,126 +362,23 @@ def _relative_module(file_path: str, dots: int, module: str) -> str | None:
     return "/".join(segs)
 
 
-def _build_symbol_index(chunks: list[Chunk]) -> dict[tuple[str, str], Chunk]:
-    """Map `(file_path, name)` → chunk for symbol lookup."""
-    index: dict[tuple[str, str], Chunk] = {}
-    for c in chunks:
-        if c.kind in (
-            ChunkKind.FUNCTION,
-            ChunkKind.CLASS,
-            ChunkKind.METHOD,
-            ChunkKind.VARIABLE,
-            # A data language defines its keys: a `$ref` into a schema names
-            # one, as an import names a function.
-            ChunkKind.CONFIG_KEY,
-        ):
-            key = (c.file_path, c.name)
-            # First definition wins (top-level preferred over nested).
-            if key not in index:
-                index[key] = c
-    return index
+class EdgeChunkRow(dy.Schema):
+    """A chunk as edge inference reads it: where it is, what it is, and what it imports.
 
-
-def _build_file_chunks_index(chunks: list[Chunk]) -> dict[str, list[Chunk]]:
-    """Map `file_path` → all importable chunks in that file.
-
-    Used for bare/whole-file imports where the entire file is
-    brought into scope.  IMPORT and COMMENT chunks are excluded —
-    an import describes the file's own dependencies, and a comment
-    is prose, not content that importers depend on.
+    The import fields hold an import's metadata and are null on every
+    other kind.
     """
-    index: dict[str, list[Chunk]] = {}
-    for c in chunks:
-        if c.kind not in (ChunkKind.IMPORT, ChunkKind.COMMENT):
-            index.setdefault(c.file_path, []).append(c)
-    return index
 
-
-#
-# Strategy: structural (tree-sitter metadata) with text-search fallback.
-#
-# When tree-sitter metadata is present (`chunk.metadata` has `module`
-# or `dots` keys), we use the exact module path and symbol names.
-# When metadata is absent, we fall back to scanning the import chunk's
-# text for known repo file stems — less precise but handles any language.
-#
-# Prose-language imports (markdown, RST) produce DOCUMENTS edges
-# instead of IMPORTS.  Name-only imports (RST :func: etc.) search
-# the symbol index by name across all files.
-
-
-def _edge(imp: Chunk, target: Chunk, kind: EdgeKind) -> Edge:
-    """An edge from an import chunk to what it reaches, at both paths."""
-    return Edge(
-        source_id=imp.id,
-        target_id=target.id,
-        kind=kind,
-        source_path=imp.file_path,
-        target_path=target.file_path,
-    )
-
-
-def _named_target(
-    name: str,
-    target_file: str,
-    symbol_index: dict[tuple[str, str], Chunk],
-    file_chunks_index: dict[str, list[Chunk]],
-) -> Chunk | None:
-    """Find *name* in *target_file*, as a symbol or a doc section."""
-    target = symbol_index.get((target_file, name))
-    if target is not None:
-        return target
-    # Fragment references (`doc.md#a-heading`) name a section, not a symbol.
-    for c in file_chunks_index.get(target_file, []):
-        if c.kind == ChunkKind.DOC_SECTION and c.name == name:
-            return c
-    return None
-
-
-def _structural_import_edges(
-    imp: Chunk,
-    symbol_index: dict[tuple[str, str], Chunk],
-    file_chunks_index: dict[str, list[Chunk]],
-    repo_files: set[str],
-    resolution: ImportResolution | None = None,
-    *,
-    prose: bool = False,
-) -> list[Edge]:
-    """Resolve import edges using tree-sitter metadata (exact).
-
-    Named imports (`from X import Y`) link to each named symbol.
-    Bare imports (`import X`, `@import "x.css"`, `#include "x.h"`)
-    link to *every* non-import chunk in the target file — the
-    entire file is brought into scope.
-
-    A reference naming a directory reaches every file in it, which is
-    what importing a Go package or a Terraform module does.
-    """
-    # Prose documents what it references; code imports it.
-    edge_kind = EdgeKind.DOCUMENTS if prose else EdgeKind.IMPORTS
-
-    target_files = [
-        f
-        for f in _resolve_import_targets(imp.metadata, imp.file_path, repo_files, resolution)
-        # A file does not import itself, however its neighbours are named.
-        if f != imp.file_path
-    ]
-
-    if not imp.metadata.names:
-        # Bare import → edge to every non-import chunk in each file.
-        return [
-            _edge(imp, target, edge_kind)
-            for target_file in target_files
-            for target in file_chunks_index.get(target_file, [])
-        ]
-
-    # from foo import Bar, Baz → link to each named symbol.
-    named = (
-        _named_target(name, target_file, symbol_index, file_chunks_index)
-        for target_file in target_files
-        for name in imp.metadata.names.split(",")
-    )
-    return [_edge(imp, target, edge_kind) for target in named if target is not None]
+    id = dy.String(nullable=False)
+    file_path = dy.String(nullable=False)
+    line_start = dy.Int32(nullable=False)
+    kind = dy.Enum(k.value for k in ChunkKind)
+    name = dy.String(nullable=False)
+    language = dy.String(nullable=False)
+    module = dy.String(nullable=True)
+    names = dy.String(nullable=True)
+    dots = dy.String(nullable=True)
+    language_hint = dy.String(nullable=True)
 
 
 def _build_stem_index(repo_files: set[str], index_stems: set[str]) -> dict[str, list[str]]:
@@ -497,64 +401,12 @@ def _build_stem_index(repo_files: set[str], index_stems: set[str]) -> dict[str, 
 _WORD_RE = re.compile(r"[A-Za-z_]\w*")
 
 
-def _build_file_symbol_index(
-    symbol_index: dict[tuple[str, str], Chunk],
-) -> dict[str, Chunk]:
-    """Map file_path → first symbol chunk for quick file-level linking."""
-    result: dict[str, Chunk] = {}
-    for (file_path, _name), chunk in symbol_index.items():
-        if file_path not in result:
-            result[file_path] = chunk
-    return result
-
-
-def _text_search_import_edges(
-    imp: Chunk,
-    file_symbols: dict[str, Chunk],
-    stem_index: dict[str, list[str]],
-) -> list[Edge]:
-    """Resolve import edges via text search (fallback).
-
-    Tokenises the import statement into words and looks up matching
-    repo file stems via set intersection — O(words) instead of
-    O(stems) regex calls.
-    """
-    words = set(_WORD_RE.findall(imp.name))
-    edges: list[Edge] = []
-
-    for word in words:
-        for target_file in stem_index.get(word, ()):
-            target = file_symbols.get(target_file)
-            if target is not None:
-                edges.append(_edge(imp, target, EdgeKind.IMPORTS))
-
-    return edges
-
-
-def _name_search_import_edges(
-    imp: Chunk,
-    symbol_index: dict[tuple[str, str], Chunk],
-) -> list[Edge]:
-    """Resolve a name-only reference (rST `:func:`) by symbol name alone.
-
-    The reference names no file, so the first symbol with a matching name
-    anywhere in the repository wins. Only prose languages reach here, so
-    every edge documents rather than imports.
-    """
-    edges: list[Edge] = []
-    for name in imp.metadata.names.split(","):
-        for (_, sym_name), chunk in symbol_index.items():
-            if sym_name == name:
-                edges.append(_edge(imp, chunk, EdgeKind.DOCUMENTS))
-                break
-    return edges
-
-
 def _resolution_for(
-    imp: Chunk,
+    language: str,
+    meta: ImportMeta,
     resolution_map: dict[str, ImportResolution] | None,
 ) -> ImportResolution | None:
-    """Pick the resolution rules for an import.
+    """Pick the resolution rules for an import written in *language*.
 
     A `language_hint` (HTML `<script src>` naming JavaScript) resolves
     against the hinted language's import targets rather than the language
@@ -562,49 +414,295 @@ def _resolution_for(
     """
     if resolution_map is None:
         return None
-    if imp.metadata.language_hint:
-        return resolution_map.get(imp.metadata.language_hint)
-    return resolution_map.get(imp.language)
+    if meta.language_hint:
+        return resolution_map.get(meta.language_hint)
+    return resolution_map.get(language)
+
+
+class ImportWay(StrEnum):
+    """How an import reaches what it imports."""
+
+    MODULE = "module"
+    """Its metadata names a module or a relative depth: it reaches the module's files."""
+    NAME = "name"
+    """Prose naming a symbol and no file (rST `:func:`): it reaches that symbol."""
+    TEXT = "text"
+    """Neither: its words that are file stems reach those files."""
+
+
+class ImportRow(dy.Schema):
+    """An import, the way it reaches its targets, and the edge kind it makes.
+
+    `target_paths` are the files its module resolves to, null unless
+    its way is `MODULE`.
+    """
+
+    source_id = dy.String(nullable=False)
+    source_path = dy.String(nullable=False)
+    name = dy.String(nullable=False)
+    names = dy.String(nullable=False)
+    way = dy.Enum(w.value for w in ImportWay)
+    kind = dy.Enum(k.value for k in EdgeKind)
+    target_paths = dy.List(dy.String(), nullable=True)
+
+
+class InferredEdgeRow(dy.Schema):
+    """An edge one way of resolving imports infers: an import to a chunk it reaches."""
+
+    source_id = dy.String(nullable=False)
+    target_id = dy.String(nullable=False)
+    kind = dy.Enum(k.value for k in EdgeKind)
+    source_path = dy.String(nullable=False)
+    target_path = dy.String(nullable=False)
+
+
+def _named_by_imports() -> pl.Expr:
+    """Chunks an import can name: a definition, or a data language's key.
+
+    A `$ref` into a schema names a key, as an import names a function.
+    """
+    return pl.col("kind").is_in(
+        [
+            ChunkKind.FUNCTION,
+            ChunkKind.CLASS,
+            ChunkKind.METHOD,
+            ChunkKind.VARIABLE,
+            ChunkKind.CONFIG_KEY,
+        ]
+    )
+
+
+def _brought_into_scope() -> pl.Expr:
+    """Chunks a bare import brings into scope: a file's definitions, sections and raw slices.
+
+    A raw slice includes the content-less chunk of an empty file, so
+    `import pkg` reaches an empty `__init__.py`.
+    """
+    return pl.col("kind").is_in(
+        [
+            ChunkKind.FUNCTION,
+            ChunkKind.CLASS,
+            ChunkKind.METHOD,
+            ChunkKind.VARIABLE,
+            ChunkKind.MIGRATION,
+            ChunkKind.TEST_FUNCTION,
+            ChunkKind.API_ENDPOINT,
+            ChunkKind.DOC_SECTION,
+            ChunkKind.CONFIG_KEY,
+            ChunkKind.RAW_CHUNK,
+        ]
+    )
+
+
+def _way(prose: pl.Expr) -> pl.Expr:
+    """The `ImportWay` of each import row; *prose* holds for an import written in prose."""
+    return (
+        pl.when((pl.col("module") != "") | (pl.col("dots") != ""))
+        .then(pl.lit(ImportWay.MODULE))
+        .when((pl.col("names") != "") & prose)
+        .then(pl.lit(ImportWay.NAME))
+        .otherwise(pl.lit(ImportWay.TEXT))
+        .alias("way")
+    )
+
+
+def _edge_kind(prose: pl.Expr) -> pl.Expr:
+    """Prose documents what it references; code imports it."""
+    return (
+        pl.when(prose)
+        .then(pl.lit(EdgeKind.DOCUMENTS))
+        .otherwise(pl.lit(EdgeKind.IMPORTS))
+        .alias("kind")
+    )
+
+
+def _imports(
+    chunks: dy.DataFrame[EdgeChunkRow],
+    prose: pl.Expr,
+    module_targets: Callable[[dict[str, str]], list[str]],
+) -> dy.DataFrame[ImportRow]:
+    """*chunks*' imports, each with its way, its edge kind and, for a `MODULE` import, its module's files."""
+    imports = chunks.filter(pl.col("kind") == ChunkKind.IMPORT).with_columns(_way(prose))
+    by_module = imports.filter(pl.col("way") == ImportWay.MODULE).with_columns(
+        pl.struct(pl.all())
+        .map_elements(module_targets, return_dtype=pl.List(pl.String))
+        .alias("target_paths")
+    )
+    return (
+        pl.concat([by_module, imports.filter(pl.col("way") != ImportWay.MODULE)], how="diagonal")
+        .select(
+            pl.col("id").alias("source_id"),
+            pl.col("file_path").alias("source_path"),
+            "name",
+            "names",
+            "way",
+            _edge_kind(prose),
+            "target_paths",
+        )
+        .pipe(ImportRow.validate, cast=True)
+    )
+
+
+def _module_files(imports: dy.DataFrame[ImportRow]) -> pl.DataFrame:
+    """The `MODULE` imports, one row per file their module resolves to, as `target_path`."""
+    return (
+        imports.filter(pl.col("way") == ImportWay.MODULE)
+        .explode("target_paths")
+        .rename({"target_paths": "target_path"})
+    )
+
+
+def _named(imports: pl.DataFrame) -> pl.DataFrame:
+    """*imports*, one row per name each one names, as `target_name`."""
+    return imports.with_columns(pl.col("names").str.split(",").alias("target_name")).explode(
+        "target_name"
+    )
+
+
+def _bare_edges(
+    imports: dy.DataFrame[ImportRow], importable: dy.DataFrame[EdgeChunkRow]
+) -> dy.DataFrame[InferredEdgeRow]:
+    """A bare import (`import x`, `#include "x.h"`) reaches every chunk its files bring into scope."""
+    return (
+        _module_files(imports)
+        .filter(pl.col("names") == "")
+        .join(
+            importable.select(
+                pl.col("file_path").alias("target_path"), pl.col("id").alias("target_id")
+            ),
+            on="target_path",
+        )
+        .pipe(InferredEdgeRow.validate, cast=True)
+    )
+
+
+def _named_edges(
+    imports: dy.DataFrame[ImportRow],
+    symbols: dy.DataFrame[EdgeChunkRow],
+    sections: dy.DataFrame[EdgeChunkRow],
+) -> dy.DataFrame[InferredEdgeRow]:
+    """A named import (`from X import Y`) reaches each named symbol in its files.
+
+    A name no symbol there has reaches a doc section of that name
+    instead (`doc.md#a-heading`).
+    """
+
+    def by_name(targets: dy.DataFrame[EdgeChunkRow], alias: str) -> pl.DataFrame:
+        return targets.select(
+            pl.col("file_path").alias("target_path"),
+            pl.col("name").alias("target_name"),
+            pl.col("id").alias(alias),
+        )
+
+    keys = ["target_path", "target_name"]
+    return (
+        _named(_module_files(imports).filter(pl.col("names") != ""))
+        .join(by_name(symbols, "symbol_id"), on=keys, how="left")
+        .join(by_name(sections, "section_id"), on=keys, how="left")
+        .with_columns(target_id=pl.coalesce("symbol_id", "section_id"))
+        .drop_nulls("target_id")
+        .pipe(InferredEdgeRow.validate, cast=True)
+    )
+
+
+def _name_edges(
+    imports: dy.DataFrame[ImportRow], symbols: dy.DataFrame[EdgeChunkRow]
+) -> dy.DataFrame[InferredEdgeRow]:
+    """A `NAME` import documents the first symbol of each name it names, wherever it is."""
+    first_by_name = symbols.unique("name", keep="first", maintain_order=True)
+    return (
+        _named(imports.filter(pl.col("way") == ImportWay.NAME))
+        .join(
+            first_by_name.select(
+                pl.col("name").alias("target_name"),
+                pl.col("id").alias("target_id"),
+                pl.col("file_path").alias("target_path"),
+            ),
+            on="target_name",
+        )
+        .with_columns(kind=pl.lit(EdgeKind.DOCUMENTS))
+        .pipe(InferredEdgeRow.validate, cast=True)
+    )
+
+
+def _text_edges(
+    imports: dy.DataFrame[ImportRow],
+    symbols: dy.DataFrame[EdgeChunkRow],
+    stem_targets: Callable[[str], list[str]],
+) -> dy.DataFrame[InferredEdgeRow]:
+    """A `TEXT` import reaches the first symbol of each file whose stem is one of its words."""
+    first_by_file = symbols.unique("file_path", keep="first", maintain_order=True)
+    return (
+        imports.filter(pl.col("way") == ImportWay.TEXT)
+        .with_columns(
+            pl.col("name")
+            .map_elements(stem_targets, return_dtype=pl.List(pl.String))
+            .alias("target_path"),
+            kind=pl.lit(EdgeKind.IMPORTS),
+        )
+        .explode("target_path")
+        .join(
+            first_by_file.select(
+                pl.col("file_path").alias("target_path"), pl.col("id").alias("target_id")
+            ),
+            on="target_path",
+        )
+        .pipe(InferredEdgeRow.validate, cast=True)
+    )
 
 
 def infer_import_edges(
-    chunks: list[Chunk],
+    chunks: dy.DataFrame[EdgeChunkRow],
     repo_files: set[str],
     resolution_map: dict[str, ImportResolution] | None = None,
 ) -> list[Edge]:
-    """Infer `IMPORTS` edges from import chunks.
+    """Infer the edges *chunks*' imports make to the chunks they reach.
 
-    Uses tree-sitter metadata when available (exact), falls back to
-    text search otherwise (best-effort).  When *resolution_map* is
-    provided, file resolution uses language-aware extensions and
-    source roots instead of the hardcoded `.py` fallback.
+    Each import takes one `ImportWay`, resolved by `_bare_edges` and
+    `_named_edges` (`MODULE`), `_name_edges` and `_text_edges`. A
+    module resolves to files with `_resolve_import_targets`, by the rules
+    *resolution_map* holds for each language.
+
+    Where an import could reach several chunks and reaches one, it
+    reaches the first by file path, then line.
     """
-    imports = [c for c in chunks if c.kind == ChunkKind.IMPORT]
-    symbol_index = _build_symbol_index(chunks)
-    file_chunks_index = _build_file_chunks_index(chunks)
+    chunks = chunks.sort("file_path", "line_start", maintain_order=True).pipe(EdgeChunkRow.validate)
+    symbols = (
+        chunks.filter(_named_by_imports())
+        .unique(["file_path", "name"], keep="first", maintain_order=True)
+        .pipe(EdgeChunkRow.validate)
+    )
+    sections = (
+        chunks.filter(pl.col("kind") == ChunkKind.DOC_SECTION)
+        .unique(["file_path", "name"], keep="first", maintain_order=True)
+        .pipe(EdgeChunkRow.validate)
+    )
+    importable = chunks.filter(_brought_into_scope()).pipe(EdgeChunkRow.validate)
     rules = resolution_map or {}
-    prose = {language for language, r in rules.items() if r.prose}
+    prose = pl.col("language").is_in([language for language, r in rules.items() if r.prose])
     index_stems = {PurePosixPath(f).stem for r in rules.values() for f in r.index_files}
     stem_index = _build_stem_index(repo_files, index_stems)
-    file_symbols = _build_file_symbol_index(symbol_index)
-    edges: list[Edge] = []
 
-    for imp in imports:
-        has_file = bool(imp.metadata.module or imp.metadata.dots)
-        if has_file:
-            edges.extend(
-                _structural_import_edges(
-                    imp,
-                    symbol_index,
-                    file_chunks_index,
-                    repo_files,
-                    _resolution_for(imp, resolution_map),
-                    prose=imp.language in prose,
-                )
-            )
-        elif imp.metadata.names and imp.language in prose:
-            edges.extend(_name_search_import_edges(imp, symbol_index))
-        else:
-            edges.extend(_text_search_import_edges(imp, file_symbols, stem_index))
+    def module_targets(row: dict[str, str]) -> list[str]:
+        meta = ImportMeta.model_validate(row)
+        resolution = _resolution_for(row["language"], meta, rules)
+        return [
+            f
+            for f in _resolve_import_targets(meta, row["file_path"], repo_files, resolution)
+            # A file does not import itself, however its neighbours are named.
+            if f != row["file_path"]
+        ]
 
-    return edges
+    def stem_targets(name: str) -> list[str]:
+        return [f for word in set(_WORD_RE.findall(name)) for f in stem_index.get(word, ())]
+
+    imports = _imports(chunks, prose, module_targets)
+    edges = pl.concat(
+        [
+            _bare_edges(imports, importable),
+            _named_edges(imports, symbols, sections),
+            _name_edges(imports, symbols),
+            _text_edges(imports, symbols, stem_targets),
+        ]
+    )
+    return Edges.validate_python(edges.to_dicts())

@@ -460,11 +460,15 @@ tests rather than held to product-code standards.
 
 ## Dependency graph
 
-`edges.py` infers cross-file relationships:
+Edge inference (`languages/edges.py`) records what each import
+reaches:
 
-- **Import edges** - structural (tree-sitter import
-  extractor) or text-search fallback.
-- **Doc edges** - markdown sections mentioning symbol names.
+- **Import edges** - from an import to the symbols it names in
+  the files its module resolves to, or to every chunk of those
+  files for a bare import; an import whose extractor recorded
+  nothing usable reaches files whose stem is a word of its text.
+- **Doc edges** - prose (a Markdown link, an rST role) documents
+  the file, section or symbol it references.
 - **Data references** - a JSON Schema or OpenAPI `$ref`, a
   tsconfig `extends`, a local Actions `uses`, a Cargo or Poetry
   `path` dependency. A `$ref`'s pointer names a key inside the
@@ -1039,8 +1043,7 @@ schemas in `index/results.py`, kept independent by import-linter
 (a physical CQRS seam). `Chunk` is the write model: extraction
 builds it and `staged_chunks` writes it. Reads return frames: the
 handlers validate rows straight into the reply DTOs, search into
-`ScoredChunk`, and the embedder works on the frame. The build alone
-turns its read into `Chunk` models, for edge inference.
+`ScoredChunk`, and edge inference and the embedder work on the frame.
 
 Registration is cursor-scoped, and the store uses one
 thread-local cursor per thread (see

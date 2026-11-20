@@ -11,13 +11,14 @@ from __future__ import annotations
 import pytest
 from pytest_cases import fixture, parametrize_with_cases
 
-from rbtr.domain.models import Chunk, Edge, EdgeKind
+from rbtr.domain.models import Chunk, ChunkKind, Edge, EdgeKind, ImportMeta
 from rbtr.languages.edges import (
     ImportResolution,
     _resolve_module_to_file,
     infer_import_edges,
 )
 from rbtr.languages.registration import ModuleStyle
+from rbtr.testing import edge_rows
 
 from .cases_edges import EdgeScenario
 
@@ -135,7 +136,7 @@ def inferred(scenario: EdgeScenario) -> tuple[EdgeScenario, list[Edge], dict[str
         for spec in scenario.chunks
     ]
     ids = {spec.id: chunk.id for spec, chunk in zip(scenario.chunks, chunks, strict=True)}
-    edges = infer_import_edges(chunks, set(scenario.repo_files), scenario.resolution_map)
+    edges = infer_import_edges(edge_rows(chunks), set(scenario.repo_files), scenario.resolution_map)
     return scenario, edges, ids
 
 
@@ -486,3 +487,38 @@ def test_resolve_suffix_tie_break(
 ) -> None:
     """Suffix-tier same-path collisions resolve toward the importing file."""
     assert _resolve_module_to_file(module, files, resolution, importer_ext) == expected
+
+
+def test_a_name_twice_in_a_file_is_reached_at_its_first_line() -> None:
+    """Of two symbols an import names in one file, it reaches the one earlier in the file.
+
+    The rows arrive later line first, so row order cannot decide it.
+    """
+
+    def chunk(
+        file_path: str, kind: ChunkKind, name: str, line: int, meta: ImportMeta | None = None
+    ) -> Chunk:
+        return Chunk(
+            blob_sha=f"sha_{file_path}",
+            file_path=file_path,
+            kind=kind,
+            name=name,
+            language="python",
+            content="",
+            line_start=line,
+            line_end=line,
+            metadata=meta or ImportMeta(),
+        )
+
+    later = chunk("b.py", ChunkKind.FUNCTION, "f", line=10)
+    earlier = chunk("b.py", ChunkKind.FUNCTION, "f", line=2)
+    importer = chunk("a.py", ChunkKind.IMPORT, "b", line=1, meta=ImportMeta(module="b", names="f"))
+    resolution = ImportResolution(
+        extensions=(".py",), index_files=(), source_roots=("",), path_substitutions=()
+    )
+
+    edges = infer_import_edges(
+        edge_rows([importer, later, earlier]), {"a.py", "b.py"}, {"python": resolution}
+    )
+
+    assert [e.target_id for e in edges] == [earlier.id]

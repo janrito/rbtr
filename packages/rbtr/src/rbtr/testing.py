@@ -26,18 +26,39 @@ from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import dataframely as dy
+import polars as pl
 import pytest
 from pydantic import TypeAdapter
 from syrupy.extensions.single_file import SingleFileSnapshotExtension, WriteMode
 from tree_sitter import Parser
 
 from rbtr.daemon.status import is_pid_alive, read_status
-from rbtr.domain.models import Chunk, Edge
+from rbtr.domain.models import Chunk, Chunks, Edge
 
 if TYPE_CHECKING:
     from syrupy.assertion import SnapshotAssertion
     from syrupy.types import PropertyFilter, PropertyMatcher, SerializableData, SerializedData
     from tree_sitter import Language
+
+    from rbtr.languages.edges import EdgeChunkRow
+
+
+def edge_rows(chunks: list[Chunk]) -> dy.DataFrame[EdgeChunkRow]:
+    """*chunks*, in order, as `infer_import_edges` reads them.
+
+    The build selects the same columns from what it read back from the
+    index; a plugin's tests take them from what extraction yielded.
+    """
+    # deferred: `rbtr.languages` imports `rbtr.config`, which this plugin
+    # must not load before pytest-env applies (see `isolated_db`).
+    from rbtr.languages.edges import EdgeChunkRow
+
+    return (
+        pl.DataFrame(Chunks.dump_python(chunks, mode="json"))
+        .with_columns(pl.col("metadata").struct.unnest())
+        .pipe(EdgeChunkRow.validate, cast=True)
+    )
 
 
 def render_edges(edges: list[Edge], chunks: list[Chunk]) -> list[str]:
