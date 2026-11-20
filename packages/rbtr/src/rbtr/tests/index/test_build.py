@@ -17,7 +17,6 @@ from rbtr.domain.models import (
     ChunkKind,
     EdgeKind,
     FileOutcome,
-    FileSnapshot,
     IndexResult,
 )
 from rbtr.errors import BuildStopped
@@ -485,25 +484,37 @@ def test_build_index_marks_commit_indexed(
 def test_build_index_sweeps_residue_from_crashed_builds(
     git_repo: pygit2.Repository, repo_path: str, index: Index, snapshot_sha: str
 ) -> None:
-    """A successful build cleans up dangling snapshots/edges from prior crashes."""
-    # Simulate residue: a snapshot for a commit that never finished.
-    repo = index.register(repo_path)
-    with index.session(repo) as ws:
-        ws.replace_snapshots(
-            [
-                FileSnapshot(
-                    snapshot_sha="crashed_sha", file_path="leftover.py", blob_sha="leftover_blob"
-                )
-            ],
-            snapshot_sha="crashed_sha",
+    """A successful build cleans up the snapshot and edges a build stopped at its edges left."""
+    crashed = str(
+        make_commit(
+            git_repo,
+            {
+                "leftover.py": b"""\
+def leftover():
+    pass
+"""
+            },
+            ref="refs/heads/crashed",
         )
-    assert index.has_indexed(at=repo.at("crashed_sha")) is False
+    )
+    stop = threading.Event()
+    with pytest.raises(BuildStopped):
+        build_index(
+            repo_path,
+            crashed,
+            index,
+            stop=stop,
+            on_progress=lambda phase, *_: stop.set() if phase == "edges" else None,
+        )
+    repo = index.register(repo_path)
+    assert index.count_file_snapshots(at=repo.at(crashed)) > 0
+    assert index.has_indexed(at=repo.at(crashed)) is False
 
-    build_index(git_repo.workdir, snapshot_sha, index)
+    build_index(repo_path, snapshot_sha, index)
 
     # The legit commit is indexed; the crashed residue is gone.
     assert index.has_indexed(at=repo.at(snapshot_sha)) is True
-    assert index.chunks(at=repo.at("crashed_sha")).is_empty()
+    assert index.count_file_snapshots(at=repo.at(crashed)) == 0
 
 
 def test_a_stopped_build_leaves_its_snapshot_for_the_next_build(
@@ -562,26 +573,33 @@ def test_a_build_that_failed_after_extracting_is_rebuilt_in_full(
     assert set(index.chunks(at=at)["name"]) == set(uninterrupted.chunks(at=at)["name"])
 
 
-def test_a_checkouts_failed_build_leaves_its_sibling_whole(
+def test_a_build_leaves_its_sibling_checkouts_unfinished_snapshot(
     git_repo: pygit2.Repository,
     linked_worktree: pygit2.Repository,
-    index: Index,
+    project_index: Index,
     snapshot_sha: str,
-    mocker: MockerFixture,
 ) -> None:
-    """A build's clean-up clears only its own repo's residue.  A sibling
-    checkout built meanwhile reuses the failed build's chunks and is whole;
-    the failed checkout is whole once it builds again."""
-    crash = mocker.patch(
-        "rbtr.index.build.infer_and_store_edges", side_effect=RuntimeError("crash")
-    )
-    with pytest.raises(RuntimeError, match="crash"):
-        build_index(git_repo.workdir, snapshot_sha, index)
-    mocker.stop(crash)
+    """A linked checkout reuses chunks from a stopped build and leaves its file list intact."""
+    index = project_index
+    main, worktree = index.repos()
+    at = main.at(snapshot_sha)
+    stop = threading.Event()
+    with pytest.raises(BuildStopped):
+        build_index(
+            git_repo.workdir,
+            snapshot_sha,
+            index,
+            stop=stop,
+            on_progress=lambda phase, *_: stop.set() if phase == "edges" else None,
+        )
+    files = index.count_file_snapshots(at=at)
+    assert files > 0
+    assert not index.has_indexed(at=at)
 
     build_index(linked_worktree.workdir, snapshot_sha, index)
-    main, worktree = index.repos()
-    assert index.count_file_snapshots(at=main.at(snapshot_sha)) > 0, "the residue stays"
+
+    assert index.count_file_snapshots(at=at) == files
+    assert not index.has_indexed(at=at)
     build_index(git_repo.workdir, snapshot_sha, index)
 
     uninterrupted = Index(writable=True)

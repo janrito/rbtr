@@ -99,11 +99,13 @@ encoding the use-case tests already prove.
   the index — search, find-refs, edges, status, gc, the embed work
   list, a handler — gets its data from `build_index` over a small
   git repo (`make_commit`), and its vectors from `embed_index` over
-  `StubModel` (`stub_vectors`, `stubbed_embedder`). Only two kinds
-  of test write rows through a `WriteSession` directly: tests of the
-  session and storage themselves (transactions, concurrency,
-  schema, migrations, compaction), and tests of a state no use case
-  can produce (an orphan, a pre-migration file). Crash residue is a
+  `StubModel` (`stub_vectors`, `stubbed_embedder`). No test writes
+  chunks, file lists or edges through a `WriteSession`: the session
+  and storage are tested through builds, gc and embedding too, a
+  failure is injected into a build (one of its SQL statements
+  patched to fail), and a test of a state no build makes is
+  deleted. Watched refs are written with `add_watched_refs`, as the
+  watch handler writes them. Crash residue is a
   build stopped at its `edges` phase: pass `build_index` a `stop`
   event and an `on_progress` that sets it. A snapshot every test in a
   module only reads is built once, into `module_index` from

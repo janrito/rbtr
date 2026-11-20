@@ -2825,8 +2825,8 @@ is opt-in, for tests that drive the model from several threads.
 
 **Fixture composition.** Three layers: root conftest
 (isolation) → domain conftest per subdirectory (data
-fixtures — `index/conftest.py` has git repos, ranking
-dataset, named chunks; `daemon/conftest.py` has seeded
+fixtures — `index/conftest.py` has git repos and the ranking
+dataset, each built as a user's commits are; `daemon/conftest.py` has seeded
 stores and running servers) → case files (scenarios via
 pytest-cases, e.g. `cases_import_ways.py`, `cases_fuse.py`).
 
