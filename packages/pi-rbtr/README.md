@@ -42,7 +42,7 @@ inactive; `rbtr_index_tools` loads them when the agent needs them:
 | `rbtr_search`          | Search by name, keyword, or concept (BM25 + semantic + name fusion). Returns the first 8 lines of each hit, flagged when clipped. |
 | `rbtr_read_symbol`     | Read a symbol's full source by name                                                                                               |
 | `rbtr_list_symbols`    | Structural table of contents for a file                                                                                           |
-| `rbtr_find_refs`       | Find references via the dependency graph (imports, docs)                                                                          |
+| `rbtr_find_refs`       | Find references via the dependency graph (calls, bases, imports, docs)                                                            |
 | `rbtr_changed_symbols` | Symbols that changed between two git refs                                                                                         |
 | `rbtr_watch`           | Watch refs and keep them indexed (background, incremental)                                                                        |
 | `rbtr_index_tools`     | Load `rbtr_status` and `rbtr_gc`, which start inactive                                                                            |
@@ -66,8 +66,9 @@ what it is used instead of, and the tools that find code are listed first.
   `rbtr_list_symbols`. One-line-per-symbol TOC with line ranges.
 - **Exact string match** ("find all `TODO` comments") →
   `grep`. The index is structural, not textual.
-- **Who calls X?** → `rbtr_find_refs`. Follows import and doc
-  edges in the dependency graph.
+- **Who calls X?** → `rbtr_find_refs`. Follows call, inheritance,
+  import and doc edges in the dependency graph. A call on a value
+  (`obj.save()`) has no edge, so `grep` still finds those.
 - **What changed?** → `rbtr_changed_symbols`. Function-level
   diff between two refs, not line-level.
 
@@ -120,10 +121,14 @@ outline of src/rbtr/index/search.py:
   fuse_scores (function) lines 298-380
 ```
 
-**`rbtr_find_refs`** — symbol name in, referring symbols out:
+**`rbtr_find_refs`** — symbol name in, referring symbols out,
+grouped by kind with callers first; at most 50 are listed and the
+rest counted per kind:
 
 ```text
-read at 4a6a6ffc1b2e (head): 1 ref(s)
+read at 4a6a6ffc1b2e (head): 3 ref(s)
+calls: src/rbtr/daemon/server.py:120 method Daemon::open_index
+calls: src/rbtr/cli/__init__.py:480 function _inline_index
 imports: src/rbtr/daemon/watcher.py:30 import from rbtr.index.index import Index
 ```
 

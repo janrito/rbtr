@@ -5,7 +5,7 @@ description: >-
   tree-sitter queries, chunkers, capture conventions, and extraction-engine
   layers. Use when writing or modifying a language plugin (an `rbtr-lang-*`
   package or core's bundled `rbtr/languages/`), editing a `.scm` query, a
-  `LanguageRegistration`, an `import_extractor`, or a chunker;
+  `LanguageRegistration`, an import's captures and directives, or a chunker;
   when adding support for a new construct or language; or when reviewing
   extraction behaviour. Also trigger on tree-sitter queries, `query_captures`,
   `tags.scm`, or `@definition`/`@function`/`@_scope` captures.
@@ -138,7 +138,8 @@ The query's capture names drive the chunk kind (see `CAPTURE_KINDS` in
 - `@method` / `@_method_name` — methods (a `@function` whose nearest scope is
   class-like is also promoted to a method)
 - `@variable` / `@_var_name` — module/top-level variables, constants, fields
-- `@import` — import statements (metadata via `import_extractor`)
+- `@import` — import statements (module, names and bindings via `@_import_module`,
+  `@_import_names`, `@_bind_name` / `@_bind_local`, `#strip!` and `#set!`)
 - `@_scope` — optional: a node whose **text** becomes the symbol's innermost
   scope segment, for scopes lexical nesting can't reach (e.g. a Go method's
   receiver type). Strictly additive: absent → no effect.
@@ -150,6 +151,11 @@ The query's capture names drive the chunk kind (see `CAPTURE_KINDS` in
 - `@comment` — top-level comments and module docstrings; grouped into blocks
   and either folded into the definition below or emitted as standalone
   `COMMENT` chunks (see *Comment handling*)
+- `@_call` / `@_base` — a call's callee and a class's base, recorded on
+  the innermost chunk around them for call and inherits edges; mine
+  `@reference.call` and class bases from `tags.scm`
+- `@_self` / `@_super` — the names that reach the enclosing class's
+  instance and bases (`self`, `this`, `super`), marked with a predicate
 
 Capture names starting with `_` are read but never become chunks.
 
@@ -160,8 +166,7 @@ or `reg.name_extractor(fn)` for a shared/imported one — as a **last
 resort**. It is wrap-style (pydantic `WrapValidator` shape): signature
 `(resolver, capture_name, node, captures) -> str`, where `resolver` is the
 built-in resolver handed in; call it to delegate the cases you don't
-special-case, exactly as an `import_extractor` receives the built-in import
-resolver. Bash strips the `=` the grammar fuses onto an alias; HTML names an
+special-case. Bash strips the `=` the grammar fuses onto an alias; HTML names an
 element by its `id`, else its tag.
 
 The scope address comes from tree ancestry (`scope_types`, below) plus the
@@ -225,8 +230,9 @@ A fragment is a gap report, not a target. Read the gaps two ways:
 - **A sample's snapshot.** Each `test_samples.py` snapshots the symbols a
   build of the sample holds, fragments among them, and the lines no chunk
   spans. A fragment holding a definition is a missing capture: a C
-  prototype inside an `#ifndef` guard, a Python decorator left outside its
-  function's chunk.
+  prototype inside an `#ifndef` guard. A fragment holding part of one is a
+  capture of the wrong node: Python's decorators sat in fragments until its
+  query captured `decorated_definition`.
 - **rbtr-eval's `INDEX.md`.** Its fragments table counts, per language, the
   lines left to fragments and the node types holding the most of them, over
   the eval corpus.
@@ -316,9 +322,10 @@ the adapter (`query_captures`) reads them for every captured node:
 - **Deterministic test paths.** `next(iter(reg.extensions))` over a
   `frozenset` varies with `PYTHONHASHSEED`. Choose test paths
   deterministically with `sorted(...)`, or pass an explicit path.
-- **Imports need their own patterns.** `tags.scm` has no imports. Read
-  metadata from captures first; add an `import_extractor` only for
-  information those captures cannot supply.
+- **Imports need their own patterns.** `tags.scm` has no imports. An
+  import is stated by its query alone: captures for the module, names and
+  bindings, `#strip!` to cut written text, and `#set!` for names, relative
+  modules and language hints. There is no Python hook for imports.
 - **SQL / multi-dialect: extract through parse errors.** One generic SQL
   grammar serves all `.sql`. Tree-sitter recovers locally from a dialect
   construct it cannot parse, so surrounding statements still extract.

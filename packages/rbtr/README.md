@@ -242,11 +242,27 @@ rbtr list-symbols src/rbtr/index/search.py --kind class --kind method
 ### `rbtr find-refs <symbol>`
 
 Symbols that reference a given symbol via the dependency
-graph (imports, docs).
+graph: what calls it, extends it, imports it or documents it.
+Calls are resolved by the names they are written with, without
+types, so:
+
+- a call on a value (`order.save()`) is followed only through a type
+  written beside the local (`order: Order`, `order = Order()`);
+- a name a file imports twice reaches both imports;
+- through several bases, every match is listed, not the one the
+  language would pick.
+
+[ARCHITECTURE][arch] lists each, with the test that pins it.
 
 ```bash
 rbtr find-refs Index
 ```
+
+A class-qualified name reaches the members its bases define:
+`rbtr find-refs Order.save`, where only `Order`'s base defines
+`save`, finds the references to the base's `save`. Where a class
+overrides a base's member, both are returned. The same holds for
+`read-symbol`.
 
 Disambiguate a colliding name by restricting resolution to
 certain files with `--file-path` (repeatable):
@@ -483,6 +499,12 @@ Notable settings:
 - `search_weights` — per-query-kind fusion weights
   `(alpha, beta, gamma)` for the semantic, lexical, and
   name-match channels.
+- `follow_steps` — how many re-exports, star imports or bases
+  resolving a call follows before it stops (8).
+- `edge_weights` — how much an edge of each kind (`imports`,
+  `calls`, `inherits`, `documents`, `configures`) counts towards a
+  result's importance and its closeness to the diff; 1 each by
+  default, 0 to leave a kind out.
 - `reranker_model` — cross-encoder GGUF model ID. Set to
   `""` to disable reranking.
 - `reranker_settings` — per-query-kind reranker pool size
@@ -704,11 +726,34 @@ A capture's name decides the chunk kind. Eight produce chunks:
 | `@config_key`  | `@_section_name`  | a config or data key — JSON object keys, TOML tables, YAML mappings, HCL blocks      |
 | `@comment`     | —                 | a comment; see below                                                                 |
 
-Two helper captures do not produce chunks of their own:
-`@_scope` contributes a scope segment that lexical nesting cannot
-reach (a Go method's receiver type), and `@_docstring` marks an
-interior docstring. Any capture starting with `_` is read but never
-becomes a chunk.
+Helper captures do not produce chunks of their own: `@_scope`
+contributes a scope segment that lexical nesting cannot reach (a Go
+method's receiver type), and `@_docstring` marks an interior docstring.
+Any capture starting with `_` is read but never becomes a chunk.
+
+**Calls and bases.** Capture a call's callee as `@_call` and each of a
+class's bases as `@_base`; the engine records them on the innermost
+chunk around them (a call in a method is the method's, a module-level
+call a fragment's, a base the class's), for the edge graph. The callee's
+text becomes a path, split on `.`, `?.`, `::` and `->` and kept only
+when every part is a name, so `models.CharField(…)` records `models` →
+`CharField` and `x[0].m()` records nothing. Capture the names that reach
+the enclosing class as `@_self` (its instance) and `@_super` (its bases):
+a path starting where one starts reads from it. Capture a call to the
+bases' method of the caller's own name, as Ruby's bare `super`, as
+`@_super_call`. Capture a function's
+locals (parameters, assignment targets) as `@_local`, with their written
+type, an annotation or the callee assigned to them, as `@_local_type` in
+the same match: a call through a local is on a value, recorded with the
+local's type and making no edge, so `def run(f): f()` makes no edge to a
+module-level `f`.
+
+```scheme
+(call function: (_) @_call)
+(class_definition superclasses: (argument_list [(identifier) (attribute)] @_base))
+((identifier) @_self (#any-of? @_self "self" "cls"))
+((identifier) @_super (#eq? @_super "super"))
+```
 
 **Shaping a capture.** Where the grammar leaves syntax inside one leaf,
 strip it in the query with tree-sitter's `#strip!` directive, which the
@@ -719,12 +764,21 @@ the rST label `.. _intro:` `intro`. Put `#set!` before a pattern's
 predicates (py-tree-sitter 0.26.1 crashes otherwise).
 
 **Imports.** `@_import_module` populates `ImportMeta.module` straight
-from the query, stripping `<>` and `"` delimiters. Each `@import`
-match then passes through the language's import resolver, which reads
-captures first and walks the node for what the query cannot express,
-such as multi-valued import names. `ImportMeta.language_hint` directs
-resolution when the target is a different language — an HTML
-`<script src>` pointing at JavaScript, say.
+from the query, stripping `<>` and `"` delimiters, and `@_import_names`
+its names, every captured node in order. A query states what an import
+binds in the importing file: `@_bind_name` and `@_bind_local` of one
+match bind a name under a local (`from m import a as b`), a name alone
+binds it under itself, and a local alone binds the module (`import numpy
+as np`). Every match on one statement and module counts, so a pattern per
+alias adds up to one import. `(#set! import.names "*")` imports every name,
+`(#set! import.prefix "./")` writes `./` before the module, reading it
+from the file's directory (Ruby's `require_relative`; Rust's `mod util;`
+writes `self::`), and `import.language_hint` directs resolution when the target
+is a different language — an HTML `<script src>` pointing at JavaScript,
+say. `#strip!` cuts what is written but not part of the module: Go binds
+an unaliased import under its path's last segment by stripping the rest,
+and JavaScript drops a written extension. The query states the whole
+import; there is no Python hook for one.
 
 **Comments.** Capture your grammar's comment nodes as `@comment`,
 scoped to the file root, plus the module docstring where the language
@@ -738,7 +792,7 @@ does this identically for every language — see
 
 ### When a query is not enough
 
-Four overrides handle what captures cannot express. Each attaches to
+Three overrides handle what captures cannot express. Each attaches to
 the registration as a decorator, or as a plain call to reuse an
 existing function:
 
@@ -746,10 +800,9 @@ existing function:
 | ------------------ | ----------------------------------------------------------------------------------------------------- |
 | `name_extractor`   | a display name the query cannot capture — an HCL block named by its type and labels                   |
 | `scope_extractor`  | a scope tree ancestry cannot reach — a CSS nested rule under its parent selector, a TOML dotted table |
-| `import_extractor` | import metadata needing a node walk                                                                   |
 | `chunker`          | a whole language whose structure captures cannot express                                              |
 
-The first three are **wrap-style**, like pydantic's `WrapValidator`:
+The first two are **wrap-style**, like pydantic's `WrapValidator`:
 the first argument is the built-in resolver, so you delegate to it and
 refine the result rather than importing the default.
 
@@ -761,7 +814,7 @@ def swift_name(
     return resolver(capture_name, node, caps).removesuffix("!")  # delegate, then tweak
 
 
-swift.import_extractor(extract_swift_imports)  # reuse an existing function
+swift.name_extractor(shared_swift_name)  # or reuse an existing function
 ```
 
 An override that does not delegate simply ignores its `resolver`.
@@ -772,17 +825,24 @@ Unset ones fall back to the engine defaults.
 An `@import` capture gives the edge graph a module string. The registration
 declares how that string names files for its language:
 
-| Field                | Says                                                                                                |
-| -------------------- | --------------------------------------------------------------------------------------------------- |
-| `module_style`       | whether a reference is a path (`./b`, `b.css`) or a dotted name (`pkg.b`)                           |
-| `source_roots`       | directory prefixes tried in turn, for a language whose imports are written from a `src` root        |
-| `path_substitutions` | prefix rewrites, for an alias that is not a directory — Rust's `crate::` under `src/`               |
-| `index_files`        | the file that stands for a directory: `__init__.py`, `index.js`, `mod.rs`, `Cargo.toml`             |
-| `package_directory`  | that a directory *is* a unit, so a reference to one reaches every file in it                        |
-| `manifest`           | a repository file whose text supplies further substitutions, read per repository                    |
-| `section_names`      | how a link's fragment compares with a section's name: as written, or folded like a heading's anchor |
+| Field                    | Says                                                                                                                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `module_style`           | whether an import is a path (`./b`, `../b`, `b.css`) or a dotted name (`pkg.b`, `..pkg.b` one level up)                                                             |
+| `source_roots`           | directory prefixes tried in turn, for a language whose imports are written from a `src` root                                                                        |
+| `path_substitutions`     | prefix rewrites, for an alias that is not a directory — Rust's `crate::` under `src/`                                                                               |
+| `index_files`            | the file that stands for a directory: `__init__.py`, `index.js`, `mod.rs`, `Cargo.toml`                                                                             |
+| `package_directory`      | that a directory *is* a unit, so a reference to one reaches every file in it                                                                                        |
+| `manifest`               | a repository file whose text supplies further substitutions, read per repository                                                                                    |
+| `section_names`          | how a link's fragment compares with a section's name: as written, or folded like a heading's anchor                                                                 |
+| `parent_module`          | the word a module path starts with to climb one level, as Rust's `super`                                                                                            |
+| `current_module`         | the word a module path starts with to name the importing module itself, as Rust's `self`                                                                            |
+| `directory_module_files` | the file names that are their directory's module, as Rust's `mod.rs`, `lib.rs` and `main.rs`; any other file's child modules sit in the directory named by its stem |
+| `members_in_scope`       | that a method's unqualified names reach its class's members, as Java's and Ruby's implicit `this`                                                                   |
+| `directory_scope`        | that a directory's files see each other's top-level names without imports, as a Java or Go package                                                                  |
+| `linked_functions`       | that a function is one across files by its scope and name, as C's prototype and definition, so a call reaching one reaches each                                     |
+| `member_order`           | the order a class's bases are searched for a member it lacks: as written (`listed`), last written first (`reversed`, Ruby), or shallowest first (`nearest`, Go)     |
 
-Import `ModuleStyle` and `SectionNames` from `rbtr.domain.edge_frames`.
+Import `ModuleStyle`, `SectionNames` and `MemberOrder` from `rbtr.domain.edge_frames`.
 Record a relative module as a path prefix (`./b`, `../lib/b`) in every
 language: Python's `from ..core import x` is `../core`. Resolution reads the
 prefix as a depth from the file.
