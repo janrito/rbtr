@@ -37,17 +37,17 @@ pi install -l ./packages/pi-rbtr
 Nine tools, registered when pi loads the extension. `rbtr_status` and `rbtr_gc` start
 inactive; `rbtr_index_tools` loads them when the agent needs them:
 
-| Tool                   | Description                                                                                                                   |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `rbtr_search`          | Search by name, keyword, or concept (BM25 + semantic + name fusion). Returns a 20-line preview per hit, flagged when clipped. |
-| `rbtr_read_symbol`     | Read a symbol's full source by name                                                                                           |
-| `rbtr_list_symbols`    | Structural table of contents for a file                                                                                       |
-| `rbtr_find_refs`       | Find references via the dependency graph (imports, docs)                                                                      |
-| `rbtr_changed_symbols` | Symbols that changed between two git refs                                                                                     |
-| `rbtr_watch`           | Watch refs and keep them indexed (background, incremental)                                                                    |
-| `rbtr_index_tools`     | Load `rbtr_status` and `rbtr_gc`, which start inactive                                                                        |
-| `rbtr_status`          | Check whether the index exists and how many symbols it contains                                                               |
-| `rbtr_gc`              | Reclaim index storage. **Destructive**; previews as a dry run, and deletes only after you confirm                             |
+| Tool                   | Description                                                                                                                       |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `rbtr_search`          | Search by name, keyword, or concept (BM25 + semantic + name fusion). Returns the first 8 lines of each hit, flagged when clipped. |
+| `rbtr_read_symbol`     | Read a symbol's full source by name                                                                                               |
+| `rbtr_list_symbols`    | Structural table of contents for a file                                                                                           |
+| `rbtr_find_refs`       | Find references via the dependency graph (imports, docs)                                                                          |
+| `rbtr_changed_symbols` | Symbols that changed between two git refs                                                                                         |
+| `rbtr_watch`           | Watch refs and keep them indexed (background, incremental)                                                                        |
+| `rbtr_index_tools`     | Load `rbtr_status` and `rbtr_gc`, which start inactive                                                                            |
+| `rbtr_status`          | Check whether the index exists and how many symbols it contains                                                                   |
+| `rbtr_gc`              | Reclaim index storage. **Destructive**; previews as a dry run, and deletes only after you confirm                                 |
 
 Inside a git repository, the extension also adds a one-line note to the system prompt,
 so the agent knows the index is there without being told: rbtr tools to find code by
@@ -278,7 +278,7 @@ The `command` setting determines how `rbtr` is called:
 | `"uvx --from <path>"` | `uvx --from <path> rbtr --json <cmd>` | Local development from a directory          |
 
 The extension validates the command on session start and
-shows an error with install instructions if it fails.
+shows a warning with install instructions if it fails.
 
 ## Development
 
