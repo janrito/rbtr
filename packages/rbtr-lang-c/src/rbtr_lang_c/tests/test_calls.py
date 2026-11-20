@@ -10,15 +10,33 @@ from pathlib import Path
 
 import pytest
 
-
-@pytest.fixture(scope="module")
-def sample_dir() -> Path:
-    return Path(__file__).parent / "samples" / "calls" / "prototype"
+from rbtr.testing import Indexed
+from rbtr.testing.assertions import Referrer, Target, assert_reached
 
 
-def test_a_call_reaches_the_prototype_and_the_definition(sample_edges: list[str]) -> None:
-    """`helper()` in `main.c` calls `util.h`'s prototype and the `helper` `util.c` defines."""
-    assert [e for e in sample_edges if e.startswith("main.c::run ->")] == [
-        "main.c::run -> util.c::helper [calls]",
-        "main.c::run -> util.h::helper [calls]",
-    ]
+@pytest.mark.parametrize(
+    ("sample", "reached"),
+    [
+        # `helper()` in `main.c` calls `util.h`'s prototype and the `helper` `util.c` defines.
+        pytest.param(
+            "prototype",
+            {
+                ("util.c", "helper"): {("main.c", "run", "calls")},
+                ("util.h", "helper"): {
+                    ("main.c", '#include "util.h"', "imports"),
+                    ("main.c", "run", "calls"),
+                    ("util.c", '#include "util.h"', "imports"),
+                },
+            },
+            id="a-call-reaches-the-prototype-and-the-definition",
+        ),
+    ],
+)
+def test_each_target_is_reached_by_exactly_the_chunks_named(
+    indexed: Indexed,
+    sample: str,
+    reached: dict[Target, set[Referrer]],
+) -> None:
+    """Each target `(path, symbol)` of the sample under `samples/calls/` is reached by exactly the chunks named, by any edge."""
+    with indexed(Path(__file__).parent / "samples" / "calls" / sample) as index:
+        assert_reached(index, reached)

@@ -11,18 +11,36 @@ from pathlib import Path
 
 import pytest
 
-
-@pytest.fixture(scope="module")
-def sample_dir() -> Path:
-    return Path(__file__).parent / "samples" / "imports" / "ref"
+from rbtr.testing import Indexed
+from rbtr.testing.assertions import Referrer, Target, assert_reached
 
 
-def test_a_ref_reaches_the_key_its_pointer_names(sample_edges: list[str]) -> None:
-    assert (
-        'schema.json::"$ref": "defs.json#/definitions/Named" -> defs.json::Named [imports]'
-        in sample_edges
-    )
-
-
-def test_a_pointer_alone_reaches_a_key_of_the_same_document(sample_edges: list[str]) -> None:
-    assert 'schema.json::"$ref": "#/z" -> schema.json::z [imports]' in sample_edges
+@pytest.mark.parametrize(
+    ("sample", "reached"),
+    [
+        pytest.param(
+            "ref",
+            {
+                ("defs.json", "Named"): {
+                    ("schema.json", '"$ref": "defs.json#/definitions/Named"', "imports")
+                },
+            },
+            id="a-ref-reaches-the-key-its-pointer-names",
+        ),
+        pytest.param(
+            "ref",
+            {
+                ("schema.json", "z"): {("schema.json", '"$ref": "#/z"', "imports")},
+            },
+            id="a-pointer-alone-reaches-a-key-of-the-same-document",
+        ),
+    ],
+)
+def test_each_target_is_reached_by_exactly_the_chunks_named(
+    indexed: Indexed,
+    sample: str,
+    reached: dict[Target, set[Referrer]],
+) -> None:
+    """Each target `(path, symbol)` of the sample under `samples/imports/` is reached by exactly the chunks named, by any edge."""
+    with indexed(Path(__file__).parent / "samples" / "imports" / sample) as index:
+        assert_reached(index, reached)

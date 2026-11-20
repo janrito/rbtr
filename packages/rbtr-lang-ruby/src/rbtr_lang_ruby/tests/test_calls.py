@@ -17,80 +17,134 @@ from pathlib import Path
 
 import pytest
 
-
-@pytest.fixture(scope="module")
-def sample_dir(request: pytest.FixtureRequest) -> Path:
-    return Path(__file__).parent / "samples" / "calls" / str(request.param)
+from rbtr.testing import Indexed
+from rbtr.testing.assertions import Referrer, Target, assert_reached
 
 
-@pytest.mark.parametrize("sample_dir", ["bare-super"], indirect=True)
-def test_a_bare_super_reaches_the_bases_method_of_the_same_name(sample_edges: list[str]) -> None:
-    """`super` in `Order#save` calls `Model#save`."""
-    assert "order.rb::save -> order.rb::save [calls]" in sample_edges
-
-
-@pytest.mark.parametrize("sample_dir", ["no-parentheses"], indirect=True)
-def test_a_call_with_no_parentheses_reaches_the_method(sample_edges: list[str]) -> None:
-    """`check` alone in `save` calls `Order#check`."""
-    assert "order.rb::save -> order.rb::check [calls]" in sample_edges
-
-
-@pytest.mark.parametrize("sample_dir", ["describe-block"], indirect=True)
-def test_a_constructor_call_reaches_the_class_not_its_spec(sample_edges: list[str]) -> None:
-    """`Greeter.new` reaches `class Greeter` alone, not `RSpec.describe Greeter`."""
-    calls = [edge for edge in sample_edges if edge.startswith("greeter.rb::build ->")]
-    assert calls == ["greeter.rb::build -> greeter.rb::Greeter [calls]"]
-
-
-@pytest.mark.parametrize("sample_dir", ["member-order"], indirect=True)
-def test_an_override_hides_its_superclasss_method(sample_edges: list[str]) -> None:
-    """`Special < Order < Base`, `Order#save` overriding: `self.save` is `Order#save`."""
-    assert [e for e in sample_edges if e.startswith("override/special.rb::run ->")] == [
-        "override/special.rb::run -> override/base.rb::check [calls]",
-        "override/special.rb::run -> override/order.rb::save [calls]",
-    ]
-
-
-@pytest.mark.parametrize("sample_dir", ["member-order"], indirect=True)
-def test_the_last_included_module_wins(sample_edges: list[str]) -> None:
-    """`include A` then `include B`, both defining `m`: `self.m` is `B#m`."""
-    assert [e for e in sample_edges if e.startswith("include/c.rb::run ->")] == [
-        "include/c.rb::run -> include/b.rb::m [calls]"
-    ]
-
-
-@pytest.mark.parametrize("sample_dir", ["member-order"], indirect=True)
-def test_an_included_module_precedes_the_superclass(sample_edges: list[str]) -> None:
-    """`C < Base` with `include Mixin`, both defining `m`: `self.m` is `Mixin#m`."""
-    assert [e for e in sample_edges if e.startswith("superclass/c.rb::run ->")] == [
-        "superclass/c.rb::run -> superclass/mixin.rb::m [calls]"
-    ]
-
-
-@pytest.mark.parametrize("sample_dir", ["member-order"], indirect=True)
-def test_a_later_module_precedes_an_earlier_modules_module(sample_edges: list[str]) -> None:
-    """`include A` (which includes `X`) then `include B`, `X` and `B` defining `m`: ancestors C, B, A, X, so `B#m`."""
-    assert [e for e in sample_edges if e.startswith("deeper/c.rb::run ->")] == [
-        "deeper/c.rb::run -> deeper/b.rb::m [calls]"
-    ]
-
-
-@pytest.mark.parametrize("sample_dir", ["member-order"], indirect=True)
-def test_a_diamonds_shared_module_comes_last(sample_edges: list[str]) -> None:
-    """`include Left` then `include Right`, both including `Top`, `Right#m` overriding: `self.m` is `Right#m`."""
-    assert [e for e in sample_edges if e.startswith("diamond/bottom.rb::run ->")] == [
-        "diamond/bottom.rb::run -> diamond/right.rb::m [calls]"
-    ]
-
-
-@pytest.mark.parametrize("sample_dir", ["member-order"], indirect=True)
-@pytest.mark.xfail(
-    strict=True,
-    reason="Ruby searches bases last written first, but one `include` listing "
-    "several modules puts its first module first",
+@pytest.mark.parametrize(
+    ("sample", "reached"),
+    [
+        # `super` in `Order#save` calls `Model#save`.
+        pytest.param(
+            "bare-super",
+            {
+                ("order.rb", "save"): {("order.rb", "save", "calls")},
+            },
+            id="a-bare-super-reaches-the-bases-method-of-the-same-name",
+        ),
+        # `check` alone in `save` calls `Order#check`.
+        pytest.param(
+            "no-parentheses",
+            {
+                ("order.rb", "check"): {("order.rb", "save", "calls")},
+            },
+            id="a-call-with-no-parentheses-reaches-the-method",
+        ),
+        # `Greeter.new` reaches `class Greeter` alone, not `RSpec.describe Greeter`.
+        pytest.param(
+            "describe-block",
+            {
+                ("greeter.rb", "Greeter"): {("greeter.rb", "build", "calls")},
+            },
+            id="a-constructor-call-reaches-the-class-not-its-spec",
+        ),
+        # `Special < Order < Base`, `Order#save` overriding: `self.save` is `Order#save`.
+        pytest.param(
+            "member-order",
+            {
+                ("override/base.rb", "check"): {
+                    ("override/base.rb", "save", "calls"),
+                    ("override/order.rb", 'require_relative "base"', "imports"),
+                    ("override/special.rb", "run", "calls"),
+                },
+                ("override/base.rb", "save"): {
+                    ("override/order.rb", 'require_relative "base"', "imports"),
+                    ("override/order.rb", "save", "calls"),
+                },
+                ("override/order.rb", "save"): {
+                    ("override/special.rb", 'require_relative "order"', "imports"),
+                    ("override/special.rb", "run", "calls"),
+                },
+            },
+            id="an-override-hides-its-superclasss-method",
+        ),
+        # `include A` then `include B`, both defining `m`: `self.m` is `B#m`.
+        pytest.param(
+            "member-order",
+            {
+                ("include/a.rb", "m"): {("include/c.rb", 'require_relative "a"', "imports")},
+                ("include/b.rb", "m"): {
+                    ("include/c.rb", 'require_relative "b"', "imports"),
+                    ("include/c.rb", "run", "calls"),
+                },
+            },
+            id="the-last-included-module-wins",
+        ),
+        # `C < Base` with `include Mixin`, both defining `m`: `self.m` is `Mixin#m`.
+        pytest.param(
+            "member-order",
+            {
+                ("superclass/base.rb", "m"): {
+                    ("superclass/c.rb", 'require_relative "base"', "imports")
+                },
+                ("superclass/mixin.rb", "m"): {
+                    ("superclass/c.rb", 'require_relative "mixin"', "imports"),
+                    ("superclass/c.rb", "run", "calls"),
+                },
+            },
+            id="an-included-module-precedes-the-superclass",
+        ),
+        # `include A` (which includes `X`) then `include B`, `X` and `B` defining `m`: ancestors C, B, A, X, so `B#m`.
+        pytest.param(
+            "member-order",
+            {
+                ("deeper/b.rb", "m"): {
+                    ("deeper/c.rb", 'require_relative "b"', "imports"),
+                    ("deeper/c.rb", "run", "calls"),
+                },
+                ("deeper/x.rb", "m"): {("deeper/a.rb", 'require_relative "x"', "imports")},
+            },
+            id="a-later-module-precedes-an-earlier-modules-module",
+        ),
+        # `include Left` then `include Right`, both including `Top`, `Right#m` overriding: `self.m` is `Right#m`.
+        pytest.param(
+            "member-order",
+            {
+                ("diamond/right.rb", "m"): {
+                    ("diamond/bottom.rb", 'require_relative "right"', "imports"),
+                    ("diamond/bottom.rb", "run", "calls"),
+                },
+                ("diamond/top.rb", "m"): {
+                    ("diamond/left.rb", 'require_relative "top"', "imports"),
+                    ("diamond/right.rb", 'require_relative "top"', "imports"),
+                },
+            },
+            id="a-diamonds-shared-module-comes-last",
+        ),
+        # `include A, B`, both defining `m`: ancestors C, A, B, so `self.m` is `A#m`.
+        pytest.param(
+            "member-order",
+            {
+                ("multi/a.rb", "m"): {
+                    ("multi/c.rb", 'require_relative "a"', "imports"),
+                    ("multi/c.rb", "run", "calls"),
+                },
+                ("multi/b.rb", "m"): {("multi/c.rb", 'require_relative "b"', "imports")},
+            },
+            id="one-include-listing-two-modules-puts-the-first-first",
+            marks=pytest.mark.xfail(
+                strict=True,
+                reason="Ruby searches bases last written first, but one `include` listing "
+                "several modules puts its first module first",
+            ),
+        ),
+    ],
 )
-def test_one_include_listing_two_modules_puts_the_first_first(sample_edges: list[str]) -> None:
-    """`include A, B`, both defining `m`: ancestors C, A, B, so `self.m` is `A#m`."""
-    assert [e for e in sample_edges if e.startswith("multi/c.rb::run ->")] == [
-        "multi/c.rb::run -> multi/a.rb::m [calls]"
-    ]
+def test_each_target_is_reached_by_exactly_the_chunks_named(
+    indexed: Indexed,
+    sample: str,
+    reached: dict[Target, set[Referrer]],
+) -> None:
+    """Each target `(path, symbol)` of the sample under `samples/calls/` is reached by exactly the chunks named, by any edge."""
+    with indexed(Path(__file__).parent / "samples" / "calls" / sample) as index:
+        assert_reached(index, reached)

@@ -1,6 +1,0 @@
-[
-  "pkg/a.py::import pkg.models -> pkg/models.py::User [imports]",
-  "pkg/a.py::import pkg.models -> pkg/models.py::load [imports]",
-  "pkg/models.py:: -> pkg/models.py::load [calls]",
-  "pkg/models.py::load -> pkg/models.py::User [calls]"
-]

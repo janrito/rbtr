@@ -14,25 +14,97 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pytest
 
-if TYPE_CHECKING:
-    from syrupy.assertion import SnapshotAssertion
+from rbtr.testing import Indexed
+from rbtr.testing.assertions import Referrer, Target, assert_reached
 
 
-@pytest.fixture(
-    scope="module",
-    params=[
-        "links",
-        "link-to-a-heading",
-        "renderer-anchors",
+@pytest.mark.parametrize(
+    ("sample", "reached"),
+    [
+        pytest.param(
+            "links",
+            {
+                ("docs/b.md", "Details"): {("docs/a.md", "b.md", "documents")},
+                ("docs/b.md", "Guide"): {("docs/a.md", "b.md", "documents")},
+                ("src/loader.py", "do_stuff"): {("docs/a.md", "../src/loader.py", "documents")},
+                ("src/loader.py", "load"): {("docs/a.md", "../src/loader.py", "documents")},
+            },
+            id="links",
+        ),
+        pytest.param(
+            "link-to-a-heading",
+            {
+                ("docs/b.md", "Details"): {("docs/a.md", "b.md#details", "documents")},
+            },
+            id="link-to-a-heading",
+        ),
+        pytest.param(
+            "renderer-anchors",
+            {
+                ("docs/guide.md", "1. Numbered heading"): {
+                    ("docs/readme.md", "guide.md#1-numbered-heading", "documents"),
+                    ("docs/readme.md", "guide.md#numbered-heading", "documents"),
+                },
+                ("docs/guide.md", "API v2.0 — Overview"): {
+                    ("docs/readme.md", "guide.md#api-v2.0-overview", "documents"),
+                    ("docs/readme.md", "guide.md#api-v20--overview", "documents"),
+                    ("docs/readme.md", "guide.md#api-v20-overview", "documents"),
+                },
+                ("docs/guide.md", "Already-hyphenated -- twice"): {
+                    ("docs/readme.md", "guide.md#already-hyphenated----twice", "documents"),
+                    ("docs/readme.md", "guide.md#already-hyphenated-twice", "documents"),
+                },
+                ("docs/guide.md", "C++ & C#"): {
+                    ("docs/readme.md", "guide.md#c--c", "documents"),
+                    ("docs/readme.md", "guide.md#c-c", "documents"),
+                },
+                ("docs/guide.md", "Café au lait"): {
+                    ("docs/readme.md", "guide.md#cafe-au-lait", "documents"),
+                    ("docs/readme.md", "guide.md#café-au-lait", "documents"),
+                },
+                ("docs/guide.md", "Duplicate"): {
+                    ("docs/readme.md", "guide.md#duplicate", "documents")
+                },
+                ("docs/guide.md", "Emoji 🎉 party"): {
+                    ("docs/readme.md", "guide.md#emoji--party", "documents"),
+                    ("docs/readme.md", "guide.md#emoji-party", "documents"),
+                },
+                ("docs/guide.md", "Getting Started"): {
+                    ("docs/readme.md", "guide.md#getting-started", "documents")
+                },
+                ("docs/guide.md", "Hello, World!"): {
+                    ("docs/readme.md", "guide.md#hello-world", "documents")
+                },
+                ("docs/guide.md", "Multiple   spaces here"): {
+                    ("docs/readme.md", "guide.md#multiple---spaces-here", "documents"),
+                    ("docs/readme.md", "guide.md#multiple-spaces-here", "documents"),
+                },
+                ("docs/guide.md", "`code` in heading"): {
+                    ("docs/readme.md", "guide.md#code-in-heading", "documents")
+                },
+                ("docs/guide.md", "snake_case_name"): {
+                    ("docs/readme.md", "guide.md#snake_case_name", "documents"),
+                    ("docs/readme.md", "guide.md#snakecasename", "documents"),
+                },
+                ("docs/guide.md", "Über Größe"): {
+                    ("docs/readme.md", "guide.md#über-größe", "documents")
+                },
+                ("docs/guide.md", "日本語の見出し"): {
+                    ("docs/readme.md", "guide.md#日本語の見出し", "documents")
+                },
+            },
+            id="renderer-anchors",
+        ),
     ],
 )
-def sample_dir(request: pytest.FixtureRequest) -> Path:
-    return Path(__file__).parent / "samples" / "imports" / str(request.param)
-
-
-def test_edges_match_snapshot(sample_edges: list[str], snapshot_json: SnapshotAssertion) -> None:
-    assert sample_edges == snapshot_json
+def test_each_target_is_reached_by_exactly_the_chunks_named(
+    indexed: Indexed,
+    sample: str,
+    reached: dict[Target, set[Referrer]],
+) -> None:
+    """Each target `(path, symbol)` of the sample under `samples/imports/` is reached by exactly the chunks named, by any edge."""
+    with indexed(Path(__file__).parent / "samples" / "imports" / sample) as index:
+        assert_reached(index, reached)

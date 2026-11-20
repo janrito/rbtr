@@ -15,39 +15,74 @@ from pathlib import Path
 
 import pytest
 
-
-@pytest.fixture(scope="module")
-def sample_dir(request: pytest.FixtureRequest) -> Path:
-    return Path(__file__).parent / "samples" / "calls" / str(request.param)
+from rbtr.testing import Indexed
+from rbtr.testing.assertions import Referrer, Target, assert_reached
 
 
-@pytest.mark.parametrize("sample_dir", ["crate-path"], indirect=True)
-@pytest.mark.xfail(
-    strict=True,
-    reason="a path's head is looked up among the names a file binds, and `crate`, "
-    "`super` and modules declared with `mod` are bound by no import",
+@pytest.mark.parametrize(
+    ("sample", "reached"),
+    [
+        # `crate::util::log()` calls `log` in `src/util.rs`.
+        pytest.param(
+            "crate-path",
+            {
+                ("src/util.rs", "log"): {
+                    ("src/main.rs", "main", "calls"),
+                    ("src/main.rs", "mod util;", "imports"),
+                },
+            },
+            id="a-call-by-its-full-path-reaches-the-function",
+            marks=pytest.mark.xfail(
+                strict=True,
+                reason="a path's head is looked up among the names a file binds, and `crate`, "
+                "`super` and modules declared with `mod` are bound by no import",
+            ),
+        ),
+        # `Order` has `save` and implements `Saver` (`save`, `describe`): `self.save()` is `Order::save`, `self.describe()` `Saver::describe`.
+        pytest.param(
+            "member-order",
+            {
+                ("src/order.rs", "save"): {
+                    ("src/main.rs", "mod order;", "imports"),
+                    ("src/order.rs", "run", "calls"),
+                },
+                ("src/saver.rs", "describe"): {
+                    ("src/main.rs", "mod saver;", "imports"),
+                    ("src/order.rs", "run", "calls"),
+                },
+                ("src/saver.rs", "save"): {("src/main.rs", "mod saver;", "imports")},
+            },
+            id="an-inherent-method-precedes-a-traits",
+        ),
+        # `trait Titled: Named`: `self.name()` in `Titled::title` is `Named::name`.
+        pytest.param(
+            "member-order",
+            {
+                ("src/named.rs", "name"): {
+                    ("src/main.rs", "mod named;", "imports"),
+                    ("src/titled.rs", "title", "calls"),
+                },
+            },
+            id="a-subtrait-reaches-its-supertraits-method",
+        ),
+        # `mod util;` binds `util` to `util.rs`: `util::log()` in `main` reaches `log`.
+        pytest.param(
+            "mod-declaration",
+            {
+                ("src/util.rs", "log"): {
+                    ("src/main.rs", "main", "calls"),
+                    ("src/main.rs", "mod util;", "imports"),
+                },
+            },
+            id="a-declared-module-is-bound-by-its-name",
+        ),
+    ],
 )
-def test_a_call_by_its_full_path_reaches_the_function(sample_edges: list[str]) -> None:
-    """`crate::util::log()` calls `log` in `src/util.rs`."""
-    assert "src/main.rs::main -> src/util.rs::log [calls]" in sample_edges
-
-
-@pytest.mark.parametrize("sample_dir", ["member-order"], indirect=True)
-def test_an_inherent_method_precedes_a_traits(sample_edges: list[str]) -> None:
-    """`Order` has `save` and implements `Saver` (`save`, `describe`): `self.save()` is `Order::save`, `self.describe()` `Saver::describe`."""
-    assert [e for e in sample_edges if e.startswith("src/order.rs::run ->")] == [
-        "src/order.rs::run -> src/order.rs::save [calls]",
-        "src/order.rs::run -> src/saver.rs::describe [calls]",
-    ]
-
-
-@pytest.mark.parametrize("sample_dir", ["member-order"], indirect=True)
-def test_a_subtrait_reaches_its_supertraits_method(sample_edges: list[str]) -> None:
-    """`trait Titled: Named`: `self.name()` in `Titled::title` is `Named::name`."""
-    assert "src/titled.rs::title -> src/named.rs::name [calls]" in sample_edges
-
-
-@pytest.mark.parametrize("sample_dir", ["mod-declaration"], indirect=True)
-def test_a_declared_module_is_bound_by_its_name(sample_edges: list[str]) -> None:
-    """`mod util;` binds `util` to `util.rs`: `util::log()` in `main` reaches `log`."""
-    assert "src/main.rs::main -> src/util.rs::log [calls]" in sample_edges
+def test_each_target_is_reached_by_exactly_the_chunks_named(
+    indexed: Indexed,
+    sample: str,
+    reached: dict[Target, set[Referrer]],
+) -> None:
+    """Each target `(path, symbol)` of the sample under `samples/calls/` is reached by exactly the chunks named, by any edge."""
+    with indexed(Path(__file__).parent / "samples" / "calls" / sample) as index:
+        assert_reached(index, reached)

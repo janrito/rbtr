@@ -17,28 +17,100 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pytest
 
-if TYPE_CHECKING:
-    from syrupy.assertion import SnapshotAssertion
+from rbtr.testing import Indexed
+from rbtr.testing.assertions import Referrer, Target, assert_reached
 
 
-@pytest.fixture(
-    scope="module",
-    params=[
-        "named-imports",
-        "bare-import",
-        "suffix-in-a-monorepo",
-        "suffix-in-two-packages",
-        "imports-that-reach-nothing",
-        "import-with-no-module",
+@pytest.mark.parametrize(
+    ("sample", "reached"),
+    [
+        pytest.param(
+            "named-imports",
+            {
+                ("pkg/models.py", "User"): {("pkg/a.py", "from .models import User", "imports")},
+                ("pkg/b.py", "Config"): {
+                    ("pkg/a.py", "from pkg.b import helper, Config", "imports")
+                },
+                ("pkg/b.py", "helper"): {
+                    ("pkg/a.py", "from pkg.b import helper, Config", "imports")
+                },
+                ("pkg/config.py", "settings"): {
+                    ("pkg/a.py", "from pkg.config import settings, high", "imports")
+                },
+                ("pkg/config.py", "high"): {
+                    ("pkg/a.py", "from pkg.config import settings, high", "imports")
+                },
+            },
+            id="named-imports",
+        ),
+        pytest.param(
+            "bare-import",
+            {
+                ("pkg/models.py", "User"): {
+                    ("pkg/a.py", "import pkg.models", "imports"),
+                    ("pkg/models.py", "load", "calls"),
+                },
+                ("pkg/models.py", "load"): {
+                    ("pkg/a.py", "import pkg.models", "imports"),
+                    ("pkg/models.py", "", "calls"),
+                },
+                ("pkg/models.py", "import os"): set(),
+            },
+            id="bare-import",
+        ),
+        pytest.param(
+            "suffix-in-a-monorepo",
+            {
+                ("packages/core/src/core/helpers.py", "assist"): {
+                    (
+                        "packages/app/src/app/main.py",
+                        "from core.helpers import assist",
+                        "imports",
+                    )
+                },
+                ("packages/core/src/core/models.py", "Model"): {
+                    ("packages/app/src/app/main.py", "from core.models import Model", "imports")
+                },
+            },
+            id="suffix-in-a-monorepo",
+        ),
+        pytest.param(
+            "suffix-in-two-packages",
+            {
+                ("packages/a/src/core/models.py", "Model"): set(),
+                ("packages/b/src/core/models.py", "Model"): set(),
+            },
+            id="suffix-in-two-packages",
+        ),
+        pytest.param(
+            "imports-that-reach-nothing",
+            {
+                ("deep/nested/helpers.py", "assist"): set(),
+                ("pkg/models.py", "User"): set(),
+                ("pkg/utils.py", "util"): set(),
+            },
+            id="imports-that-reach-nothing",
+        ),
+        pytest.param(
+            "import-with-no-module",
+            {
+                ("pkg/annotations.py", "note"): {
+                    ("pkg/a.py", "from __future__ import annotations", "imports")
+                },
+                ("pkg/annotations.py", "other"): set(),
+            },
+            id="import-with-no-module",
+        ),
     ],
 )
-def sample_dir(request: pytest.FixtureRequest) -> Path:
-    return Path(__file__).parent / "samples" / "imports" / str(request.param)
-
-
-def test_edges_match_snapshot(sample_edges: list[str], snapshot_json: SnapshotAssertion) -> None:
-    assert sample_edges == snapshot_json
+def test_an_import_reaches_what_its_form_resolves_to(
+    indexed: Indexed,
+    sample: str,
+    reached: dict[Target, set[Referrer]],
+) -> None:
+    """Each target `(path, symbol)` is reached by exactly the chunks named, by any edge."""
+    with indexed(Path(__file__).parent / "samples" / "imports" / sample) as index:
+        assert_reached(index, reached)

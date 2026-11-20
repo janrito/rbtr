@@ -8,18 +8,86 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pytest
 
-if TYPE_CHECKING:
-    from syrupy.assertion import SnapshotAssertion
+from rbtr.testing import Indexed
+from rbtr.testing.assertions import Referrer, Target, assert_reached
 
 
-@pytest.fixture(scope="module", params=["title-ids"])
-def sample_dir(request: pytest.FixtureRequest) -> Path:
-    return Path(__file__).parent / "samples" / "imports" / str(request.param)
-
-
-def test_edges_match_snapshot(sample_edges: list[str], snapshot_json: SnapshotAssertion) -> None:
-    assert sample_edges == snapshot_json
+@pytest.mark.parametrize(
+    ("sample", "reached"),
+    [
+        pytest.param(
+            "title-ids",
+            {
+                ("docs/guide.rst", "1. Numbered heading"): {
+                    (
+                        "docs/index.rst",
+                        "`numbered-heading <guide.rst#numbered-heading>`_",
+                        "documents",
+                    )
+                },
+                ("docs/guide.rst", "API v2.0 — Overview"): {
+                    (
+                        "docs/index.rst",
+                        "`api-v2-0-overview <guide.rst#api-v2-0-overview>`_",
+                        "documents",
+                    )
+                },
+                ("docs/guide.rst", "Already-hyphenated -- twice"): {
+                    (
+                        "docs/index.rst",
+                        "`already-hyphenated-twice <guide.rst#already-hyphenated-twice>`_",
+                        "documents",
+                    )
+                },
+                ("docs/guide.rst", "C++ & C#"): {
+                    ("docs/index.rst", "`c-c <guide.rst#c-c>`_", "documents")
+                },
+                ("docs/guide.rst", "Café au lait"): {
+                    ("docs/index.rst", "`cafe-au-lait <guide.rst#cafe-au-lait>`_", "documents")
+                },
+                ("docs/guide.rst", "Duplicate"): {
+                    ("docs/index.rst", "`duplicate <guide.rst#duplicate>`_", "documents")
+                },
+                ("docs/guide.rst", "Emoji 🎉 party"): {
+                    ("docs/index.rst", "`emoji-party <guide.rst#emoji-party>`_", "documents")
+                },
+                ("docs/guide.rst", "Getting Started"): {
+                    (
+                        "docs/index.rst",
+                        "`getting-started <guide.rst#getting-started>`_",
+                        "documents",
+                    )
+                },
+                ("docs/guide.rst", "Hello, World!"): {
+                    ("docs/index.rst", "`hello-world <guide.rst#hello-world>`_", "documents")
+                },
+                ("docs/guide.rst", "Multiple   spaces here"): {
+                    (
+                        "docs/index.rst",
+                        "`multiple-spaces-here <guide.rst#multiple-spaces-here>`_",
+                        "documents",
+                    )
+                },
+                ("docs/guide.rst", "snake_case_name"): {
+                    (
+                        "docs/index.rst",
+                        "`snake-case-name <guide.rst#snake-case-name>`_",
+                        "documents",
+                    )
+                },
+            },
+            id="title-ids",
+        ),
+    ],
+)
+def test_each_target_is_reached_by_exactly_the_chunks_named(
+    indexed: Indexed,
+    sample: str,
+    reached: dict[Target, set[Referrer]],
+) -> None:
+    """Each target `(path, symbol)` of the sample under `samples/imports/` is reached by exactly the chunks named, by any edge."""
+    with indexed(Path(__file__).parent / "samples" / "imports" / sample) as index:
+        assert_reached(index, reached)

@@ -15,49 +15,75 @@ from pathlib import Path
 
 import pytest
 
-
-@pytest.fixture(scope="module")
-def sample_dir(request: pytest.FixtureRequest) -> Path:
-    return Path(__file__).parent / "samples" / "calls" / str(request.param)
+from rbtr.testing import Indexed
+from rbtr.testing.assertions import Referrer, Target, assert_reached
 
 
-@pytest.mark.parametrize("sample_dir", ["receiver"], indirect=True)
-def test_a_call_through_the_receiver_reaches_the_types_method(sample_edges: list[str]) -> None:
-    """`o.check()` in `func (o *Order) Save()` calls `Order.check`."""
-    assert "order.go::Save -> order.go::check [calls]" in sample_edges
-
-
-@pytest.mark.parametrize("sample_dir", ["package-name"], indirect=True)
-@pytest.mark.xfail(
-    strict=True,
-    reason="an import binds the path's last segment; the package's declared name, "
-    "which Go binds, is in the imported files, not the import",
+@pytest.mark.parametrize(
+    ("sample", "reached"),
+    [
+        # `o.check()` in `func (o *Order) Save()` calls `Order.check`.
+        pytest.param(
+            "receiver",
+            {
+                ("order.go", "check"): {("order.go", "Save", "calls")},
+            },
+            id="a-call-through-the-receiver-reaches-the-types-method",
+        ),
+        # `import "example.com/m/strs"`, a directory holding `package util`, binds `util`.
+        pytest.param(
+            "package-name",
+            {
+                ("strs/trim.go", "Trim"): {
+                    ("main.go", '"example.com/m/strs"', "imports"),
+                    ("main.go", "run", "calls"),
+                },
+            },
+            id="an-import-binds-the-packages-declared-name",
+            marks=pytest.mark.xfail(
+                strict=True,
+                reason="an import binds the path's last segment; the package's declared name, "
+                "which Go binds, is in the imported files, not the import",
+            ),
+        ),
+        # `Special` embeds `Order` embeds `Base`, `Order.Save` hiding `Base.Save`: `s.Save()` is `Order.Save`.
+        pytest.param(
+            "member-order",
+            {
+                ("override/base.go", "Check"): {
+                    ("override/base.go", "Save", "calls"),
+                    ("override/special.go", "Run", "calls"),
+                },
+                ("override/base.go", "Save"): set(),
+                ("override/order.go", "Save"): {("override/special.go", "Run", "calls")},
+            },
+            id="an-own-method-hides-a-promoted-one",
+        ),
+        # `C` embeds `A` then `B`, `A` embeds `X`, `X` and `B` defining `M`: `c.M()` is `B.M`, depth 1.
+        pytest.param(
+            "member-order",
+            {
+                ("deeper/b.go", "M"): {("deeper/c.go", "Run", "calls")},
+                ("deeper/x.go", "M"): set(),
+            },
+            id="the-shallowest-promoted-method-wins",
+        ),
+        # `Bottom` embeds `Left` and `Right`, both embedding `Top`, `Right.M` hiding `Top.M`: `b.M()` is `Right.M`.
+        pytest.param(
+            "member-order",
+            {
+                ("diamond/right.go", "M"): {("diamond/bottom.go", "Run", "calls")},
+                ("diamond/top.go", "M"): set(),
+            },
+            id="a-diamonds-shallower-method-wins",
+        ),
+    ],
 )
-def test_an_import_binds_the_packages_declared_name(sample_edges: list[str]) -> None:
-    """`import "example.com/m/strs"`, a directory holding `package util`, binds `util`."""
-    assert "main.go::run -> strs/trim.go::Trim [calls]" in sample_edges
-
-
-@pytest.mark.parametrize("sample_dir", ["member-order"], indirect=True)
-def test_an_own_method_hides_a_promoted_one(sample_edges: list[str]) -> None:
-    """`Special` embeds `Order` embeds `Base`, `Order.Save` hiding `Base.Save`: `s.Save()` is `Order.Save`."""
-    assert [e for e in sample_edges if e.startswith("override/special.go::Run ->")] == [
-        "override/special.go::Run -> override/base.go::Check [calls]",
-        "override/special.go::Run -> override/order.go::Save [calls]",
-    ]
-
-
-@pytest.mark.parametrize("sample_dir", ["member-order"], indirect=True)
-def test_the_shallowest_promoted_method_wins(sample_edges: list[str]) -> None:
-    """`C` embeds `A` then `B`, `A` embeds `X`, `X` and `B` defining `M`: `c.M()` is `B.M`, depth 1."""
-    assert [e for e in sample_edges if e.startswith("deeper/c.go::Run ->")] == [
-        "deeper/c.go::Run -> deeper/b.go::M [calls]"
-    ]
-
-
-@pytest.mark.parametrize("sample_dir", ["member-order"], indirect=True)
-def test_a_diamonds_shallower_method_wins(sample_edges: list[str]) -> None:
-    """`Bottom` embeds `Left` and `Right`, both embedding `Top`, `Right.M` hiding `Top.M`: `b.M()` is `Right.M`."""
-    assert [e for e in sample_edges if e.startswith("diamond/bottom.go::Run ->")] == [
-        "diamond/bottom.go::Run -> diamond/right.go::M [calls]"
-    ]
+def test_each_target_is_reached_by_exactly_the_chunks_named(
+    indexed: Indexed,
+    sample: str,
+    reached: dict[Target, set[Referrer]],
+) -> None:
+    """Each target `(path, symbol)` of the sample under `samples/calls/` is reached by exactly the chunks named, by any edge."""
+    with indexed(Path(__file__).parent / "samples" / "calls" / sample) as index:
+        assert_reached(index, reached)
