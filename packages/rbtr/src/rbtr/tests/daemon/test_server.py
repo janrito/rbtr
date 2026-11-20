@@ -20,15 +20,18 @@ from pytest_mock import MockerFixture
 from rbtr.config import config
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import (
+    CollectWork,
     DaemonConfigRequest,
     ErrorCode,
     ErrorResponse,
     GcAllRequest,
     GcEndedNotification,
-    GcProgressNotification,
-    GcStartedNotification,
+    GcResponse,
+    Notification,
     OkResponse,
+    ProgressNotification,
     ShutdownRequest,
+    StatusAllRequest,
     StatusRequest,
     StatusResponse,
     notification_adapter,
@@ -38,6 +41,7 @@ from rbtr.daemon.server import Daemon
 from rbtr.domain.models import GcMode
 from rbtr.errors import DaemonBusyError, RbtrError
 from rbtr.index.index import Index
+from rbtr.index.progress import RepoProgressCallback
 from rbtr.tests.daemon.cases_server import MalformedMessage, StopScenario
 
 from .conftest import serving, subscribed
@@ -82,20 +86,66 @@ def test_multiple_requests(running_daemon: Daemon, fake_repo: str) -> None:
 
 
 def test_gc_publishes_its_start_progress_and_end(running_daemon: Daemon, fake_repo: str) -> None:
-    """A gc over every repo publishes one `gc_progress` per repo, between its start and end."""
+    """A gc over every repo publishes its start and one progress per repo as progress, then its end."""
     with subscribed(running_daemon, fake_repo) as sub:
         with DaemonClient(running_daemon.runtime_dir) as client:
             client.send(GcAllRequest(mode=GcMode.WATCHED))
-        published = []
+        published: list[Notification] = []
         while sub.poll(2000):
-            published.append(notification_adapter.validate_json(sub.recv()))
+            # The gc's notifications; others, such as an embed's progress, are skipped.
+            match notification_adapter.validate_json(sub.recv()):
+                case GcEndedNotification() | ProgressNotification(work=CollectWork()) as gc:
+                    published.append(gc)
 
-    gc_kinds = (GcStartedNotification, GcProgressNotification, GcEndedNotification)
-    assert [n for n in published if isinstance(n, gc_kinds)] == [
-        GcStartedNotification(),
-        GcProgressNotification(current=1, total=1),
+    assert published == [
+        ProgressNotification(work=CollectWork(), phase="collecting", current=0, total=0),
+        ProgressNotification(work=CollectWork(), phase="collecting", current=1, total=1),
         GcEndedNotification(),
     ]
+
+
+def test_status_lists_a_running_gc_for_every_repository(
+    running_daemon: Daemon, fake_repo: str, second_repo: str, mocker: MockerFixture
+) -> None:
+    """A gc concerns every repository, so a status for any of them lists it while it runs."""
+    started = threading.Event()
+    released = threading.Event()
+
+    def collect(*_args: object, on_progress: RepoProgressCallback, **_kwargs: object) -> GcResponse:
+        on_progress(fake_repo, 1, 2)
+        started.set()
+        assert released.wait(10), "gc was not released"
+        return GcResponse(
+            snapshots_dropped=0,
+            file_snapshots_dropped=0,
+            edges_dropped=0,
+            chunks_freed=0,
+            elapsed_seconds=0.0,
+            dry_run=True,
+        )
+
+    mocker.patch("rbtr.daemon.server.handle_gc_all", collect)
+    gc = threading.Thread(
+        target=lambda: DaemonClient(running_daemon.runtime_dir).send(
+            GcAllRequest(mode=GcMode.WATCHED)
+        )
+    )
+    gc.start()
+    try:
+        assert started.wait(10), "gc did not start"
+        with DaemonClient(running_daemon.runtime_dir) as client:
+            statuses = [
+                client.send(StatusRequest(repo_path=fake_repo)),
+                client.send(StatusRequest(repo_path=second_repo)),
+                client.send(StatusAllRequest()),
+            ]
+    finally:
+        released.set()
+        gc.join(10)
+    for status in statuses:
+        assert isinstance(status, StatusResponse)
+        [job] = [job for job in status.active if isinstance(job.work, CollectWork)]
+        assert (job.phase, job.current, job.total) == ("collecting", 1, 2)
 
 
 def test_an_idle_daemon_runs_maintenance(
@@ -124,16 +174,19 @@ def test_an_idle_daemon_runs_maintenance(
     )
     with serving(server), subscribed(server, fake_repo) as sub:
         monkeypatch.setattr(config, "maintenance_idle_s", 0.0)
-        published = []
+        published: list[Notification] = []
         while sub.poll(30_000):
-            published.append(notification_adapter.validate_json(sub.recv()))
-            if isinstance(published[-1], GcEndedNotification):
-                break
+            # The pass's notifications; others, such as an embed's progress, are skipped.
+            match notification_adapter.validate_json(sub.recv()):
+                case GcEndedNotification() as gc:
+                    published.append(gc)
+                    break
+                case ProgressNotification(work=CollectWork()) as gc:
+                    published.append(gc)
 
-    gc_kinds = (GcStartedNotification, GcProgressNotification, GcEndedNotification)
-    assert [n for n in published if isinstance(n, gc_kinds)] == [
-        GcStartedNotification(),
-        GcProgressNotification(current=1, total=1),
+    assert published == [
+        ProgressNotification(work=CollectWork(), phase="collecting", current=0, total=0),
+        ProgressNotification(work=CollectWork(), phase="collecting", current=1, total=1),
         GcEndedNotification(),
     ]
     assert gone in seeded_index.missing_since()

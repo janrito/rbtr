@@ -8,7 +8,6 @@ import contextlib
 import os
 import signal
 import threading
-import time
 from functools import partial
 from pathlib import Path
 from typing import assert_never
@@ -16,7 +15,6 @@ from typing import assert_never
 import structlog
 import zmq
 import zmq.asyncio
-from pydantic import BaseModel
 
 from rbtr import get_version
 from rbtr.config import config
@@ -47,9 +45,7 @@ from rbtr.daemon.messages import (
     ErrorResponse,
     GcAllRequest,
     GcEndedNotification,
-    GcProgressNotification,
     GcRequest,
-    GcStartedNotification,
     IndexErrorNotification,
     Notification,
     ProgressNotification,
@@ -65,23 +61,18 @@ from rbtr.index.index import Index
 from rbtr.index.indexer import (
     BuildJob,
     BuildReady,
-    CollectionPhase,
-    CollectionProgress,
+    CollectJob,
     EmbeddingEnded,
     Indexer,
     IndexerOutput,
     IndexingError,
     RunningJob,
+    WorkEnded,
 )
 from rbtr.index.reranker import Reranker
 from rbtr.languages.manager import get_manager
 
 log = structlog.get_logger(__name__)
-
-
-def _notify(sock: zmq.Socket, notification: BaseModel) -> None:
-    """Serialise a notification model and send it over a zmq socket."""
-    sock.send(notification.model_dump_json().encode())
 
 
 class Daemon:
@@ -114,7 +105,6 @@ class Daemon:
         self.rpc_addr = f"ipc://{runtime_dir / 'daemon.rpc'}"
         self.pub_addr = f"ipc://{runtime_dir / 'daemon.pub'}"
         self._zmq_ctx = zmq.asyncio.Context()
-        self._zmq_shadow: zmq.Context = zmq.Context.shadow(self._zmq_ctx)
         self._allow_missing_plugins = allow_missing_plugins
         self._index = index
         self._ready = threading.Event()
@@ -168,7 +158,7 @@ class Daemon:
             except Exception:
                 log.exception("reranker_cleanup_failed")
 
-    def _index_handlers(self, index: Index) -> dict[str, Handler]:
+    def _index_handlers(self, index: Index, indexer: Indexer) -> dict[str, Handler]:
         """Bind operations over `index` to their request kinds and resource classes."""
         return {
             "search": Handler(
@@ -194,14 +184,16 @@ class Daemon:
             ),
             "status": Handler(
                 RpcResource.READ,
-                partial(handle_status, index=index, snapshot_status=self._snapshot_status),
+                partial(handle_status, index=index, active_jobs=self._active_jobs),
             ),
             "status_all": Handler(
                 RpcResource.READ,
-                partial(handle_status_all, index=index, snapshot_status=self._snapshot_status),
+                partial(handle_status_all, index=index, active_jobs=self._active_jobs),
             ),
-            "gc": Handler(RpcResource.WRITE, partial(self._collect, index=index)),
-            "gc_all": Handler(RpcResource.WRITE, partial(self._collect, index=index)),
+            "gc": Handler(RpcResource.WRITE, partial(self._collect, index=index, indexer=indexer)),
+            "gc_all": Handler(
+                RpcResource.WRITE, partial(self._collect, index=index, indexer=indexer)
+            ),
             "unwatch": Handler(RpcResource.WRITE, partial(handle_unwatch, index=index)),
             "unwatch_stale": Handler(RpcResource.WRITE, partial(handle_unwatch_stale, index=index)),
             "unwatch_stale_all": Handler(
@@ -214,12 +206,11 @@ class Daemon:
             ),
         }
 
-    def _collect(self, request: GcRequest | GcAllRequest, index: Index) -> Response:
-        """Run foreground collection with a thread-owned notification socket."""
-        push = self._zmq_shadow.socket(zmq.PUSH)
-        push.connect("inproc://progress")
-        _notify(push, GcStartedNotification())
-        try:
+    def _collect(
+        self, request: GcRequest | GcAllRequest, index: Index, indexer: Indexer
+    ) -> Response:
+        """Collect garbage for a request, which the indexer tracks as a `CollectJob`."""
+        with indexer.track(CollectJob(), "collecting") as report:
             match request:
                 case GcRequest():
                     return handle_gc(request, index, allow_compact=True)
@@ -228,13 +219,10 @@ class Daemon:
                         request,
                         index,
                         allow_compact=True,
-                        on_progress=lambda _repo_path, done, total: _notify(
-                            push, GcProgressNotification(current=done, total=total)
+                        on_progress=lambda _repo_path, done, total: report(
+                            "collecting", done, total
                         ),
                     )
-        finally:
-            _notify(push, GcEndedNotification())
-            push.close()
 
     def wait_ready(self, timeout: float = 5.0) -> bool:
         """Wait up to `timeout` seconds for bound sockets and published discovery.
@@ -252,41 +240,31 @@ class Daemon:
         index's tables were missing, and any build creates them.  Called
         from `to_thread`: it reads the store.
         """
-        run = self._indexer.snapshot() if self._indexer is not None else None
-        active = run.work if run is not None and isinstance(run.work, BuildJob) else None
+        runs = self._indexer.snapshot() if self._indexer is not None else []
+        builds = [run.work for run in runs if isinstance(run.work, BuildJob)]
         if missing is None:
-            return active is not None
+            return bool(builds)
         # A snapshot was named, so a handler read the store: it is open.
         index = self._index
         if index is None:
             return False
-        building_it = (
-            active is not None
-            and missing.snapshot_sha in active.refs
-            and active.repo_path == missing.repo_path
+        building_it = any(
+            missing.snapshot_sha in build.refs and build.repo_path == missing.repo_path
+            for build in builds
         )
         if building_it:
             return True
         repo = index.find_repo(missing.repo_path)
         return repo is not None and missing.ref in index.watched_refs(repo)
 
-    def _snapshot_status(
-        self,
-        path: str | None,
-    ) -> tuple[ActiveJob | None, ActiveJob | None]:
-        """Return detached build/embed status from one run, filtered by repository."""
-        run = self._indexer.snapshot() if self._indexer is not None else None
-        if run is None or path not in (None, run.work.repo_path):
-            return None, None
-        active = ActiveJob(
-            repo_path=run.work.repo_path,
-            ref="" if isinstance(run.work, BuildJob) else run.work.at.snapshot_sha,
-            phase=run.phase,
-            current=run.current,
-            total=run.total,
-            elapsed_seconds=time.monotonic() - run.started_at,
-        )
-        return (active, None) if isinstance(run.work, BuildJob) else (None, active)
+    def _active_jobs(self, path: str | None) -> list[ActiveJob]:
+        """The work running for the repository at *path*, or every one at `None`, and work naming none."""
+        runs = self._indexer.snapshot() if self._indexer is not None else []
+        return [
+            ActiveJob.model_validate(run, from_attributes=True)
+            for run in runs
+            if path is None or run.work.repo_path in (None, path)
+        ]
 
     def request_shutdown(self) -> None:
         """Request stop without waiting; safe to call repeatedly from any thread."""
@@ -377,7 +355,7 @@ class Daemon:
                 idle_poll_interval=self._idle_poll_interval,
                 busy_poll_interval=self._busy_poll_interval,
             )
-            handlers.update(self._index_handlers(index))
+            handlers.update(self._index_handlers(index, indexer))
         self._indexer = indexer
         rpc = RPC(
             ctx,
@@ -458,12 +436,7 @@ class Daemon:
         notification: Notification
         match output:
             case RunningJob():
-                notification = ProgressNotification(
-                    repo_path=output.work.repo_path,
-                    phase=output.phase,
-                    current=output.current,
-                    total=output.total,
-                )
+                notification = ProgressNotification.model_validate(output, from_attributes=True)
             case BuildReady():
                 notification = ReadyNotification(
                     repo_path=output.at.repo.repo_path,
@@ -489,12 +462,8 @@ class Daemon:
                 notification = AutoRebuildNotification(
                     repo_path=output.repo_path, new_ref=output.snapshot_sha
                 )
-            case CollectionPhase.STARTED:
-                notification = GcStartedNotification()
-            case CollectionPhase.ENDED:
+            case WorkEnded():
                 notification = GcEndedNotification()
-            case CollectionProgress():
-                notification = GcProgressNotification(current=output.current, total=output.total)
             case _:
                 assert_never(output)
         await self._notify_push.send(notification.model_dump_json().encode())

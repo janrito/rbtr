@@ -8,7 +8,7 @@
  * driven by these verdicts.
  */
 
-import type { ErrorResponse, StatusResponse } from "./generated/protocol.js";
+import type { ErrorResponse, Notification, StatusResponse } from "./generated/protocol.js";
 
 export type DaemonFailureKind =
   | "db-locked" // the index DB is held by another process
@@ -62,4 +62,15 @@ export function decideStartupDecision(
   }
   if (status.state === "indexed" || status.state === "ref_not_indexed") return { kind: "indexed" };
   return { kind: "empty", index: autoIndex };
+}
+
+/**
+ * The repository a notification concerns, or `null` for work that
+ * concerns every repository, such as a gc.
+ */
+export function notificationRepo(notification: Notification): string | null {
+  if (notification.kind === "progress") {
+    return notification.work.kind === "collect" ? null : notification.work.repo_path;
+  }
+  return "repo_path" in notification ? notification.repo_path : null;
 }

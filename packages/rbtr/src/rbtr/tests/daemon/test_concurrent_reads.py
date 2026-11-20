@@ -21,6 +21,7 @@ import pytest
 
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import (
+    BuildWork,
     ErrorResponse,
     SearchRequest,
     SearchResponse,
@@ -120,13 +121,15 @@ def running_daemon(
 def _wait_for_build_start(client: DaemonClient, repo_path: Path, deadline_s: float) -> None:
     """Poll `rbtr status` until the build worker has a repo active.
 
-    Returns when `active_build` is set *or* the index exists;
+    Returns when a build is active *or* the index exists;
     raises `TimeoutError` if neither happens within *deadline_s*.
     """
     deadline = time.monotonic() + deadline_s
     while time.monotonic() < deadline:
         resp = client.send(StatusRequest(repo_path=str(repo_path)))
-        if isinstance(resp, StatusResponse) and resp.active_build is not None:
+        if isinstance(resp, StatusResponse) and any(
+            isinstance(job.work, BuildWork) for job in resp.active
+        ):
             return
         time.sleep(0.05)
     msg = "build worker never became active"

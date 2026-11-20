@@ -146,7 +146,7 @@ def test_initial_work_keeps_its_borrowed_index_open(
         counts = index_for_indexer.chunk_counts_for_snapshot(at=at)
         assert counts.total > 0
         assert counts.is_fully_embedded
-    assert indexer.snapshot() is None
+    assert indexer.snapshot() == []
 
 
 def test_a_wake_racing_startup_runs_stored_work(

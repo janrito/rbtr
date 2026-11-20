@@ -262,8 +262,8 @@ def handle_changed_symbols(request: ChangedSymbolsRequest, index: Index) -> Chan
     )
 
 
-# The active build and embed of the repo at a path, or of any repo for `None`.
-type SnapshotStatusFn = Callable[[str | None], tuple[ActiveJob | None, ActiveJob | None]]
+type ActiveJobsFn = Callable[[str | None], list[ActiveJob]]
+"""The work running for the repository at a path, or for every one at `None`."""
 
 
 def _indexed_refs(counted: Mapping[SnapshotRef, SnapshotCounts]) -> list[IndexedRef]:
@@ -318,7 +318,7 @@ def _watched_for_repo(index: Index, repo: Repo) -> list[WatchedRef]:
 def handle_status(
     request: StatusRequest,
     index: Index,
-    snapshot_status: SnapshotStatusFn | None = None,
+    active_jobs: ActiveJobsFn | None = None,
 ) -> StatusResponse:
     """Report index status for the repo at `request.repo_path`."""
     repo = index.find_repo(request.repo_path)
@@ -330,8 +330,7 @@ def handle_status(
             db_size_bytes=index.disk_size_bytes(),
             indexed_refs=[],
             watched=[],
-            active_build=None,
-            active_embed=None,
+            active=active_jobs(request.repo_path) if active_jobs is not None else [],
         )
     return _status(
         index,
@@ -339,14 +338,14 @@ def handle_status(
         request.repo_path,
         [repo],
         index.chunk_counts_by_snapshot(repo=repo),
-        snapshot_status(request.repo_path) if snapshot_status is not None else (None, None),
+        active_jobs(request.repo_path) if active_jobs is not None else [],
     )
 
 
 def handle_status_all(
     _request: StatusAllRequest,
     index: Index,
-    snapshot_status: SnapshotStatusFn | None = None,
+    active_jobs: ActiveJobsFn | None = None,
 ) -> StatusResponse:
     """Report index status for every indexed repo."""
     repos = index.repos()
@@ -363,7 +362,7 @@ def handle_status_all(
         None,
         repos,
         counted,
-        snapshot_status(None) if snapshot_status is not None else (None, None),
+        active_jobs(None) if active_jobs is not None else [],
     )
 
 
@@ -384,7 +383,7 @@ def _status(
     repo_path: str | None,
     repos: list[Repo],
     counted: Mapping[SnapshotRef, SnapshotCounts],
-    active: tuple[ActiveJob | None, ActiveJob | None],
+    active: list[ActiveJob],
 ) -> StatusResponse:
     """The status of *repos*, given their *counted* snapshots and the *active* jobs."""
     return StatusResponse(
@@ -399,8 +398,7 @@ def _status(
             for repo in repos
             if (count := untracked_file_count(repo.repo_path)) > config.max_untracked_files
         },
-        active_build=active[0],
-        active_embed=active[1],
+        active=active,
     )
 
 

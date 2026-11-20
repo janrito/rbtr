@@ -1218,10 +1218,10 @@ that no longer resolves (never purged — forgetting it is a separate,
 explicit action; see below) or an unborn HEAD, which `run_gc` raises on
 and which must not end a pass over every other repo. Each repo is
 reported through `on_progress` as it is collected: inline, as a bar on
-stderr; from the daemon, as a `gc_progress` notification between
-`gc_started` and `gc_ended`, which is sent however gc ends. None of
-the three names a repo, since one gc covers many, and none touches a
-running build's progress.
+stderr; from the daemon, as `progress` notifications whose work is
+`collect`, the first sent as it starts, and then `gc_ended`, which is
+sent however gc ends. None of them names a repo, since one gc covers
+many, and none touches a running build's progress.
 
 **Forgetting a repo** removes it entirely from the index, undoing what
 [registration](#repo-registration) set up (`Store.forget`).
@@ -1278,7 +1278,7 @@ The rebuild writes each index in the loaded FTS extension's format, so
 an index another DuckDB built, which may search far slower, is
 replaced within one pass of an upgrade, without rbtr detecting which
 DuckDB built it. It costs about 1.6 s for an index of eight files. A pass
-is published as a gc (`gc_started`, `gc_progress` per repo,
+is published as a gc (`progress` with `collect` work, per repo, then
 `gc_ended`), which clients already show, and logged as
 `maintenance_started` and `maintenance_finished` with what it
 did. The same task deletes the files compactions replaced, every
@@ -1718,8 +1718,10 @@ background worker is currently trying to do. A build can be selected but
 still waiting for writer access, so an active job is not proof that its
 native computation has begun.
 
-The worker keeps one immutable snapshot of its current run. Run identity,
-start time and progress are replaced together, allowing a status reader on
+The indexer keeps an immutable record of each running job: the build or
+embed it selected, and any gc run through `track`. A gc can
+run beside an embed, which writes only between batches. A record's
+identity, start time and progress are replaced together, allowing a status reader on
 another thread to capture a coherent answer under a short lock. Holding
 that lock only for capture and replacement keeps status independent of
 long database operations. Updates are associated with their originating
@@ -1732,7 +1734,8 @@ to finish. That wait lets shutdown account for both native work and the
 output it can still produce before disposing of the transport.
 
 Indexer reports internal typed values rather than public wire messages.
-Daemon translates them for the notification channel. This boundary lets
+Daemon translates them for the notification channel; a job's `kind`,
+`repo_path` and `ref` are the protocol's `work` fields. This boundary lets
 background indexing have a different output consumer while leaving the
 public protocol under the runtime's control. The protocol reference below
 defines the external messages.
@@ -1958,15 +1961,19 @@ one, this one but not the snapshot a read without a ref would use (`resolve_read
 falls back to the latest indexed commit), or that snapshot. The daemon computes it where
 the index is read, so the CLI, the footer and the status tool word the same four cases
 alike. Per-ref state is grouped in `IndexedRef` (sha, symbolic names, chunk count, embed
-completeness) — a single list rather than parallel maps. `active_build` and
-`active_embed` share the same `ActiveJob` type; the field name distinguishes them. Both
-are filtered to the requested repo so a status query never leaks activity from unrelated
-repos. Text renderers (CLI, TUI, LLM) derive output solely from the response model —
-never from external state like config. `watched` lists the repo's watch set (each
+completeness) — a single list rather than parallel maps. `active` lists the work running
+now, each an `ActiveJob` whose `work` says what it does and to what: a build or an embed
+names its repo and snapshot, and a gc names none. Work on a snapshot is filtered to the
+requested repo, so a status query never leaks activity from unrelated repos; work that
+names no repo concerns every client and is listed in every status. Text renderers (CLI,
+TUI, LLM) derive output solely from the response model — never from external state like
+config. `watched` lists the repo's watch set (each
 `WatchedRef` carries the resolved sha and whether it is indexed yet).
 
-PUB carries build/embedding progress and completion, automatic rebuilds,
-index errors and collection start/progress/end notifications. The
+PUB carries progress, in one form for all background work (`progress`, whose
+`work` is the same union `ActiveJob` carries), the end of each kind of work
+(`ready` for a build, `embed_ended` for an embed, `gc_ended` for a gc), automatic
+rebuilds and index errors. The
 [`Notification` union](src/rbtr/daemon/messages.py) defines the payloads.
 Snapshot `ready` reports indexed chunks, embedded chunks and edges; it
 establishes snapshot readiness for reads, while its counts can still show
@@ -2400,6 +2407,15 @@ so `--scope all` would fail outside a git repository, and it lets a
 `ref` or a single-repo gc mode ride along unread. The CLI
 keeps its `--scope` flag and pi its `scope` argument; each picks the
 request kind.
+
+**One form for background work, one end per kind.** Status
+(`ActiveJob`) and `progress` notifications carry a `work` union with one
+member per kind, saying what the work does and to what, so a gc on a
+snapshot cannot be expressed. Each kind keeps its own end notification
+(`ready`, `embed_ended`, `gc_ended`), because each
+carries that work's result. Separate start and progress notifications
+per kind would need a new form for every kind of work outside a repo,
+and status could not list them.
 
 **pydantic-settings for CLI + config.** Every setting has to
 be reachable three ways — `config.toml`, a `RBTR_` environment

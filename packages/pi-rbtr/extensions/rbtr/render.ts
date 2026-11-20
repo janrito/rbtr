@@ -493,10 +493,9 @@ export function renderStatusResult(result: ToolResult, options: { isPartial: boo
     );
   }
 
-  const job = response?.active_build;
-  if (job) lines.push(theme.fg("muted", `⟳ ${formatActiveBuild(job)}`));
-  const ej = response?.active_embed;
-  if (ej) lines.push(theme.fg("muted", `\u21BB ${formatActiveEmbed(ej)}`));
+  for (const job of response?.active ?? []) {
+    lines.push(theme.fg("muted", formatActiveJob(job)));
+  }
 
   return new Text(lines.join("\n"), 0, 0);
 }
@@ -507,15 +506,17 @@ export function formatJobCounts(job: ActiveJob): string {
   return `${job.current}/${job.total}${pct}`;
 }
 
-/** Render the running build as one line: ref, phase, progress, elapsed. */
-function formatActiveBuild(job: ActiveJob): string {
-  const progress = `${job.phase} ${formatJobCounts(job)}`;
-  return `Building: ${shortSha(job.ref)} — ${progress} — ${formatElapsed(job.elapsed_seconds)}`;
-}
-
-/** Render the running embed pass as one line: ref, progress, elapsed. */
-function formatActiveEmbed(job: ActiveJob): string {
-  return `Embedding: ${shortSha(job.ref)} — ${formatJobCounts(job)} — ${formatElapsed(job.elapsed_seconds)}`;
+/** Render one piece of running work as one line: what, progress, elapsed. */
+function formatActiveJob(job: ActiveJob): string {
+  const elapsed = formatElapsed(job.elapsed_seconds);
+  switch (job.work.kind) {
+    case "build":
+      return `⟳ Building: ${shortSha(job.work.ref)} — ${job.phase} ${formatJobCounts(job)} — ${elapsed}`;
+    case "embed":
+      return `\u21BB Embedding: ${shortSha(job.work.ref)} — ${formatJobCounts(job)} — ${elapsed}`;
+    case "collect":
+      return `⟳ Collecting: ${formatJobCounts(job)} — ${elapsed}`;
+  }
 }
 
 /** Format a duration for humans: `45s`, `1m05s`. */

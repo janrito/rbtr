@@ -30,9 +30,13 @@ from rich.text import Text
 from rbtr.config import config
 from rbtr.daemon.dto import RefOut, SearchHitOut, SymbolOut, SymbolRefOut
 from rbtr.daemon.messages import (
+    ActiveJob,
+    BuildWork,
     ChangedSymbol,
     ChangedSymbolsResponse,
+    CollectWork,
     DaemonConfigResponse,
+    EmbedWork,
     ErrorCode,
     ErrorResponse,
     FindRefsResponse,
@@ -538,21 +542,22 @@ def _render_status_response(response: StatusResponse) -> None:
             f"[yellow]![/]  {count} untracked files in {repo_path} not indexed \
 (over max_untracked_files): add their directories to .gitignore or .git/info/exclude"
         )
-    if response.active_build is not None:
-        job = response.active_build
-        pct = f" ({100 * job.current / job.total:.0f}%)" if job.total > 0 else ""
-        elapsed = _format_elapsed(job.elapsed_seconds)
-        _out.print(
-            f"[cyan]⟳[/]  Building: {job.ref[:12]} — "
-            f"{job.phase} {job.current}/{job.total}{pct} — {elapsed}"
-        )
-    if response.active_embed is not None:
-        ej = response.active_embed
-        pct = f" ({100 * ej.current / ej.total:.0f}%)" if ej.total > 0 else ""
-        elapsed = _format_elapsed(ej.elapsed_seconds)
-        _out.print(
-            f"[magenta]↻[/]  Embedding: {ej.ref[:12]} — {ej.current}/{ej.total}{pct} — {elapsed}"
-        )
+    for job in response.active:
+        _out.print(_fmt_active(job))
+
+
+def _fmt_active(job: ActiveJob) -> str:
+    """Render one piece of running work as a single line: what, how far, how long."""
+    pct = f" ({100 * job.current / job.total:.0f}%)" if job.total > 0 else ""
+    counts = f"{job.current}/{job.total}{pct}"
+    elapsed = _format_elapsed(job.elapsed_seconds)
+    match job.work:
+        case BuildWork():
+            return f"[cyan]⟳[/]  Building: {job.work.ref[:12]} — {job.phase} {counts} — {elapsed}"
+        case EmbedWork():
+            return f"[magenta]↻[/]  Embedding: {job.work.ref[:12]} — {counts} — {elapsed}"
+        case CollectWork():
+            return f"[cyan]⟳[/]  Collecting: {counts} — {elapsed}"
 
 
 def _render_watch_set_response(response: WatchSetResponse) -> None:
