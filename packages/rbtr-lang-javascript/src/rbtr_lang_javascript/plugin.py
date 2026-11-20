@@ -29,9 +29,14 @@ from rbtr.languages.registration import (
     load_query,
 )
 
-_SHARED_QUERIES = load_query(__package__, "shared") + load_query(__package__, "variables")
-_JS_QUERY = load_query(__package__, "javascript") + _SHARED_QUERIES
+_SHARED_QUERIES = (
+    load_query(__package__, "shared")
+    + load_query(__package__, "variables")
+    + load_query(__package__, "references")
+)
+_JS_QUERY = load_query(__package__, "javascript") + _SHARED_QUERIES + load_query(__package__, "jsx")
 _TS_QUERY = load_query(__package__, "typescript") + _SHARED_QUERIES
+_TSX_QUERY = _TS_QUERY + load_query(__package__, "jsx")
 
 
 # Shared by the JavaScript and TypeScript plugins.
@@ -51,7 +56,7 @@ javascript = LanguageRegistration(
     index_files=frozenset({"index.js"}),
     import_targets=frozenset({"javascript", "css"}),
     source_roots=("", "src"),
-    extraction_serial=10,
+    extraction_serial=11,
 )
 typescript = LanguageRegistration(
     id="typescript",
@@ -78,7 +83,7 @@ typescript = LanguageRegistration(
     index_files=frozenset({"index.ts", "index.js"}),
     import_targets=frozenset({"typescript", "tsx", "javascript", "css"}),
     source_roots=("", "src"),
-    extraction_serial=10,
+    extraction_serial=11,
 )
 tsx = LanguageRegistration(
     id="tsx",
@@ -86,7 +91,7 @@ tsx = LanguageRegistration(
     grammar_module="tree_sitter_typescript",
     grammar_entry="language_tsx",
     extraction=QueryExtraction(
-        query=_TS_QUERY,
+        query=_TSX_QUERY,
         scope_types=frozenset(
             {
                 "class_declaration",
@@ -105,5 +110,5 @@ tsx = LanguageRegistration(
     index_files=frozenset({"index.tsx", "index.ts", "index.js"}),
     import_targets=frozenset({"tsx", "typescript", "javascript", "css"}),
     source_roots=("", "src"),
-    extraction_serial=7,
+    extraction_serial=8,
 )

@@ -34,3 +34,11 @@
 (abstract_method_signature
   name: (property_identifier) @_method_name) @method
 
+
+; A class's base, for inherits edges: `extends B`; `implements` names
+; interfaces, not bases.
+(extends_clause
+  value: [
+    (identifier)
+    (member_expression)
+  ] @_base)

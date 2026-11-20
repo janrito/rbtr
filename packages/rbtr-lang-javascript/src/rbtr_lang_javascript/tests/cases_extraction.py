@@ -473,6 +473,118 @@ def case_js_nested_object_xfail() -> SymbolCase:
     return "javascript", "const {a: {b}} = x;\n", [("variable", "b", "")]
 
 
+type ReferencesCase = tuple[str, str, list[tuple[str, str, list[str], list[str]]]]
+
+
+@case(tags=["references"])
+def case_js_calls_and_bases() -> ReferencesCase:
+    """Each call shape, a base by name and by path, and the receivers `this` and `super`."""
+    src = """\
+import { b as local } from './ui';
+import * as utils from '../utils';
+
+class Order extends Base {
+  save() {
+    super.save();
+    this.check();
+    utils.log();
+    local();
+    new Foo();
+    a?.b();
+    x[0].m();
+  }
+}
+
+class Plain extends mixins.Logged {}
+"""
+    return (
+        "javascript",
+        src,
+        [
+            ("class", "Order", [], ["unqualified:Base"]),
+            (
+                "method",
+                "save",
+                [
+                    "base:save",
+                    "member:check",
+                    "unqualified:utils.log",
+                    "unqualified:local",
+                    "unqualified:Foo",
+                    "unqualified:a.b",
+                ],
+                [],
+            ),
+            ("class", "Plain", [], ["unqualified:mixins.Logged"]),
+        ],
+    )
+
+
+@case(tags=["references"])
+def case_ts_calls_and_bases() -> ReferencesCase:
+    """TypeScript's `extends` is a base and `implements` none; type arguments are not the callee."""
+    src = """\
+class Order extends Base implements Saveable {
+  total(): number {
+    return sum<number>(this.items());
+  }
+}
+"""
+    return (
+        "typescript",
+        src,
+        [
+            ("class", "Order", [], ["unqualified:Base"]),
+            ("method", "total", ["unqualified:sum", "member:items"], []),
+        ],
+    )
+
+
+@case(tags=["references"])
+def case_tsx_a_rendered_component_is_a_reference() -> ReferencesCase:
+    """`<Toolbar>`, `<Ui.Button />` and `<motion.div />` render components; `<div>` is HTML."""
+    src = """\
+export function App() {
+  return (
+    <div>
+      <Toolbar items={make()}>
+        <Ui.Button />
+      </Toolbar>
+      <motion.div />
+    </div>
+  );
+}
+"""
+    return (
+        "tsx",
+        src,
+        [
+            (
+                "function",
+                "App",
+                [
+                    "unqualified:Toolbar",
+                    "unqualified:make",
+                    "unqualified:Ui.Button",
+                    "unqualified:motion.div",
+                ],
+                [],
+            )
+        ],
+    )
+
+
+@case(tags=["references"])
+def case_jsx_a_rendered_component_is_a_reference() -> ReferencesCase:
+    """A `.jsx` component's element is a reference as in TSX."""
+    src = """\
+export function App() {
+  return <Panel><span /></Panel>;
+}
+"""
+    return "javascript", src, [("function", "App", ["unqualified:Panel"], [])]
+
+
 @case(tags=["import"])
 def case_js_import_a_dotfile_keeps_its_name() -> ImportCase:
     """import './.eslintrc': a name starting with its only dot has no extension."""

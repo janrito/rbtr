@@ -1,4 +1,5 @@
 [
   "Greeting.svelte::import { greet } from \"./greeter\"; -> greeter.ts::greet [imports]",
+  "Greeting.svelte::shout -> greeter.ts::greet [calls]",
   "src/A.svelte::import { helper } from './b.js'; -> src/b.js::helper [imports]"
 ]

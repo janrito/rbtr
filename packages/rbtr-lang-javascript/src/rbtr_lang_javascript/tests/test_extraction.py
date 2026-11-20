@@ -10,11 +10,12 @@ from pytest_cases import parametrize_with_cases
 
 from rbtr.domain.models import (
     ChunkKind,
+    EdgeKind,
     Import,
     ImportMeta,
 )
 from rbtr.git import FileEntry
-from rbtr.languages.extract import extract_file
+from rbtr.languages.extract import extract_batch, extract_file, file_rows
 
 
 @parametrize_with_cases("lang, source, expected", cases=".cases_extraction", has_tag="symbol")
@@ -82,3 +83,24 @@ export { helper } from "./b";
     imports = [(c.role.meta.module, c.content) for c in chunks if isinstance(c.role, Import)]
     assert ("./c", 'export * from "./c";') in imports
     assert ("./b", 'export { helper } from "./b";') in imports
+
+
+@parametrize_with_cases("lang, source, expected", cases=".cases_extraction", has_tag="references")
+def test_records_calls_and_bases(lang: str, source: str, expected: list) -> None:
+    """Each chunk records what it calls and a class its bases, written `lookup:a.b`."""
+    recorded = []
+    rows = extract_batch(file_rows([(FileEntry("input", "sha1", source.encode()), lang)]))
+    for row in rows.iter_rows(named=True):
+        refs = (row["metadata"] or {}).get("refs") or []
+        calls = [r for r in refs if r["kind"] == EdgeKind.CALLS]
+        bases = [r for r in refs if r["kind"] == EdgeKind.INHERITS]
+        if calls or bases:
+            recorded.append(
+                (
+                    row["kind"],
+                    row["name"],
+                    [f"{p['lookup']}:{'.'.join(p['path'])}" for p in calls],
+                    [f"{p['lookup']}:{'.'.join(p['path'])}" for p in bases],
+                )
+            )
+    assert recorded == expected
