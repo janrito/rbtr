@@ -453,8 +453,10 @@ as_packages = "false"
 name = "A plugin imports from core only rbtr.domain.models and rbtr.languages.registration"
 type = "forbidden"
 # An allow-list: all of `rbtr` is forbidden to a plugin, and the imports
-# below are the only ones allowed. Plugin tests are exempt until they read
-# rbtr through the engine (.todo/TODO-tests-through-the-engine.md).
+# below are the only ones allowed. A plugin's tests build files through the
+# engine (`rbtr.testing`'s `indexed`), read them with `rbtr.testing.reads`
+# and check them with `rbtr.testing.assertions`, so they may also import
+# those.
 source_modules = [
     "rbtr_lang_bash",
     "rbtr_lang_c",
@@ -484,6 +486,9 @@ forbidden_modules = ["rbtr"]
 ignore_imports = [
     "*.* -> rbtr.domain.models",
     "*.* -> rbtr.languages.registration",
-    "*.tests.** -> rbtr.**",
+    "*.tests.** -> rbtr.domain.models",
+    "*.tests.** -> rbtr.testing",
+    "*.tests.** -> rbtr.testing.reads",
+    "*.tests.** -> rbtr.testing.assertions",
 ]
 

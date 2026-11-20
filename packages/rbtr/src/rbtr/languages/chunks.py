@@ -1,4 +1,4 @@
-"""Chunks as rows: `chunk_rows` and `chunk_models` convert between `Chunk`s and their rows (`rbtr.domain.rules.ChunkRow`)."""
+"""Chunks as rows: `chunk_rows` converts `Chunk`s to their rows (`rbtr.domain.rules.ChunkRow`)."""
 
 from __future__ import annotations
 
@@ -53,22 +53,4 @@ def chunk_rows(chunks: Sequence[Chunk]) -> dy.DataFrame[ChunkRow]:
             .otherwise("metadata")
         )
         .pipe(ChunkRow.validate, cast=True)
-    )
-
-
-def chunk_models(rows: dy.DataFrame[ChunkRow], file_path: str) -> list[Chunk]:
-    """The rows of one file at *file_path* as `Chunk`s, in order."""
-    return Chunks.validate_python(
-        [
-            row | {"file_path": file_path}
-            for row in rows.select(
-                "blob_sha",
-                "file_language",
-                "language",
-                "scope",
-                "content",
-                role=pl.struct("kind", "name", meta="metadata"),
-                span=pl.struct(start="line_start", end="line_end"),
-            ).to_dicts()
-        ]
     )

@@ -384,19 +384,30 @@ Each plugin owns its samples, beside its code:
 exercising the constructs that plugin extracts. They are both
 worked examples of extraction and golden-tested fixtures.
 
-A plugin's `test_samples.py` builds the sample tree with
-`build_index`, as rbtr builds a repository, and compares what the
-index then holds against committed snapshots under `__snapshots__/`.
-Core's pytest plugin (`rbtr.testing`) commits and builds the sample and
-hands the tests plain values, so a plugin's tests reach neither the
-index nor its frames. The fixtures and what each snapshot shows are
-described for plugin authors in the README's
+A plugin's `test_samples.py` commits the sample and builds it as rbtr
+builds a repository (`indexed`, from core's pytest plugin
+`rbtr.testing`), then reads it as an agent does (`rbtr.testing.reads`,
+over the daemon's handlers): its outline is compared against committed
+snapshots under `__snapshots__/`, and its edges are checked as what
+reaches each target (`rbtr.testing.assertions`), the same checks every
+language test makes. A plugin's tests import from rbtr only
+`rbtr.testing` and its `reads` and `assertions`, and the models, held by
+an import-linter allow-list, so they reach neither the
+index, its frames nor the daemon's messages.
+
+`rbtr.testing.assertions` is registered for pytest's assertion
+rewriting in `rbtr.testing`'s `__init__`, so a failing check reports
+pytest's diff at the test's line: pytest finds an entry-point plugin's
+modules through its installed files, and an editable install lists
+none. How to write them is described for
+plugin authors in the README's
 [Testing the plugin](README.md#testing-the-plugin).
 
 A language's behaviour is tested in its plugin, and core's rules are
-tested without one: core pins how imports resolve and reach their
-targets on literal rows in neutral languages, and its other tests build
-only languages `rbtr` installs by default. So core's suite passes with
+tested without one: core pins module resolution's steps on literal
+rows, builds its call cases in neutral test languages over a default
+plugin's grammar, and builds its other tests in languages `rbtr`
+installs by default. So core's suite passes with
 any set of optional plugins installed, and a change to a plugin fails a
 test in that plugin.
 

@@ -286,17 +286,17 @@ class Span(BaseModel, frozen=True):
 
 
 class Chunk(BaseModel, frozen=True):
-    """A single indexed unit of code, documentation, or configuration.
+    """A single indexed unit of code, documentation, or configuration, as a chunker yields it.
 
     The model owns its identity: `scope` is composed from enclosing-scope
     segments (a list is joined into a `::` address; a string passes
-    through), and `id` is *computed* from the fields it hashes, so a
-    chunk cannot carry an id that disagrees with its own content. Every one of those fields is a stored column, so a chunk
-    read back from storage recomputes the id it was stored under.
+    through), and `id` is *computed* from the fields it hashes, the ones
+    staging hashes for its row, so a chunk cannot carry an id that
+    disagrees with the one it is stored under.
 
-    `file_path` is where this chunk was found, and is *not* part of its
-    identity: it comes from `file_snapshots` on read, and one chunk can
-    be reached at several paths.
+    `file_path` is where the chunker read it, and is *not* part of its
+    identity: one chunk can be reached at several paths, which
+    `file_snapshots` records.
 
     Frozen, because a chunk *is* its content: two with the same content
     are the same chunk, and changing one of the fields that says so makes
@@ -314,8 +314,8 @@ class Chunk(BaseModel, frozen=True):
 
     Distinct from `language`, which is the chunk's own: a python fence in
     a markdown document has `language="python"` and
-    `file_language="markdown"`. Stamped by `extract_file`, the only place
-    that knows it — a chunker is passed the language it is extracting,
+    `file_language="markdown"`. Stamped from the file's row by the
+    extraction rules (`rbtr.domain.rules`), the only place that knows it — a chunker is passed the language it is extracting,
     which for an embedded block is the block's, not the file's.
     """
     content: str

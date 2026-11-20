@@ -15,7 +15,7 @@ from __future__ import annotations
 import dataclasses
 import itertools
 import re
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Iterator, Mapping
 from functools import lru_cache
 from typing import TYPE_CHECKING, Literal, TypedDict
 
@@ -111,14 +111,6 @@ class Capture(TypedDict):
     source_end: int
 
 
-type Languages = Callable[[str], tuple[LanguageRegistration, Language | None] | None]
-"""How `read` finds a language: its registration and grammar, or None when nothing registers it.
-
-`extract_batch` injects `registered`; a test injects a registration no
-plugin installs.
-"""
-
-
 class MetadataCapture(TypedDict):
     """A `MetadataCaptureRow` as `read` builds it."""
 
@@ -163,7 +155,7 @@ class Source:
 
 
 def read(
-    files: dy.DataFrame[FileRow], languages: Languages
+    files: dy.DataFrame[FileRow],
 ) -> tuple[
     dy.DataFrame[CaptureRow],
     dy.DataFrame[MetadataCaptureRow],
@@ -179,8 +171,8 @@ def read(
     in one order per file, each checked against its schema in a lazy plan
     (cheaper than an eager check) and collected. A chunker's chunk is in its source's language
     when the chunker leaves it blank. The files whose language reads
-    nothing and hands on no block are the list. *languages* finds each
-    language.
+    nothing and hands on no block are the list. Each language is an
+    installed plugin's (`registered`).
     """
     captures: list[Capture] = []
     metadata_captures: list[MetadataCapture] = []
@@ -189,7 +181,7 @@ def read(
     numbers = itertools.count()
     rows = files.select("file", "path", "blob_sha", "language", "content").iter_rows()
     for file, path, blob_sha, file_language, content in rows:
-        registration, grammar = languages(file_language) or (None, None)
+        registration, grammar = registered(file_language) or (None, None)
         reads = registration is not None and registration.extraction is not None
         hands_on = registration is not None and registration.injection_query is not None
         if not (reads and grammar is not None) and not hands_on:
@@ -198,9 +190,7 @@ def read(
         if registration is None or grammar is None:
             continue
         orders = itertools.count()
-        for source in sources(
-            file, path, content, registration, grammar, languages, numbers, orders
-        ):
+        for source in sources(file, path, content, registration, grammar, numbers, orders):
             match source.registration.extraction:
                 case ChunkExtraction(chunker=chunker):
                     for chunk in chunker(
@@ -250,7 +240,6 @@ def sources(
     content: bytes,
     registration: LanguageRegistration,
     grammar: Language,
-    languages: Languages,
     numbers: Iterator[int],
     orders: Iterator[int],
 ) -> Iterator[Source]:
@@ -258,7 +247,7 @@ def sources(
 
     Each source is parsed once, within its ranges, and numbered from
     *numbers*; its rows are numbered from *orders*, the file's. A source hands on its blocks down to `MAX_INJECTION_DEPTH`,
-    each to a language *languages* finds with a grammar.
+    each to an installed language with a grammar.
     """
     pending: list[tuple[LanguageRegistration, Language, list[Range] | None, int]] = [
         (registration, grammar, None, 0)
@@ -269,7 +258,7 @@ def sources(
         if ranges is not None:
             parser.included_ranges = ranges
         tree = parser.parse(content)
-        blocks, holders = injections(registration, tree, languages)
+        blocks, holders = injections(registration, tree)
         yield Source(
             file, next(numbers), orders, path, content, registration, grammar, ranges, tree, holders
         )
@@ -282,15 +271,15 @@ def sources(
 
 
 def injections(
-    registration: LanguageRegistration, tree: Tree, languages: Languages
+    registration: LanguageRegistration, tree: Tree
 ) -> tuple[list[tuple[LanguageRegistration, Language, Range]], list[Node]]:
     """The blocks *registration*'s injection query hands on from *tree*, and the nodes holding them.
 
     A block's language is a static `#set! injection.language`, or a
     captured `@injection.language` hint (`injection_language`). A block
     marked by several patterns takes the language of the highest
-    `injection.priority`; an empty block, or one whose language
-    *languages* finds no grammar for, is not read. The blocks are in
+    `injection.priority`; an empty block, or one whose language has no
+    installed grammar, is not read. The blocks are in
     source order.
 
     A block counts as covered when fragments are found: its lines are the
@@ -307,7 +296,7 @@ def injections(
     holders: list[Node] = []
     for pattern, captures in QueryCursor(query).matches(tree.root_node):
         settings = query.pattern_settings(pattern)
-        static, _ = languages(settings.get("injection.language") or "") or (None, None)
+        static, _ = registered(settings.get("injection.language") or "") or (None, None)
         extraction = static.extraction if static is not None else None
         if not (isinstance(extraction, QueryExtraction) and not extraction.fragments):
             holders.extend(captures.get("injection.content", []))
@@ -323,7 +312,7 @@ def injections(
                 winner[span] = (priority, target, block.range)
     blocks: list[tuple[LanguageRegistration, Language, Range]] = []
     for _, target, block_range in winner.values():
-        target_registration, target_grammar = languages(target) or (None, None)
+        target_registration, target_grammar = registered(target) or (None, None)
         if target_registration is not None and target_grammar is not None:
             blocks.append((target_registration, target_grammar, block_range))
     return blocks, holders
