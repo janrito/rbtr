@@ -10,6 +10,7 @@ import asyncio
 import threading
 import time
 from collections.abc import Generator
+from datetime import datetime
 from pathlib import Path
 
 import duckdb
@@ -153,12 +154,12 @@ def test_status_lists_the_gc_maintenance_runs(
 ) -> None:
     """Maintenance's gc is tracked as a request's is, so status lists it while it runs."""
 
-    def maintain(*_args: object, on_progress: RepoProgressCallback, **_kwargs: object) -> None:
+    def maintain(index: Index, *, now: datetime, on_progress: RepoProgressCallback) -> None:
         on_progress(fake_repo, 1, 2)
         gc_started.set()
         assert gc_released.wait(20), "maintenance was not released"
 
-    mocker.patch("rbtr.index.indexer.run_maintenance", maintain)
+    mocker.patch("rbtr.index.indexer.run_maintenance", autospec=True, side_effect=maintain)
     monkeypatch.setattr(config, "maintenance_idle_s", 0.0)
     server = Daemon(runtime_dir, index=seeded_index, idle_poll_interval=0.2)
     with serving(server), DaemonClient(server.runtime_dir) as client:

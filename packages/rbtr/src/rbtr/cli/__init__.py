@@ -96,6 +96,7 @@ from rbtr.daemon.messages import (
     OkResponse,
     ReadSymbolRequest,
     ReadSymbolResponse,
+    Response,
     SearchAllRequest,
     SearchRequest,
     SearchResponse,
@@ -344,7 +345,7 @@ class Watch(BaseModel):
 
         self._report_watch(try_daemon(request), started=True)
 
-    def _report_watch(self, resp: object, *, started: bool) -> None:
+    def _report_watch(self, resp: Response | None, *, started: bool) -> None:
         """Print the outcome of a daemon watch (add) request."""
         suffix = " (daemon started)" if started else ""
         match resp:

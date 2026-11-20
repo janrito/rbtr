@@ -25,6 +25,7 @@ from pytest_mock import MockerFixture
 
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import (
+    GcAllRequest,
     GcEndedNotification,
     GcRequest,
     GcResponse,
@@ -140,7 +141,13 @@ def held_gc(
 ) -> None:
     """A gc request reports one repo of two collected, then waits for `gc_released`."""
 
-    def collect(*_args: object, on_progress: RepoProgressCallback, **_kwargs: object) -> GcResponse:
+    def collect(
+        request: GcAllRequest,
+        index: Index,
+        *,
+        allow_compact: bool = False,
+        on_progress: RepoProgressCallback,
+    ) -> GcResponse:
         on_progress(fake_repo, 1, 2)
         gc_started.set()
         if not gc_released.wait(20):
@@ -155,7 +162,7 @@ def held_gc(
             dry_run=True,
         )
 
-    mocker.patch("rbtr.daemon.server.handle_gc_all", collect)
+    mocker.patch("rbtr.daemon.server.handle_gc_all", autospec=True, side_effect=collect)
 
 
 @pytest.fixture
