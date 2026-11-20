@@ -7,14 +7,16 @@ from pathlib import Path
 import polars as pl
 import pygit2
 import pytest
+from dataframely.exc import ValidationError
 from pytest_mock import MockerFixture, MockType
 
 from rbtr.config import config
 from rbtr.domain.models import SnapshotRef
 from rbtr.index.build import build_index
-from rbtr.index.embed import embed_index
+from rbtr.index.embed import embed_index, embedded
 from rbtr.index.embeddings import Embedder, EmbedResult
 from rbtr.index.index import Index
+from rbtr.index.results import EmbedTextRow
 
 from ..conftest import make_commit
 
@@ -296,3 +298,15 @@ def test_build_without_embed_then_build_with_embed(
     third_embed = embed_index(index, at=repo.at(snapshot_sha), embedder=stub_embedder)
     assert third_embed == 0
     stub_embedder.embed.assert_not_called()
+
+
+def test_a_batch_whose_vectors_differ_in_length_is_rejected() -> None:
+    """One model embeds a batch, so a vector of another length is an error, not a write."""
+    batch = EmbedTextRow.validate(pl.DataFrame({"id": ["a", "b"], "text": ["x", "y"]}))
+    results = [
+        EmbedResult([0.1, 0.2, 0.3], truncated=False),
+        EmbedResult([0.4, 0.5], truncated=False),
+    ]
+
+    with pytest.raises(ValidationError):
+        embedded(batch, results)

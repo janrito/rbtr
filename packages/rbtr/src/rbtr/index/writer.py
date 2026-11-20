@@ -14,11 +14,11 @@ from rbtr.domain.models import FileSnapshot, GcCounts, Repo
 from rbtr.index import load_sql
 from rbtr.index.db import build_fts, registered_views
 from rbtr.index.staging import (
+    EmbeddingStagingRow,
     TokenisedChunk,
     serial_map_view,
     staged_chunks,
     staged_edges,
-    staged_embeddings,
     staged_file_snapshots,
 )
 from rbtr.languages.edges import InferredEdgeRow
@@ -304,25 +304,17 @@ class WriteSession:
         )
         self.insert_edges(edges, snapshot_sha=snapshot_sha)
 
-    def update_embeddings(
-        self,
-        ids: list[str],
-        embeddings: list[list[float]],
-        truncated: list[bool] | None = None,
-    ) -> None:
-        """Batch-update embedding vectors via a polars staging frame.
+    def update_embeddings(self, embeddings: dy.DataFrame[EmbeddingStagingRow]) -> None:
+        """Set each chunk's embedding and truncation flag from *embeddings*.
 
         Updates by chunk `id` globally — the embedding lives on the
         shared content-addressed chunk row.
         """
-        if not ids:
+        if embeddings.is_empty():
             return
         self._require_active()
         self._flush_chunks()
-        if truncated is None:
-            truncated = [False] * len(ids)
-        frame = staged_embeddings(ids, embeddings, truncated)
-        with registered_views(self._cursor, _emb_stg=frame) as cur:
+        with registered_views(self._cursor, _emb_stg=embeddings) as cur:
             cur.execute(_UPDATE_EMBEDDINGS_SQL)
 
     def mark_indexed(self, *, snapshot_sha: str) -> None:

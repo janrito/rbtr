@@ -42,7 +42,7 @@ from rbtr.index import load_sql
 from rbtr.index.constants import EMBEDDING_FORMAT_VERSION, SCHEMA_VERSION
 from rbtr.index.index import Index
 from rbtr.index.migrations import BringForward, FileKind, Migrate, chain, parse_calver, run
-from rbtr.index.staging import TokenisedChunk
+from rbtr.index.staging import EmbeddingStagingRow, TokenisedChunk
 
 from .cases_index_versioning import FileAfter, MigrationScenario, VersioningScenario
 from .conftest import make_chunk, make_snap
@@ -106,7 +106,14 @@ def reopened(
             if before.seeded_embeddings:
                 ids = list(before.seeded_embeddings.keys())
                 vecs = list(before.seeded_embeddings.values())
-                ws.update_embeddings(ids, vecs)
+                ws.update_embeddings(
+                    EmbeddingStagingRow.validate(
+                        pl.DataFrame({"id": ids, "embedding": vecs}).with_columns(
+                            embedding_truncated=False
+                        ),
+                        cast=True,
+                    )
+                )
         seed.close()
 
         # The schema version is the registry's; the embedding meta, the file's.
