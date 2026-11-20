@@ -35,9 +35,9 @@ from rbtr.domain.rules import (
     PlacedChunkRow,
 )
 from rbtr.languages._resolvers import NAME_CAPTURE_KEY, read_import
-from rbtr.languages.chunks import chunk_rows, last_line
+from rbtr.languages.chunks import chunk_rows
 from rbtr.languages.manager import get_manager
-from rbtr.languages.registration import ChunkExtraction, QueryExtraction
+from rbtr.languages.registration import ChunkExtraction, QueryExtraction, last_line
 
 if TYPE_CHECKING:
     from tree_sitter import Node, Tree

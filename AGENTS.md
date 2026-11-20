@@ -30,6 +30,10 @@ awkward".
 - Configuration lives in a central, transparent location.
   No hidden state scattered across the codebase.
 - Styling is defined centrally. No ad-hoc formatting.
+- **Language plugins never touch polars or dataframely**, in
+  their code or their tests. A plugin speaks core's domain
+  types and registration helpers; frames, row schemas and
+  rules are core's own. See the **`rbtr-languages`** skill.
 
 ## Style
 

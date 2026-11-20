@@ -93,6 +93,15 @@ block is read within its original file. Plugins declare language facts
 and return tree-derived values or chunks; batch frame processing belongs
 to core.
 
+**A plugin never touches polars or dataframely**, in its code or its
+tests. It imports only core's domain types (`Chunk` and its roles,
+`Span`, `ChunkKind`, the resolution enums) and the registration helpers
+(`rbtr.languages.registration`): never a frame, a row schema or a module
+that defines one. An import-linter contract in the root `pyproject.toml`
+holds it: it allows a plugin `rbtr.domain.models` and
+`rbtr.languages.registration`, and nothing else from core. A plugin's
+tests read what extraction gives in domain terms, through the engine.
+
 For embedded languages, an `injection_query` captures each block as
 `@injection.content`. Name its target with static
 `(#set! injection.language "<id>")`, or capture a hint as
@@ -317,7 +326,7 @@ the adapter (`query_captures`) reads them for every captured node:
 - **Take a span's last line from `last_line`.** Tree-sitter rows are
   0-based, so `end_point[0] + 1` is right for a node ending mid-line and
   one too many for a node that consumes its trailing newline and ends at
-  column 0 of the next row. Import `last_line` from `rbtr.languages.chunks`
+  column 0 of the next row. Import `last_line` from `rbtr.languages.registration`
   and delete any local trailing-newline correction — a compensation left
   beside it decrements twice.
 - **Non-lexical scope → `@_scope`.** Scope otherwise follows tree ancestry.

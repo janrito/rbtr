@@ -26,7 +26,7 @@ Extracted chunks::
 
 from __future__ import annotations
 
-from rbtr.domain.edge_frames import MemberOrder
+from rbtr.domain.models import MemberOrder
 from rbtr.languages.registration import (
     LanguageRegistration,
     QueryExtraction,

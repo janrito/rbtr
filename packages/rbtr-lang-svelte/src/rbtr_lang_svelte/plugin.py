@@ -25,8 +25,7 @@ from typing import TYPE_CHECKING
 from tree_sitter import Parser
 
 from rbtr.domain.models import Chunk, ChunkKind, Comment, Fragment, FragmentMeta, Section, Span
-from rbtr.languages.chunks import last_line
-from rbtr.languages.registration import LanguageRegistration, load_query
+from rbtr.languages.registration import LanguageRegistration, last_line, load_query
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

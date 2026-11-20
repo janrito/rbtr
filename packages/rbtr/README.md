@@ -851,10 +851,11 @@ declares how that string names files for its language:
 | `linked_functions`       | that a function is one across files by its scope and name, as C's prototype and definition, so a call reaching one reaches each                                     |
 | `member_order`           | the order a class's bases are searched for a member it lacks: as written (`listed`), last written first (`reversed`, Ruby), or shallowest first (`nearest`, Go)     |
 
-Import `ModuleStyle`, `SectionNames` and `MemberOrder` from `rbtr.domain.edge_frames`.
-Record a relative module as a path prefix (`./b`, `../lib/b`) in every
-language: Python's `from ..core import x` is `../core`. Resolution reads the
-prefix as a depth from the file.
+Import `ModuleStyle`, `SectionNames` and `MemberOrder` from `rbtr.domain.models`.
+Record a module as the language writes it: `./b` and `../lib/b` for a
+path, Python's `..core` for a dotted module, Rust's `super::b` with its
+parent word. Resolution reads the prefix as a depth from the file, by the
+language's `module_style` and module words.
 
 A path-style reference is tried beside its source after root lookup, so
 `@import "b.css"` in `css/a.css` reaches `css/b.css` when root lookup finds
@@ -902,8 +903,7 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING
 from tree_sitter import Parser
 from rbtr.domain.models import Chunk, ChunkKind, Section, Span
-from rbtr.languages.chunks import last_line
-from rbtr.languages.registration import LanguageRegistration
+from rbtr.languages.registration import LanguageRegistration, last_line
 
 if TYPE_CHECKING:
     from tree_sitter import Language, Range

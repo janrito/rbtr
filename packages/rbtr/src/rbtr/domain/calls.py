@@ -29,12 +29,10 @@ from rbtr.domain.edge_frames import (
     ImportWay,
     InferredEdgeRow,
     LanguageResolutionRow,
-    MemberOrder,
-    ModuleStyle,
     PathRow,
     ResolvedPathRow,
 )
-from rbtr.domain.models import ChunkKind, EdgeKind, Lookup
+from rbtr.domain.models import ChunkKind, EdgeKind, Lookup, MemberOrder, ModuleStyle
 from rbtr.domain.resolution import (
     parent_directory,
     resolved_files,

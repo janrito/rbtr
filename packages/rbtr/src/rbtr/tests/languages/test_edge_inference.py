@@ -10,11 +10,9 @@ from pytest_cases import parametrize_with_cases
 from rbtr.domain.edge_frames import (
     EdgeChunkRow,
     LanguageResolutionRow,
-    MemberOrder,
-    ModuleStyle,
-    SectionNames,
 )
 from rbtr.domain.edges import infer_edges
+from rbtr.domain.models import MemberOrder, ModuleStyle, SectionNames
 from rbtr.languages.registration import LanguageRegistration
 from rbtr.languages.resolution import language_resolutions
 

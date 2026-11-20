@@ -20,8 +20,8 @@ from rbtr.domain.edge_frames import (
     LanguageResolutionRow,
     ModuleFileRow,
     ModulePathRow,
-    ModuleStyle,
 )
+from rbtr.domain.models import ModuleStyle
 
 
 def path_extension(path: pl.Expr) -> pl.Expr:

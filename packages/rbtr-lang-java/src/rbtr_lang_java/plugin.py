@@ -22,7 +22,7 @@ and a package's classes see each other without imports (`directory_scope`).
 
 from __future__ import annotations
 
-from rbtr.domain.edge_frames import ModuleStyle
+from rbtr.domain.models import ModuleStyle
 from rbtr.languages.registration import LanguageRegistration, QueryExtraction, load_query
 
 java = LanguageRegistration(

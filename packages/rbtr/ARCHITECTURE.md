@@ -351,25 +351,26 @@ on a small, stable surface of core symbols. This is the
 contract that survives packaging each language as its own
 distribution:
 
-- `rbtr.domain.edge_frames` — `ModuleStyle`, `SectionNames` and
-  `MemberOrder`, the declared resolution policies, and the frames edge
-  inference exchanges.
 - `rbtr.languages.registration` — `LanguageRegistration`, the wrap-override resolver
   type aliases (`NameResolver` / `ScopeResolver`), and the capture
-  helpers `enclosing_nodes_of_type` and `load_query` (loads a plugin's co-located `.scm`
-  query as package data). (Overrides receive the built-in resolver as their wrap
+  helpers `enclosing_nodes_of_type`, `load_query` (loads a plugin's co-located `.scm`
+  query as package data) and `last_line`, which turns a tree-sitter end
+  point into the 1-based last line a node occupies; the query engine and
+  every chunker share it, so a span means the same thing in every
+  language. (Overrides receive the built-in resolver as their wrap
   `resolver` argument and delegate to it, so plugins never import the built-ins; those
   built-ins live in the private `rbtr.languages._resolvers`.)
 - `rbtr.domain.models` — `Chunk`, its roles (`Definition`, `Section`,
   `Import`, `Comment`, `RawSlice`, `Fragment`), `Span`, `ChunkKind`,
-  `ImportMeta`, and `Lookup`, where a reference's path is looked up. A
-  chunk's references are read from its row, in `metadata.refs`.
+  `ImportMeta`, `Lookup`, where a reference's path is looked up, and
+  the declared resolution policies `ModuleStyle`, `SectionNames` and
+  `MemberOrder`. A chunk's references are read from its row, in
+  `metadata.refs`.
+
+None of these modules loads polars or dataframely, and a plugin imports
+nothing else from core: the frames, rows and rules are core's own.
   A chunk's `id` is a property over its own fields, so a plugin yields
   chunks and never computes an identity.
-- `rbtr.languages.chunks` — `last_line`, which turns a
-  tree-sitter end point into the 1-based last line a node occupies.
-  The query engine and every chunker share it, so a span means the
-  same thing in every language.
 
 One dependency crosses *between* plugins rather than to core:
 scss and less import `css_nesting_scope` from the css plugin

@@ -30,9 +30,8 @@ from rbtr.domain.edge_frames import (
     ImportWay,
     InferredEdgeRow,
     LanguageResolutionRow,
-    SectionNames,
 )
-from rbtr.domain.models import ChunkKind, EdgeKind
+from rbtr.domain.models import ChunkKind, EdgeKind, SectionNames
 from rbtr.domain.resolution import resolved_files, written_depth, written_module
 
 

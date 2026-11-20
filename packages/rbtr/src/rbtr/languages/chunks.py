@@ -1,9 +1,4 @@
-"""Chunking helpers: the span arithmetic every chunker shares, and chunks as rows.
-
-`chunk_rows` and `chunk_models` convert between `Chunk`s and their rows
-(`rbtr.domain.rules.ChunkRow`). Actual chunker implementations live in
-their language plugin files under `rbtr/languages/`.
-"""
+"""Chunks as rows: `chunk_rows` and `chunk_models` convert between `Chunk`s and their rows (`rbtr.domain.rules.ChunkRow`)."""
 
 from __future__ import annotations
 
@@ -17,25 +12,7 @@ from rbtr.domain.models import Chunk, Chunks
 from rbtr.domain.rules import ChunkRow, holds_references, no_references
 
 if TYPE_CHECKING:
-    from tree_sitter import Node
-
-
-def last_line(node: Node) -> int:
-    """The 1-based number of the last line *node* occupies.
-
-    Tree-sitter points are 0-based, and a node that consumes its
-    trailing newline ends at column 0 of the following row, which it
-    does not occupy. Adding one to the end row is therefore right for a
-    node ending mid-line and one too many for a node ending at a line
-    break.
-
-    Every chunker and the query engine share this, so a span means the
-    same thing in every language.
-    """
-    end_row, end_column = node.end_point
-    if end_column == 0 and end_row > node.start_point[0]:
-        return end_row
-    return end_row + 1
+    pass
 
 
 # A dumped chunk's `role`, every role's fields present: chunks without an

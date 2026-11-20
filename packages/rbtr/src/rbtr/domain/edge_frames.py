@@ -18,44 +18,15 @@ from enum import StrEnum
 import dataframely as dy
 import polars as pl
 
-from rbtr.domain.models import ChunkKind, EdgeKind, Lookup
+from rbtr.domain.models import (
+    ChunkKind,
+    EdgeKind,
+    Lookup,
+    MemberOrder,
+    ModuleStyle,
+    SectionNames,
+)
 from rbtr.domain.rules import ChunkRow
-
-
-class ModuleStyle(StrEnum):
-    """How a language writes a module: as a path (`./b`, `b.css`), dotted (`pkg.b`) or scoped (`pkg::b`)."""
-
-    PATH = "path"
-    DOTTED = "dotted"
-    SCOPED = "scoped"
-
-
-class MemberOrder(StrEnum):
-    """The order a language searches a class's bases for a member it does not define.
-
-    `LISTED` and `REVERSED` walk the bases depth first, keeping each
-    ancestor's last visit, so a base shared by two comes after both:
-    `LISTED` takes them as written (Python, Java, C++, JavaScript, Rust),
-    `REVERSED` last written first (Ruby, whose latest `include` precedes
-    earlier ones and its superclass). `NEAREST` takes the shallowest, ties
-    alike (Go's embedding).
-    """
-
-    LISTED = "listed"
-    REVERSED = "reversed"
-    NEAREST = "nearest"
-
-
-class SectionNames(StrEnum):
-    """How an import compares with a section's name.
-
-    `EXACT` compares the name as written (an HTML `id`). `FOLDED` ignores
-    case, accents, punctuation and leading digits, as renderers do when
-    they make a heading's anchor (`Getting Started` → `#getting-started`).
-    """
-
-    EXACT = "exact"
-    FOLDED = "folded"
 
 
 class ImportWay(StrEnum):
