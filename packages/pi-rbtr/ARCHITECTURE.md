@@ -114,6 +114,9 @@ A request can wait for its execution resource and for native work to finish.
 The [core concurrency model](../rbtr/ARCHITECTURE.md#concurrency-model)
 defines those queues and shared controls. A tool call waits 120 s for the daemon,
 and the CLI fallback 150 s, enough to outlast the client it starts.
+A status asked of the CLI, for the footer or `rbtr_status`,
+waits 15 s, as starting or stopping the daemon does.
+A CLI process can take seconds to start on a busy machine.
 An abort from the user ends any wait at once and is never
 retried. The [core protocol](../rbtr/ARCHITECTURE.md#daemon-protocol)
 distinguishes a returned error from a local wait ending without a reply.
