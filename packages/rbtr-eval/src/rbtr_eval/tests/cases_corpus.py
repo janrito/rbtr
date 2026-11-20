@@ -12,19 +12,21 @@ from dataclasses import dataclass
 
 from pytest_cases import case
 
-# Symbolic stand-in the test substitutes for the repo's real HEAD SHA.
+# Symbolic stand-ins the test substitutes for real commits: the repo's
+# HEAD, and another commit beside it.
 HEAD = "HEAD"
+OTHER = "OTHER"
 
 
 @dataclass(frozen=True)
 class CorpusScenario:
-    """Snapshots to mark indexed, and what `corpus_refs` should do.
+    """Snapshots to build, and what `corpus_refs` should do.
 
-    `indexed` names snapshots symbolically: `HEAD` is replaced with
-    the repo's real HEAD SHA at setup; any other entry is a literal
-    SHA standing for a snapshot that is not HEAD (a worktree tree,
-    or an older commit).  `error_match` is `None` when the call
-    should succeed, otherwise a regex the raised message must match.
+    `indexed` names snapshots symbolically: `HEAD` is the repo's HEAD
+    commit and `OTHER` another commit beside it, both built at setup.
+    `error_match` is `None` when the call should succeed, otherwise a
+    regex the raised message must match, with `OTHER` standing for
+    that commit's SHA.
     """
 
     indexed: list[str]
@@ -54,7 +56,4 @@ def case_extra_snapshot_beside_head() -> CorpusScenario:
     This is the condition that doubled `astral-sh__uv`'s edge count:
     both snapshots are indexed, and an unscoped `COUNT(*)` sums them.
     """
-    return CorpusScenario(
-        indexed=[HEAD, "f87f5c2d7df48283bff6a70fc5dc32b154cb855b"],
-        error_match="f87f5c2d7df48283bff6a70fc5dc32b154cb855b",
-    )
+    return CorpusScenario(indexed=[HEAD, OTHER], error_match=OTHER)

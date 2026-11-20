@@ -28,11 +28,24 @@ class StubModel:
 
     Satisfies the `llama_cpp.Llama` interface the `Reranker` uses
     and the concurrency-detection subclass in
-    `test_embed_search_contention`.  Returns `[0.1] * EMBED_DIM` for
-    every embedding call.
+    `test_embed_search_contention`.
+
+    *vectors* maps a chunk name to the vector its embedding text gets;
+    the name is the text's first line, as `embedding_text` writes it.
+    Any other text gets a constant vector as long as the table's
+    vectors (`EMBED_DIM` long when the table is empty), so one batch
+    never mixes lengths.
     """
 
     EMBED_DIM = 8
+
+    def __init__(self, vectors: dict[str, list[float]] | None = None) -> None:
+        self._vectors = vectors or {}
+        dim = len(next(iter(self._vectors.values()))) if self._vectors else self.EMBED_DIM
+        self._constant = [0.1] * dim
+
+    def _vector(self, text: str) -> list[float]:
+        return self._vectors.get(text.split("\n", 1)[0], self._constant)
 
     def n_ctx(self) -> int:
         return 2048
@@ -48,8 +61,8 @@ class StubModel:
         truncate: bool = False,
     ) -> list[float] | list[list[float]]:
         if isinstance(text, list):
-            return [[0.1] * self.EMBED_DIM for _ in text]
-        return [0.1] * self.EMBED_DIM
+            return [self._vector(t) for t in text]
+        return self._vector(text)
 
     def close(self) -> None:
         pass
@@ -264,6 +277,25 @@ def repo_path(git_repo: pygit2.Repository) -> str:
     return normalise_repo_path(git_repo.workdir)
 
 
+@pytest.fixture(scope="module")
+def module_index() -> Generator[Index]:
+    """In-memory writable Index shared by one module's tests.
+
+    For snapshots every test in a module only reads: built once, not
+    once per test.  A test that writes uses `index`.
+    """
+    s = Index(writable=True)
+    yield s
+    s.close()
+
+
+@pytest.fixture(scope="module")
+def module_repo(tmp_path_factory: pytest.TempPathFactory) -> pygit2.Repository:
+    """Empty git repo shared by one module's tests, for `module_index` builds."""
+    path = tmp_path_factory.mktemp("module-repo")
+    return pygit2.init_repository(str(path), bare=False, initial_head="main")
+
+
 @pytest.fixture(autouse=True)
 def _test_dirs() -> None:
     """Validate and create the dirs set by ``[tool.pytest_env]``, and check
@@ -324,7 +356,16 @@ def chains(tmp_path_factory: pytest.TempPathFactory, mocker: MockerFixture) -> P
 
 
 @pytest.fixture
-def stub_embedding_model(mocker: MockerFixture) -> None:
+def stub_vectors() -> dict[str, list[float]]:
+    """The vectors `stub_embedding_model` gives chosen chunks, by name.
+
+    Empty here; a module whose tests need chosen vectors overrides it.
+    """
+    return {}
+
+
+@pytest.fixture
+def stub_embedding_model(mocker: MockerFixture, stub_vectors: dict[str, list[float]]) -> None:
     """Opt-in: replace the embedding model loader with the deterministic stub.
 
     By default tests load the real (tiny, env-configured) embedding
@@ -332,9 +373,20 @@ def stub_embedding_model(mocker: MockerFixture) -> None:
     for tests that drive the model from multiple threads — the native
     `llama_cpp` model aborts under concurrent access (it is not
     thread-safe the way this pure-Python stub is), and such tests are
-    exercising concurrency, not embedding quality.
+    exercising concurrency, not embedding quality — and for tests that
+    need chosen vectors (`stub_vectors`).
     """
-    mocker.patch("rbtr.index.embeddings._load_model", return_value=StubModel())
+    mocker.patch("rbtr.index.embeddings._load_model", return_value=StubModel(stub_vectors))
+
+
+@pytest.fixture
+def stubbed_embedder(stub_embedding_model: None) -> Generator[Embedder]:
+    """An `Embedder` over `StubModel`: `stub_vectors`' chunks get their chosen vectors."""
+    instance = Embedder()
+    try:
+        yield instance
+    finally:
+        instance.close()
 
 
 @pytest.fixture

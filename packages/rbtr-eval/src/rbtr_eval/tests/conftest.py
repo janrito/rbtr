@@ -4,7 +4,6 @@
 pipeline tests. They are called only from fixtures and case
 functions, never from test bodies.
 
-`seed_corpus` seeds an `Index` from a `CorpusScenario`;
 `chunk` builds one tokenised chunk for the tests that write index
 rows directly.
 
@@ -26,7 +25,6 @@ import pytest
 
 from rbtr.domain.models import (
     FileSnapshot,
-    Repo,
     SnapshotRef,
 )
 from rbtr.domain.tokenise import tokenise_code
@@ -36,7 +34,6 @@ from rbtr.index.index import Index
 from rbtr.index.staging import TokenisedChunk
 from rbtr.tests.conftest import make_commit
 from rbtr_eval.shared_schemas import RepoHeader
-from rbtr_eval.tests.cases_corpus import HEAD
 
 
 def hit(
@@ -106,25 +103,6 @@ def index() -> Generator[Index]:
     s = Index(writable=True)
     yield s
     s.close()
-
-
-def seed_corpus(index: Index, repo_path: Path, head: str, indexed: list[str]) -> Repo:
-    """Register *repo_path* and mark each snapshot in *indexed* as indexed.
-
-    The `HEAD` placeholder is substituted with *head*, so a scenario
-    can name the repo's real HEAD without knowing the SHA. Each
-    snapshot gets one file row, because a snapshot with no files is
-    a state the indexer never writes.
-    """
-    repo = index.register(str(repo_path))
-    with index.session(repo) as ws:
-        for name in indexed:
-            sha = head if name == HEAD else name
-            ws.insert_snapshots(
-                [FileSnapshot(snapshot_sha=sha, file_path="a.py", blob_sha=f"blob_{sha[:8]}")],
-            )
-            ws.mark_indexed(snapshot_sha=sha)
-    return repo
 
 
 def chunk(*, file_path: str, kind: str, name: str) -> TokenisedChunk:

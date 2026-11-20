@@ -1,9 +1,8 @@
 """Cases for the FTS-roundtrip keyword test.
 
-Each case returns a `KeywordScenario` describing what keyword to
-search for and what chunk should match it.  The case holds only
-data; the fixture in `test_tokenise_keywords.py` builds the
-full `Chunk` including tokenisation.
+Each case returns a `KeywordScenario`: one source file, the keyword
+its function's body holds, and the name of that function.  The
+fixture in `test_tokenisation.py` builds the file into an index.
 """
 
 from __future__ import annotations
@@ -14,7 +13,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class KeywordScenario:
     keyword: str
-    chunk_id: str
+    path: str
     name: str
     content: str
 
@@ -22,88 +21,125 @@ class KeywordScenario:
 def case_python_import() -> KeywordScenario:
     return KeywordScenario(
         keyword="import",
-        chunk_id="py_import",
-        name="load_modules",
-        content="from pathlib import Path",
+        path="src/py_import.py",
+        name="from pathlib import Path",
+        content="""\
+from pathlib import Path
+""",
     )
 
 
 def case_python_for() -> KeywordScenario:
     return KeywordScenario(
         keyword="for",
-        chunk_id="py_for",
+        path="src/py_for.py",
         name="process_items",
-        content="for item in collection: yield item",
+        content="""\
+def process_items(collection):
+    for item in collection:
+        yield item
+""",
     )
 
 
 def case_python_if() -> KeywordScenario:
     return KeywordScenario(
         keyword="if",
-        chunk_id="py_if",
+        path="src/py_if.py",
         name="check_value",
-        content="if value is not None: return value",
+        content="""\
+def check_value(value):
+    if value is not None:
+        return value
+""",
     )
 
 
 def case_python_with() -> KeywordScenario:
     return KeywordScenario(
         keyword="with",
-        chunk_id="py_with",
+        path="src/py_with.py",
         name="read_file",
-        content="with open(path) as f: data = f.read()",
+        content="""\
+def read_file(path):
+    with open(path) as f:
+        return f.read()
+""",
     )
 
 
 def case_python_async() -> KeywordScenario:
     return KeywordScenario(
         keyword="async",
-        chunk_id="py_async",
+        path="src/py_async.py",
         name="fetch_data",
-        content="async def fetch_data(url): return await get(url)",
+        content="""\
+async def fetch_data(url):
+    return await get(url)
+""",
     )
 
 
 def case_sql_select() -> KeywordScenario:
     return KeywordScenario(
         keyword="select",
-        chunk_id="sql_select",
+        path="src/sql_select.py",
         name="query_users",
-        content="SELECT id, name FROM users WHERE active",
+        content="""\
+def query_users():
+    return "SELECT id, name FROM users WHERE active"
+""",
     )
 
 
 def case_sql_into() -> KeywordScenario:
     return KeywordScenario(
         keyword="into",
-        chunk_id="sql_insert",
+        path="src/sql_insert.py",
         name="save_record",
-        content="INSERT INTO chunks (id, content) VALUES (?, ?)",
+        content="""\
+def save_record():
+    return "INSERT INTO chunks (id, content) VALUES (?, ?)"
+""",
     )
 
 
 def case_rust_impl() -> KeywordScenario:
     return KeywordScenario(
         keyword="impl",
-        chunk_id="rs_impl",
+        path="src/rs_impl.rs",
         name="display_impl",
-        content="impl Display for Config { fn fmt() }",
+        content="""\
+fn display_impl() -> impl Display {
+    "config"
+}
+""",
     )
 
 
 def case_go_defer() -> KeywordScenario:
     return KeywordScenario(
         keyword="defer",
-        chunk_id="go_defer",
+        path="src/go_defer.go",
         name="close_file",
-        content="defer file.Close()",
+        content="""\
+package src
+
+func close_file(file *os.File) {
+	defer file.Close()
+}
+""",
     )
 
 
 def case_js_this() -> KeywordScenario:
     return KeywordScenario(
         keyword="this",
-        chunk_id="js_this",
+        path="src/js_this.js",
         name="set_state",
-        content="this.setState({loading: true})",
+        content="""\
+function set_state() {
+  this.setState({loading: true});
+}
+""",
     )

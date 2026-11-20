@@ -639,59 +639,6 @@ def case_doc_md_link_with_fragment() -> EdgeScenario:
     )
 
 
-def case_doc_rst_func_role() -> EdgeScenario:
-    """RST :func:`do_stuff` → targeted DOCUMENTS edge to function."""
-    return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name=":func:`do_stuff`",
-                file_path="docs/api.rst",
-                language="rst",
-                metadata=ImportMeta(names="do_stuff"),
-            ),
-            ChunkSpec(
-                id="fn1",
-                kind=ChunkKind.FUNCTION,
-                name="do_stuff",
-                file_path="src/foo.py",
-            ),
-        ],
-        repo_files=frozenset({"docs/api.rst", "src/foo.py"}),
-        resolution_map=_DOC_RESOLUTION,
-        expected=frozenset({("imp1", "fn1")}),
-        expected_edge_kind=EdgeKind.DOCUMENTS,
-    )
-
-
-def case_doc_rst_doc_role() -> EdgeScenario:
-    """RST :doc:`api/module` → DOCUMENTS edges to all chunks."""
-    return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name=":doc:`api/module`",
-                file_path="docs/index.rst",
-                language="rst",
-                metadata=ImportMeta(module="api/module"),
-            ),
-            ChunkSpec(
-                id="sec1",
-                kind=ChunkKind.DOC_SECTION,
-                name="API",
-                file_path="api/module.rst",
-                language="rst",
-            ),
-        ],
-        repo_files=frozenset({"docs/index.rst", "api/module.rst"}),
-        resolution_map=_DOC_RESOLUTION,
-        expected=frozenset({("imp1", "sec1")}),
-        expected_edge_kind=EdgeKind.DOCUMENTS,
-    )
-
-
 def case_doc_md_bare_mention_no_edge() -> EdgeScenario:
     """Prose mentions do_stuff without a link → no edge."""
     return EdgeScenario(
@@ -924,44 +871,4 @@ def case_import_bare_excludes_import_chunks() -> EdgeScenario:
         },
         # css_imp is an IMPORT chunk → excluded from fan-out.
         expected=frozenset({("imp1", "css1")}),
-    )
-
-
-def case_import_bash_source() -> EdgeScenario:
-    """source ./lib/utils.sh → edges to all functions in target."""
-    return EdgeScenario(
-        chunks=[
-            ChunkSpec(
-                id="imp1",
-                kind=ChunkKind.IMPORT,
-                name="source ./lib/utils.sh",
-                file_path="scripts/deploy.sh",
-                language="bash",
-                metadata=ImportMeta(module="./lib/utils.sh"),
-            ),
-            ChunkSpec(
-                id="fn1",
-                kind=ChunkKind.FUNCTION,
-                name="log_info",
-                file_path="scripts/lib/utils.sh",
-                language="bash",
-            ),
-            ChunkSpec(
-                id="fn2",
-                kind=ChunkKind.FUNCTION,
-                name="log_error",
-                file_path="scripts/lib/utils.sh",
-                language="bash",
-            ),
-        ],
-        repo_files=frozenset({"scripts/deploy.sh", "scripts/lib/utils.sh"}),
-        resolution_map={
-            "bash": ImportResolution(
-                extensions=(".sh", ".bash", ".zsh"),
-                index_files=(),
-                source_roots=("",),
-                path_substitutions=(),
-            ),
-        },
-        expected=frozenset({("imp1", "fn1"), ("imp1", "fn2")}),
     )

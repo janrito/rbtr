@@ -7,41 +7,41 @@ workspace and all scopes (see `cases_cross_repo`).
 
 from __future__ import annotations
 
+import pygit2
 import pytest
 from pytest_cases import parametrize_with_cases
 
 from rbtr.daemon.dto import ResolvedRef
-from rbtr.domain.models import FileSnapshot, RefSource
+from rbtr.domain.models import RefSource
+from rbtr.index.build import build_index
 from rbtr.index.index import Index
 
-from ..index.conftest import make_chunk
+from ..conftest import make_commit
 from .cases_cross_repo import ScopeScenario
 
 
 @pytest.fixture
-def two_repos(index: Index) -> tuple[Index, dict[int, str]]:
-    """A store with two indexed repos and their `repo_id -> path` map.
+def two_repos(index: Index, fake_repo: str, second_repo: str) -> tuple[Index, dict[int, str]]:
+    """A store with two built repos and their `repo_id -> path` map.
 
-    Repo 1 holds chunk `r1_loader`, repo 2 holds `r2_loader`; both
-    names contain `load` so a single query reaches both.
+    Repo 1 holds `load_alpha`, repo 2 `load_beta`; both names contain
+    `load`, so a single query reaches both. Each is built at a commit
+    that is now its HEAD.
     """
-    paths = {1: "/cross/repo_one", 2: "/cross/repo_two"}
-    chunks = {
-        1: make_chunk("r1_loader", name="load_alpha", path="alpha.py", blob="b_r1"),
-        2: make_chunk("r2_loader", name="load_beta", path="beta.py", blob="b_r2"),
-    }
-    for repo_id, chunk in chunks.items():
-        repo = index.register(paths[repo_id])
-        with index.session(repo) as ws:
-            ws.add_chunk(chunk)
-            ws.insert_snapshots(
-                [
-                    FileSnapshot(
-                        snapshot_sha="head", file_path=chunk.file_path, blob_sha=chunk.blob_sha
-                    )
-                ],
-            )
-            ws.mark_indexed(snapshot_sha="head")
+    alpha = b"""\
+def load_alpha():
+    pass
+"""
+    beta = b"""\
+def load_beta():
+    pass
+"""
+    paths = {1: fake_repo, 2: second_repo}
+    for path, files in ((fake_repo, {"alpha.py": alpha}), (second_repo, {"beta.py": beta})):
+        repo = pygit2.Repository(path)
+        sha = str(make_commit(repo, files, parents=[repo.head.peel(pygit2.Commit).id]))
+        repo.checkout_head(strategy=pygit2.GIT_CHECKOUT_FORCE)  # type: ignore[no-untyped-call]  # pygit2 untyped
+        build_index(path, sha, index)
     return index, paths
 
 
@@ -62,8 +62,8 @@ def test_search_scope(scenario: ScopeScenario, two_repos: tuple[Index, dict[int,
     else:
         assert resp.results
         assert all(r.repo_path is None for r in resp.results)
-        # The fixture's paths are not git repos, so HEAD does not resolve.
-        assert resp.resolved == ResolvedRef(sha="head", source=RefSource.LATEST_INDEXED)
+        head = str(pygit2.Repository(paths[1]).head.target)
+        assert resp.resolved == ResolvedRef(sha=head, source=RefSource.HEAD)
 
 
 @parametrize_with_cases("scenario", cases=".cases_cross_repo")

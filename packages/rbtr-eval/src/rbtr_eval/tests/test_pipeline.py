@@ -12,10 +12,17 @@ from pathlib import Path
 
 import dataframely as dy
 import polars as pl
+import pygit2
 import pytest
 from pytest_cases import parametrize_with_cases
+from pytest_mock import MockerFixture
 
+from rbtr.git import normalise_repo_path
+from rbtr.index.build import build_index
+from rbtr.index.embed import embed_index
+from rbtr.index.embeddings import Embedder
 from rbtr.index.index import Index
+from rbtr.tests.conftest import StubModel, make_commit
 from rbtr_eval.measure import (
     SearchBatch,
     TruncatedTarget,
@@ -27,7 +34,7 @@ from rbtr_eval.measure import (
     _truncated_targets,
 )
 from rbtr_eval.shared_schemas import RepoHeader
-from rbtr_eval.tests.conftest import chunk, hit, outcome_row, snap
+from rbtr_eval.tests.conftest import hit, outcome_row
 
 
 @parametrize_with_cases("batch", cases=".cases_pipeline", has_tag="scoring")
@@ -103,22 +110,29 @@ def test_statistics_break_out_symbol_kind(batch: dy.DataFrame[SearchBatch]) -> N
 
 
 @pytest.fixture
-def indexed_copy(tmp_path: Path) -> Path:
+def indexed_copy(tmp_path: Path, mocker: MockerFixture) -> Path:
     """An index database holding one truncated chunk at two paths.
 
-    `q.py` is vendored verbatim to `vendor/q.py`, so both snapshot
-    rows carry the blob the chunk was extracted from.
+    `q.py` is vendored verbatim to `vendor/q.py`, so both snapshot rows
+    carry the blob the chunk was extracted from.  Its function, on
+    lines 1-2, is longer than the stub model's context, so embedding
+    truncates it.
     """
+    q = f"""\
+def load():
+    return "{"word " * 2000}"
+""".encode()
+    repo = pygit2.init_repository(str(tmp_path / "alpha"), bare=False, initial_head="main")
+    sha = str(make_commit(repo, {"q.py": q, "vendor/q.py": q}))
+    mocker.patch("rbtr.index.embeddings._load_model", return_value=StubModel())
     index = Index(str(tmp_path / "index.duckdb"), writable=True)
-    fn = chunk(file_path="q.py", kind="function", name="load")
-    repo = index.register(str(tmp_path / "alpha"))
-    with index.session(repo) as ws:
-        ws.add_chunk(fn)
-        ws.insert_snapshots(
-            [snap("a" * 40, fn), snap("a" * 40, fn, path="vendor/q.py")],
-        )
-        ws.mark_indexed(snapshot_sha="a" * 40)
-        ws.update_embeddings([fn.id], [[0.5] * 768], truncated=[True])
+    path = normalise_repo_path(repo.workdir)
+    build_index(path, sha, index)
+    embedder = Embedder()
+    try:
+        embed_index(index, at=index.register(path).at(sha), embedder=embedder)
+    finally:
+        embedder.close()
     index.close()
     return tmp_path / "index.duckdb"
 
@@ -133,13 +147,18 @@ def test_truncation_marks_every_location_of_the_chunk(indexed_copy: Path) -> Non
     batch = pl.DataFrame(
         [
             outcome_row(
-                slug="alpha", target="load", latency_ms=1.0, hits=[hit("q.py", "", "load")]
+                slug="alpha",
+                target="load",
+                latency_ms=1.0,
+                line_end=2,
+                hits=[hit("q.py", "", "load")],
             ),
             outcome_row(
                 slug="alpha",
                 target="load",
                 latency_ms=1.0,
                 file_path="vendor/q.py",
+                line_end=2,
                 hits=[hit("vendor/q.py", "", "load")],
             ),
             outcome_row(

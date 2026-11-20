@@ -25,40 +25,42 @@ from rbtr.daemon.messages import (
     StatusResponse,
 )
 from rbtr.daemon.server import Daemon
-from rbtr.domain.models import FileSnapshot
+from rbtr.index.build import build_index
 from rbtr.index.index import Index
 
-from ..index.conftest import make_chunk
+from ..conftest import make_commit
 from .conftest import serving
 
 
 @pytest.fixture
 def shared_symbol_index(fake_repo: str, second_repo: str, index: Index) -> Index:
-    """Index both repos, each holding a unique symbol plus `shared_fn`.
+    """Both repos built at a new HEAD, each holding a unique symbol plus `shared_fn`.
 
     The shared name is what makes cross-repo merge, workspace isolation
     and non-search isolation observable: a leak shows as the other
-    repo's symbol, or as a second chunk for the same name.  Chunks are
-    seeded under each repo's real id and HEAD sha, because the handlers
-    resolve HEAD through git.
+    repo's symbol, or as a second chunk for the same name.  Each repo is
+    built at its HEAD, because the handlers resolve HEAD through git.
     """
-    for path, uniq in ((fake_repo, "alpha"), (second_repo, "beta")):
-        head = str(pygit2.Repository(path).head.target)
-        repo = index.register(path)
-        with index.session(repo) as ws:
-            ws.add_chunk(make_chunk(f"{uniq}_id", name=f"{uniq}_fn", path=f"{uniq}.py"))
-            ws.add_chunk(make_chunk(f"shared_{uniq}", name="shared_fn", path="shared.py"))
-            ws.insert_snapshots(
-                [
-                    FileSnapshot(
-                        snapshot_sha=head, file_path=f"{uniq}.py", blob_sha=f"blob_{uniq}_id"
-                    ),
-                    FileSnapshot(
-                        snapshot_sha=head, file_path="shared.py", blob_sha=f"blob_shared_{uniq}"
-                    ),
-                ],
-            )
-            ws.mark_indexed(snapshot_sha=head)
+    shared = b"""\
+def shared_fn():
+    pass
+"""
+    alpha = b"""\
+def alpha_fn():
+    pass
+"""
+    beta = b"""\
+def beta_fn():
+    pass
+"""
+    for path, files in (
+        (fake_repo, {"alpha.py": alpha, "shared.py": shared}),
+        (second_repo, {"beta.py": beta, "shared.py": shared}),
+    ):
+        repo = pygit2.Repository(path)
+        sha = str(make_commit(repo, files, parents=[repo.head.peel(pygit2.Commit).id]))
+        repo.checkout_head(strategy=pygit2.GIT_CHECKOUT_FORCE)  # type: ignore[no-untyped-call]  # pygit2 untyped
+        build_index(path, sha, index)
     return index
 
 

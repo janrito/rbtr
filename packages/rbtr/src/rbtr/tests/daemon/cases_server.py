@@ -42,6 +42,7 @@ from rbtr.daemon.status import remove_status
 from rbtr.domain.models import Chunk
 from rbtr.git import FileEntry, normalise_repo_path
 from rbtr.index import build, maintenance
+from rbtr.index.build import build_index
 from rbtr.index.index import Index
 from rbtr.index.indexer import Indexer
 from rbtr.index.progress import RepoProgressCallback
@@ -311,8 +312,9 @@ def case_watcher_fails(
 def case_stop_with_running_and_queued_rpc(
     fails: bool,
     runtime_dir: Path,
-    seeded_index: Index,
+    index: Index,
     fake_repo: str,
+    daemon_commit: str,
     held_query: None,
     query_started: threading.Event,
     query_released: threading.Event,
@@ -320,7 +322,10 @@ def case_stop_with_running_and_queued_rpc(
     rpc_peer: zmq.Socket[bytes],
     mocker: MockerFixture,
 ) -> StopScenario:
-    server = Daemon(runtime_dir, seeded_index, idle_poll_interval=60)
+    # Built here, not by `seeded_index`: a case's own fixtures are set up
+    # for every case of the union, and another case's patches would apply.
+    build_index(fake_repo, daemon_commit, index)
+    server = Daemon(runtime_dir, index, idle_poll_interval=60)
     fail = threading.Event()
 
     def interval() -> float:

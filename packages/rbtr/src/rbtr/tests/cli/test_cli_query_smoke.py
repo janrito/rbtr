@@ -15,20 +15,10 @@ from pathlib import Path
 import pygit2
 import pytest
 
-from rbtr.domain.models import (
-    ChunkKind,
-    Definition,
-    Edge,
-    EdgeKind,
-    FileSnapshot,
-    Import,
-    ImportMeta,
-    Span,
-)
-from rbtr.domain.tokenise import tokenise_code
+from rbtr.git import normalise_repo_path
+from rbtr.index.build import build_index
 from rbtr.index.index import Index
-from rbtr.index.staging import TokenisedChunk
-from rbtr.tests.conftest import run_cli
+from rbtr.tests.conftest import make_commit, run_cli
 
 
 @dataclass(frozen=True)
@@ -42,154 +32,40 @@ class SeededRepo:
 
 @pytest.fixture
 def seeded_repo(tmp_path: Path, isolated_db: Path) -> SeededRepo:
-    """A real git repo with two commits, seeded into the Index.
+    """A real git repo with two commits, both built into the Index.
 
     Commit 1: src/config.py with `load_config`, src/app.py with
     `Application` class and an import of `load_config`.
 
     Commit 2: src/config.py with `load_config` (modified body).
     """
+    config_v1 = b"""\
+def load_config(path):
+    return open(path).read()
+"""
+    config_v2 = b"""\
+def load_config(path):
+    with open(path) as f:
+        return f.read()
+"""
+    app = b"""\
+from config import load_config
+
+
+class Application:
+    pass
+"""
     repo_path = tmp_path / "repo"
     repo = pygit2.init_repository(str(repo_path), bare=False, initial_head="main")
-    sig = pygit2.Signature("t", "t@t.t")
-
-    tb = repo.TreeBuilder()
-
-    src_tb = repo.TreeBuilder()
-    src_tb.insert(
-        "config.py",
-        repo.create_blob(b"def load_config(path):\n    return open(path).read()\n"),
-        pygit2.GIT_FILEMODE_BLOB,
-    )
-    src_tb.insert(
-        "app.py",
-        repo.create_blob(b"from config import load_config\n\nclass Application:\n    pass\n"),
-        pygit2.GIT_FILEMODE_BLOB,
-    )
-    tb.insert("src", src_tb.write(), pygit2.GIT_FILEMODE_TREE)
-    c1 = str(repo.create_commit("refs/heads/main", sig, sig, "c1", tb.write(), []))
-
-    tb2 = repo.TreeBuilder()
-    src_tb2 = repo.TreeBuilder()
-    src_tb2.insert(
-        "config.py",
-        repo.create_blob(
-            b"def load_config(path):\n    with open(path) as f:\n        return f.read()\n"
-        ),
-        pygit2.GIT_FILEMODE_BLOB,
-    )
-    src_tb2.insert(
-        "app.py",
-        repo.create_blob(b"from config import load_config\n\nclass Application:\n    pass\n"),
-        pygit2.GIT_FILEMODE_BLOB,
-    )
-    tb2.insert("src", src_tb2.write(), pygit2.GIT_FILEMODE_TREE)
-    parent = repo.get(c1)
-    assert parent is not None
-    c2 = str(repo.create_commit("refs/heads/main", sig, sig, "c2", tb2.write(), [parent.id]))
+    c1 = make_commit(repo, {"src/config.py": config_v1, "src/app.py": app})
+    c2 = make_commit(repo, {"src/config.py": config_v2, "src/app.py": app}, parents=[c1])
 
     index = Index.from_config(writable=True)
-    repo_repo = index.register(str(repo_path))
-
-    func_content_v1 = "def load_config(path):\n    return open(path).read()\n"
-    func_name = "load_config"
-    class_content = "class Application:\n    pass\n"
-    class_name = "Application"
-    import_content = "from config import load_config"
-    import_name = "from config import load_config"
-    func_content_v2 = "def load_config(path):\n    with open(path) as f:\n        return f.read()\n"
-
-    chunks_c1 = [
-        TokenisedChunk(
-            blob_sha="blob_config_v1",
-            file_path="src/config.py",
-            role=Definition(kind=ChunkKind.FUNCTION, name=func_name),
-            content=func_content_v1,
-            content_tokens=tokenise_code(func_content_v1),
-            name_tokens=tokenise_code(func_name),
-            span=Span(start=1, end=2),
-        ),
-        TokenisedChunk(
-            blob_sha="blob_app",
-            file_path="src/app.py",
-            role=Definition(kind=ChunkKind.CLASS, name=class_name),
-            content=class_content,
-            content_tokens=tokenise_code(class_content),
-            name_tokens=tokenise_code(class_name),
-            span=Span(start=3, end=4),
-        ),
-        TokenisedChunk(
-            blob_sha="blob_app",
-            file_path="src/app.py",
-            role=Import(name=import_name, meta=ImportMeta()),
-            content=import_content,
-            content_tokens=tokenise_code(import_content),
-            name_tokens=tokenise_code(import_name),
-            span=Span(start=1, end=1),
-        ),
-    ]
-
-    chunks_c2 = [
-        TokenisedChunk(
-            blob_sha="blob_config_v2",
-            file_path="src/config.py",
-            role=Definition(kind=ChunkKind.FUNCTION, name=func_name),
-            content=func_content_v2,
-            content_tokens=tokenise_code(func_content_v2),
-            name_tokens=tokenise_code(func_name),
-            span=Span(start=1, end=3),
-        ),
-        chunks_c1[1],  # class unchanged
-        chunks_c1[2],  # import unchanged
-    ]
-
-    # The import edges into whichever version of the function the
-    # commit holds; ids come from the chunks, being content-derived.
-    edges_c1 = [
-        Edge(
-            source_id=chunks_c1[2].id,
-            target_id=chunks_c1[0].id,
-            kind=EdgeKind.IMPORTS,
-            source_path=chunks_c1[2].file_path,
-            target_path=chunks_c1[0].file_path,
-        )
-    ]
-    edges_c2 = [
-        Edge(
-            source_id=chunks_c2[2].id,
-            target_id=chunks_c2[0].id,
-            kind=EdgeKind.IMPORTS,
-            source_path=chunks_c2[2].file_path,
-            target_path=chunks_c2[0].file_path,
-        )
-    ]
-
-    with index.session(repo_repo) as ws:
-        for c in chunks_c1:
-            ws.add_chunk(c)
-        ws.insert_snapshots(
-            [
-                FileSnapshot(snapshot_sha=c1, file_path=c.file_path, blob_sha=c.blob_sha)
-                for c in chunks_c1
-            ],
-        )
-        ws.insert_edges(edges_c1, snapshot_sha=c1)
-        ws.mark_indexed(snapshot_sha=c1)
-
-    with index.session(repo_repo) as ws:
-        for c in chunks_c2:
-            ws.add_chunk(c)
-        ws.insert_snapshots(
-            [
-                FileSnapshot(snapshot_sha=c2, file_path=c.file_path, blob_sha=c.blob_sha)
-                for c in chunks_c2
-            ],
-        )
-        ws.insert_edges(edges_c2, snapshot_sha=c2)
-        ws.mark_indexed(snapshot_sha=c2)
-
+    path = normalise_repo_path(str(repo_path))
+    build_index(path, str(c1), index)
+    build_index(path, str(c2), index)
     index.close()
-    return SeededRepo(path=repo_path, c1=c1, c2=c2)
+    return SeededRepo(path=repo_path, c1=str(c1), c2=str(c2))
 
 
 def test_status_shows_indexed_refs(seeded_repo: SeededRepo) -> None:
