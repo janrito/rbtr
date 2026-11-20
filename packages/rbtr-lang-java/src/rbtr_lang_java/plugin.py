@@ -15,6 +15,9 @@ Extracted chunks::
         → import, metadata {module: "org.junit.Assert", names: "assertEquals"}
     import com.example.models.*
         → import, metadata {module: "com.example.models", names: "*"}
+
+A method's unqualified names reach its class's members (`members_in_scope`),
+and a package's classes see each other without imports (`directory_scope`).
 """
 
 from __future__ import annotations
@@ -27,7 +30,7 @@ java = LanguageRegistration(
     extensions=frozenset({".java"}),
     grammar_module="tree_sitter_java",
     extraction=QueryExtraction(
-        query=load_query(__package__, "java"),
+        query=load_query(__package__, "java") + load_query(__package__, "references"),
         scope_types=frozenset(
             {
                 "class_declaration",
@@ -41,5 +44,7 @@ java = LanguageRegistration(
     source_roots=("", "src/main/java"),
     module_style=ModuleStyle.DOTTED,
     package_directory=True,
-    extraction_serial=6,
+    members_in_scope=True,
+    directory_scope=True,
+    extraction_serial=7,
 )

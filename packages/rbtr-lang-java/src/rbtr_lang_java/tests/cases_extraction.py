@@ -247,3 +247,45 @@ public class UserService {
 def case_java_import_wildcard() -> ImportCase:
     """A package's every class, written `*`."""
     return "java", "import com.example.models.*;\n", {"module": "com.example.models", "names": "*"}
+
+
+type ReferencesCase = tuple[str, str, list[tuple[str, str, list[str], list[str]]]]
+
+
+@case(tags=["references"])
+def case_java_calls_and_bases() -> ReferencesCase:
+    """Each call shape, a generic base, an implemented interface and a generic `new`."""
+    src = """\
+class Order extends Base<String> implements Saveable {
+    void save() {
+        super.save();
+        this.check();
+        helper();
+        Util.log();
+        new Foo<Bar>();
+        items.get(0).size();
+        a.b.c();
+    }
+}
+"""
+    return (
+        "java",
+        src,
+        [
+            ("class", "Order", [], ["unqualified:Base", "unqualified:Saveable"]),
+            (
+                "method",
+                "save",
+                [
+                    "base:save",
+                    "member:check",
+                    "unqualified:helper",
+                    "unqualified:Util.log",
+                    "unqualified:Foo",
+                    "unqualified:items.get",
+                    "unqualified:a.b.c",
+                ],
+                [],
+            ),
+        ],
+    )
