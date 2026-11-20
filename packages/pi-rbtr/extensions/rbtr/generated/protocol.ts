@@ -644,7 +644,6 @@ export interface StatusResponse {
     [k: string]: number;
   };
   active?: ActiveJob[];
-  replaced?: ReplacedIndex | null;
 }
 /**
  * Per-ref status: symbolic names, chunk count, embed completeness.
@@ -699,16 +698,6 @@ export interface CollectWork {
  */
 export interface MigrateWork {
   kind: "migrate";
-}
-/**
- * An index replaced on open, because its schema is too old to migrate.
- *
- * `stored` is the schema version it recorded, `None` when it recorded
- * none; `replaced_at` is when this rbtr replaced it with an empty one.
- */
-export interface ReplacedIndex {
-  stored: string | null;
-  replaced_at: string;
 }
 /**
  * The daemon's live config plus the language plugins it loaded.
@@ -848,4 +837,15 @@ export interface DaemonStatusReport {
   pub?: string | null;
   version?: string | null;
   uptime_seconds?: number | null;
+  replaced?: ReplacedIndex | null;
+}
+/**
+ * An index replaced on open, because its schema is too old to migrate.
+ *
+ * `stored` is the schema version it recorded, `None` when it recorded
+ * none; `replaced_at` is when this rbtr replaced it with an empty one.
+ */
+export interface ReplacedIndex {
+  stored: string | null;
+  replaced_at: string;
 }

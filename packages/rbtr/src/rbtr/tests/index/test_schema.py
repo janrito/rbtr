@@ -225,7 +225,7 @@ def test_an_index_older_than_migrations_is_replaced_by_an_empty_one(
     Deleting rows does not shrink a DuckDB file, so the registry is a new
     file and the old project files are deleted.  A leftover too large to
     stand for an empty index would mean the old file was kept.  The index
-    says what it replaced, for status to report.
+    says what it replaced, for the daemon to record in discovery.
     """
     path = tmp_path / "index.duckdb"
     _seed_one_chunk(path)

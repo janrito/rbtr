@@ -63,7 +63,8 @@ def test_starting_a_daemon_that_replaced_the_index_warns(
     """The daemon replaces an index too old to migrate, and the command that started it says so.
 
     The warning is the one an inline open logs, in the starting
-    command's log on stderr, not only in the daemon's.
+    command's log on stderr, not only in the daemon's.  `rbtr daemon
+    status` reports it for the daemon's lifetime, from discovery.
     """
     monkeypatch.setenv("RBTR_EMBED", "false")
     with duckdb.connect(str(config.db_path)) as con:
@@ -71,10 +72,12 @@ def test_starting_a_daemon_that_replaced_the_index_warns(
         con.execute("INSERT INTO meta VALUES ('schema_version', '2026.8.2')")
     try:
         proc = run_cli(["daemon", "start"])
+        status = run_cli(["--json", "daemon", "status"])
     finally:
         run_cli(["daemon", "stop"])
 
     assert proc.returncode == 0, proc.stderr
+    assert json.loads(status.stdout)["replaced"]["stored"] == "2026.8.2"
     [warning] = [
         entry
         for line in proc.stderr.splitlines()

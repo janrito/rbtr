@@ -72,6 +72,8 @@ class DaemonStatusReport(BaseModel):
     pub: str | None = None
     version: str | None = None
     uptime_seconds: float | None = None
+    # The index this daemon's open replaced, read from discovery.
+    replaced: ReplacedIndex | None = None
 
 
 def status_path(home: Path) -> Path:
