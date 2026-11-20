@@ -119,7 +119,8 @@ def make_commit(
     Pure projection over caller-supplied arguments.
     """
     tree_oid = build_tree(repo, files)
-    sig = pygit2.Signature(author, "test@test.com")
+    # A fixed time, so a commit's sha follows from its content alone.
+    sig = pygit2.Signature(author, "test@test.com", 1_700_000_000, 0)
     return repo.create_commit(ref, sig, sig, message, tree_oid, parents or [])
 
 
