@@ -17,7 +17,11 @@ SELECT  -- noqa: ST06
   c.line_start,
   c.line_end,
   c.metadata,
-  c.embedding IS NOT NULL AS has_embedding,
+  CASE
+    WHEN c.embedding IS NULL THEN 'none'
+    WHEN c.embedding_truncated THEN 'truncated'
+    ELSE 'full'
+  END AS embedding_state,
   fts.score
 FROM (
   SELECT

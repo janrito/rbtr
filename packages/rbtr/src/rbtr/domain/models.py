@@ -93,6 +93,18 @@ class EdgeKind(StrEnum):
     CONFIGURES = "configures"
 
 
+class EmbeddingState(StrEnum):
+    """Whether a chunk has an embedding, and whether its text was cut to make it.
+
+    `TRUNCATED` is an embedding of the text's first part only: the
+    chunk was longer than the model's context.
+    """
+
+    NONE = "none"
+    FULL = "full"
+    TRUNCATED = "truncated"
+
+
 class ImportMeta(BaseModel):
     """Structured import data extracted by tree-sitter.
 
@@ -309,7 +321,7 @@ class ScoredChunk(BaseModel, frozen=True):
     line_end: int
     metadata: ImportMeta | None = None
     """An import's metadata when it records any; `None` for every other result."""
-    has_embedding: bool = Field(default=False, exclude=True)
+    embedding_state: EmbeddingState = Field(default=EmbeddingState.NONE, exclude=True)
     score: float
     lexical: float
     semantic: float

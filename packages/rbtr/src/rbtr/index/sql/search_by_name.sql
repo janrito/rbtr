@@ -21,7 +21,11 @@ WITH ranked AS (
     c.line_start,
     c.line_end,
     c.metadata,
-    c.embedding IS NOT NULL AS has_embedding,
+    CASE
+      WHEN c.embedding IS NULL THEN 'none'
+      WHEN c.embedding_truncated THEN 'truncated'
+      ELSE 'full'
+    END AS embedding_state,
     least(
       CASE
         WHEN c.name = $literal THEN 1
@@ -77,7 +81,7 @@ SELECT
   line_start,
   line_end,
   metadata,
-  has_embedding,
+  embedding_state,
   -- Returned so a search over several project files keeps only the best
   -- tier any file found.
   match_tier

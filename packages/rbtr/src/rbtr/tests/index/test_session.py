@@ -18,7 +18,7 @@ from pytest_cases import parametrize_with_cases
 from pytest_mock import MockerFixture
 
 from rbtr.config import config
-from rbtr.domain.models import EdgeKind, FileSnapshot, Repo, SnapshotRef, Span
+from rbtr.domain.models import EdgeKind, EmbeddingState, FileSnapshot, Repo, SnapshotRef, Span
 from rbtr.errors import RepoNotFoundError
 from rbtr.index.index import Index
 from rbtr.index.staging import EmbeddingStagingRow, TokenisedChunk
@@ -340,7 +340,7 @@ def test_update_embeddings_round_trip(index: Index) -> None:
 
     # Before embedding — chunks have no embedding.
     chunks = index.chunks(at=repo.at("c1"))
-    assert not chunks["has_embedding"].any()
+    assert not (chunks["embedding_state"] != EmbeddingState.NONE).any()
 
     vec = [0.1, 0.2, 0.3]
     with index.session(repo) as ws:
@@ -360,7 +360,7 @@ def test_update_embeddings_round_trip(index: Index) -> None:
     # After embedding — both flagged as embedded.
     chunks = index.chunks(at=repo.at("c1"))
     assert len(chunks) == 2
-    assert chunks["has_embedding"].all()
+    assert (chunks["embedding_state"] != EmbeddingState.NONE).all()
 
     # Verify truncation flags in the DB.
     with index.reader(repo) as cur:

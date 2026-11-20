@@ -26,6 +26,7 @@ from pytest_mock import MockerFixture
 
 from rbtr.config import config, index_dir_of
 from rbtr.domain.models import (
+    EmbeddingState,
     FileSnapshot,
     Import,
     ImportMeta,
@@ -172,7 +173,7 @@ def test_embeddings_survive_matches_scenario(
         return
     [repo] = index.repos()
     chunks = index.chunks(at=repo.at("head"))
-    any_embedded = chunks["has_embedding"].any()
+    any_embedded = (chunks["embedding_state"] != EmbeddingState.NONE).any()
     if scenario.expected_embeddings_survive:
         assert any_embedded, "expected some embedding to survive"
     else:
