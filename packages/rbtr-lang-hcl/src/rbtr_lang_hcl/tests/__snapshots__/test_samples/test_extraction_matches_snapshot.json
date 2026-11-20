@@ -71,7 +71,8 @@
     "metadata": {
       "module": "./modules/greeter",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -126,7 +127,8 @@
     "metadata": {
       "module": "./b",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {

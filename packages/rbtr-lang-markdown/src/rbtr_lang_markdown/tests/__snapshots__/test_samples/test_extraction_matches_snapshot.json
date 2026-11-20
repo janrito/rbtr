@@ -31,7 +31,13 @@
     "metadata": {
       "module": "greeter",
       "names": "format_greeting",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "format_greeting",
+          "local": "format_greeting"
+        }
+      ]
     }
   },
   {
@@ -176,7 +182,8 @@
     "metadata": {
       "module": "greeter.css",
       "names": "",
-      "language_hint": "css"
+      "language_hint": "css",
+      "bindings": []
     }
   },
   {
@@ -271,7 +278,8 @@
     "metadata": {
       "module": "troubleshooting.md",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -336,7 +344,8 @@
     "metadata": {
       "module": "config.md",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -351,7 +360,8 @@
     "metadata": {
       "module": "api.md",
       "names": "format-a-greeting-the-helper",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -366,7 +376,8 @@
     "metadata": {
       "module": "config.md",
       "names": "locale",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -381,7 +392,8 @@
     "metadata": {
       "module": "config.md",
       "names": "install-notes",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -396,7 +408,8 @@
     "metadata": {
       "module": "config.md",
       "names": "legacy-options",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -421,7 +434,8 @@
     "metadata": {
       "module": "locales.md",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -436,7 +450,8 @@
     "metadata": {
       "module": "markdown.md",
       "names": "usage",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -451,7 +466,8 @@
     "metadata": {
       "module": "guides/setup.md",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {

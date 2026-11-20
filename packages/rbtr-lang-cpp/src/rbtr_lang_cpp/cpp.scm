@@ -22,11 +22,13 @@
     declarator: (function_declarator
       declarator: (identifier) @_method_name)) @method)
 
-(preproc_include
-  path: (system_lib_string) @_import_module) @import
-
-(preproc_include
-  path: (string_literal) @_import_module) @import
+; An included file's every declaration is visible after it.
+((preproc_include
+  path: [
+    (system_lib_string)
+    (string_literal)
+  ] @_import_module) @import
+  (#set! import.names "*"))
 
 (preproc_function_def
   name: (identifier) @_fn_name) @function

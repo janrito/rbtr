@@ -67,6 +67,11 @@ def language_resolutions(
             "package_directory": [registration.package_directory for registration in ordered],
             "prose": [registration.prose for registration in ordered],
             "section_names": [registration.section_names.value for registration in ordered],
+            "parent_module": [registration.parent_module for registration in ordered],
+            "current_module": [registration.current_module for registration in ordered],
+            "directory_module_files": [
+                sorted(registration.directory_module_files) for registration in ordered
+            ],
         },
         schema=LanguageResolutionRow.create_empty().schema,
     ).pipe(LanguageResolutionRow.validate, cast=True)

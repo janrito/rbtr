@@ -26,6 +26,7 @@ from rbtr.domain.models import (
     SnapshotCounts,
     SnapshotRef,
 )
+from rbtr.domain.rules import ChunkRow
 
 
 class SnapshotRefRow(dy.Schema):
@@ -128,15 +129,7 @@ class _ChunkIdentity(dy.Schema):
     line_start = dy.Int32(nullable=False)
     line_end = dy.Int32(nullable=False)
     # The role's payload, as `ChunkStagingRow` writes it.
-    metadata = dy.Struct(
-        {
-            "module": dy.String(nullable=True),
-            "names": dy.String(nullable=True),
-            "language_hint": dy.String(nullable=True),
-            "node_types": dy.List(dy.String(), nullable=True),
-        },
-        nullable=True,
-    )
+    metadata = ChunkRow.metadata
 
 
 class _SignalColumns(dy.Schema):
@@ -175,6 +168,7 @@ class SymbolRefRow(dy.Schema):
             "module": dy.String(nullable=False),
             "names": dy.String(nullable=False),
             "language_hint": dy.String(nullable=False),
+            "bindings": ChunkRow.metadata.inner["bindings"],
         },
         nullable=True,
     )
@@ -341,7 +335,9 @@ def import_metadata() -> pl.Expr:
     roles' payloads, which no reply shows.
     """
     fields = [pl.col("metadata").struct.field(name) for name in SymbolRefRow.metadata.inner]
-    recorded = pl.any_horizontal(field != "" for field in fields)
+    recorded = pl.any_horizontal(
+        pl.col("metadata").struct.field(name) != "" for name in ("module", "names", "language_hint")
+    ) | (pl.col("metadata").struct.field("bindings").list.len() > 0)
     return (
         pl.when((pl.col("kind") == ChunkKind.IMPORT) & recorded)
         .then(pl.struct(fields))

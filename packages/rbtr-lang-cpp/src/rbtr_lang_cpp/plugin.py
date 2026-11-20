@@ -16,7 +16,7 @@ Extracted chunks::
     };
 
     #include <iostream>
-        → import, metadata {module: "iostream"}
+        → import, metadata {module: "iostream", names: "*"}
 """
 
 from __future__ import annotations
@@ -33,5 +33,5 @@ cpp = LanguageRegistration(
         class_scope_types=frozenset({"class_specifier", "struct_specifier"}),
     ),
     source_roots=("", "include", "src"),
-    extraction_serial=7,
+    extraction_serial=8,
 )

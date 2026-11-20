@@ -6,7 +6,7 @@ import pytest
 from pytest_cases import case
 
 type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
-type ImportCase = tuple[str, str, dict[str, str]]
+type ImportCase = tuple[str, str, dict[str, str | list[dict[str, str]]]]
 type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
 
 _xfail_nested = pytest.mark.xfail(
@@ -174,20 +174,36 @@ def case_rust_import_scoped() -> ImportCase:
     return (
         "rust",
         "use std::collections::HashMap;\n",
-        {"module": "std/collections", "names": "HashMap"},
+        {
+            "module": "std::collections",
+            "names": "HashMap",
+            "bindings": [{"name": "HashMap", "local": "HashMap"}],
+        },
     )
 
 
 @case(tags=["import"])
 def case_rust_import_deeply_nested() -> ImportCase:
     """use a::b::c::d::Item."""
-    return "rust", "use a::b::c::d::Item;\n", {"module": "a/b/c/d", "names": "Item"}
+    return (
+        "rust",
+        "use a::b::c::d::Item;\n",
+        {"module": "a::b::c::d", "names": "Item", "bindings": [{"name": "Item", "local": "Item"}]},
+    )
 
 
 @case(tags=["import"])
 def case_rust_import_crate() -> ImportCase:
     """use crate::models::Chunk."""
-    return "rust", "use crate::models::Chunk;\n", {"module": "crate/models", "names": "Chunk"}
+    return (
+        "rust",
+        "use crate::models::Chunk;\n",
+        {
+            "module": "crate::models",
+            "names": "Chunk",
+            "bindings": [{"name": "Chunk", "local": "Chunk"}],
+        },
+    )
 
 
 @case(tags=["import"])
@@ -196,14 +212,36 @@ def case_rust_import_crate_braces() -> ImportCase:
     return (
         "rust",
         "use crate::models::{Chunk, Edge};\n",
-        {"module": "crate/models", "names": "Chunk,Edge"},
+        {
+            "module": "crate::models",
+            "names": "Chunk,Edge",
+            "bindings": [{"name": "Chunk", "local": "Chunk"}, {"name": "Edge", "local": "Edge"}],
+        },
+    )
+
+
+@case(tags=["import"])
+def case_rust_mod_declaration() -> ImportCase:
+    """mod util; — a child of this module, bound under its name."""
+    return (
+        "rust",
+        "mod util;\n",
+        {
+            "module": "self::util",
+            "names": "",
+            "bindings": [{"name": "self::util", "local": "util"}],
+        },
     )
 
 
 @case(tags=["import"])
 def case_rust_import_super_single() -> ImportCase:
     """use super::utils."""
-    return "rust", "use super::utils;\n", {"module": "../", "names": "utils"}
+    return (
+        "rust",
+        "use super::utils;\n",
+        {"module": "super", "names": "utils", "bindings": [{"name": "utils", "local": "utils"}]},
+    )
 
 
 @case(tags=["import"])
@@ -212,7 +250,7 @@ def case_rust_import_super_nested() -> ImportCase:
     return (
         "rust",
         "use super::helpers::run;\n",
-        {"module": "../helpers", "names": "run"},
+        {"module": "super::helpers", "names": "run", "bindings": [{"name": "run", "local": "run"}]},
     )
 
 
@@ -222,26 +260,50 @@ def case_rust_import_super_super() -> ImportCase:
     return (
         "rust",
         "use super::super::common::Config;\n",
-        {"module": "../../common", "names": "Config"},
+        {
+            "module": "super::super::common",
+            "names": "Config",
+            "bindings": [{"name": "Config", "local": "Config"}],
+        },
     )
 
 
 @case(tags=["import"])
 def case_rust_import_use_list() -> ImportCase:
     """use std::io::{Read, Write}."""
-    return "rust", "use std::io::{Read, Write};\n", {"module": "std/io", "names": "Read,Write"}
+    return (
+        "rust",
+        "use std::io::{Read, Write};\n",
+        {
+            "module": "std::io",
+            "names": "Read,Write",
+            "bindings": [{"name": "Read", "local": "Read"}, {"name": "Write", "local": "Write"}],
+        },
+    )
 
 
 @case(tags=["import"])
 def case_rust_import_use_list_self() -> ImportCase:
     """use std::io::{self, Read}."""
-    return "rust", "use std::io::{self, Read};\n", {"module": "std/io", "names": "self,Read"}
+    return (
+        "rust",
+        "use std::io::{self, Read};\n",
+        {
+            "module": "std::io",
+            "names": "self,Read",
+            "bindings": [{"name": "std::io", "local": "io"}, {"name": "Read", "local": "Read"}],
+        },
+    )
 
 
 @case(tags=["import"])
 def case_rust_import_bare() -> ImportCase:
     """use serde;"""
-    return "rust", "use serde;\n", {"module": "serde"}
+    return (
+        "rust",
+        "use serde;\n",
+        {"module": "serde", "bindings": [{"name": "serde", "local": "serde"}]},
+    )
 
 
 @case(tags=["mixed"])
@@ -292,3 +354,29 @@ def case_rust_const() -> SymbolCase:
 def case_rust_static() -> SymbolCase:
     """Crate-level static."""
     return "rust", 'static NAME: &str = "x";\n', [("variable", "NAME", "")]
+
+
+@case(tags=["import"])
+def case_rust_import_aliased() -> ImportCase:
+    """use a::b as c; — `b` bound under `c`."""
+    return (
+        "rust",
+        "use a::b as c;\n",
+        {"module": "a", "names": "b", "bindings": [{"name": "b", "local": "c"}]},
+    )
+
+
+@case(tags=["import"])
+def case_rust_import_aliased_in_list() -> ImportCase:
+    """use std::io::{Read as R}; — `Read` bound under `R`."""
+    return (
+        "rust",
+        "use std::io::{Read as R};\n",
+        {"module": "std::io", "names": "Read", "bindings": [{"name": "Read", "local": "R"}]},
+    )
+
+
+@case(tags=["import"])
+def case_rust_import_glob() -> ImportCase:
+    """use crate::models::*; — every public name, written `*`."""
+    return "rust", "use crate::models::*;\n", {"module": "crate::models", "names": "*"}

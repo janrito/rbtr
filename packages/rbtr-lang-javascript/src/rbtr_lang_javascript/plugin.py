@@ -23,19 +23,11 @@ Extracted chunks::
 
 from __future__ import annotations
 
-from pathlib import PurePosixPath
-from typing import TYPE_CHECKING
-
-from rbtr.domain.models import ImportMeta
 from rbtr.languages.registration import (
-    ImportResolver,
     LanguageRegistration,
     QueryExtraction,
     load_query,
 )
-
-if TYPE_CHECKING:
-    from tree_sitter import Node
 
 _SHARED_QUERIES = load_query(__package__, "shared") + load_query(__package__, "variables")
 _JS_QUERY = load_query(__package__, "javascript") + _SHARED_QUERIES
@@ -43,65 +35,6 @@ _TS_QUERY = load_query(__package__, "typescript") + _SHARED_QUERIES
 
 
 # Shared by the JavaScript and TypeScript plugins.
-def extract_import_meta(
-    resolver: ImportResolver, node: Node, captures: dict[str, list[Node]]
-) -> ImportMeta:
-    """Extract import data from a JS/TS `import_statement` node.
-
-    Reads `@_import_module` from captures, then walks the node
-    for import names (which the query can't capture because
-    they're multi-valued).  Strips the module's file extension, so
-    `./models.js` can resolve to `models.ts`; a `./` or `../` prefix
-    stays for resolution to read.
-
-    Examples:
-
-        `import { foo } from './models'`:
-            module="./models", names="foo"
-
-        `import React from 'react'`:
-            module="react", names="React"
-
-        `import * as utils from '../utils'`:
-            module="../utils", names="utils"
-
-        `import './styles.css'`:
-            module="./styles"
-    """
-    meta = resolver(node, captures)
-    names: list[str] = []
-
-    # Module comes from @_import_module capture (string_fragment).
-    raw_module = meta.module
-
-    # Import clause (no named fields — child iteration needed).
-    for child in node.children:
-        if child.type != "import_clause":
-            continue
-        for ic in child.children:
-            match ic.type:
-                case "identifier":
-                    if ic.text:
-                        names.append(ic.text.decode())
-                case "named_imports":
-                    for spec in ic.children:
-                        if spec.type == "import_specifier":
-                            sid = spec.child_by_field_name("name")
-                            if sid and sid.text:
-                                names.append(sid.text.decode())
-                case "namespace_import":
-                    for ns in ic.children:
-                        if ns.type == "identifier" and ns.text:
-                            names.append(ns.text.decode())
-                            break
-
-    extension = PurePosixPath(raw_module).suffix
-    if extension and len(extension) < len(raw_module):
-        meta.module = raw_module.removesuffix(extension)
-
-    if names:
-        meta.names = ",".join(names)
-    return meta
 
 
 javascript = LanguageRegistration(
@@ -118,7 +51,7 @@ javascript = LanguageRegistration(
     index_files=frozenset({"index.js"}),
     import_targets=frozenset({"javascript", "css"}),
     source_roots=("", "src"),
-    extraction_serial=9,
+    extraction_serial=10,
 )
 typescript = LanguageRegistration(
     id="typescript",
@@ -145,7 +78,7 @@ typescript = LanguageRegistration(
     index_files=frozenset({"index.ts", "index.js"}),
     import_targets=frozenset({"typescript", "tsx", "javascript", "css"}),
     source_roots=("", "src"),
-    extraction_serial=9,
+    extraction_serial=10,
 )
 tsx = LanguageRegistration(
     id="tsx",
@@ -172,9 +105,5 @@ tsx = LanguageRegistration(
     index_files=frozenset({"index.tsx", "index.ts", "index.js"}),
     import_targets=frozenset({"tsx", "typescript", "javascript", "css"}),
     source_roots=("", "src"),
-    extraction_serial=6,
+    extraction_serial=7,
 )
-
-javascript.import_extractor(extract_import_meta)
-typescript.import_extractor(extract_import_meta)
-tsx.import_extractor(extract_import_meta)

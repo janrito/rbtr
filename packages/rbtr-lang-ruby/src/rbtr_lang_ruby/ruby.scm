@@ -14,17 +14,33 @@
 (module
   name: (constant) @_cls_name) @class
 
-(call
+; A required file's constants are visible to every file after it: its
+; every name, as a star import. `require_relative` reads its path from the
+; requiring file's directory.
+((call
   method: (identifier) @_call_name
   arguments: (argument_list
-    (string) @_import_module)
-  (#eq? @_call_name "require"))  @import
+    (string) @_import_module)) @import
+  (#set! import.names "*")
+  (#eq? @_call_name "require")
+  (#not-match? @_import_module "^.{0,2}$"))
 
-(call
+((call
   method: (identifier) @_call_name
   arguments: (argument_list
-    (string) @_import_module)
-  (#eq? @_call_name "require_relative"))  @import
+    (string) @_import_module)) @import
+  (#set! import.names "*")
+  (#set! import.prefix "./")
+  (#eq? @_call_name "require_relative")
+  (#not-match? @_import_module "^.{0,2}$"))
+
+; An empty path names nothing.
+((call
+  method: (identifier) @_call_name
+  arguments: (argument_list
+    (string) @_import_module)) @import
+  (#any-of? @_call_name "require" "require_relative")
+  (#match? @_import_module "^.{0,2}$"))
 
 (assignment
   left: (constant) @_var_name) @variable

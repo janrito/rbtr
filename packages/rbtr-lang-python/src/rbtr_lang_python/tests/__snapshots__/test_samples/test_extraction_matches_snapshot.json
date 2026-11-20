@@ -21,7 +21,13 @@
     "metadata": {
       "module": "sys",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "sys",
+          "local": "sys"
+        }
+      ]
     }
   },
   {
@@ -46,7 +52,13 @@
     "metadata": {
       "module": "readline",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "readline",
+          "local": "readline"
+        }
+      ]
     }
   },
   {
@@ -131,7 +143,13 @@
     "metadata": {
       "module": "pkg.b",
       "names": "helper",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "helper",
+          "local": "helper"
+        }
+      ]
     }
   },
   {
@@ -172,7 +190,18 @@
     "language": "python",
     "content": "from __future__ import annotations",
     "line_start": 14,
-    "line_end": 14
+    "line_end": 14,
+    "metadata": {
+      "module": "",
+      "names": "",
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "annotations",
+          "local": "annotations"
+        }
+      ]
+    }
   },
   {
     "name": "import os",
@@ -186,7 +215,13 @@
     "metadata": {
       "module": "os",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "os",
+          "local": "os"
+        }
+      ]
     }
   },
   {
@@ -201,7 +236,13 @@
     "metadata": {
       "module": "os.path",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "os.path",
+          "local": "osp"
+        }
+      ]
     }
   },
   {
@@ -216,7 +257,13 @@
     "metadata": {
       "module": "functools",
       "names": "lru_cache",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "lru_cache",
+          "local": "lru_cache"
+        }
+      ]
     }
   },
   {
@@ -231,7 +278,13 @@
     "metadata": {
       "module": "pathlib",
       "names": "Path",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "Path",
+          "local": "P"
+        }
+      ]
     }
   },
   {
@@ -244,9 +297,15 @@
     "line_start": 21,
     "line_end": 21,
     "metadata": {
-      "module": "./config",
+      "module": ".config",
       "names": "LOCALE",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "LOCALE",
+          "local": "LOCALE"
+        }
+      ]
     }
   },
   {

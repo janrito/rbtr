@@ -31,7 +31,13 @@
     "metadata": {
       "module": "./store",
       "names": "makeStore",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "makeStore",
+          "local": "makeStore"
+        }
+      ]
     }
   },
   {
@@ -106,7 +112,13 @@
     "metadata": {
       "module": "./b",
       "names": "helper",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "helper",
+          "local": "helper"
+        }
+      ]
     }
   },
   {

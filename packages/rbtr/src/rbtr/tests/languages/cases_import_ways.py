@@ -69,6 +69,25 @@ def case_a_named_import_reaches_each_name_it_finds() -> ImportWayScenario:
     )
 
 
+def case_an_import_of_every_name_reaches_what_a_bare_import_reaches() -> ImportWayScenario:
+    """`*` names every name: the import reaches the module's definitions, as a bare one does."""
+    return ImportWayScenario(
+        rows={
+            "id": ["import", "f", "C"],
+            "file_path": ["app.code", "lib.code", "lib.code"],
+            "line_start": [1, 1, 3],
+            "kind": ["import", "function", "class"],
+            "name": ["from lib import *", "f", "C"],
+            "language": ["code"] * 3,
+            "module": ["lib.code", None, None],
+            "names": ["*", None, None],
+            "language_hint": ["", None, None],
+        },
+        repo_files=frozenset({"app.code", "lib.code"}),
+        expected=frozenset({("import", "f", "imports"), ("import", "C", "imports")}),
+    )
+
+
 def case_a_name_no_symbol_holds_reaches_a_section_of_that_name() -> ImportWayScenario:
     """A name the module's symbols lack reaches its section of that name, and prose documents it."""
     return ImportWayScenario(

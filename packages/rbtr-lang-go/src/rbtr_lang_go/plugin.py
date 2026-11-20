@@ -11,9 +11,9 @@ Extracted chunks::
     type Reader interface { ... }   → class "Reader", scope ""
 
     import "fmt"
-        → import, metadata {module: "fmt"}
+        → import, metadata {module: "fmt"}, binding `fmt`
     import ("fmt" "os/exec")
-        → 2 import chunks: {module: "fmt"}, {module: "os/exec"}
+        → 2 import chunks: {module: "fmt"}, {module: "os/exec"}, binding `exec`
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ go = LanguageRegistration(
         scope_types=frozenset({"type_spec"}),
     ),
     package_directory=True,
-    extraction_serial=5,
+    extraction_serial=6,
     manifest="go.mod",
 )
 

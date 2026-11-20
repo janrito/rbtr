@@ -10,9 +10,11 @@ Extracted chunks::
     }
 
     import java.util.HashMap
-        → import, metadata {module: "java.util.HashMap"}
+        → import, metadata {module: "java.util.HashMap", names: "HashMap"}
     import static org.junit.Assert.assertEquals
-        → import, metadata {module: "org.junit.Assert.assertEquals"}
+        → import, metadata {module: "org.junit.Assert", names: "assertEquals"}
+    import com.example.models.*
+        → import, metadata {module: "com.example.models", names: "*"}
 """
 
 from __future__ import annotations
@@ -38,5 +40,6 @@ java = LanguageRegistration(
     ),
     source_roots=("", "src/main/java"),
     module_style=ModuleStyle.DOTTED,
-    extraction_serial=5,
+    package_directory=True,
+    extraction_serial=6,
 )

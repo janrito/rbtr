@@ -1,9 +1,10 @@
-"""Built-in resolvers — the engine defaults for name/scope/import extraction.
+"""Built-in resolvers — the engine defaults for name and scope extraction, and import reading.
 
-Each is a callable null-object (à la pydantic-ai's `NoOpTracer`): a
-`LanguageRegistration` slot defaults to one, `resolve_*` calls it directly, and
-an override composes over it. Private module — imported by `registration` (for
-the slot defaults) and by `languages.treesitter` (for `NAME_CAPTURE_KEY`).
+The name and scope resolvers are callable null-objects (à la pydantic-ai's
+`NoOpTracer`): a `LanguageRegistration` slot defaults to one, `resolve_*` calls
+it directly, and an override composes over it. `read_import` reads an import's
+module for every language. Private module — imported by `registration` (for
+the slot defaults) and by `languages.treesitter`.
 """
 
 from __future__ import annotations
@@ -72,32 +73,21 @@ class DefaultScope:
         return []
 
 
-class DefaultImport:
-    """Built-in import-metadata resolver: read captures, strip delimiters.
+def read_import(captures: dict[str, list[Node]]) -> ImportMeta:
+    """The import a match's captures state: its `@_import_module`, delimiters stripped.
 
-    For languages whose query captures all the import metadata they need. A
-    captured module wrapped in a matching pair from `STRING_DELIMITERS` is
-    unwrapped; anything else is read as it stands. Richer imports (Python/JS
-    multi-name, Rust scoped paths) override and delegate to this. Examples: C
-    `#include <stdio.h>` → `stdio.h`; Go `import "fmt"` → `fmt`; Ruby `require
-    'b'` → `b`; Java `import java.util.List;` → `java.util.List`.
+    A captured module wrapped in a matching pair from `STRING_DELIMITERS` is
+    unwrapped; anything else is read as it stands: C `#include <stdio.h>` is
+    `stdio.h`, Go `import "fmt"` is `fmt`. Names, bindings and settings come
+    from the query's own captures and directives.
     """
-
-    def __call__(self, _node: Node, captures: dict[str, list[Node]]) -> ImportMeta:
-        meta = ImportMeta()
-        if (module := self._read(captures, "_import_module")) is not None:
-            meta.module = module
-        if (names := self._read(captures, "_import_names")) is not None:
-            meta.names = names
-        return meta
-
-    @staticmethod
-    def _read(captures: dict[str, list[Node]], key: str) -> str | None:
-        nodes = captures.get(key, [])
-        if not (nodes and nodes[0].text):
-            return None
+    meta = ImportMeta()
+    nodes = captures.get("_import_module", [])
+    if nodes and nodes[0].text:
         raw = nodes[0].text.decode()
         for opening, closing in STRING_DELIMITERS.items():
             if len(raw) > 1 and raw.startswith(opening) and raw.endswith(closing):
-                return raw[1:-1]
-        return raw
+                raw = raw[1:-1]
+                break
+        meta.module = raw
+    return meta

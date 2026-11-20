@@ -135,7 +135,7 @@ def requested_imports(
     `MODULE` when it names a module or a relative depth, `NAME` when prose
     names something and no file, else `TEXT`. Prose documents what it names
     (`DOCUMENTS`) by `MODULE` or `NAME`; every other edge `IMPORTS`. Names
-    are split into a list; a relative module's prefix is read as its depth
+    are split into a list. Its module is read by its own language's style
     (`written_depth`, `written_module`).
     """
     if chunks.is_empty():
@@ -144,7 +144,14 @@ def requested_imports(
     return (
         chunks.filter(pl.col("kind") == ChunkKind.IMPORT)
         .join(
-            resolutions.select("language", "prose"),
+            resolutions.select(
+                "language",
+                "prose",
+                "module_style",
+                "parent_module",
+                "current_module",
+                "directory_module_files",
+            ),
             on="language",
             how="left",
         )
@@ -157,8 +164,8 @@ def requested_imports(
             text="name",
             way="way",
             kind=import_edge_kind(prose),
-            depth=written_depth(pl.col("module")),
-            module=written_module(pl.col("module")),
+            depth=written_depth(pl.col("module"), pl.col("file_path")),
+            module=written_module(pl.col("module"), pl.col("file_path")),
             names=listed_names(),
             language_hint="language_hint",
         )

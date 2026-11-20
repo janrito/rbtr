@@ -6,8 +6,8 @@ import pytest
 from pytest_cases import case
 
 type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
-type ImportCase = tuple[str, str, dict[str, str]]
-type MultiImportCase = tuple[str, str, int, list[dict[str, str]]]
+type ImportCase = tuple[str, str, dict[str, str | list[dict[str, str]]]]
+type MultiImportCase = tuple[str, str, int, list[dict[str, str | list[dict[str, str]]]]]
 type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
 
 _xfail_nested = pytest.mark.xfail(
@@ -130,7 +130,15 @@ class Outer {
 @case(tags=["import"])
 def case_java_import_class() -> ImportCase:
     """import java.util.HashMap."""
-    return "java", "import java.util.HashMap;\n", {"module": "java.util.HashMap"}
+    return (
+        "java",
+        "import java.util.HashMap;\n",
+        {
+            "module": "java.util.HashMap",
+            "names": "HashMap",
+            "bindings": [{"name": "HashMap", "local": "HashMap"}],
+        },
+    )
 
 
 @case(tags=["import"])
@@ -139,17 +147,25 @@ def case_java_import_deeply_nested() -> ImportCase:
     return (
         "java",
         "import com.example.app.models.User;\n",
-        {"module": "com.example.app.models.User"},
+        {
+            "module": "com.example.app.models.User",
+            "names": "User",
+            "bindings": [{"name": "User", "local": "User"}],
+        },
     )
 
 
 @case(tags=["import"])
 def case_java_import_static() -> ImportCase:
-    """import static org.junit.Assert.assertEquals."""
+    """import static org.junit.Assert.assertEquals: the member, listed by its path in `Assert`."""
     return (
         "java",
         "import static org.junit.Assert.assertEquals;\n",
-        {"module": "org.junit.Assert.assertEquals"},
+        {
+            "module": "org.junit.Assert",
+            "names": "Assert.assertEquals",
+            "bindings": [{"name": "Assert.assertEquals", "local": "assertEquals"}],
+        },
     )
 
 
@@ -159,7 +175,11 @@ def case_java_import_static_method() -> ImportCase:
     return (
         "java",
         "import static java.util.Collections.sort;\n",
-        {"module": "java.util.Collections.sort"},
+        {
+            "module": "java.util.Collections",
+            "names": "Collections.sort",
+            "bindings": [{"name": "Collections.sort", "local": "sort"}],
+        },
     )
 
 
@@ -175,8 +195,16 @@ import java.util.Map;
         src,
         2,
         [
-            {"module": "java.util.List"},
-            {"module": "java.util.Map"},
+            {
+                "module": "java.util.List",
+                "names": "List",
+                "bindings": [{"name": "List", "local": "List"}],
+            },
+            {
+                "module": "java.util.Map",
+                "names": "Map",
+                "bindings": [{"name": "Map", "local": "Map"}],
+            },
         ],
     )
 
@@ -213,3 +241,9 @@ public class UserService {
         {"import", "class", "method"},
         [("addName", "UserService"), ("getNames", "UserService")],
     )
+
+
+@case(tags=["import"])
+def case_java_import_wildcard() -> ImportCase:
+    """A package's every class, written `*`."""
+    return "java", "import com.example.models.*;\n", {"module": "com.example.models", "names": "*"}

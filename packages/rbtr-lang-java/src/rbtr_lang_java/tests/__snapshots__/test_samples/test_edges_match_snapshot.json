@@ -1,4 +1,3 @@
 [
-  "java.java::import com.example.format.Formatter; -> com/example/format/Formatter.java::Formatter [imports]",
-  "java.java::import com.example.format.Formatter; -> com/example/format/Formatter.java::format [imports]"
+  "java.java::import com.example.format.Formatter; -> com/example/format/Formatter.java::Formatter [imports]"
 ]

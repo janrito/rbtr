@@ -40,11 +40,16 @@ def parent_directory(path: pl.Expr) -> pl.Expr:
 
 
 def rewritten_module() -> pl.Expr:
-    """The lookup path after its first matching substitution (`rewritten`), dots made slashes for a dotted language."""
+    """The lookup path after its first matching substitution (`rewritten`), its separators slashes.
+
+    A dotted language's dots and a scoped language's `::` become `/`.
+    """
     path = pl.coalesce("rewritten", "path")
     return (
         pl.when(pl.col("module_style") == ModuleStyle.DOTTED)
         .then(path.str.replace_all(".", "/", literal=True))
+        .when(pl.col("module_style") == ModuleStyle.SCOPED)
+        .then(path.str.replace_all("::", "/", literal=True))
         .otherwise(path)
     )
 
@@ -200,28 +205,78 @@ def module_files(
     return pl.concat([in_roots, by_suffix, in_directory]).pipe(ModuleFileRow.validate, cast=True)
 
 
-def written_depth(module: pl.Expr) -> pl.Expr:
-    """*module*'s relative depth, read from its prefix: 1 is the importing file's own directory, 2 its parent.
+def leading_words(module: pl.Expr, word: pl.Expr) -> pl.Expr:
+    """*module*'s leading run of *word* (`super::super::`); null when it starts with none, or *word* is null."""
+    return module.str.extract(pl.concat_str(pl.lit("^(?:"), word, pl.lit("(?:::|$))+")), 0)
 
-    `./models` is 1, `../../shared/x` is 3, `react` is 0, not relative.
+
+def in_directory_module(importer: pl.Expr) -> pl.Expr:
+    """Whether *importer* is its directory's module (`directory_module_files`), not a module of its own inside it."""
+    return (
+        pl.col("directory_module_files").list.contains(path_name(importer)).fill_null(value=False)
+    )
+
+
+def written_depth(module: pl.Expr, importer: pl.Expr) -> pl.Expr:
+    """*module*'s relative depth, read from its prefix: 1 is the *importer*'s own directory, 2 its parent.
+
+    A path writes `./models` (1) and `../../shared/x` (3), and a directory
+    alone as `.` (1) or `..` (2). A dotted module writes one leading dot per
+    level, `.models` (1) and `..shared.x` (2). A module word reads from the
+    importer's module (`in_directory_module`): the current word stays in
+    it, `self::util` (1); each parent word climbs one level, `super::util`
+    is 2 from a directory's module and 1 from a file's own. `react` is 0,
+    not relative.
     """
+    parents = leading_words(module, pl.col("parent_module"))
     climbs = module.str.extract(r"^((?:\.\./)*)", 1).str.len_chars() // 3
     return (
-        pl.when(module.str.starts_with("./"))
+        pl.when(parents.is_not_null())
+        .then(
+            parents.str.split("::").list.eval(pl.element() != "").list.sum()
+            + in_directory_module(importer).cast(pl.Int64)
+        )
+        .when(leading_words(module, pl.col("current_module")).is_not_null())
+        .then(1)
+        .when(module.str.starts_with("./"))
         .then(1)
         .when(climbs > 0)
         .then(climbs + 1)
+        .when(module.is_in([".", ".."]) | (pl.col("module_style") == ModuleStyle.DOTTED))
+        .then(module.str.extract(r"^(\.*)", 1).str.len_chars())
         .otherwise(0)
         .cast(pl.Int64)
     )
 
 
-def written_module(module: pl.Expr) -> pl.Expr:
-    """*module* with the prefix `written_depth` reads removed."""
+def written_module(module: pl.Expr, importer: pl.Expr) -> pl.Expr:
+    """*module* with the prefix `written_depth` reads removed.
+
+    A current word read in a file that is a module of its own names a
+    child of that module, in the directory named by the file's stem:
+    `self::util` in `order.rs` is `order::util`.
+    """
+    parents = leading_words(module, pl.col("parent_module"))
+    current = leading_words(module, pl.col("current_module"))
+    rest = module.str.slice(current.str.len_chars())
     return (
-        pl.when(module.str.starts_with("./"))
+        pl.when(parents.is_not_null())
+        .then(module.str.slice(parents.str.len_chars()))
+        .when(current.is_not_null() & in_directory_module(importer))
+        .then(rest)
+        .when(current.is_not_null())
+        .then(
+            pl.concat_list(file_stem(importer), rest)
+            .list.eval(pl.element().filter(pl.element() != ""))
+            .list.join("::")
+        )
+        .when(module.str.starts_with("./"))
         .then(module.str.slice(2))
-        .otherwise(module.str.replace(r"^(?:\.\./)+", ""))
+        .when(module.str.starts_with("../"))
+        .then(module.str.replace(r"^(?:\.\./)+", ""))
+        .when(module.is_in([".", ".."]) | (pl.col("module_style") == ModuleStyle.DOTTED))
+        .then(module.str.strip_chars_start("."))
+        .otherwise(module)
     )
 
 

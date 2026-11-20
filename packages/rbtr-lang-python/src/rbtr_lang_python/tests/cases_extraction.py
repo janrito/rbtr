@@ -6,8 +6,8 @@ import pytest
 from pytest_cases import case
 
 type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
-type ImportCase = tuple[str, str, dict[str, str]]
-type MultiImportCase = tuple[str, str, int, list[dict[str, str]]]
+type ImportCase = tuple[str, str, dict[str, str | list[dict[str, str]]]]
+type MultiImportCase = tuple[str, str, int, list[dict[str, str | list[dict[str, str]]]]]
 type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
 
 _xfail_nested = pytest.mark.xfail(
@@ -368,25 +368,37 @@ TIMEOUT: int = 30
 @case(tags=["import"])
 def case_py_import_bare() -> ImportCase:
     """import os."""
-    return "python", "import os\n", {"module": "os"}
+    return "python", "import os\n", {"module": "os", "bindings": [{"name": "os", "local": "os"}]}
 
 
 @case(tags=["import"])
 def case_py_import_dotted() -> ImportCase:
     """import os.path."""
-    return "python", "import os.path\n", {"module": "os.path"}
+    return (
+        "python",
+        "import os.path\n",
+        {"module": "os.path", "bindings": [{"name": "os", "local": "os"}]},
+    )
 
 
 @case(tags=["import"])
 def case_py_import_deeply_nested() -> ImportCase:
     """import a.b.c.d."""
-    return "python", "import a.b.c.d\n", {"module": "a.b.c.d"}
+    return (
+        "python",
+        "import a.b.c.d\n",
+        {"module": "a.b.c.d", "bindings": [{"name": "a", "local": "a"}]},
+    )
 
 
 @case(tags=["import"])
 def case_py_from_import_single() -> ImportCase:
     """from pathlib import Path."""
-    return "python", "from pathlib import Path\n", {"module": "pathlib", "names": "Path"}
+    return (
+        "python",
+        "from pathlib import Path\n",
+        {"module": "pathlib", "names": "Path", "bindings": [{"name": "Path", "local": "Path"}]},
+    )
 
 
 @case(tags=["import"])
@@ -395,7 +407,11 @@ def case_py_from_import_multiple() -> ImportCase:
     return (
         "python",
         "from rbtr.index.models import Chunk, Edge\n",
-        {"module": "rbtr.index.models", "names": "Chunk,Edge"},
+        {
+            "module": "rbtr.index.models",
+            "names": "Chunk,Edge",
+            "bindings": [{"name": "Chunk", "local": "Chunk"}, {"name": "Edge", "local": "Edge"}],
+        },
     )
 
 
@@ -405,7 +421,7 @@ def case_py_from_import_aliased() -> ImportCase:
     return (
         "python",
         "from .models import Chunk as C\n",
-        {"module": "./models", "names": "Chunk"},
+        {"module": ".models", "names": "Chunk", "bindings": [{"name": "Chunk", "local": "C"}]},
     )
 
 
@@ -415,7 +431,11 @@ def case_py_from_import_multiple_aliased() -> ImportCase:
     return (
         "python",
         "from models import Foo as F, Bar as B\n",
-        {"module": "models", "names": "Foo,Bar"},
+        {
+            "module": "models",
+            "names": "Foo,Bar",
+            "bindings": [{"name": "Foo", "local": "F"}, {"name": "Bar", "local": "B"}],
+        },
     )
 
 
@@ -425,7 +445,7 @@ def case_py_relative_dot_with_module() -> ImportCase:
     return (
         "python",
         "from .models import Chunk\n",
-        {"module": "./models", "names": "Chunk"},
+        {"module": ".models", "names": "Chunk", "bindings": [{"name": "Chunk", "local": "Chunk"}]},
     )
 
 
@@ -435,14 +455,22 @@ def case_py_relative_dotdot() -> ImportCase:
     return (
         "python",
         "from ..core import engine\n",
-        {"module": "../core", "names": "engine"},
+        {
+            "module": "..core",
+            "names": "engine",
+            "bindings": [{"name": "engine", "local": "engine"}],
+        },
     )
 
 
 @case(tags=["import"])
 def case_py_relative_dot_only() -> ImportCase:
     """from . import utils — the package itself."""
-    return "python", "from . import utils\n", {"module": "./", "names": "utils"}
+    return (
+        "python",
+        "from . import utils\n",
+        {"module": ".", "names": "utils", "bindings": [{"name": "utils", "local": "utils"}]},
+    )
 
 
 @case(tags=["import"])
@@ -451,14 +479,28 @@ def case_py_relative_three_dots() -> ImportCase:
     return (
         "python",
         "from ...lib import helper\n",
-        {"module": "../../lib", "names": "helper"},
+        {
+            "module": "...lib",
+            "names": "helper",
+            "bindings": [{"name": "helper", "local": "helper"}],
+        },
     )
 
 
 @case(tags=["import"])
 def case_py_import_star() -> ImportCase:
-    """from os.path import * — no names key."""
-    return "python", "from os.path import *\n", {"module": "os.path"}
+    """from os.path import * — every name, written `*`."""
+    return "python", "from os.path import *\n", {"module": "os.path", "names": "*"}
+
+
+@case(tags=["import"])
+def case_py_import_aliased_module() -> ImportCase:
+    """import numpy as np — the module under a local name."""
+    return (
+        "python",
+        "import numpy as np\n",
+        {"module": "numpy", "bindings": [{"name": "numpy", "local": "np"}]},
+    )
 
 
 @case(tags=["import"])
@@ -468,7 +510,7 @@ def case_py_import_inside_function() -> ImportCase:
 def f():
     import json
 """
-    return "python", src, {"module": "json"}
+    return "python", src, {"module": "json", "bindings": [{"name": "json", "local": "json"}]}
 
 
 @case(tags=["import"])
@@ -478,7 +520,15 @@ def case_py_import_inside_class() -> ImportCase:
 class C:
     from collections import OrderedDict
 """
-    return "python", src, {"module": "collections", "names": "OrderedDict"}
+    return (
+        "python",
+        src,
+        {
+            "module": "collections",
+            "names": "OrderedDict",
+            "bindings": [{"name": "OrderedDict", "local": "OrderedDict"}],
+        },
+    )
 
 
 @case(tags=["multi_import"])
@@ -488,7 +538,15 @@ def case_py_multiple_imports() -> MultiImportCase:
 import os
 import sys
 """
-    return "python", src, 2, [{"module": "os"}, {"module": "sys"}]
+    return (
+        "python",
+        src,
+        2,
+        [
+            {"module": "os", "bindings": [{"name": "os", "local": "os"}]},
+            {"module": "sys", "bindings": [{"name": "sys", "local": "sys"}]},
+        ],
+    )
 
 
 @case(tags=["mixed"])

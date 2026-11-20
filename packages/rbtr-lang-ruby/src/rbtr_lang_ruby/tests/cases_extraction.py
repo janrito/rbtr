@@ -6,7 +6,7 @@ import pytest
 from pytest_cases import case
 
 type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
-type ImportCase = tuple[str, str, dict[str, str]]
+type ImportCase = tuple[str, str, dict[str, str | list[dict[str, str]]]]
 type MultiImportCase = tuple[str, str, int, list[dict[str, str]]]
 type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
 
@@ -194,37 +194,37 @@ end
 @case(tags=["import"])
 def case_ruby_require_simple() -> ImportCase:
     """require "json"."""
-    return "ruby", 'require "json"\n', {"module": "json"}
+    return "ruby", 'require "json"\n', {"module": "json", "names": "*"}
 
 
 @case(tags=["import"])
 def case_ruby_require_nested() -> ImportCase:
     """require "net/http"."""
-    return "ruby", 'require "net/http"\n', {"module": "net/http"}
+    return "ruby", 'require "net/http"\n', {"module": "net/http", "names": "*"}
 
 
 @case(tags=["import"])
 def case_ruby_require_relative() -> ImportCase:
     """require_relative "helpers"."""
-    return "ruby", 'require_relative "helpers"\n', {"module": "./helpers"}
+    return "ruby", 'require_relative "helpers"\n', {"module": "./helpers", "names": "*"}
 
 
 @case(tags=["import"])
 def case_ruby_require_relative_nested() -> ImportCase:
     """require_relative "lib/utils"."""
-    return "ruby", 'require_relative "lib/utils"\n', {"module": "./lib/utils"}
+    return "ruby", 'require_relative "lib/utils"\n', {"module": "./lib/utils", "names": "*"}
 
 
 @case(tags=["import"])
 def case_ruby_require_relative_dot_prefix() -> ImportCase:
     """require_relative "./config" — already written relative."""
-    return "ruby", 'require_relative "./config"\n', {"module": "./config"}
+    return "ruby", 'require_relative "./config"\n', {"module": "./config", "names": "*"}
 
 
 @case(tags=["import"])
 def case_ruby_require_relative_parent() -> ImportCase:
     """require_relative "../lib/utils" — already written relative."""
-    return "ruby", 'require_relative "../lib/utils"\n', {"module": "../lib/utils"}
+    return "ruby", 'require_relative "../lib/utils"\n', {"module": "../lib/utils", "names": "*"}
 
 
 @case(tags=["import"])
@@ -243,7 +243,7 @@ def case_ruby_multiple_requires() -> MultiImportCase:
 require "json"
 require_relative "helpers"
 """
-    return "ruby", src, 2, [{"module": "json"}, {"module": "./helpers"}]
+    return "ruby", src, 2, [{"module": "json", "names": "*"}, {"module": "./helpers", "names": "*"}]
 
 
 @case(tags=["mixed"])

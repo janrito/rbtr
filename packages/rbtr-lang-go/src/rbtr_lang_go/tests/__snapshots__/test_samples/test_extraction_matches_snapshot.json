@@ -31,7 +31,13 @@
     "metadata": {
       "module": "fmt",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "fmt",
+          "local": "fmt"
+        }
+      ]
     }
   },
   {
@@ -46,7 +52,13 @@
     "metadata": {
       "module": "example.com/greeter/greeter",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "example.com/greeter/greeter",
+          "local": "greeter"
+        }
+      ]
     }
   },
   {
@@ -201,7 +213,13 @@
     "metadata": {
       "module": "strings",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "strings",
+          "local": "strings"
+        }
+      ]
     }
   },
   {

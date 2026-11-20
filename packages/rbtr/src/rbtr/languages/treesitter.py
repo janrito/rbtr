@@ -26,8 +26,14 @@ from tree_sitter import Language, Parser, Query, QueryCursor, Range
 from rbtr.config import config
 from rbtr.domain.identity import compose_scope
 from rbtr.domain.models import Chunk, ChunkKind, ImportMeta
-from rbtr.domain.rules import CaptureRow, FileRow, PlacedChunkRow
-from rbtr.languages._resolvers import NAME_CAPTURE_KEY
+from rbtr.domain.rules import (
+    CaptureRow,
+    FileRow,
+    MetadataCaptureName,
+    MetadataCaptureRow,
+    PlacedChunkRow,
+)
+from rbtr.languages._resolvers import NAME_CAPTURE_KEY, read_import
 from rbtr.languages.chunks import chunk_rows, last_line
 from rbtr.languages.manager import get_manager
 from rbtr.languages.registration import ChunkExtraction, QueryExtraction
@@ -70,11 +76,17 @@ class ByteSpan(TypedDict):
     end: int
 
 
+class Binding(TypedDict):
+    name: str
+    local: str
+
+
 class Metadata(TypedDict):
     module: str | None
     names: str | None
     language_hint: str | None
     node_types: list[str] | None
+    bindings: list[Binding] | None
 
 
 # A TypedDict, not a dataclass: polars maps a dataclass's fields to a schema by
@@ -85,6 +97,7 @@ class Capture(TypedDict):
     file: int
     source: int
     order: int
+    match: int | None
     language: str
     kind: str
     name: str
@@ -105,6 +118,18 @@ type Languages = Callable[[str], tuple[LanguageRegistration, Language | None] | 
 `extract_batch` injects `registered`; a test injects a registration no
 plugin installs.
 """
+
+
+class MetadataCapture(TypedDict):
+    """A `MetadataCaptureRow` as `read` builds it."""
+
+    file: int
+    source: int
+    match: int
+    capture: str
+    start_byte: int
+    end_byte: int
+    text: str
 
 
 def registered(language: str) -> tuple[LanguageRegistration, Language | None] | None:
@@ -140,19 +165,25 @@ class Source:
 
 def read(
     files: dy.DataFrame[FileRow], languages: Languages
-) -> tuple[dy.DataFrame[CaptureRow], dy.DataFrame[PlacedChunkRow], list[int]]:
+) -> tuple[
+    dy.DataFrame[CaptureRow],
+    dy.DataFrame[MetadataCaptureRow],
+    dy.DataFrame[PlacedChunkRow],
+    list[int],
+]:
     """What tree-sitter and the plugins make of *files*, as rows.
 
     A file is read as its language's query or chunker, and each block it
     hands on the same way (`sources`): the query's spans are the
-    `CaptureRow`s, the chunkers' chunks the `PlacedChunkRow`s, numbered
+    `CaptureRow`s, its metadata captures the `MetadataCaptureRow`s, the
+    chunkers' chunks the `PlacedChunkRow`s, numbered
     in one order per file. A chunker's chunk is in its source's language
     when the chunker leaves it blank. The files whose language reads
     nothing and hands on no block are the list. *languages* finds each
     language.
     """
     captures: list[Capture] = []
-
+    metadata_captures: list[MetadataCapture] = []
     chunked: list[tuple[Chunk, int, int, str, str]] = []
     plain: list[int] = []
     numbers = itertools.count()
@@ -178,13 +209,16 @@ def read(
                         language = chunk.language or source.registration.id
                         chunked.append((chunk, file, next(orders), language, file_language))
                 case QueryExtraction() as extraction if content:
-                    captured, named = query_captures(source, extraction)
+                    captured, named, found = query_captures(source, extraction)
                     captures += captured
                     captures += fragments(source, extraction, captured, named)
-
+                    metadata_captures += found
     return (
         pl.DataFrame(captures, schema=CaptureRow.create_empty().schema).pipe(
             CaptureRow.validate, cast=True
+        ),
+        pl.DataFrame(metadata_captures, schema=MetadataCaptureRow.create_empty().schema).pipe(
+            MetadataCaptureRow.validate, cast=True
         ),
         pl.concat(
             [
@@ -308,8 +342,9 @@ def injection_language(captures: dict[str, list[Node]]) -> str | None:
 
 def query_captures(
     source: Source, extraction: QueryExtraction
-) -> tuple[list[Capture], dict[int, str]]:
-    """*source*'s query captures as rows, in source order, and the name each captured node gives.
+) -> tuple[list[Capture], dict[int, str], list[MetadataCapture]]:
+    """*source*'s query captures as rows, in source order, the name each captured node gives,
+    and its metadata captures (`MetadataCaptureName`) as rows.
 
     Each capture's kind, name, scope and metadata come from the query's
     capture conventions:
@@ -335,7 +370,7 @@ def query_captures(
     directives = Directives(
         source.registration, compiled_query(source.tree.language, extraction.query)
     )
-    nodes = captured_nodes(source.tree, directives)
+    nodes, metadata_captures = captured_nodes(source, directives)
     named: dict[int, str] = {}
     for captured in nodes:
         if captured.capture != "comment":
@@ -346,7 +381,7 @@ def query_captures(
     for captured in nodes:
         node = captured.node
         if captured.capture == "comment":
-            rows.append(capture(source, ChunkKind.COMMENT, node, node))
+            rows.append(capture(source, ChunkKind.COMMENT, node, node, match=captured.match))
             continue
         modules = captured.captures.get("_import_module", [])
         if captured.capture == "import" and len(modules) > 1:
@@ -381,9 +416,10 @@ def query_captures(
                     if node.start_byte <= d.start_byte and d.end_byte <= node.end_byte
                 ],
                 meta=directives.import_meta(captured) if captured.capture == "import" else None,
+                match=captured.match,
             )
         )
-    return rows, named
+    return rows, named, metadata_captures
 
 
 def capture(
@@ -399,12 +435,13 @@ def capture(
     docs: list[ByteSpan] | None = None,
     meta: ImportMeta | None = None,
     node_types: list[str] | None = None,
+    match: int | None = None,
 ) -> Capture:
     """A row for *source*'s span from *first*'s start to *last*'s end, numbered next in its file.
 
     *end*, when given, is where a section's own text ends: its end byte
     and last line. *meta* is an import's metadata, *node_types* a
-    fragment's.
+    fragment's, *match* the query match that captured it.
     """
     end_byte, line_end = end if end is not None else (last.end_byte, last_line(last))
     metadata: Metadata | None = None
@@ -414,13 +451,17 @@ def capture(
             names=meta.names,
             language_hint=meta.language_hint,
             node_types=None,
+            bindings=[Binding(name=b.name, local=b.local) for b in meta.bindings],
         )
     elif node_types is not None:
-        metadata = Metadata(module=None, names=None, language_hint=None, node_types=node_types)
+        metadata = Metadata(
+            module=None, names=None, language_hint=None, node_types=node_types, bindings=None
+        )
     return Capture(
         file=source.file,
         source=source.number,
         order=next(source.orders),
+        match=match,
         language=source.registration.id,
         kind=kind.value,
         name=name,
@@ -440,22 +481,48 @@ def capture(
 class CapturedNode:
     """A node the query captured: its capture name, the pattern that matched, and the match.
 
-    *captures* is the match's every capture, helpers included.
+    *match* numbers the match in its source; *captures* is its every
+    capture, helpers included.
     """
 
     pattern: int
+    match: int
     node: Node
     capture: str
     captures: dict[str, list[Node]]
 
 
-def captured_nodes(tree: Tree, directives: Directives) -> list[CapturedNode]:
-    """Each node the query captures as a chunk or a comment, with its match, in source order."""
+def captured_nodes(
+    source: Source, directives: Directives
+) -> tuple[list[CapturedNode], list[MetadataCapture]]:
+    """Each node the query captures as a chunk or a comment, with its match, in source order.
+
+    Also each `MetadataCaptureName` capture of each match. The nodes one
+    match captures under one such name are one span, from the first's start
+    to the last's end.
+    """
     nodes: list[CapturedNode] = []
-    for pattern, captures in QueryCursor(directives.query).matches(
-        tree.root_node, directives.record
-    ):
+    metadata_captures: list[MetadataCapture] = []
+    metadata_names = {capture.value for capture in MetadataCaptureName}
+    matches = QueryCursor(directives.query).matches(source.tree.root_node, directives.record)
+    for match, (pattern, captures) in enumerate(matches):
         for capture_name, captured in captures.items():
+            if capture_name in metadata_names:
+                start = min(n.start_byte for n in captured)
+                end = max(n.end_byte for n in captured)
+                text = source.content[start:end].decode("utf-8", "replace")
+                metadata_captures.append(
+                    MetadataCapture(
+                        file=source.file,
+                        source=source.number,
+                        match=match,
+                        capture=capture_name,
+                        start_byte=start,
+                        end_byte=end,
+                        text=directives.strip(pattern, capture_name, text),
+                    )
+                )
+                continue
             if capture_name.startswith("_"):
                 continue
             try:
@@ -463,9 +530,11 @@ def captured_nodes(tree: Tree, directives: Directives) -> list[CapturedNode]:
                     continue
             except ValueError:
                 continue
-            nodes.extend(CapturedNode(pattern, node, capture_name, captures) for node in captured)
+            nodes.extend(
+                CapturedNode(pattern, match, node, capture_name, captures) for node in captured
+            )
     nodes.sort(key=lambda captured: captured.node.start_byte)
-    return nodes
+    return nodes, metadata_captures
 
 
 @dataclasses.dataclass
@@ -510,14 +579,27 @@ class Directives:
         return self.strip(captured.pattern, key, name) if key else name
 
     def import_meta(self, captured: CapturedNode) -> ImportMeta:
-        """The import *captured* records, its `#strip!` and language-hint directives applied."""
-        meta = self.language.resolve_import(captured.node, captured.captures)
-        hint = self.query.pattern_settings(captured.pattern).get("import.language_hint")
+        """The import *captured* records: its module (`read_import`) as written, `#strip!`ped, and its pattern's `#set!` names and language hint.
+
+        A pattern that sets `import.prefix` has it written before its
+        module, unless the module already starts with a path step (`./`,
+        `../`): Ruby's `require_relative "helpers"` is `./helpers`.
+
+        The names it lists and the bindings it makes are metadata captures
+        of their own, gathered over the statement's matches by the rules
+        (`with_metadata`).
+        """
+        meta = read_import(captured.captures)
+        settings = self.query.pattern_settings(captured.pattern)
+        module = self.strip(captured.pattern, "_import_module", meta.module)
+        prefix = settings.get("import.prefix")
+        if prefix and module and not module.startswith(("./", "../")):
+            module = f"{prefix}{module}"
         return meta.model_copy(
             update={
-                "module": self.strip(captured.pattern, "_import_module", meta.module),
-                "names": self.strip(captured.pattern, "_import_names", meta.names),
-                "language_hint": hint or meta.language_hint,
+                "module": module,
+                "names": settings.get("import.names") or meta.names,
+                "language_hint": settings.get("import.language_hint") or meta.language_hint,
             }
         )
 
@@ -604,7 +686,15 @@ def line_imports(
         meta = base.model_copy(
             update={"module": directives.strip(captured.pattern, "_import_module", text)}
         )
-        yield capture(source, ChunkKind.IMPORT, nodes[0], nodes[-1], name=text, meta=meta)
+        yield capture(
+            source,
+            ChunkKind.IMPORT,
+            nodes[0],
+            nodes[-1],
+            name=text,
+            meta=meta,
+            match=captured.match,
+        )
 
 
 def enclosing_scopes(node: Node, scope_types: frozenset[str]) -> list[Node]:

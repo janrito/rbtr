@@ -223,6 +223,7 @@ def test_an_import_reads_back_as_written(
             "names": "greet",
             "language_hint": "javascript",
             "node_types": None,
+            "bindings": [],
         }
     ]
 

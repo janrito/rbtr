@@ -511,17 +511,17 @@ def case_a_hint_resolves_by_the_hinted_languages_rules(
 @parametrize(
     "module,expected",
     [
-        ("./models", ["pkg/sub/models.py"]),
-        ("../models", ["pkg/models.py"]),
-        ("../../../models", []),
-        ("./", ["pkg/sub/__init__.py"]),
+        (".models", ["pkg/sub/models.py"]),
+        ("..models", ["pkg/models.py"]),
+        ("....models", []),
+        (".", ["pkg/sub/__init__.py"]),
     ],
     ids=["sibling", "parent", "past-the-root", "package-itself"],
 )
 def case_a_prefix_climbs_from_the_importer_of_a_dotted_language(
     module: str, expected: list[str]
 ) -> ImportScenario:
-    """A dotted language's relative module climbs from the file's directory; past the root it reaches nothing.
+    """A dotted module's leading dots climb, one per level from the file's directory; past the root it reaches nothing.
 
     The root `models.py` is what a climb stopping at the root would reach.
     """
@@ -559,6 +559,8 @@ def case_a_prefix_climbs_from_the_importer_of_a_dotted_language(
         ("../../../root", ["root.js"]),
         ("./x/y/z", ["a/b/c/x/y/z.js"]),
         ("./styles.css", ["a/b/c/styles.css"]),
+        (".", ["a/b/c/index.js"]),
+        ("..", ["a/b/index.js"]),
         ("react", []),
         ("@testing-library/react", []),
     ],
@@ -569,6 +571,8 @@ def case_a_prefix_climbs_from_the_importer_of_a_dotted_language(
         "triple-parent",
         "current-dir-nested",
         "current-with-extension",
+        "current-dir-alone",
+        "parent-dir-alone",
         "absolute-package",
         "scoped-package",
     ],
@@ -576,7 +580,7 @@ def case_a_prefix_climbs_from_the_importer_of_a_dotted_language(
 def case_a_written_prefix_climbs_from_the_importer(
     module: str, expected: list[str]
 ) -> ImportScenario:
-    """`./` is the importer's directory and each `../` one more up, for a path-style language.
+    """`./` or `.` is the importer's directory and each `../` or `..` one more up, for a path-style language.
 
     Root `models.js` and `utils.js` are what an unanchored lookup would reach.
     """
@@ -606,6 +610,97 @@ def case_a_written_prefix_climbs_from_the_importer(
                 "root.js",
                 "a/b/c/x/y/z.js",
                 "a/b/c/styles.css",
+            }
+        ),
+        expected=expected,
+    )
+
+
+@parametrize(
+    "module,expected",
+    [
+        ("crate::models", ["src/models.rs"]),
+        ("crate::shop::order", ["src/shop/order.rs"]),
+    ],
+    ids=["crate-rewritten", "nested"],
+)
+def case_a_scoped_module_names_its_slashed_path(module: str, expected: list[str]) -> ImportScenario:
+    """A `::` module's separators are slashes once its substitution is applied (`crate::` is `src/`)."""
+    return ImportScenario(
+        source_path="src/shop/app.rs",
+        language="lang",
+        module=module,
+        registrations=[
+            LanguageRegistration(
+                id="lang",
+                extensions=frozenset({".rs"}),
+                index_files=frozenset({"mod.rs"}),
+                path_substitutions=(("crate::", "src/"),),
+                module_style=ModuleStyle.SCOPED,
+            ),
+        ],
+        files=frozenset({"src/models.rs", "src/shop/order.rs", "src/util.rs", "src/shop/app.rs"}),
+        expected=expected,
+    )
+
+
+@parametrize(
+    "source_path,module,expected",
+    [
+        ("src/shop/mod.rs", "super::util", ["src/util.rs"]),
+        ("src/shop/order.rs", "super::util", ["src/shop/util.rs"]),
+        ("src/shop/mod.rs", "super::super::models", []),
+        ("src/shop/mod.rs", "superb::util", []),
+        ("src/shop/mod.rs", "self::util", ["src/shop/util.rs"]),
+        ("src/main.rs", "self::util", ["src/util.rs"]),
+        ("src/shop/order.rs", "self::util", ["src/shop/order/util.rs"]),
+        ("src/shop/order.rs", "selfish::util", []),
+    ],
+    ids=[
+        "parent-from-a-directory-module",
+        "parent-from-a-file-module",
+        "past-the-root",
+        "a-longer-parent-word",
+        "current-from-a-directory-module",
+        "current-from-a-root-module",
+        "current-from-a-file-module",
+        "a-longer-current-word",
+    ],
+)
+def case_a_module_word_reads_from_the_importers_module(
+    source_path: str, module: str, expected: list[str]
+) -> ImportScenario:
+    """A leading current word names the importer's own module; each leading parent word the parent of the module before it.
+
+    A directory module file (`mod.rs`, `main.rs`) is its directory's
+    module; any other file is a module of its own inside its directory, so
+    its child modules sit in the directory named by its stem, as Rust's
+    `src/shop/order.rs` is `crate::shop::order` and its `self::util` is
+    `src/shop/order/util.rs`.
+    """
+    return ImportScenario(
+        source_path=source_path,
+        language="lang",
+        module=module,
+        registrations=[
+            LanguageRegistration(
+                id="lang",
+                extensions=frozenset({".rs"}),
+                index_files=frozenset({"mod.rs"}),
+                directory_module_files=frozenset({"mod.rs", "main.rs"}),
+                module_style=ModuleStyle.SCOPED,
+                parent_module="super",
+                current_module="self",
+            ),
+        ],
+        files=frozenset(
+            {
+                "src/main.rs",
+                "src/util.rs",
+                "src/shop/util.rs",
+                "src/shop/order.rs",
+                "src/shop/order/util.rs",
+                "src/shop/mod.rs",
             }
         ),
         expected=expected,

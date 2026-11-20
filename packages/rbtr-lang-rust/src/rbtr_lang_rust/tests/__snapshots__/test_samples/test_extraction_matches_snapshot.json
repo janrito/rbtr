@@ -29,9 +29,15 @@
     "line_start": 11,
     "line_end": 11,
     "metadata": {
-      "module": "std/collections",
+      "module": "std::collections",
       "names": "HashMap",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "HashMap",
+          "local": "HashMap"
+        }
+      ]
     }
   },
   {
@@ -44,9 +50,15 @@
     "line_start": 13,
     "line_end": 13,
     "metadata": {
-      "module": "crate/config",
+      "module": "crate::config",
       "names": "LOCALE",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "LOCALE",
+          "local": "LOCALE"
+        }
+      ]
     }
   },
   {
@@ -59,9 +71,15 @@
     "line_start": 14,
     "line_end": 14,
     "metadata": {
-      "module": "../",
+      "module": "super",
       "names": "util",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "util",
+          "local": "util"
+        }
+      ]
     }
   },
   {

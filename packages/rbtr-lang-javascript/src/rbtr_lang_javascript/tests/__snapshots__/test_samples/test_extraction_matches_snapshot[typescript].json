@@ -31,7 +31,13 @@
     "metadata": {
       "module": "./b",
       "names": "helper",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "helper",
+          "local": "helper"
+        }
+      ]
     }
   },
   {
@@ -86,7 +92,13 @@
     "metadata": {
       "module": "./config",
       "names": "LOCALE",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "LOCALE",
+          "local": "LOCALE"
+        }
+      ]
     }
   },
   {
@@ -101,7 +113,13 @@
     "metadata": {
       "module": "./types",
       "names": "Formatter",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "Formatter",
+          "local": "Formatter"
+        }
+      ]
     }
   },
   {
@@ -345,8 +363,14 @@
     "line_end": 67,
     "metadata": {
       "module": "./types",
-      "names": "",
-      "language_hint": ""
+      "names": "Locale",
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "Locale",
+          "local": "Locale"
+        }
+      ]
     }
   },
   {
@@ -360,8 +384,9 @@
     "line_end": 68,
     "metadata": {
       "module": "./config",
-      "names": "",
-      "language_hint": ""
+      "names": "*",
+      "language_hint": "",
+      "bindings": []
     }
   },
   {

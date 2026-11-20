@@ -19,10 +19,11 @@ from rbtr.domain.models import ChunkKind, EdgeKind
 
 
 class ModuleStyle(StrEnum):
-    """How a language writes a module: as a path (`./b`, `b.css`) or dotted (`pkg.b`)."""
+    """How a language writes a module: as a path (`./b`, `b.css`), dotted (`pkg.b`) or scoped (`pkg::b`)."""
 
     PATH = "path"
     DOTTED = "dotted"
+    SCOPED = "scoped"
 
 
 class SectionNames(StrEnum):
@@ -57,7 +58,11 @@ class LanguageResolutionRow(dy.Schema):
     substitution, extension or index file wins. `extensions` and
     `index_files` are those of the languages the imports may reach;
     `own_extensions` are the writing language's own, preferred when two
-    files differ only by extension.
+    files differ only by extension. `parent_module` and `current_module`
+    are the words a module starts with to climb one level or stay in the
+    importing module, as Rust's `super` and `self`, null for none;
+    `directory_module_files` the file names that are their directory's
+    module.
     """
 
     language = dy.String(primary_key=True)
@@ -73,6 +78,9 @@ class LanguageResolutionRow(dy.Schema):
     package_directory = dy.Bool(nullable=False)
     prose = dy.Bool(nullable=False)
     section_names = dy.Enum(s.value for s in SectionNames)
+    parent_module = dy.String(nullable=True)
+    current_module = dy.String(nullable=True)
+    directory_module_files = dy.List(dy.String(nullable=False), nullable=False)
 
 
 class EdgeChunkRow(dy.Schema):

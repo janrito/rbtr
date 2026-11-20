@@ -41,7 +41,8 @@
     "metadata": {
       "module": "base",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -136,7 +137,8 @@
     "metadata": {
       "module": "partials/dark.less",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -161,7 +163,8 @@
     "metadata": {
       "module": "tokens.less",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {

@@ -105,6 +105,19 @@ class EmbeddingState(StrEnum):
     TRUNCATED = "truncated"
 
 
+class Binding(BaseModel, frozen=True):
+    """A name an import binds in the importing file, and what it names there.
+
+    `local` is the name the file's code uses. `name` is what it names: for
+    an import listing names, one of them (`from m import Chunk as C` binds
+    `C` to `Chunk`); for one listing none, a module path (`import numpy as
+    np` binds `np` to `numpy`).
+    """
+
+    name: str
+    local: str
+
+
 class ImportMeta(BaseModel):
     """Structured import data extracted by tree-sitter.
 
@@ -121,6 +134,8 @@ class ImportMeta(BaseModel):
     """Target language when known from structure (e.g. HTML
     `<script src>` → `'javascript'`).  Empty means unknown —
     resolver uses `import_targets`."""
+    bindings: list[Binding] = Field(default_factory=list)
+    """Every name it binds in the importing file; empty when its language records none."""
 
 
 class Definition(BaseModel, frozen=True):

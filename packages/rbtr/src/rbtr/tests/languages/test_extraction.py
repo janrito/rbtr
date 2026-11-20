@@ -467,3 +467,97 @@ run();
         (c.line_start, c.line_end, c.content) for c in chunks if c.kind == ChunkKind.FRAGMENT
     ]
     assert fragments == [(1, 1, "<p>intro</p>")]
+
+
+@pytest.mark.parametrize(
+    ("query", "src", "expected"),
+    [
+        pytest.param(
+            """\
+(import_from_statement
+  module_name: (dotted_name) @_import_module
+  name: (dotted_name) @_import_names) @import
+""",
+            b"from m import a, b\n",
+            [{"module": "m", "names": "a,b", "bindings": []}],
+            id="a-list-of-names",
+        ),
+        pytest.param(
+            """\
+(import_from_statement
+  module_name: (dotted_name) @_import_module
+  name: (dotted_name) @_import_names @_bind_name) @import
+
+(import_from_statement
+  module_name: (dotted_name) @_import_module
+  name: (aliased_import
+    name: (dotted_name) @_import_names @_bind_name
+    alias: (identifier) @_bind_local)) @import
+""",
+            b"from m import a, b as c\n",
+            [
+                {
+                    "module": "m",
+                    "names": "a,b",
+                    "bindings": [{"name": "a", "local": "a"}, {"name": "b", "local": "c"}],
+                }
+            ],
+            id="matches-on-one-import-merge",
+        ),
+        pytest.param(
+            """\
+(import_statement
+  name: (aliased_import
+    name: (dotted_name) @_import_module
+    alias: (identifier) @_bind_local)) @import
+""",
+            b"import numpy as np\n",
+            [{"module": "numpy", "names": "", "bindings": [{"name": "numpy", "local": "np"}]}],
+            id="a-local-alone-binds-the-module",
+        ),
+        pytest.param(
+            """\
+(import_statement name: (dotted_name) @_import_module) @import
+""",
+            b"import os, sys\n",
+            [
+                {"module": "os", "names": "", "bindings": []},
+                {"module": "sys", "names": "", "bindings": []},
+            ],
+            id="two-modules-are-two-imports",
+        ),
+        pytest.param(
+            """\
+((import_from_statement
+  module_name: (dotted_name) @_import_module
+  (wildcard_import))
+  (#set! import.names "*")) @import
+""",
+            b"from m import *\n",
+            [{"module": "m", "names": "*", "bindings": []}],
+            id="a-pattern-sets-names",
+        ),
+        pytest.param(
+            """\
+((import_statement name: (dotted_name) @_import_module)
+  (#set! import.prefix "./")) @import
+""",
+            b"import helpers\n",
+            [{"module": "./helpers", "names": "", "bindings": []}],
+            id="a-pattern-writes-a-prefix-before-its-module",
+        ),
+    ],
+)
+def test_a_query_states_an_imports_names_and_bindings(
+    query: str, src: bytes, expected: list[dict]
+) -> None:
+    """Names, bindings and directives come from captures alone, with no import extractor."""
+    grammar = get_manager().grammar("python")
+    assert grammar is not None
+    reg = LanguageRegistration(id="faketest", extraction=QueryExtraction(query=query))
+    imports = [
+        c.role.meta.model_dump(include={"module", "names", "bindings"})
+        for c in extract_symbols(reg, "t.py", "sha1", src, grammar)
+        if isinstance(c.role, Import)
+    ]
+    assert imports == expected

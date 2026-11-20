@@ -12,6 +12,8 @@ Every rule is polars over rows, run once for all the files of a batch.
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 import dataframely as dy
 import polars as pl
 
@@ -58,6 +60,10 @@ class ChunkRow(dy.Schema):
             "names": dy.String(nullable=True),
             "language_hint": dy.String(nullable=True),
             "node_types": dy.List(dy.String(), nullable=True),
+            "bindings": dy.List(
+                dy.Struct({"name": dy.String(nullable=False), "local": dy.String(nullable=False)}),
+                nullable=True,
+            ),
         },
         nullable=True,
     )
@@ -81,12 +87,14 @@ class CaptureRow(dy.Schema):
     nearest enclosing scope is class-like, and `column` the byte its span
     starts at within its line. `docs` are the spans of its documentation.
     `metadata` is an import's module and names, as resolved (its `#` not
-    yet read), or a fragment's node types.
+    yet read), or a fragment's node types. `match` is the query match that
+    captured it, null for a fragment.
     """
 
     file = dy.Int64(nullable=False)
     source = dy.Int64(nullable=False)
     order = dy.Int64(nullable=False)
+    match = dy.Int64(nullable=True)
     language = dy.String(nullable=False)
     kind = dy.Enum(k.value for k in ChunkKind)
     name = dy.String(nullable=False)
@@ -108,6 +116,29 @@ class CaptureRow(dy.Schema):
         return cls.metadata.col.is_not_null() == cls.kind.col.is_in(
             [ChunkKind.IMPORT.value, ChunkKind.FRAGMENT.value]
         )
+
+
+class MetadataCaptureName(StrEnum):
+    """The helper captures a query marks an import's names and bindings with."""
+
+    IMPORT_NAME = "_import_names"
+    """A name an import lists."""
+    BIND_NAME = "_bind_name"
+    """What a binding names: an import's name or module."""
+    BIND_LOCAL = "_bind_local"
+    """The name a binding gives; with `@_bind_name` in the same match, one binding."""
+
+
+class MetadataCaptureRow(dy.Schema):
+    """A node a query captured as a `MetadataCaptureName`: its source, query match, bytes and text."""
+
+    file = dy.Int64(nullable=False)
+    source = dy.Int64(nullable=False)
+    match = dy.Int64(nullable=False)
+    capture = dy.Enum(c.value for c in MetadataCaptureName)
+    start_byte = dy.Int64(nullable=False)
+    end_byte = dy.Int64(nullable=False)
+    text = dy.String(nullable=False)
 
 
 def text(start: pl.Expr, stop: pl.Expr) -> pl.Expr:
@@ -329,6 +360,85 @@ def fold_comments(
         )
         .filter(~pl.col("taken"), ~inside_earlier_symbol())
         .with_columns(end_byte=without_final_newline())
+        .pipe(CaptureRow.validate, cast=True)
+    )
+
+
+def with_metadata(
+    captures: dy.DataFrame[CaptureRow], metadata_captures: dy.DataFrame[MetadataCaptureRow]
+) -> dy.DataFrame[CaptureRow]:
+    """*captures* with the metadata *metadata_captures* give them: an import's names and bindings.
+
+    A `@_bind_name` and a `@_bind_local` of one match are one binding. An
+    import's every match (`from m import a as b, c` matches once per name)
+    is one import, keyed by its statement and module, with the names its
+    matches list, then its pattern's or resolver's, and the bindings they
+    make: a name alone binds under itself, a local alone binds the module.
+
+    """
+    by_match = ["file", "source", "match"]
+    statement = ["file", "source", "start_byte", "end_byte", "module"]
+    imports = captures.filter(pl.col("kind") == ChunkKind.IMPORT).with_columns(
+        module=pl.col("metadata").struct.field("module")
+    )
+    pairs = (
+        metadata_captures.filter(
+            pl.col("capture").is_in([MetadataCaptureName.BIND_NAME, MetadataCaptureName.BIND_LOCAL])
+        )
+        # A binding sits where its local does; one naming alone, where its name does.
+        .sort(pl.col("capture") != MetadataCaptureName.BIND_LOCAL)
+        .group_by(by_match)
+        .agg(
+            name=pl.col("text").filter(pl.col("capture") == MetadataCaptureName.BIND_NAME).first(),
+            local=pl.col("text")
+            .filter(pl.col("capture") == MetadataCaptureName.BIND_LOCAL)
+            .first(),
+            start_byte=pl.col("start_byte").first(),
+            end_byte=pl.col("end_byte").first(),
+        )
+    )
+    # What each import's matches name and bind, gathered per statement.
+    parts = pl.concat(
+        [
+            metadata_captures.filter(pl.col("capture") == MetadataCaptureName.IMPORT_NAME).select(
+                *by_match, listed="text", at="start_byte"
+            ),
+            pairs.select(*by_match, bind_name="name", bind_local="local", at="start_byte"),
+        ],
+        how="diagonal_relaxed",
+    )
+    names = pl.col("metadata").struct.field("names")
+    hint = pl.col("metadata").struct.field("language_hint")
+    gathered = (
+        imports.join(parts, on=by_match, how="left")
+        .sort("order", "at", nulls_last=True)
+        .group_by(statement, maintain_order=True)
+        .agg(
+            pl.exclude("listed", "bind_name", "bind_local", "at").first(),
+            listed=pl.col("listed").drop_nulls().unique(maintain_order=True).str.join(","),
+            set_names=names.filter(names != "").first(),
+            set_hint=hint.filter(hint != "").first(),
+            bound=pl.struct(
+                name=pl.coalesce("bind_name", "module"),
+                local=pl.coalesce("bind_local", "bind_name", "module"),
+            ).filter(pl.col("bind_name").is_not_null() | pl.col("bind_local").is_not_null()),
+        )
+        .with_columns(
+            metadata=pl.col("metadata").struct.with_fields(
+                names=pl.when(pl.col("listed") != "")
+                .then("listed")
+                .otherwise(pl.coalesce("set_names", pl.field("names"))),
+                language_hint=pl.coalesce("set_hint", pl.field("language_hint")),
+                bindings=pl.col("bound").list.unique(maintain_order=True),
+            )
+        )
+        .drop("module", "listed", "set_names", "set_hint", "bound")
+        .select(captures.columns)
+    )
+
+    return (
+        pl.concat([captures.filter(pl.col("kind") != ChunkKind.IMPORT), gathered])
+        .sort("file", "order")
         .pipe(CaptureRow.validate, cast=True)
     )
 

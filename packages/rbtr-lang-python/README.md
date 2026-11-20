@@ -28,7 +28,7 @@ class User:  # class "User"
 
 
 MAX = 100  # variable "MAX"
-from .utils import helper  # import, metadata {module: ".utils", names: "helper"}
+from .utils import helper  # import, metadata {module: "./utils", names: "helper"}
 ```
 
 ## Embedded / injected chunks

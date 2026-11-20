@@ -14,9 +14,9 @@ Extracted chunks::
     typedef struct { ... } Point;   → class "Point", scope ""
 
     #include <stdio.h>
-        → import, metadata {module: "stdio.h"}
+        → import, metadata {module: "stdio.h", names: "*"}
     #include "mylib.h"
-        → import, metadata {module: "mylib.h"}
+        → import, metadata {module: "mylib.h", names: "*"}
 """
 
 from __future__ import annotations
@@ -31,5 +31,5 @@ c = LanguageRegistration(
         query=load_query(__package__, "c"),
     ),
     source_roots=("", "include", "src"),
-    extraction_serial=5,
+    extraction_serial=6,
 )

@@ -5,11 +5,13 @@
   declarator: (function_declarator
     declarator: (identifier) @_fn_name)) @function
 
-(preproc_include
-  path: (system_lib_string) @_import_module) @import
-
-(preproc_include
-  path: (string_literal) @_import_module) @import
+; An included file's every declaration is visible after it.
+((preproc_include
+  path: [
+    (system_lib_string)
+    (string_literal)
+  ] @_import_module) @import
+  (#set! import.names "*"))
 
 (struct_specifier
   name: (type_identifier) @_cls_name

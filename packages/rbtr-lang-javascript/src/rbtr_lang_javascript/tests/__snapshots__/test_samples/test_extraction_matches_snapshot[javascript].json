@@ -71,7 +71,13 @@
     "metadata": {
       "module": "./config",
       "names": "LOCALE",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "LOCALE",
+          "local": "LOCALE"
+        }
+      ]
     }
   },
   {
@@ -86,7 +92,13 @@
     "metadata": {
       "module": "formatter",
       "names": "format",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "format",
+          "local": "format"
+        }
+      ]
     }
   },
   {
@@ -101,7 +113,8 @@
     "metadata": {
       "module": "./styles",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -266,7 +279,13 @@
     "metadata": {
       "module": "./b",
       "names": "helper",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "helper",
+          "local": "helper"
+        }
+      ]
     }
   },
   {

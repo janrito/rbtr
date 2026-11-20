@@ -30,8 +30,9 @@
     "line_end": 1,
     "metadata": {
       "module": "./b",
-      "names": "",
-      "language_hint": ""
+      "names": "*",
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -75,8 +76,9 @@
     "line_end": 11,
     "metadata": {
       "module": "json",
-      "names": "",
-      "language_hint": ""
+      "names": "*",
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -90,8 +92,9 @@
     "line_end": 12,
     "metadata": {
       "module": "./config",
-      "names": "",
-      "language_hint": ""
+      "names": "*",
+      "language_hint": "",
+      "bindings": []
     }
   },
   {

@@ -41,7 +41,8 @@
     "metadata": {
       "module": "tokens",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -116,7 +117,8 @@
     "metadata": {
       "module": "config",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -131,7 +133,8 @@
     "metadata": {
       "module": "theme",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -146,7 +149,8 @@
     "metadata": {
       "module": "reset",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -261,7 +265,8 @@
     "metadata": {
       "module": "partials/dark",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {

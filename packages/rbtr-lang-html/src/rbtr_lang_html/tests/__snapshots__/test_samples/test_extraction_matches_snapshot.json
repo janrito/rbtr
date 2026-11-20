@@ -71,7 +71,8 @@
     "metadata": {
       "module": "styles.css",
       "names": "",
-      "language_hint": "css"
+      "language_hint": "css",
+      "bindings": []
     }
   },
   {
@@ -86,7 +87,8 @@
     "metadata": {
       "module": "greeter.js",
       "names": "",
-      "language_hint": "javascript"
+      "language_hint": "javascript",
+      "bindings": []
     }
   },
   {
@@ -151,7 +153,8 @@
     "metadata": {
       "module": "pages/about.html",
       "names": "team",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -166,7 +169,8 @@
     "metadata": {
       "module": "pages/about.html",
       "names": "contributors",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -181,7 +185,8 @@
     "metadata": {
       "module": "pages/about.html",
       "names": "schedule",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -196,7 +201,8 @@
     "metadata": {
       "module": "pages/about.html",
       "names": "history",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -271,7 +277,8 @@
     "metadata": {
       "module": "about.js",
       "names": "",
-      "language_hint": "javascript"
+      "language_hint": "javascript",
+      "bindings": []
     }
   },
   {
@@ -336,7 +343,8 @@
     "metadata": {
       "module": "../html.html",
       "names": "intro",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {

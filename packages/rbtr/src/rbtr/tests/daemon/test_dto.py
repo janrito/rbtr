@@ -65,6 +65,7 @@ def test_populated_metadata_is_kept(replies: dict[ChunkKind, SymbolOut]) -> None
         "module": "os",
         "names": "environ",
         "language_hint": "",
+        "bindings": [{"name": "environ", "local": "environ"}],
     }
 
 

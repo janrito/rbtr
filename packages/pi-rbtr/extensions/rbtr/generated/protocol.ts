@@ -500,6 +500,19 @@ export interface ImportMeta {
   module?: string;
   names?: string;
   language_hint?: string;
+  bindings?: Binding[];
+}
+/**
+ * A name an import binds in the importing file, and what it names there.
+ *
+ * `local` is the name the file's code uses. `name` is what it names: for
+ * an import listing names, one of them (`from m import Chunk as C` binds
+ * `C` to `Chunk`); for one listing none, a module path (`import numpy as
+ * np` binds `np` to `numpy`).
+ */
+export interface Binding {
+  name: string;
+  local: string;
 }
 /**
  * The per-signal ranking breakdown behind a hit's fused `score`.

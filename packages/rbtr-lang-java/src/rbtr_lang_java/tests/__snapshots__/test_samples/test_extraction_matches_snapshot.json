@@ -60,8 +60,14 @@
     "line_end": 8,
     "metadata": {
       "module": "java.util.List",
-      "names": "",
-      "language_hint": ""
+      "names": "List",
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "List",
+          "local": "List"
+        }
+      ]
     }
   },
   {
@@ -74,9 +80,15 @@
     "line_start": 9,
     "line_end": 9,
     "metadata": {
-      "module": "java.util.Collections.emptyList",
-      "names": "",
-      "language_hint": ""
+      "module": "java.util.Collections",
+      "names": "Collections.emptyList",
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "Collections.emptyList",
+          "local": "emptyList"
+        }
+      ]
     }
   },
   {
@@ -90,8 +102,14 @@
     "line_end": 11,
     "metadata": {
       "module": "com.example.format.Formatter",
-      "names": "",
-      "language_hint": ""
+      "names": "Formatter",
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "Formatter",
+          "local": "Formatter"
+        }
+      ]
     }
   },
   {

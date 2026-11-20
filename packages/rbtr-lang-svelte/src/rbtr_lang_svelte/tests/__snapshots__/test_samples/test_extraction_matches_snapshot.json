@@ -21,7 +21,13 @@
     "metadata": {
       "module": "./greeter",
       "names": "greet",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "greet",
+          "local": "greet"
+        }
+      ]
     }
   },
   {
@@ -116,7 +122,13 @@
     "metadata": {
       "module": "./b",
       "names": "helper",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "helper",
+          "local": "helper"
+        }
+      ]
     }
   },
   {

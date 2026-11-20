@@ -16,11 +16,14 @@ folded into its chunk content.
 - **Classes** — classes, and TypeScript interfaces, enums, type aliases, and
   namespaces (a namespace also scopes its members).
 - **Variables** — module-level `const` / `let` (including destructuring).
-- **Re-exports** — `export * from "./c"` and `export { x } from "./b"` read
-  from another module, so they resolve as imports do. A consumer reaches a
-  symbol through them without ever naming the file that defines it.
+- **Re-exports** — `export * from "./c"`, `export * as ns from "./n"` and
+  `export { x, y as z } from "./b"` read from another module, so they resolve
+  as imports do. A consumer reaches a symbol through them without ever naming
+  the file that defines it.
 - **Imports** — `import`, `import type`, namespace, default, and side-effect
-  imports → import chunks with resolved module + names, for cross-file edges.
+  imports, and CommonJS `const x = require("./x")` and
+  `const { y, z: w } = require("./y")` → import chunks with resolved module +
+  names, for cross-file edges. A `require` also stays a variable.
 
 ## Chunks produced
 
@@ -30,6 +33,7 @@ const add = (a, b) => a + b;      // function "add"
 class Button { render() {} }      // class "Button"; method "render" scope "Button"
 export const MAX = 100;           // variable "MAX"
 import { x } from "./x";          // import, metadata {module: "./x", names: "x"}
+const { y } = require("./y");     // import {module: "./y", names: "y"}; variable "y"
 ```
 
 ## Embedded / injected chunks

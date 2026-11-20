@@ -20,10 +20,13 @@ from pytest_mock import MockerFixture
 from rbtr.config import config
 from rbtr.domain.edge_frames import EdgeChunkRow, InferredEdgeRow
 from rbtr.domain.models import (
+    Binding,
     Chunk,
     EdgeKind,
     EmbeddingState,
     FileSnapshot,
+    Import,
+    ImportMeta,
     Repo,
     SnapshotRef,
     Span,
@@ -398,6 +401,26 @@ def test_update_embeddings_round_trip(index: Index) -> None:
     by_id = {row[0]: row[1] for row in rows}
     assert by_id[chunk_a.id] is True
     assert by_id[chunk_b.id] is False
+
+
+def test_an_imports_bindings_are_read_as_written(index: Index) -> None:
+    """The names an import binds come back from storage whole."""
+    chunk = make_chunk("np", path="f.py", blob="blob").model_copy(
+        update={
+            "role": Import(
+                name="import numpy as np",
+                meta=ImportMeta(module="numpy", bindings=[Binding(name="numpy", local="np")]),
+            )
+        }
+    )
+    repo = index.register("/repo")
+    with index.session(repo) as ws:
+        ws.add_chunks(staged_chunks(chunk_rows([chunk]), {}))
+        ws.replace_snapshots([make_snap("c1", "f.py", "blob")], snapshot_sha="c1")
+    read = index.chunks(at=repo.at("c1"))
+    assert read["metadata"].struct.field("bindings").to_list() == [
+        [{"name": "numpy", "local": "np"}]
+    ]
 
 
 def test_replacing_a_snapshot_with_nothing_hides_its_chunks(

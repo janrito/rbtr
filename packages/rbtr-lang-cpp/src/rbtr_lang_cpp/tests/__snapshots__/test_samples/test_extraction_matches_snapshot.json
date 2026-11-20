@@ -20,8 +20,9 @@
     "line_end": 8,
     "metadata": {
       "module": "string",
-      "names": "",
-      "language_hint": ""
+      "names": "*",
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -35,8 +36,9 @@
     "line_end": 10,
     "metadata": {
       "module": "greeter.hpp",
-      "names": "",
-      "language_hint": ""
+      "names": "*",
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -230,8 +232,9 @@
     "line_end": 8,
     "metadata": {
       "module": "string",
-      "names": "",
-      "language_hint": ""
+      "names": "*",
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -315,8 +318,9 @@
     "line_end": 2,
     "metadata": {
       "module": "text.hpp",
-      "names": "",
-      "language_hint": ""
+      "names": "*",
+      "language_hint": "",
+      "bindings": []
     }
   },
   {

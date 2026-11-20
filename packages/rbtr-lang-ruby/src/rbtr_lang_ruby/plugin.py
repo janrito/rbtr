@@ -17,57 +17,18 @@ Extracted chunks::
     end
 
     require "json"
-        → import, metadata {module: "json"}
+        → import, metadata {module: "json", names: "*"}
     require_relative "helpers"
-        → import, metadata {module: "./helpers"}
+        → import, metadata {module: "./helpers", names: "*"}
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-from rbtr.domain.models import ImportMeta
 from rbtr.languages.registration import (
-    ImportResolver,
     LanguageRegistration,
     QueryExtraction,
     load_query,
 )
-
-if TYPE_CHECKING:
-    from tree_sitter import Node
-
-
-def extract_import_meta(
-    resolver: ImportResolver, node: Node, captures: dict[str, list[Node]]
-) -> ImportMeta:
-    """Extract import data from a Ruby `require` / `require_relative` node.
-
-    Reads `@_import_module` from captures (the query captures
-    the string argument). `require_relative` is relative to the current
-    file even without a `./`, so a bare path is written as one.
-
-    Examples:
-
-        `require "json"`:
-            module="json"
-
-        `require_relative "helpers"`:
-            module="./helpers"
-
-        `require_relative "./config"`:
-            module="./config"
-
-        `require_relative "../lib/utils"`:
-            module="../lib/utils"
-    """
-    meta = resolver(node, captures)
-    method = node.child_by_field_name("method")
-    relative = method is not None and method.text == b"require_relative"
-    if relative and meta.module and not meta.module.startswith(("./", "../")):
-        meta.module = f"./{meta.module}"
-    return meta
-
 
 ruby = LanguageRegistration(
     id="ruby",
@@ -78,7 +39,5 @@ ruby = LanguageRegistration(
         scope_types=frozenset({"class", "module"}),
     ),
     source_roots=("", "lib"),
-    extraction_serial=7,
+    extraction_serial=8,
 )
-
-ruby.import_extractor(extract_import_meta)

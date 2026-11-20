@@ -10,8 +10,8 @@ import pytest
 from pytest_cases import case
 
 type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
-type ImportCase = tuple[str, str, dict[str, str]]
-type MultiImportCase = tuple[str, str, int, list[dict[str, str]]]
+type ImportCase = tuple[str, str, dict[str, str | list[dict[str, str]]]]
+type MultiImportCase = tuple[str, str, int, list[dict[str, str | list[dict[str, str]]]]]
 type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
 
 _xfail_nested = pytest.mark.xfail(
@@ -94,7 +94,7 @@ def case_js_import_named_single() -> ImportCase:
     return (
         "javascript",
         "import { foo } from './models';\n",
-        {"module": "./models", "names": "foo"},
+        {"module": "./models", "names": "foo", "bindings": [{"name": "foo", "local": "foo"}]},
     )
 
 
@@ -104,7 +104,11 @@ def case_js_import_named_multiple() -> ImportCase:
     return (
         "javascript",
         "import { foo, bar } from './models';\n",
-        {"module": "./models", "names": "foo,bar"},
+        {
+            "module": "./models",
+            "names": "foo,bar",
+            "bindings": [{"name": "foo", "local": "foo"}, {"name": "bar", "local": "bar"}],
+        },
     )
 
 
@@ -114,7 +118,11 @@ def case_js_import_named_parent() -> ImportCase:
     return (
         "javascript",
         "import { Config } from '../config';\n",
-        {"module": "../config", "names": "Config"},
+        {
+            "module": "../config",
+            "names": "Config",
+            "bindings": [{"name": "Config", "local": "Config"}],
+        },
     )
 
 
@@ -124,14 +132,22 @@ def case_js_import_named_grandparent() -> ImportCase:
     return (
         "javascript",
         "import { util } from '../../shared/util';\n",
-        {"module": "../../shared/util", "names": "util"},
+        {
+            "module": "../../shared/util",
+            "names": "util",
+            "bindings": [{"name": "util", "local": "util"}],
+        },
     )
 
 
 @case(tags=["import"])
 def case_js_import_default() -> ImportCase:
     """import React from 'react'."""
-    return "javascript", "import React from 'react';\n", {"module": "react", "names": "React"}
+    return (
+        "javascript",
+        "import React from 'react';\n",
+        {"module": "react", "names": "React", "bindings": [{"name": "React", "local": "React"}]},
+    )
 
 
 @case(tags=["import"])
@@ -140,7 +156,7 @@ def case_js_import_default_relative() -> ImportCase:
     return (
         "javascript",
         "import App from './App';\n",
-        {"module": "./App", "names": "App"},
+        {"module": "./App", "names": "App", "bindings": [{"name": "App", "local": "App"}]},
     )
 
 
@@ -150,7 +166,7 @@ def case_js_import_namespace() -> ImportCase:
     return (
         "javascript",
         "import * as utils from '../utils';\n",
-        {"module": "../utils", "names": "utils"},
+        {"module": "../utils", "bindings": [{"name": "../utils", "local": "utils"}]},
     )
 
 
@@ -172,7 +188,11 @@ def case_js_import_package() -> ImportCase:
     return (
         "javascript",
         "import express from 'express';\n",
-        {"module": "express", "names": "express"},
+        {
+            "module": "express",
+            "names": "express",
+            "bindings": [{"name": "express", "local": "express"}],
+        },
     )
 
 
@@ -182,7 +202,11 @@ def case_js_import_scoped_package() -> ImportCase:
     return (
         "javascript",
         "import { render } from '@testing-library/react';\n",
-        {"module": "@testing-library/react", "names": "render"},
+        {
+            "module": "@testing-library/react",
+            "names": "render",
+            "bindings": [{"name": "render", "local": "render"}],
+        },
     )
 
 
@@ -198,8 +222,16 @@ import { useState } from 'react';
         src,
         2,
         [
-            {"module": "react", "names": "React"},
-            {"module": "react", "names": "useState"},
+            {
+                "module": "react",
+                "names": "React",
+                "bindings": [{"name": "React", "local": "React"}],
+            },
+            {
+                "module": "react",
+                "names": "useState",
+                "bindings": [{"name": "useState", "local": "useState"}],
+            },
         ],
     )
 
@@ -293,7 +325,7 @@ def case_ts_import_named() -> ImportCase:
     return (
         "typescript",
         "import { User } from './types';\n",
-        {"module": "./types", "names": "User"},
+        {"module": "./types", "names": "User", "bindings": [{"name": "User", "local": "User"}]},
     )
 
 
@@ -303,7 +335,11 @@ def case_ts_import_type() -> ImportCase:
     return (
         "typescript",
         "import type { Config } from './config';\n",
-        {"module": "./config", "names": "Config"},
+        {
+            "module": "./config",
+            "names": "Config",
+            "bindings": [{"name": "Config", "local": "Config"}],
+        },
     )
 
 
@@ -313,14 +349,22 @@ def case_ts_import_default() -> ImportCase:
     return (
         "typescript",
         "import Express from 'express';\n",
-        {"module": "express", "names": "Express"},
+        {
+            "module": "express",
+            "names": "Express",
+            "bindings": [{"name": "Express", "local": "Express"}],
+        },
     )
 
 
 @case(tags=["import"])
 def case_ts_import_namespace() -> ImportCase:
     """import * as path from 'path'."""
-    return "typescript", "import * as path from 'path';\n", {"module": "path", "names": "path"}
+    return (
+        "typescript",
+        "import * as path from 'path';\n",
+        {"module": "path", "bindings": [{"name": "path", "local": "path"}]},
+    )
 
 
 @case(tags=["import"])
@@ -427,3 +471,85 @@ def case_js_nested_array_xfail() -> SymbolCase:
 def case_js_nested_object_xfail() -> SymbolCase:
     """Nested object destructuring — nothing captured today."""
     return "javascript", "const {a: {b}} = x;\n", [("variable", "b", "")]
+
+
+@case(tags=["import"])
+def case_js_import_a_dotfile_keeps_its_name() -> ImportCase:
+    """import './.eslintrc': a name starting with its only dot has no extension."""
+    return "javascript", "import './.eslintrc';\n", {"module": "./.eslintrc"}
+
+
+@case(tags=["import"])
+def case_js_import_drops_only_the_last_extension() -> ImportCase:
+    """import './vendor/b.min.js' — the last extension goes, `.min` stays."""
+    return "javascript", "import './vendor/b.min.js';\n", {"module": "./vendor/b.min"}
+
+
+@case(tags=["import"])
+def case_js_import_a_dotted_package_reads_its_last_dot_as_an_extension() -> ImportCase:
+    """import d from 'lodash.debounce' — the last dot is read as an extension, as for a file."""
+    return (
+        "javascript",
+        "import d from 'lodash.debounce';\n",
+        {"module": "lodash", "names": "d", "bindings": [{"name": "d", "local": "d"}]},
+    )
+
+
+@case(tags=["import"])
+def case_js_import_a_parent_directory() -> ImportCase:
+    """import '../' — a directory, no extension."""
+    return "javascript", "import '../';\n", {"module": "../"}
+
+
+@case(tags=["import"])
+def case_js_export_star_reexports_every_name() -> ImportCase:
+    """export * from './c' — every name `c` makes available is this file's to offer."""
+    return "javascript", "export * from './c.js';\n", {"module": "./c", "names": "*"}
+
+
+@case(tags=["import"])
+def case_js_export_star_as_binds_the_module() -> ImportCase:
+    """export * as ns from './n' — binds the module under `ns`."""
+    return (
+        "javascript",
+        "export * as ns from './n';\n",
+        {"module": "./n", "bindings": [{"name": "./n", "local": "ns"}]},
+    )
+
+
+@case(tags=["import"])
+def case_js_export_names_from_reexports_them() -> ImportCase:
+    """export { a, b as bb } from './b' — lists `a` and `b`, offered as `a` and `bb`."""
+    return (
+        "javascript",
+        "export { a, b as bb } from './b';\n",
+        {
+            "module": "./b",
+            "names": "a,b",
+            "bindings": [{"name": "a", "local": "a"}, {"name": "b", "local": "bb"}],
+        },
+    )
+
+
+@case(tags=["import"])
+def case_js_require_binds_the_module() -> ImportCase:
+    """const x = require('./x.js') — binds the module under `x`."""
+    return (
+        "javascript",
+        "const x = require('./x.js');\n",
+        {"module": "./x", "bindings": [{"name": "./x", "local": "x"}]},
+    )
+
+
+@case(tags=["import"])
+def case_js_destructured_require_lists_its_names() -> ImportCase:
+    """var { y, z: zz } = require('./y') — lists `y` and `z`, bound as `y` and `zz`."""
+    return (
+        "javascript",
+        "var { y, z: zz } = require('./y');\n",
+        {
+            "module": "./y",
+            "names": "y,z",
+            "bindings": [{"name": "y", "local": "y"}, {"name": "z", "local": "zz"}],
+        },
+    )

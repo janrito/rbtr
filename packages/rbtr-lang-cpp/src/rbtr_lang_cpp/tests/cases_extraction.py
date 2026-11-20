@@ -5,7 +5,7 @@ from __future__ import annotations
 from pytest_cases import case
 
 type SymbolCase = tuple[str, str, list[tuple[str, str, str]]]
-type ImportCase = tuple[str, str, dict[str, str]]
+type ImportCase = tuple[str, str, dict[str, str | list[dict[str, str]]]]
 type MixedCase = tuple[str, str, set[str], list[tuple[str, str]]]
 
 
@@ -164,19 +164,19 @@ void standalone() { }
 @case(tags=["import"])
 def case_cpp_include_system() -> ImportCase:
     """#include <iostream>."""
-    return "cpp", "#include <iostream>\n", {"module": "iostream"}
+    return "cpp", "#include <iostream>\n", {"module": "iostream", "names": "*"}
 
 
 @case(tags=["import"])
 def case_cpp_include_local() -> ImportCase:
     """#include "myheader.h"."""
-    return "cpp", '#include "myheader.h"\n', {"module": "myheader.h"}
+    return "cpp", '#include "myheader.h"\n', {"module": "myheader.h", "names": "*"}
 
 
 @case(tags=["import"])
 def case_cpp_include_nested() -> ImportCase:
     """#include <boost/optional.hpp>."""
-    return "cpp", "#include <boost/optional.hpp>\n", {"module": "boost/optional.hpp"}
+    return "cpp", "#include <boost/optional.hpp>\n", {"module": "boost/optional.hpp", "names": "*"}
 
 
 @case(tags=["mixed"])

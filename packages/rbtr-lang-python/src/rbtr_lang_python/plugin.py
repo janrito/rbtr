@@ -17,81 +17,18 @@ Extracted chunks::
                             → import, metadata {module: "pathlib", names: "Path"}
     from ..core import engine
                             → import, metadata {module: "../core", names: "engine"}
+
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from rbtr.domain.edge_frames import ModuleStyle
-from rbtr.domain.models import ImportMeta
-from rbtr.languages.registration import (
-    ImportResolver,
-    LanguageRegistration,
-    QueryExtraction,
-    load_query,
-)
-
-if TYPE_CHECKING:
-    from tree_sitter import Node
+from rbtr.languages.registration import LanguageRegistration, QueryExtraction, load_query
 
 # The `@_docstring` sub-capture marks the first-statement body
 # docstring for doc-range detection (used by `docstrings`
 # and the eval query sampler).  It is optional in the match
 # (`?`), so functions/classes without a docstring still match.
-
-
-def extract_import_meta(
-    resolver: ImportResolver, node: Node, captures: dict[str, list[Node]]
-) -> ImportMeta:
-    """Extract structured import data from a Python import node.
-
-    Reads query captures (`@_import_module`, `@_import_dots`)
-    and walks the node for multi-valued import names (which
-    the query can't capture). A relative module is written as a
-    path prefix: one dot is `./`, each further dot one `../`.
-
-    Examples:
-
-        `import os.path`:
-            module="os.path"
-
-        `from pathlib import Path`:
-            module="pathlib", names="Path"
-
-        `from ..core import engine`:
-            module="../core", names="engine"
-
-        `from .models import Chunk as C`:
-            module="./models", names="Chunk"
-
-        `from . import utils`:
-            module="./", names="utils"
-    """
-    meta = resolver(node, captures)
-
-    dots_nodes = captures.get("_import_dots", [])
-    if dots_nodes and dots_nodes[0].text:
-        up = dots_nodes[0].text.decode().count(".") - 1
-        meta.module = ("../" * up or "./") + meta.module
-
-    if node.type == "import_from_statement":
-        # Imported names.  The `name` field can be dotted_name
-        # or aliased_import; there may be multiple `name` fields.
-        names: list[str] = []
-        for name_node in node.children_by_field_name("name"):
-            match name_node.type:
-                case "dotted_name":
-                    if name_node.text:
-                        names.append(name_node.text.decode())
-                case "aliased_import":
-                    original = name_node.child_by_field_name("name")
-                    if original and original.text:
-                        names.append(original.text.decode())
-        if names:
-            meta.names = ",".join(names)
-
-    return meta
 
 
 python = LanguageRegistration(
@@ -106,7 +43,5 @@ python = LanguageRegistration(
     index_files=frozenset({"__init__.py"}),
     source_roots=("", "src"),
     module_style=ModuleStyle.DOTTED,
-    extraction_serial=9,
+    extraction_serial=10,
 )
-
-python.import_extractor(extract_import_meta)

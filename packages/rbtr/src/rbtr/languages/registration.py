@@ -43,30 +43,19 @@ from importlib.resources import files
 from typing import TYPE_CHECKING
 
 from rbtr.domain.edge_frames import ModuleStyle, SectionNames
-from rbtr.domain.models import Chunk, ImportMeta
-from rbtr.languages._resolvers import DefaultImport, DefaultName, DefaultScope
+from rbtr.domain.models import Chunk
+from rbtr.languages._resolvers import DefaultName, DefaultScope
 
 if TYPE_CHECKING:
     from tree_sitter import Language, Node, Range
 
 
-type ImportResolver = Callable[[Node, dict[str, list[Node]]], ImportMeta]
-type ImportExtractor = Callable[[ImportResolver, Node, dict[str, list[Node]]], ImportMeta]
 type ManifestReader = Callable[[str], tuple[tuple[str, str], ...]]
 """Reads a manifest's text into `(prefix, replacement)` path substitutions.
 
 A language whose imports carry a prefix the directory layout does not have
 declares where that prefix is written down: Go's `go.mod` states `module
 example.com/m`, so `example.com/m/b` is the directory `b`."""
-"""Import-metadata resolver and its wrap-style override.
-
-`ImportResolver` — `(node, captures) -> ImportMeta` — is the resolver the
-engine calls and the shape of the built-in default. `ImportExtractor` is what
-`@reg.import_extractor` accepts: `(resolver, node, captures) -> ImportMeta`,
-with *resolver* the current resolver handed in so the override can delegate
-(read captures first, then walk the node — Python/JS multi-name imports, Rust
-scoped paths). The decorator composes the override over the built-in.
-"""
 
 type NameResolver = Callable[[str, Node, dict[str, list[Node]]], str]
 type NameExtractor = Callable[[NameResolver, str, Node, dict[str, list[Node]]], str]
@@ -170,11 +159,11 @@ class LanguageRegistration:
       `module_style`, `prose`.
     - **Housekeeping** — `extraction_serial`.
 
-    Extraction overrides — a custom name/scope/import resolver or a
-    chunker — are *not* constructor arguments; attach them with the
-    decorator methods `name_extractor`, `scope_extractor`,
-    `import_extractor`, and `chunker` (each also works as a plain call for
-    a shared function).  See those methods and the `*Extractor` type
+    Extraction overrides — a custom name or scope resolver, or a chunker —
+    are *not* constructor arguments; attach them with the decorator methods
+    `name_extractor`, `scope_extractor` and `chunker` (each also works as a
+    plain call for a shared function). An import is stated in the query
+    alone.  See those methods and the `*Extractor` type
     aliases for signatures.
 
     Examples:
@@ -207,7 +196,7 @@ class LanguageRegistration:
                 grammar_module="tree_sitter_ruby",
             )
 
-        Full support with a query and an import override::
+        Full support with a query::
 
             python = LanguageRegistration(
                 id="python",
@@ -219,10 +208,6 @@ class LanguageRegistration:
                 ),
                 module_style=ModuleStyle.DOTTED,
             )
-
-            @python.import_extractor
-            def _py_import(resolver, node, captures):
-                ...
     """
 
     id: str
@@ -294,7 +279,23 @@ class LanguageRegistration:
     before resolution (first matching prefix wins), for alias prefixes that
     don't map 1:1 to directories — e.g. `(("crate/", "src/"),)` so Rust's
     `crate::` resolves under `src/`.  Empty → no rewriting."""
-
+    parent_module: str | None = None
+    """The word a module path starts with to climb one level from the
+    importing module, as Rust's `super`: resolution reads each leading
+    `super::` as one level up. An identifier. None for a language whose
+    relative modules are written as `./` and `../`, or as a dotted
+    module's leading dots."""
+    current_module: str | None = None
+    """The word a module path starts with to name the importing module
+    itself, as Rust's `self`: `self::util` is the importing module's child
+    `util`. An identifier. None for a language without one."""
+    directory_module_files: frozenset[str] = frozenset()
+    """The file names that are their directory's module, as Rust's
+    `mod.rs`, `lib.rs` and `main.rs`: a module word read in one starts at
+    its directory. Any other file is a module of its own inside its
+    directory, its child modules in the directory named by its stem
+    (`order.rs`'s in `order/`). Read only with `parent_module` or
+    `current_module`."""
     package_directory: bool = False
     """Whether a directory is itself a unit of this language, so a reference
     naming one reaches every file inside it: a Go package is its directory and
@@ -343,9 +344,6 @@ class LanguageRegistration:
     _scope_resolver: ScopeResolver = field(
         default_factory=DefaultScope, init=False, compare=False, repr=False
     )
-    _import_resolver: ImportResolver = field(
-        default_factory=DefaultImport, init=False, compare=False, repr=False
-    )
     _manifest_reader: ManifestReader | None = field(
         default=None, init=False, compare=False, repr=False
     )
@@ -371,11 +369,6 @@ class LanguageRegistration:
     def scope_extractor(self, fn: ScopeExtractor) -> ScopeExtractor:
         """Compose a custom scope-address resolver over the current one."""
         object.__setattr__(self, "_scope_resolver", functools.partial(fn, self._scope_resolver))
-        return fn
-
-    def import_extractor(self, fn: ImportExtractor) -> ImportExtractor:
-        """Compose a custom import-metadata resolver over the current one."""
-        object.__setattr__(self, "_import_resolver", functools.partial(fn, self._import_resolver))
         return fn
 
     def manifest_reader(self, fn: ManifestReader) -> ManifestReader:
@@ -408,9 +401,6 @@ class LanguageRegistration:
         self, capture_name: str, node: Node, captures: dict[str, list[Node]]
     ) -> list[str]:
         return self._scope_resolver(capture_name, node, captures)
-
-    def resolve_import(self, node: Node, captures: dict[str, list[Node]]) -> ImportMeta:
-        return self._import_resolver(node, captures)
 
 
 @functools.cache
@@ -445,56 +435,3 @@ def enclosing_nodes_of_type(node: Node, types: frozenset[str]) -> list[Node]:
         parent = parent.parent
     found.reverse()
     return found
-
-
-def build_quoted_import(
-    _resolver: ImportResolver,
-    _node: Node,
-    captures: dict[str, list[Node]],
-) -> ImportMeta:
-    """Build `ImportMeta` from a directly-captured quoted specifier.
-
-    For grammars whose import string is a single node carrying its
-    own quotes with no inner content child (SCSS/Less `string_value`),
-    so the `@_import_module` capture is e.g. `"config"` or `'config'`.
-    Strips one matching surrounding single or double quote and stores
-    the result as `module`.
-    """
-    meta = ImportMeta()
-    cap_nodes = captures.get("_import_module", [])
-    if cap_nodes and cap_nodes[0].text:
-        raw = cap_nodes[0].text.decode()
-        if len(raw) >= 2 and raw[0] in "\"'" and raw[-1] == raw[0]:
-            raw = raw[1:-1]
-        meta.module = raw
-    return meta
-
-
-def collect_scoped_path(node: Node) -> list[str]:
-    """Recursively collect path segments from a `scoped_identifier`.
-
-    Walks the tree-sitter `scoped_identifier` node and collects
-    all identifier-like children into a flat list.  Handles Rust
-    keywords (`crate`, `super`, `self`) and Java-style
-    nested scoped identifiers.
-
-    Use this in import extractors for languages with `::`-separated
-    or `.`-separated scoped paths (Rust, Java, C#, Scala, etc.).
-
-    Examples:
-
-        `std::collections::HashMap` → `["std", "collections", "HashMap"]`
-
-        `crate::models` → `["crate", "models"]`
-
-        `super::utils` → `["super", "utils"]`
-    """
-    parts: list[str] = []
-    for child in node.children:
-        match child.type:
-            case "scoped_identifier":
-                parts.extend(collect_scoped_path(child))
-            case "identifier" | "crate" | "super" | "self":
-                if child.text:
-                    parts.append(child.text.decode())
-    return parts

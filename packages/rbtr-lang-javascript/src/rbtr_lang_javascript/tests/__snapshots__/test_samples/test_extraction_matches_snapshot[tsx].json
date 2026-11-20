@@ -61,7 +61,13 @@
     "metadata": {
       "module": "./b",
       "names": "Helper",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "Helper",
+          "local": "Helper"
+        }
+      ]
     }
   },
   {
@@ -96,7 +102,13 @@
     "metadata": {
       "module": "react",
       "names": "useState",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "useState",
+          "local": "useState"
+        }
+      ]
     }
   },
   {
@@ -111,7 +123,13 @@
     "metadata": {
       "module": "react",
       "names": "ReactNode",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "ReactNode",
+          "local": "ReactNode"
+        }
+      ]
     }
   },
   {
@@ -126,7 +144,13 @@
     "metadata": {
       "module": "./labels",
       "names": "INITIAL_LABEL",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": [
+        {
+          "name": "INITIAL_LABEL",
+          "local": "INITIAL_LABEL"
+        }
+      ]
     }
   },
   {

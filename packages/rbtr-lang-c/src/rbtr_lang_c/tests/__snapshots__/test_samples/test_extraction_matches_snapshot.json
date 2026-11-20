@@ -20,8 +20,9 @@
     "line_end": 8,
     "metadata": {
       "module": "stdio.h",
-      "names": "",
-      "language_hint": ""
+      "names": "*",
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -35,8 +36,9 @@
     "line_end": 9,
     "metadata": {
       "module": "greeter.h",
-      "names": "",
-      "language_hint": ""
+      "names": "*",
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -310,8 +312,9 @@
     "line_end": 2,
     "metadata": {
       "module": "text.h",
-      "names": "",
-      "language_hint": ""
+      "names": "*",
+      "language_hint": "",
+      "bindings": []
     }
   },
   {

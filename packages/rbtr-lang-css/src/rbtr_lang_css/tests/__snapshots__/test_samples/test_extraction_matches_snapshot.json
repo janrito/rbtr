@@ -31,7 +31,8 @@
     "metadata": {
       "module": "reset.css",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -46,7 +47,8 @@
     "metadata": {
       "module": "theme.css",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -131,7 +133,8 @@
     "metadata": {
       "module": "partials/dark.css",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -156,7 +159,8 @@
     "metadata": {
       "module": "palette.css",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {

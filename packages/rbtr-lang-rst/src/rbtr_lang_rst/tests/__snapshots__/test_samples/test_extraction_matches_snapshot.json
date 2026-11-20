@@ -241,7 +241,8 @@
     "metadata": {
       "module": "config",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -256,7 +257,8 @@
     "metadata": {
       "module": "",
       "names": "format_greeting",
-      "language_hint": "python"
+      "language_hint": "python",
+      "bindings": []
     }
   },
   {
@@ -271,7 +273,8 @@
     "metadata": {
       "module": "",
       "names": "Greeter",
-      "language_hint": "python"
+      "language_hint": "python",
+      "bindings": []
     }
   },
   {
@@ -286,7 +289,8 @@
     "metadata": {
       "module": "guide.rst",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -301,7 +305,8 @@
     "metadata": {
       "module": "intro",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -316,7 +321,8 @@
     "metadata": {
       "module": "api/index",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -341,7 +347,8 @@
     "metadata": {
       "module": "greeter.locales",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -356,7 +363,8 @@
     "metadata": {
       "module": "topics/intro",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -371,7 +379,8 @@
     "metadata": {
       "module": "",
       "names": "greeting-options",
-      "language_hint": "rst"
+      "language_hint": "rst",
+      "bindings": []
     }
   },
   {
@@ -386,7 +395,8 @@
     "metadata": {
       "module": "",
       "names": "format_greeting",
-      "language_hint": "rst"
+      "language_hint": "rst",
+      "bindings": []
     }
   },
   {
@@ -401,7 +411,8 @@
     "metadata": {
       "module": "",
       "names": "salutations",
-      "language_hint": "rst"
+      "language_hint": "rst",
+      "bindings": []
     }
   },
   {
@@ -416,7 +427,8 @@
     "metadata": {
       "module": "",
       "names": "greetings table",
-      "language_hint": "rst"
+      "language_hint": "rst",
+      "bindings": []
     }
   },
   {
@@ -431,7 +443,8 @@
     "metadata": {
       "module": "guide.rst",
       "names": "greeting-options",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -446,7 +459,8 @@
     "metadata": {
       "module": "rst.rst",
       "names": "usage",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   },
   {
@@ -481,7 +495,8 @@
     "metadata": {
       "module": "detail",
       "names": "",
-      "language_hint": ""
+      "language_hint": "",
+      "bindings": []
     }
   }
 ]

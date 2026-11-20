@@ -59,15 +59,7 @@ class ChunkStagingRow(dy.Schema):
     line_end = dy.Int32(nullable=False)
     # What the role carries beyond kind and name: the union of the role
     # payloads' fields, null where a role has none.
-    metadata = dy.Struct(
-        {
-            "module": dy.String(nullable=True),
-            "names": dy.String(nullable=True),
-            "language_hint": dy.String(nullable=True),
-            "node_types": dy.List(dy.String(), nullable=True),
-        },
-        nullable=True,
-    )
+    metadata = ChunkRow.metadata
     extraction_serial = dy.Int32(nullable=False)
 
 
