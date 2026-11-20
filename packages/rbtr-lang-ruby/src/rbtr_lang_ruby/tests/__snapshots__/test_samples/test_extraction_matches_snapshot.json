@@ -46,6 +46,82 @@
     "line_end": 3
   },
   {
+    "name": "Model",
+    "kind": "class",
+    "file_path": "lib/model.rb",
+    "scope": "",
+    "language": "ruby",
+    "content": "# A base whose members a subclass reaches without naming `self`.\nclass Model\n  def save\n    check()\n  end\n\n  def check\n    true\n  end\nend",
+    "line_start": 1,
+    "line_end": 10
+  },
+  {
+    "name": "save",
+    "kind": "method",
+    "file_path": "lib/model.rb",
+    "scope": "Model",
+    "language": "ruby",
+    "content": "def save\n    check()\n  end",
+    "line_start": 3,
+    "line_end": 5
+  },
+  {
+    "name": "check",
+    "kind": "method",
+    "file_path": "lib/model.rb",
+    "scope": "Model",
+    "language": "ruby",
+    "content": "def check\n    true\n  end",
+    "line_start": 7,
+    "line_end": 9
+  },
+  {
+    "name": "require_relative \"model\"",
+    "kind": "import",
+    "file_path": "lib/order.rb",
+    "scope": "",
+    "language": "ruby",
+    "content": "require_relative \"model\"",
+    "line_start": 1,
+    "line_end": 1,
+    "metadata": {
+      "module": "./model",
+      "names": "*",
+      "language_hint": "",
+      "bindings": []
+    }
+  },
+  {
+    "name": "Order",
+    "kind": "class",
+    "file_path": "lib/order.rb",
+    "scope": "",
+    "language": "ruby",
+    "content": "# A subclass of a required base.\nclass Order < Model\n  def save\n    check() && self.check\n  end\n\n  def self.build\n    Order.new\n  end\nend",
+    "line_start": 3,
+    "line_end": 12
+  },
+  {
+    "name": "save",
+    "kind": "method",
+    "file_path": "lib/order.rb",
+    "scope": "Order",
+    "language": "ruby",
+    "content": "def save\n    check() && self.check\n  end",
+    "line_start": 5,
+    "line_end": 7
+  },
+  {
+    "name": "build",
+    "kind": "method",
+    "file_path": "lib/order.rb",
+    "scope": "Order",
+    "language": "ruby",
+    "content": "def self.build\n    Order.new\n  end",
+    "line_start": 9,
+    "line_end": 11
+  },
+  {
     "name": "",
     "kind": "comment",
     "file_path": "ruby.rb",

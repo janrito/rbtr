@@ -5,7 +5,9 @@ and the RSpec `describe`/`context`/`it` DSL) and structured import
 metadata from `require` / `require_relative`.  Constants scope to
 their enclosing class/module.  RSpec groups (`describe`/`context`/
 `feature`) are classes and examples (`it`/`specify`/`example`) are
-functions, named by their description string.
+functions, named by their description string.  A class's bases are
+searched last written first (`MemberOrder.REVERSED`): a later `include`
+before an earlier one, and both before the superclass.
 
 Extracted chunks::
 
@@ -24,6 +26,7 @@ Extracted chunks::
 
 from __future__ import annotations
 
+from rbtr.domain.edge_frames import MemberOrder
 from rbtr.languages.registration import (
     LanguageRegistration,
     QueryExtraction,
@@ -35,9 +38,11 @@ ruby = LanguageRegistration(
     extensions=frozenset({".rb"}),
     grammar_module="tree_sitter_ruby",
     extraction=QueryExtraction(
-        query=load_query(__package__, "ruby"),
+        query=load_query(__package__, "ruby") + load_query(__package__, "references"),
         scope_types=frozenset({"class", "module"}),
     ),
     source_roots=("", "lib"),
-    extraction_serial=8,
+    members_in_scope=True,
+    member_order=MemberOrder.REVERSED,
+    extraction_serial=9,
 )
