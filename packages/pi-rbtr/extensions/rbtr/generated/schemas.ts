@@ -192,6 +192,14 @@ export const PROTOCOL_DEFS = {
     type: "object",
   },
   EveryRepoGcMode: { enum: ["watched", "watched_only"], type: "string" },
+  ExcludeKinds: {
+    additionalProperties: false,
+    description: "Drop symbols of these kinds, and keep the rest.",
+    properties: { exclude: { items: { $ref: "#/$defs/ChunkKind" }, minItems: 1, type: "array" } },
+    required: ["exclude"],
+    title: "ExcludeKinds",
+    type: "object",
+  },
   FileOutcome: {
     description:
       "What a build did with one file.\n\nExactly one is recorded per file, so the counts derived from the\ntally agree with each other and with the loop. Every path through\nthe loop has a member here, including `EXTRACTED_EMPTY` — a file\nthat was extracted and yielded nothing, which a build log names so\nthat a run reporting few parsed files says why.",
@@ -365,6 +373,14 @@ export const PROTOCOL_DEFS = {
     title: "ImportMeta",
     type: "object",
   },
+  IncludeKinds: {
+    additionalProperties: false,
+    description: "Keep only symbols of these kinds.",
+    properties: { include: { items: { $ref: "#/$defs/ChunkKind" }, minItems: 1, type: "array" } },
+    required: ["include"],
+    title: "IncludeKinds",
+    type: "object",
+  },
   IndexErrorNotification: {
     additionalProperties: false,
     properties: {
@@ -415,6 +431,7 @@ export const PROTOCOL_DEFS = {
     type: "object",
   },
   JsonValue: {},
+  KindFilter: { anyOf: [{ $ref: "#/$defs/IncludeKinds" }, { $ref: "#/$defs/ExcludeKinds" }] },
   ListSymbolsRequest: {
     additionalProperties: false,
     properties: {
@@ -422,6 +439,7 @@ export const PROTOCOL_DEFS = {
       repo_path: { type: "string" },
       file_path: { type: "string" },
       ref: { anyOf: [{ type: "string" }, { type: "null" }], default: null },
+      kinds: { anyOf: [{ $ref: "#/$defs/KindFilter" }, { type: "null" }], default: null },
     },
     required: ["repo_path", "file_path", "kind"],
     title: "ListSymbolsRequest",
@@ -575,6 +593,12 @@ export const PROTOCOL_DEFS = {
       keywords: { anyOf: [{ items: { type: "string" }, type: "array" }, { type: "null" }], default: null },
       variants: { anyOf: [{ items: { type: "string" }, type: "array" }, { type: "null" }], default: null },
       explain: { default: false, type: "boolean" },
+      preview_lines: {
+        anyOf: [{ minimum: 1, type: "integer" }, { type: "null" }],
+        default: null,
+        description:
+          "Lines of each hit's body to preview; a longer body is clipped and says so. None uses `search_preview_lines` from the config.",
+      },
       query_kind: {
         anyOf: [{ type: "string" }, { type: "null" }],
         default: null,
@@ -622,6 +646,12 @@ export const PROTOCOL_DEFS = {
       keywords: { anyOf: [{ items: { type: "string" }, type: "array" }, { type: "null" }], default: null },
       variants: { anyOf: [{ items: { type: "string" }, type: "array" }, { type: "null" }], default: null },
       explain: { default: false, type: "boolean" },
+      preview_lines: {
+        anyOf: [{ minimum: 1, type: "integer" }, { type: "null" }],
+        default: null,
+        description:
+          "Lines of each hit's body to preview; a longer body is clipped and says so. None uses `search_preview_lines` from the config.",
+      },
       query_kind: {
         anyOf: [{ type: "string" }, { type: "null" }],
         default: null,

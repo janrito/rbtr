@@ -33,9 +33,11 @@ from rbtr.daemon.messages import (
     DaemonConfigRequest,
     ErrorCode,
     ErrorResponse,
+    ExcludeKinds,
     FindRefsRequest,
     FindRefsResponse,
     GcAllRequest,
+    IncludeKinds,
     IndexState,
     ListSymbolsRequest,
     ListSymbolsResponse,
@@ -51,7 +53,15 @@ from rbtr.daemon.messages import (
     WatchSetResponse,
 )
 from rbtr.daemon.server import Daemon
-from rbtr.domain.models import EdgeKind, EveryRepoGcMode, GcMode, IndexResult, QueryKind, RefSource
+from rbtr.domain.models import (
+    ChunkKind,
+    EdgeKind,
+    EveryRepoGcMode,
+    GcMode,
+    IndexResult,
+    QueryKind,
+    RefSource,
+)
 from rbtr.index.build import build_index
 from rbtr.index.index import Index
 from rbtr.index.progress import ProgressCallback
@@ -106,6 +116,18 @@ def test_search_returns_results(running_daemon: Daemon, fake_repo: str) -> None:
     assert len(resp.results) > 0
     names = {r.name for r in resp.results}
     assert "load_config" in names
+
+
+def test_search_caps_previews_at_the_requested_lines(
+    running_daemon: Daemon, fake_repo: str
+) -> None:
+    with DaemonClient(running_daemon.runtime_dir) as client:
+        resp = client.send(SearchRequest(repo_path=fake_repo, query="load_config", preview_lines=1))
+    assert isinstance(resp, SearchResponse)
+    hit = next(r for r in resp.results if r.name == "load_config")
+    assert hit.preview.text == "def load_config(path):"
+    assert hit.preview.clipped is True
+    assert hit.preview.total_lines == 2
 
 
 def test_search_respects_limit(running_daemon: Daemon, fake_repo: str) -> None:
@@ -387,6 +409,28 @@ def test_list_symbols_carries_no_source(running_daemon: Daemon, fake_repo: str) 
     payload = json.loads(resp.model_dump_json())
     assert payload["chunks"]
     assert all("content" not in chunk for chunk in payload["chunks"])
+
+
+@pytest.mark.parametrize(
+    ("kinds", "expected"),
+    [
+        (ExcludeKinds(exclude=[ChunkKind.IMPORT]), {"Application"}),
+        (IncludeKinds(include=[ChunkKind.IMPORT]), {"from config import load_config"}),
+    ],
+    ids=["exclude", "include"],
+)
+def test_list_symbols_filters_by_kind(
+    running_daemon: Daemon,
+    fake_repo: str,
+    kinds: IncludeKinds | ExcludeKinds,
+    expected: set[str],
+) -> None:
+    with DaemonClient(running_daemon.runtime_dir) as client:
+        resp = client.send(
+            ListSymbolsRequest(repo_path=fake_repo, file_path="src/app.py", kinds=kinds)
+        )
+    assert isinstance(resp, ListSymbolsResponse)
+    assert {c.name for c in resp.chunks} == expected
 
 
 def test_list_symbols_empty_file(running_daemon: Daemon, fake_repo: str) -> None:

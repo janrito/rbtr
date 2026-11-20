@@ -75,6 +75,7 @@ export const HEALTH_CHECK_MS = 30_000;
 
 import { block, type IndexLookups, outlinedIn, readFacts, searchesOutside, searchFacts } from "./annotate.js";
 import { commandRefs, prepareStringLists } from "./args.js";
+import { modelText, OUTLINE_EXCLUDES, SEARCH_PREVIEW_LINES } from "./model-text.js";
 import { replySchema } from "./output-schema.js";
 import {
   footerLabel,
@@ -101,12 +102,16 @@ import { LOADER, ON_REQUEST, withOnRequest } from "./tool-set.js";
 type ToolReturn = AgentToolResult<Record<string, unknown>>;
 
 /**
- * Pack an rbtr response: its JSON for the model, the same value as the
- * structured result for scripts, and the response for the renderer.
+ * Pack an rbtr response: its text for the model (`modelText`), the
+ * response as the structured result for scripts, and the response for
+ * the renderer.
  */
 function toolResult(response: Response): ToolReturn {
-  const text = JSON.stringify(response);
-  return { content: [{ type: "text", text }], structuredContent: JSON.parse(text), details: { response } };
+  return {
+    content: [{ type: "text", text: modelText(response) }],
+    structuredContent: JSON.parse(JSON.stringify(response)),
+    details: { response },
+  };
 }
 
 /** The group every rbtr tool belongs to, for codemode listings and tool search. */
@@ -845,7 +850,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
     namespace: NAMESPACE,
     annotations: READS,
     description:
-      "Find code by what it does or by name ('where are retries handled', 'the function that parses the config'): use it instead of grep when you don't know the exact text. It matches meaning: 'retry logic' also finds 'backoff' and 'reconnect'. Returns ranked functions, classes and methods with file, line and a preview of the source; a hit marked `clipped` has more lines, which rbtr_read_symbol returns. Pass `keywords` (synonyms) and, for a question in words, `variants` (rephrasings) to widen the match.",
+      "Find code by what it does or by name ('where are retries handled', 'the function that parses the config'): use it instead of grep when you don't know the exact text. It matches meaning: 'retry logic' also finds 'backoff' and 'reconnect'. Returns ranked functions, classes and methods with file, line and the first lines of the source; a hit ending in '… N more lines' is longer, and rbtr_read_symbol returns it whole. Pass `keywords` (synonyms) and, for a question in words, `variants` (rephrasings) to widen the match.",
     promptSnippet: "Find code by meaning or by name, when you don't know the exact text to grep for",
     promptGuidelines: [
       "Use rbtr_search instead of grep to find where something is handled or implemented; keep grep for exact strings such as error messages and config keys.",
@@ -890,6 +895,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
       }
       const query = {
         query: params.query,
+        preview_lines: SEARCH_PREVIEW_LINES,
         ...(params.limit !== undefined ? { limit: params.limit } : {}),
         ...(params.keywords !== undefined ? { keywords: params.keywords } : {}),
         ...(params.variants !== undefined ? { variants: params.variants } : {}),
@@ -911,7 +917,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
                 ),
           () => {
             if (!resolved) throw new Error("rbtr CLI not available");
-            const args = ["search", params.query];
+            const args = ["search", params.query, "--preview-lines", String(SEARCH_PREVIEW_LINES)];
             if (params.ref !== undefined) args.push("--ref", params.ref);
             if (params.limit !== undefined) args.push("--limit", String(params.limit));
             if (params.scope !== undefined) args.push("--scope", params.scope);
@@ -1153,6 +1159,7 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
                 kind: "list_symbols",
                 repo_path: ctx.cwd,
                 file_path: params.file,
+                kinds: { exclude: OUTLINE_EXCLUDES },
                 ...(params.ref !== undefined ? { ref: params.ref } : {}),
               },
               signal,
@@ -1160,7 +1167,11 @@ export default function rbtrIndexExtension(pi: ExtensionAPI) {
             ),
           () => {
             if (!resolved) throw new Error("rbtr CLI not available");
-            const listArgs = ["list-symbols", params.file];
+            const listArgs = [
+              "list-symbols",
+              params.file,
+              ...OUTLINE_EXCLUDES.flatMap((kind) => ["--exclude-kind", kind]),
+            ];
             if (params.ref !== undefined) listArgs.push("--ref", params.ref);
             return runRbtrJson<ListSymbolsResponse>(pi, resolved, listArgs, {
               signal,

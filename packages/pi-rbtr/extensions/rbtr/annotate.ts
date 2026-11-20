@@ -21,20 +21,17 @@ import type {
   ReadSymbolResponse,
   SearchResponse,
 } from "./generated/protocol.js";
+import { located, OUTLINE_EXCLUDES, outlineHeading, outlineLine, qualifiedName } from "./model-text.js";
 
 export const HEADER = "[rbtr index]";
 const MAX_LINES = 10;
 /** A read of a file shorter than this gets no outline: reading it whole is cheap. */
 export const OUTLINE_FROM_LINES = 200;
-/** An outline name longer than this is cut, so each line stays one short line. */
-const MAX_NAME_CHARS = 80;
 /**
  * Chunks that name something without defining code. A search for a name
  * shows them only when no code chunk defines it.
  */
 const NOT_CODE: ReadonlySet<ChunkKind> = new Set(["doc_section", "config_key", "comment", "raw_chunk", "import"]);
-/** Chunks an outline leaves out: they are not where a reader goes next. */
-const NOT_OUTLINED: ReadonlySet<ChunkKind> = new Set(["import", "comment"]);
 
 /** The lookups the facts come from, against the repository the agent works in. */
 export interface IndexLookups {
@@ -242,7 +239,7 @@ export async function searchFacts(index: IndexLookups, command: string, output: 
     if (definitions.length === 0) return [];
     const lines = definitions
       .filter((d) => !output.includes(`${d.file_path}:${d.line_start}`))
-      .map((d) => `defined: ${d.file_path}:${d.line_start} ${d.kind} ${d.name}`);
+      .map((d) => `defined: ${located(d.file_path, d.line_start, d.kind, qualifiedName(d))}`);
     const users = [...new Set((await index.findRefs(name)).refs.map((r) => r.file_path))];
     if (users.length > 0) {
       const more = users.length > 5 ? ` (+${users.length - 5} more)` : "";
@@ -254,29 +251,19 @@ export async function searchFacts(index: IndexLookups, command: string, output: 
   if (phrase === null) return [];
   return (await index.search(phrase)).results
     .slice(0, 3)
-    .map((h) => `match: ${h.file_paths[0]}:${h.line_start} ${h.kind} ${h.name}`);
+    .map((h) => `match: ${located(h.file_paths[0], h.line_start, h.kind, qualifiedName(h))}`);
 }
 
 /** Facts for the first read of a file: its outline, when it is long enough to be worth one. */
 export async function readFacts(index: IndexLookups, filePath: string, lineCount: number): Promise<string[]> {
   if (lineCount < OUTLINE_FROM_LINES) return [];
-  const symbols = (await index.listSymbols(filePath)).chunks.filter((s) => s.name !== "" && !NOT_OUTLINED.has(s.kind));
+  const symbols = (await index.listSymbols(filePath)).chunks.filter(
+    (s) => s.name !== "" && !OUTLINE_EXCLUDES.includes(s.kind),
+  );
   if (symbols.length === 0) return [];
-  const shown = symbols
-    .slice(0, MAX_LINES - 2)
-    .map((s) => `  ${cutName(s.name)} (${s.kind}) lines ${s.line_start}-${s.line_end}`);
+  const shown = symbols.slice(0, MAX_LINES - 2).map(outlineLine);
   const more = symbols.length > shown.length ? [`  +${symbols.length - shown.length} more: rbtr_list_symbols`] : [];
   return [outlineHeading(filePath), ...shown, ...more];
-}
-
-/** *name*, cut to `MAX_NAME_CHARS`. */
-function cutName(name: string): string {
-  return name.length > MAX_NAME_CHARS ? `${name.slice(0, MAX_NAME_CHARS - 1)}…` : name;
-}
-
-/** The first line of an outline of *filePath*, as `readFacts` writes it. */
-function outlineHeading(filePath: string): string {
-  return `outline of ${filePath}:`;
 }
 
 /**

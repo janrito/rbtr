@@ -47,6 +47,7 @@ def make_chunk(
     path: str = "f.py",
     blob: str = "",
     kind: ChunkKind = ChunkKind.FUNCTION,
+    scope: str = "",
     language: str = "",
     file_language: str | None = None,
 ) -> TokenisedChunk:
@@ -74,6 +75,7 @@ def make_chunk(
         file_path=path,
         kind=kind,
         name=name,
+        scope=scope,
         content=content,
         content_tokens=tokenise_code(content),
         name_tokens=tokenise_code(name),
@@ -112,7 +114,10 @@ def seed_index(index: Index, chunks: list[TokenisedChunk], ref: SnapshotRef) -> 
         ws.insert_snapshots(
             [
                 FileSnapshot(
-                    snapshot_sha=ref.snapshot_sha, file_path=c.file_path, blob_sha=c.blob_sha
+                    snapshot_sha=ref.snapshot_sha,
+                    file_path=c.file_path,
+                    blob_sha=c.blob_sha,
+                    detected_language=c.file_language,
                 )
                 for c in chunks
             ],
