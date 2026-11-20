@@ -713,18 +713,19 @@ dev = ["rbtr[test]"]   # the test harness (syrupy + pytest-cases)
 
 ### Capture conventions
 
-A capture's name decides the chunk kind. Eight produce chunks:
+A capture's name decides the chunk kind. Nine produce chunks:
 
-| Capture        | Name capture      | Produces                                                                             |
-| -------------- | ----------------- | ------------------------------------------------------------------------------------ |
-| `@function`    | `@_fn_name`       | a function                                                                           |
-| `@method`      | `@_method_name`   | a method (a `@function` whose nearest scope is class-like is promoted automatically) |
-| `@class`       | `@_cls_name`      | a class, struct, enum, trait, or other named collection of declarations              |
-| `@variable`    | `@_var_name`      | a module-level variable or constant                                                  |
-| `@import`      | `@_import_module` | an import, with metadata for the edge graph                                          |
-| `@doc_section` | `@_section_name`  | a prose section                                                                      |
-| `@config_key`  | `@_section_name`  | a config or data key — JSON object keys, TOML tables, YAML mappings, HCL blocks      |
-| `@comment`     | —                 | a comment; see below                                                                 |
+| Capture          | Name capture      | Produces                                                                             |
+| ---------------- | ----------------- | ------------------------------------------------------------------------------------ |
+| `@function`      | `@_fn_name`       | a function                                                                           |
+| `@method`        | `@_method_name`   | a method (a `@function` whose nearest scope is class-like is promoted automatically) |
+| `@class`         | `@_cls_name`      | a class, struct, enum, trait, or other named collection of declarations              |
+| `@variable`      | `@_var_name`      | a module-level variable or constant                                                  |
+| `@test_function` | `@_test_name`     | a test, named by its description (RSpec's `describe` and `it`); no call reaches it   |
+| `@import`        | `@_import_module` | an import, with metadata for the edge graph                                          |
+| `@doc_section`   | `@_section_name`  | a prose section                                                                      |
+| `@config_key`    | `@_section_name`  | a config or data key — JSON object keys, TOML tables, YAML mappings, HCL blocks      |
+| `@comment`       | —                 | a comment; see below                                                                 |
 
 Helper captures do not produce chunks of their own: `@_scope`
 contributes a scope segment that lexical nesting cannot reach (a Go

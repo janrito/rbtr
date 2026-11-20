@@ -423,3 +423,26 @@ def save
 end
 """
     return "ruby", src, [("function", "save", ["unqualified:check"], [])]
+
+
+@case(tags=["symbol"])
+def case_rb_rspec_groups_and_examples_are_tests() -> SymbolCase:
+    """`describe Greeter`, `context "..."` and `it "..."` are tests, named by their description."""
+    src = """\
+RSpec.describe Greeter do
+  context "with a name" do
+    it "greets" do
+      expect(Greeter.new.greet).to eq("hi")
+    end
+  end
+end
+"""
+    return (
+        "ruby",
+        src,
+        [
+            ("test_function", "Greeter", ""),
+            ("test_function", "with a name", ""),
+            ("test_function", "greets", ""),
+        ],
+    )

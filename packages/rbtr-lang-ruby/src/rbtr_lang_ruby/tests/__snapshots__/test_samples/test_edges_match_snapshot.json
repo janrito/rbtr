@@ -9,8 +9,6 @@
   "lib/order.rb::save -> lib/model.rb::check [calls]",
   "ruby.rb::Greeter -> ruby.rb::Shoutable [inherits]",
   "ruby.rb::format_greeting -> ruby.rb::Greeter [calls]",
-  "ruby.rb::format_greeting -> ruby.rb::Greeter [calls]",
-  "ruby.rb::includes the configured prefix -> ruby.rb::Greeter [calls]",
   "ruby.rb::includes the configured prefix -> ruby.rb::Greeter [calls]",
   "ruby.rb::require_relative \"./config\" -> config.rb::DEFAULT_LOCALE [imports]"
 ]

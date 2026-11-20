@@ -285,7 +285,7 @@
   },
   {
     "name": "Greeter",
-    "kind": "class",
+    "kind": "test_function",
     "file_path": "ruby.rb",
     "scope": "",
     "language": "ruby",
@@ -295,7 +295,7 @@
   },
   {
     "name": "#greet",
-    "kind": "class",
+    "kind": "test_function",
     "file_path": "ruby.rb",
     "scope": "",
     "language": "ruby",
@@ -305,7 +305,7 @@
   },
   {
     "name": "includes the configured prefix",
-    "kind": "function",
+    "kind": "test_function",
     "file_path": "ruby.rb",
     "scope": "",
     "language": "ruby",

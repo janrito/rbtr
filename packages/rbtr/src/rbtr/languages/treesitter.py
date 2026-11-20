@@ -50,6 +50,7 @@ CAPTURE_KINDS: frozenset[ChunkKind] = frozenset(
         ChunkKind.METHOD,
         ChunkKind.CLASS,
         ChunkKind.VARIABLE,
+        ChunkKind.TEST_FUNCTION,
         ChunkKind.IMPORT,
         ChunkKind.DOC_SECTION,
         ChunkKind.CONFIG_KEY,
