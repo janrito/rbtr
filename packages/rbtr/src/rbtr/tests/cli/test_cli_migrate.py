@@ -27,7 +27,7 @@ def test_a_command_with_no_daemon_migrates_the_index_then_runs(
     The project file is switched for a migrated copy the registry names,
     and the commit made after the index was written is indexed.
     """
-    Watch(refs=["HEAD"], repo_path=repo_path, daemon=False).cli_cmd()
+    Watch(refs=["HEAD"], repo_path=repo_path, daemon=False, allow_missing_plugins=False).cli_cmd()
     with duckdb.connect(str(config.db_path), read_only=True) as con:
         [(old_file,)] = con.sql("SELECT file FROM projects").fetchall()
     (chains / "project").mkdir()
@@ -38,10 +38,10 @@ def test_a_command_with_no_daemon_migrates_the_index_then_runs(
     head = make_commit(
         git_repo,
         {"src/added.py": b"def added():\n    return 1\n"},
-        parents=[git_repo.head.target],
+        parents=[git_repo.head.peel(pygit2.Commit).id],
     )
 
-    Watch(refs=["HEAD"], repo_path=repo_path, daemon=False).cli_cmd()
+    Watch(refs=["HEAD"], repo_path=repo_path, daemon=False, allow_missing_plugins=False).cli_cmd()
 
     with duckdb.connect(str(config.db_path), read_only=True) as con:
         [(new_file,)] = con.sql("SELECT file FROM projects").fetchall()
