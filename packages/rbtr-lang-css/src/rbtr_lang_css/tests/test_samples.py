@@ -51,7 +51,6 @@ def test_edges_match_snapshot(sample_edges: list[str], snapshot_json: SnapshotAs
     assert sample_edges == snapshot_json
 
 
-def test_uncovered_lines_match_snapshot(
-    sample_uncovered_lines: list[str], snapshot_json: SnapshotAssertion
-) -> None:
-    assert sample_uncovered_lines == snapshot_json
+def test_every_line_is_in_a_chunk(sample_uncovered_lines: list[str]) -> None:
+    """No line of the sample's code falls outside a chunk."""
+    assert sample_uncovered_lines == []

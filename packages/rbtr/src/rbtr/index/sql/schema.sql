@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS file_snapshots (
 );
 
 CREATE TABLE IF NOT EXISTS chunks (
-  -- Content-addressed store: `id` is a blake2b hash of
+  -- Content-addressed store: `id` is a sha256 (first 16 hex) of
   -- (blob_sha, file_language, kind, name, line_start, line_end) and is
   -- therefore globally unique and location-independent.  Identical
   -- content at several paths, or in several checkouts of the project,

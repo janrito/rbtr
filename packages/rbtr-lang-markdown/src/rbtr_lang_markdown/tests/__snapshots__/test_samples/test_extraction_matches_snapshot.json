@@ -221,6 +221,16 @@
     "kind": "fragment",
     "file_path": "embedding.md",
     "scope": "",
+    "language": "svelte",
+    "content": "<script lang=\"ts\">",
+    "line_start": 44,
+    "line_end": 44
+  },
+  {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "embedding.md",
+    "scope": "",
     "language": "typescript",
     "content": "export let name: string;",
     "line_start": 45,
@@ -237,6 +247,16 @@
     "line_end": 49
   },
   {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "embedding.md",
+    "scope": "",
+    "language": "svelte",
+    "content": "</script>",
+    "line_start": 50,
+    "line_end": 50
+  },
+  {
     "name": "embedding",
     "kind": "doc_section",
     "file_path": "embedding.md",
@@ -247,6 +267,16 @@
     "line_end": 52
   },
   {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "embedding.md",
+    "scope": "",
+    "language": "svelte",
+    "content": "<style lang=\"scss\">",
+    "line_start": 54,
+    "line_end": 54
+  },
+  {
     "name": "h1",
     "kind": "class",
     "file_path": "embedding.md",
@@ -255,6 +285,16 @@
     "content": "h1 {\n    color: $brand;\n  }",
     "line_start": 55,
     "line_end": 57
+  },
+  {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "embedding.md",
+    "scope": "",
+    "language": "svelte",
+    "content": "</style>",
+    "line_start": 58,
+    "line_end": 58
   },
   {
     "name": "Setup",
@@ -301,6 +341,26 @@
     "content": "## A step failed\n\nRe-run it.",
     "line_start": 5,
     "line_end": 7
+  },
+  {
+    "name": "Underlined headings",
+    "kind": "doc_section",
+    "file_path": "headings.md",
+    "scope": "",
+    "language": "markdown",
+    "content": "Underlined headings\n===================\n\nThis section uses an equals-sign underline.",
+    "line_start": 1,
+    "line_end": 4
+  },
+  {
+    "name": "Details",
+    "kind": "doc_section",
+    "file_path": "headings.md",
+    "scope": "Underlined headings",
+    "language": "markdown",
+    "content": "Details\n-------\n\nThis subsection uses a dash underline.",
+    "line_start": 6,
+    "line_end": 9
   },
   {
     "name": "Locales",

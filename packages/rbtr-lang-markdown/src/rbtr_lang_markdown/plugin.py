@@ -1,8 +1,8 @@
 """Markdown language plugin: two query plugins, the grammar's block and inline halves.
 
-`markdown` reads a document's blocks. Each headed section is a
-`doc_section` named by its heading, scoped by the headings above it, and
-holding its text up to its first subsection. Fenced code is extracted in
+`markdown` reads a document's blocks. Each heading, `#` or underlined, is
+a `doc_section` named by its heading, scoped by the headings above it of a
+higher level, and holding its text up to the next heading. Fenced code is extracted in
 the fence's language, and raw HTML as HTML.
 
 `markdown_inline` reads the text inside each block, which Markdown's
@@ -41,7 +41,7 @@ markdown = LanguageRegistration(
     # ATX headings and fenced code.
     content_signals=(re.compile(r"^#{1,6}\s+", re.MULTILINE), re.compile(r"^```", re.MULTILINE)),
     section_names=SectionNames.FOLDED,
-    extraction_serial=7,
+    extraction_serial=9,
 )
 
 # The grammar's inline half: emphasis, code spans, links and HTML tags

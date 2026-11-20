@@ -163,3 +163,73 @@ int run(struct shop *s) {
             )
         ],
     )
+
+
+@case(tags=["symbol"])
+def case_c_functions_returning_pointers() -> SymbolCase:
+    """A return type's `*` or `**` wraps the declarator; each function and prototype is still extracted."""
+    src = """\
+char* top(void) { return 0; }
+char **names(void) { return 0; }
+const char *prototype(int n);
+"""
+    return (
+        "c",
+        src,
+        [
+            ("function", "top", ""),
+            ("function", "names", ""),
+            ("function", "prototype", ""),
+        ],
+    )
+
+
+@case(tags=["symbol"])
+def case_c_a_function_returning_a_function_pointer() -> SymbolCase:
+    """`void (*handler(int sig))(int)`: named inside the pointer, as `signal` is declared."""
+    src = "void (*handler(int sig))(int) { return reset; }\n"
+    return "c", src, [("function", "handler", "")]
+
+
+@case(tags=["symbol"])
+def case_c_a_function_named_by_a_call_shaped_declarator() -> SymbolCase:
+    """`double PREFIX(predict)(…)` and a C++ header's `operator()(…)` read as C are named as written."""
+    src = """\
+double PREFIX(predict)(int x) { return 0; }
+bool operator()(int x) { return x; }
+"""
+    return "c", src, [("function", "PREFIX(predict)", ""), ("function", "operator()", "")]
+
+
+@case(tags=["symbol"])
+def case_c_declarations_inside_an_include_guard() -> SymbolCase:
+    """A header's prototypes and variables inside `#ifndef` / `#if` / `#else` are its own."""
+    src = """\
+#ifndef GREETER_H
+#define GREETER_H
+char *greet(const char *name);
+extern int greeted;
+#if WITH_LOUD
+void shout(void);
+#else
+void whisper(void);
+#endif
+#endif
+"""
+    return (
+        "c",
+        src,
+        [
+            ("function", "greet", ""),
+            ("variable", "greeted", ""),
+            ("function", "shout", ""),
+            ("function", "whisper", ""),
+        ],
+    )
+
+
+@case(tags=["symbol"])
+def case_c_a_local_declaration_is_no_definition() -> SymbolCase:
+    """A declaration inside a function body is the function's, not a chunk of its own."""
+    src = "int run(void) {\n  int count = 0;\n  return count;\n}\n"
+    return "c", src, [("function", "run", "")]

@@ -42,5 +42,5 @@ rust = LanguageRegistration(
     parent_module="super",
     current_module="self",
     directory_module_files=frozenset({"mod.rs", "lib.rs", "main.rs"}),
-    extraction_serial=12,
+    extraction_serial=15,
 )

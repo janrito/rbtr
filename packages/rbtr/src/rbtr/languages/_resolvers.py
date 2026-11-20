@@ -22,6 +22,7 @@ NAME_CAPTURE_KEY: dict[str, str] = {
     "method": "_method_name",
     "class": "_cls_name",
     "variable": "_var_name",
+    "test_function": "_test_name",
     "doc_section": "_section_name",
     "config_key": "_section_name",
 }

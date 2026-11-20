@@ -358,7 +358,7 @@ def test_a_chunk_whose_fields_disagree_is_refused(row: dict, rule: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "row",
+    ("row", "rule"),
     [
         pytest.param(
             {
@@ -385,7 +385,11 @@ def test_a_chunk_whose_fields_disagree_is_refused(row: dict, rule: str) -> None:
                     "refs": [],
                     "bindings": None,
                 },
+                "level": None,
+                "level_style": None,
+                "source_end": 1,
             },
+            "a_match_except_on_fragments",
             id="a-fragment-with-a-match",
         ),
         pytest.param(
@@ -413,13 +417,42 @@ def test_a_chunk_whose_fields_disagree_is_refused(row: dict, rule: str) -> None:
                     "refs": None,
                     "bindings": [],
                 },
+                "level": None,
+                "level_style": None,
+                "source_end": 9,
             },
+            "a_match_except_on_fragments",
             id="an-import-with-no-match",
+        ),
+        pytest.param(
+            {
+                "file": 0,
+                "source": 0,
+                "order": 0,
+                "match": 0,
+                "language": "doc",
+                "kind": "doc_section",
+                "name": "Guide",
+                "scope": "",
+                "in_class": False,
+                "column": 0,
+                "docs": [],
+                "start_byte": 0,
+                "end_byte": 11,
+                "line_start": 1,
+                "line_end": 2,
+                "metadata": None,
+                "level": 1,
+                "level_style": "=",
+                "source_end": 11,
+            },
+            "one_level_statement",
+            id="a-level-both-stated-and-styled",
         ),
     ],
 )
-def test_only_a_fragment_has_no_query_match(row: dict) -> None:
-    with pytest.raises(dy.exc.ValidationError, match="a_match_except_on_fragments"):
+def test_a_capture_whose_fields_disagree_is_refused(row: dict, rule: str) -> None:
+    with pytest.raises(dy.exc.ValidationError, match=rule):
         CaptureRow.validate(pl.DataFrame([row]), cast=True)
 
 

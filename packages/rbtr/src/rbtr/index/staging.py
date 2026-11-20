@@ -122,7 +122,7 @@ def staged_chunks(
     the batch carries no `repo_id`. A chunk's serial is its own language's
     in *serials* (the embedded language of a block it was read from), else
     its file's, else 1. Ids are computed in one Python pass over their
-    columns: polars has no blake2b, and its own hash is not stable across
+    columns: polars has no sha256, and its own hash is not stable across
     versions.
     """
     identities = chunks.select(

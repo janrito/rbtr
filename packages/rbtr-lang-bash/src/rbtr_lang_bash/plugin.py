@@ -46,7 +46,7 @@ bash = LanguageRegistration(
     extraction=QueryExtraction(
         query=load_query(__package__, "bash"),
     ),
-    extraction_serial=6,
+    extraction_serial=7,
 )
 
 

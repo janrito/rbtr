@@ -170,8 +170,12 @@ host chunk records that the file has been read even when its useful
 content is entirely in embedded languages.
 
 When re-extracting, `WriteSession.replace_chunks` deletes the old
-chunks for that `(blob_sha, file_language)` before inserting the new
-ones. Other host-language extractions of the same bytes are retained.
+chunks for that `(blob_sha, file_language)` that the new extraction
+does not produce, then upserts the new ones. A chunk produced again keeps
+its embedding while its content is unchanged: the model reads its name,
+which its id covers, and its content. So a serial bump re-embeds only the
+chunks it changes. Other host-language extractions of the same bytes are
+retained.
 
 ### Extraction
 
@@ -208,7 +212,9 @@ build plaintext windows. Assembly combines the results, adds any required
 orders each file's chunks. `PlacedChunkRow` adds file and order to the
 shared `ChunkRow` columns; those placement fields last only as long as
 assembly and grouping need them. The input bytes preserve offsets even
-when invalid UTF-8 bytes must be replaced.
+when invalid UTF-8 bytes must be replaced. Each rule is one lazy plan,
+its schema checks part of the plan, collected before the next rule reads
+it ([why](#git-and-extraction)).
 
 For example, this `client.py`:
 
@@ -237,6 +243,25 @@ inside definitions remain in their text; standalone comment blocks
 become searchable `COMMENT` chunks. Scope paths join enclosing names
 with `::`, so a nested class would give a method a scope such as
 `Outer::Client`.
+
+**Where a scope comes from.** A container the syntax tree does not nest is
+still one container: its pieces share an address, and every reader treats
+chunks of that address as its members. The address has three sources:
+
+| Source                                        | Example                                                                        | Stated by                                                          |
+| --------------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| The enclosing node                            | Rust's `impl Order { fn save }`, a Ruby `class Order` reopened in another file | `scope_types`, read by the adapter                                 |
+| A name the match states                       | Go's `func (o *Order) Save()`, C++'s `void Order::save()`                      | an `@_scope` capture, read by the adapter                          |
+| The nearest earlier capture of a higher level | a Markdown or rST heading, which its grammar leaves flat                       | the query's level (`#set! level`, or `@_level`), decided by a rule |
+
+The first two are facts the tree holds. The third follows from the order
+and level of many rows, so the adapter records each capture's stated level
+(or `@_level` style) and its source's end, and `rules.levelled` decides:
+it ranks each levelled capture (its stated level, or its style's first
+use in its source), ends its text at the next one or its source's end,
+scopes it under the earlier ones of a lower rank still open, and drops
+the fragments that start in its text: a fragment never spans a captured
+node, so none crosses into the next heading's.
 
 Staging (`staged_chunks`) adds the stable [chunk id](#record-identity),
 [search tokens](#fts-index-lifecycle) and each chunk's extraction
@@ -974,9 +999,12 @@ one registry `UPDATE` naming the new file; that commit is the switch.
 Reads already running finish on the old file, which stays attached for
 `retire_delay_s` (60 s) and is then detached and deleted. A crash
 before the commit leaves the new file unnamed, and a crash after it
-leaves the old one unnamed; the next open deletes either. Compaction
-switches to a plain copy; migrating a project file switches to a copy
-the migrations ran on (see [Migrations](#migrations)).
+leaves the old one unnamed; the next open deletes either. Closing the
+store deletes every old file still waiting. Compaction switches to a
+plain copy; migrating a project file switches to a copy the migrations
+ran on (see [Migrations](#migrations)), and deletes the old file at
+once, since no read uses a file waiting to migrate. A migration of many
+files therefore holds one extra copy at a time, not one per file.
 
 ![How compaction replaces a project's file: copy, switch the registry,
 and delete the old file after the retire delay](docs/diagrams/file-switch.png)
@@ -1038,11 +1066,14 @@ project file's tables, with the joins between them](docs/diagrams/data-model.png
 | `projects`          | `common_dir`, the git common directory, unique; `file` is unique too, so no two projects share a file                                                                                                     |
 | `repos`             | `path`, unique and always canonical; `id` is a surrogate the other tables carry                                                                                                                           |
 | `file_snapshots`    | `(repo_id, snapshot_sha, file_path)`                                                                                                                                                                      |
-| `chunks`            | `(id)` = `blake2b(blob_sha:file_language:kind:name:line_start:line_end, digest_size=8)` — content-addressed, shared across a project's checkouts and paths                                                |
+| `chunks`            | `(id)` = first 16 hex of `sha256(blob_sha:file_language:kind:name:line_start:line_end)` — content-addressed, shared across a project's checkouts and paths                                                |
 | `edges`             | `(repo_id, snapshot_sha, source_id, target_id, kind, source_path, target_path)` — the whole tuple is the key, the paths included: one import chunk imports a different sibling from each of its locations |
 | `indexed_snapshots` | `(repo_id, snapshot_sha)`                                                                                                                                                                                 |
 | `watched_refs`      | `(repo_id, ref)`                                                                                                                                                                                          |
 | `meta`              | `(key)`                                                                                                                                                                                                   |
+
+Chunk ids are sha256, so Python and DuckDB compute the same value: Python as rows
+are staged, polars having no sha256, and migrations in SQL.
 
 ### Embedding column
 
@@ -2369,9 +2400,12 @@ chunk, and no search could find it. After the query's chunks, the engine walks t
 by lines: a node no chunk touches is left over, a node one touches in part, or a
 left-over one longer than `chunk_lines`, is looked into, and left-over siblings join one
 `FRAGMENT` chunk until a blank line, a covered node or `chunk_lines` lines separate
-them. A run of punctuation alone makes none, and a node holding a block the host's
-injection query delegates (an HTML `<script>` element) belongs to that block, unless the
-block's language makes no fragments (`QueryExtraction.fragments`): Markdown hands every
+them. A run of anonymous syntax alone (a `try:` around captured imports, an `#endif`) is
+a fragment too, so every line of code reaches a chunk, as is a leaf touched only in
+part. A block the host's injection query delegates (an HTML `<script>`'s content)
+belongs to the language reading it, and the host's syntax around it (the `</script>`
+tag, a code fence, a section's other blocks) is the host's own, unless the block's
+language makes no fragments (`QueryExtraction.fragments`): Markdown hands every
 paragraph to its inline half for links, and that half's text is Markdown's. Each
 fragment records the types of the named nodes it holds, so what a language leaves to
 fragments is counted, and a frequent type is a pattern its query should name. Lines, not
@@ -2389,7 +2423,8 @@ or query, not a bigger fallback.
 **A section that ends in subsections holds its own text.** A captured
 section node spans what nests in it, as a class spans its methods. A
 section that ends in captured sections, nothing else after the first,
-holds only the text before them: that is a Markdown heading's own text.
+holds only the text before them, as a levelled heading holds its text up
+to the next heading.
 Spanning the subsections does not work here: on the eval repositories'
 Markdown it stores 2.5 times the text, and 135 chunks run past the
 embedding context against 3. An HTML element's own content continues past
@@ -2420,14 +2455,17 @@ way around writing a pattern:
   on. tree-sitter-rst tokenises a `toctree`'s content by word, so no node
   holds an entry; a pattern capturing whole entries would make one import
   per match, as Python's `import os, sys` does.
-- A doc section whose match captures `@_level` is flat: its level is the
-  order in which its style (the `@_level` texts, joined) first appears,
-  it is scoped under the nearest earlier section of a higher level, and it
-  holds its text up to the next one. tree-sitter-rst's section holds its
-  title alone, "to avoid guessing the level of subtitles" (its README).
+- A capture whose pattern states a level is levelled ("Where a scope
+  comes from"): `#set! level "2"` states it as a number, as Markdown does
+  (`#` to `######` are 1 to 6, an `=` underline 1, a `-` underline 2);
+  an `@_level` capture states it as a style ranked by its first use in the
+  source, docutils' rule, as rST does. tree-sitter-rst's section holds
+  its title alone, "to avoid guessing the level of subtitles" (its
+  README); tree-sitter-markdown nests sections for `#` headings only.
 
-Each rule is deleted when tree-sitter-rst gives the node: entries in a
-`toctree`'s content, sections nesting their body.
+Each rule is deleted when its grammar gives the node: entries in a
+`toctree`'s content, sections nesting their body, a section for every
+Markdown heading.
 
 **Section references use captured names and a comparison rule.** Queries
 capture author-defined ids and labels; an enum lets core compare names
@@ -2448,12 +2486,26 @@ tokenisation and persistence benefit from processing rows together.
 The single-file API uses the same process so plugin tests exercise the
 same rules as a build.
 
+**Each extraction rule is one lazy plan.** A rule ends in
+`Schema.validate`, which dataframely adds to a lazy plan rather than
+running at once, so every frame's shape is checked within the plan, at a
+fraction of an eager check's fixed cost per call. `extract_batch` collects
+each rule's plan before the next reads it. One plan for the whole batch
+does not work: a plan copies a frame it reads twice into each use, and
+`with_metadata` reads its inputs many times, so the plan grows past
+what polars builds quickly, even for one small file.
+
 **Tree-dependent work ends before batch rules run.** Names, scopes,
 injection ranges and some capture spans need tree-sitter nodes or
 plugin callbacks. The adapter resolves them while each source's tree
 is alive and passes plain rows onwards. Keeping nodes in the frames
 would retain every tree until the batch finished and couple the domain
 rules to the parser. Value-only rules instead use polars expressions.
+Levelling headings reads only rows, so it is a rule after `read`: the
+adapter makes fragments of a heading's body, as it reads the heading's
+span alone, and the rule drops them, at some cost for documents of many
+headings. Levelling in the adapter, before its fragments, needed every
+tree of a batch at once.
 
 **Store lookups follow the streaming batch.** A query per file repeats planning and
 serial-map preparation; one lookup per batch checks all its blobs against a serial map

@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 
 from tree_sitter import Parser
 
-from rbtr.domain.models import Chunk, ChunkKind, Comment, Section, Span
+from rbtr.domain.models import Chunk, ChunkKind, Comment, Fragment, FragmentMeta, Section, Span
 from rbtr.languages.chunks import last_line
 from rbtr.languages.registration import LanguageRegistration, load_query
 
@@ -70,12 +70,13 @@ def chunk_sfc(
     grammar: Language,
     ranges: list[Range] | None = None,
 ) -> Iterator[Chunk]:
-    """Emit the SFC's markup template, and any comment above it.
+    """Emit the SFC's markup template, any comment above it, and its blocks' tags.
 
-    The `<script>`/`<style>` blocks are handled by the engine's injection
-    mechanism (`_SFC_INJECTIONS`), not here. A top-level comment is not
-    markup, so it does not belong to the template chunk; it is content
-    someone searches for, so it gets a chunk of its own.
+    The `<script>`/`<style>` blocks' content is handled by the engine's
+    injection mechanism (`_SFC_INJECTIONS`), not here; their tags are the
+    component's own syntax, each a fragment, so every line reaches a chunk.
+    A top-level comment is not markup, so it does not belong to the template
+    chunk; it is content someone searches for, so it gets a chunk of its own.
     """
     content_bytes = content.encode("utf-8")
     parser = Parser(grammar)
@@ -90,6 +91,22 @@ def chunk_sfc(
     template = _template_chunk(file_path, blob_sha, content_bytes, template_nodes)
     if template is not None:
         yield template
+
+    for node in tree.root_node.children:
+        if node.type not in ("script_element", "style_element"):
+            continue
+        for tag in node.named_children:
+            if tag.type not in ("start_tag", "end_tag"):
+                continue
+            yield Chunk(
+                blob_sha=blob_sha,
+                file_path=file_path,
+                role=Fragment(meta=FragmentMeta(node_types=(tag.type,))),
+                content=content_bytes[tag.start_byte : tag.end_byte].decode(
+                    "utf-8", errors="replace"
+                ),
+                span=Span(start=tag.start_point[0] + 1, end=last_line(tag)),
+            )
 
     for node in tree.root_node.children:
         if node.type != "comment":
@@ -109,7 +126,7 @@ svelte = LanguageRegistration(
     extensions=frozenset({".svelte"}),
     grammar_module="tree_sitter_svelte",
     injection_query=load_query(__package__, "injections"),
-    extraction_serial=3,
+    extraction_serial=4,
 )
 
 svelte.chunker(chunk_sfc)

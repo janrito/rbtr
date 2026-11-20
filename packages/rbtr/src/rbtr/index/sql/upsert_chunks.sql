@@ -30,4 +30,11 @@ ON CONFLICT (id) DO UPDATE SET
   name_tokens = excluded.name_tokens,
   line_start = excluded.line_start,
   line_end = excluded.line_end,
-  metadata = excluded.metadata
+  metadata = excluded.metadata,
+  -- The model reads a chunk's name, part of its id, and its content: the
+  -- embedding still holds while the content does.
+  embedding
+  = CASE WHEN chunks.content = excluded.content THEN chunks.embedding END,
+  embedding_truncated = (
+    chunks.content = excluded.content AND chunks.embedding_truncated
+  )

@@ -50,6 +50,7 @@ CAPTURE_KINDS: frozenset[ChunkKind] = frozenset(
         ChunkKind.METHOD,
         ChunkKind.CLASS,
         ChunkKind.VARIABLE,
+        ChunkKind.TEST_FUNCTION,
         ChunkKind.IMPORT,
         ChunkKind.DOC_SECTION,
         ChunkKind.CONFIG_KEY,
@@ -105,6 +106,9 @@ class Capture(TypedDict):
     line_start: int
     line_end: int
     metadata: Metadata | None
+    level: int | None
+    level_style: str | None
+    source_end: int
 
 
 type Languages = Callable[[str], tuple[LanguageRegistration, Language | None] | None]
@@ -172,7 +176,8 @@ def read(
     hands on the same way (`sources`): the query's spans are the
     `CaptureRow`s, its metadata captures the `MetadataCaptureRow`s, the
     chunkers' chunks the `PlacedChunkRow`s, numbered
-    in one order per file. A chunker's chunk is in its source's language
+    in one order per file, each checked against its schema in a lazy plan
+    (cheaper than an eager check) and collected. A chunker's chunk is in its source's language
     when the chunker leaves it blank. The files whose language reads
     nothing and hands on no block are the list. *languages* finds each
     language.
@@ -206,15 +211,16 @@ def read(
                 case QueryExtraction() as extraction if content:
                     captured, named, found = query_captures(source, extraction)
                     captures += captured
-                    captures += fragments(source, extraction, captured, named)
+                    spans = [(c["line_start"], c["line_end"]) for c in captured]
+                    captures += fragments(source, extraction, spans, named)
                     metadata_captures += found
     return (
-        pl.DataFrame(captures, schema=CaptureRow.create_empty().schema).pipe(
-            CaptureRow.validate, cast=True
-        ),
-        pl.DataFrame(metadata_captures, schema=MetadataCaptureRow.create_empty().schema).pipe(
-            MetadataCaptureRow.validate, cast=True
-        ),
+        pl.LazyFrame(captures, schema=CaptureRow.create_empty().schema)
+        .pipe(CaptureRow.validate, cast=True)
+        .collect(),
+        pl.LazyFrame(metadata_captures, schema=MetadataCaptureRow.create_empty().schema)
+        .pipe(MetadataCaptureRow.validate, cast=True)
+        .collect(),
         pl.concat(
             [
                 chunk_rows([chunk for chunk, *_ in chunked]).drop("language", "file_language"),
@@ -230,7 +236,10 @@ def read(
                 ),
             ],
             how="horizontal",
-        ).pipe(PlacedChunkRow.validate, cast=True),
+        )
+        .lazy()
+        .pipe(PlacedChunkRow.validate, cast=True)
+        .collect(),
         plain,
     )
 
@@ -284,11 +293,12 @@ def injections(
     *languages* finds no grammar for, is not read. The blocks are in
     source order.
 
-    A node holding a block counts as covered when fragments are found: an
-    HTML `<script>` element's tags belong to the javascript it holds. A
-    block handed to a language that makes no fragments is not held: that
-    language does not reach its every line (Markdown's text, handed to its
-    inline half for links).
+    A block counts as covered when fragments are found: its lines are the
+    language's that reads it. The host's syntax around it (an HTML
+    `<script>` tag, a Markdown code fence, a section's other blocks) is
+    the host's own. A block handed to a language that makes no fragments
+    is not held: that language does not reach its every line (Markdown's
+    text, handed to its inline half for links).
     """
     if registration.injection_query is None:
         return [], []
@@ -300,7 +310,7 @@ def injections(
         static, _ = languages(settings.get("injection.language") or "") or (None, None)
         extraction = static.extraction if static is not None else None
         if not (isinstance(extraction, QueryExtraction) and not extraction.fragments):
-            holders.extend(block.parent or block for block in captures.get("injection.content", []))
+            holders.extend(captures.get("injection.content", []))
         target = settings.get("injection.language") or injection_language(captures)
         if target is None:
             continue
@@ -355,8 +365,7 @@ def query_captures(
     Names, scopes and import metadata come from the registration's
     resolvers, `#strip!` applied. Each span is settled here: a captured
     section that ends in captured sections ends where the first of them
-    begins (`section_end`), a flat section at the next one
-    (`flat_sections`), and a quantified `@_import_module` makes one
+    begins (`section_end`), and a quantified `@_import_module` makes one
     import per line (`line_imports`). Whether a capture's nearest scope is
     class-like, and the column it starts at, are recorded for the rules.
     A node captured more than once (`a, b = …`) names the scope it opens
@@ -371,7 +380,6 @@ def query_captures(
         if captured.capture != "comment":
             named.setdefault(captured.node.id, directives.name(captured))
     sections = {captured.node.id for captured in nodes if captured.capture == "doc_section"}
-    flat = flat_sections(nodes, directives, source.content, source.tree.root_node.end_byte)
     rows: list[Capture] = []
     for captured in nodes:
         node = captured.node
@@ -389,11 +397,9 @@ def query_captures(
             *scope_names(scopes, named),
             *source.registration.resolve_scope(captured.capture, node, captured.captures),
         ]
+        level, level_style = directives.level(captured)
         end: tuple[int, int] | None = None
-        if node.id in flat:
-            end_byte, line_end, scope = flat[node.id]
-            end = (end_byte, line_end)
-        elif captured.capture == "doc_section":
+        if captured.capture == "doc_section" and level is None and level_style is None:
             end = section_end(node, sections, source.content)
         rows.append(
             capture(
@@ -412,6 +418,8 @@ def query_captures(
                 ],
                 meta=directives.import_meta(captured) if captured.capture == "import" else None,
                 match=captured.match,
+                level=level,
+                level_style=level_style,
             )
         )
     return rows, named, metadata_captures
@@ -431,12 +439,15 @@ def capture(
     meta: ImportMeta | None = None,
     node_types: list[str] | None = None,
     match: int | None = None,
+    level: int | None = None,
+    level_style: str | None = None,
 ) -> Capture:
     """A row for *source*'s span from *first*'s start to *last*'s end, numbered next in its file.
 
     *end*, when given, is where a section's own text ends: its end byte
     and last line. *meta* is an import's metadata, *node_types* a
-    fragment's, *match* the query match that captured it.
+    fragment's, *match* the query match that captured it, *level* and
+    *level_style* the level its pattern states.
     """
     end_byte, line_end = end if end is not None else (last.end_byte, last_line(last))
     metadata: Metadata | None = None
@@ -466,6 +477,9 @@ def capture(
         line_start=first.start_point[0] + 1,
         line_end=line_end,
         metadata=metadata,
+        level=level,
+        level_style=level_style,
+        source_end=source.tree.root_node.end_byte,
     )
 
 
@@ -571,6 +585,19 @@ class Directives:
         key = NAME_CAPTURE_KEY.get(captured.capture)
         return self.strip(captured.pattern, key, name) if key else name
 
+    def level(self, captured: CapturedNode) -> tuple[int | None, str | None]:
+        """The level *captured*'s pattern states: its `#set! level`, or its `@_level` texts, `#strip!` applied, joined."""
+        stated = self.query.pattern_settings(captured.pattern).get("level")
+        if stated is not None:
+            return int(stated), None
+        if "_level" not in captured.captures:
+            return None, None
+        return None, "".join(
+            self.strip(captured.pattern, "_level", node.text.decode())
+            for node in captured.captures["_level"]
+            if node.text
+        )
+
     def import_meta(self, captured: CapturedNode) -> ImportMeta:
         """The import *captured* records: its module (`read_import`) as written, `#strip!`ped, and its pattern's `#set!` names and language hint.
 
@@ -595,49 +622,6 @@ class Directives:
                 "language_hint": settings.get("import.language_hint") or meta.language_hint,
             }
         )
-
-
-def flat_sections(
-    nodes: list[CapturedNode], directives: Directives, content: bytes, end: int
-) -> dict[int, tuple[int, int, list[str]]]:
-    """Each flat section's end byte, 1-based last line and scope, by node id.
-
-    A flat section is one whose match captures `@_level`: its grammar gives
-    it no body to nest in (tree-sitter-rst's `section` holds its title
-    alone). Its level is the order in which its style (its `@_level` texts,
-    `#strip!` applied, joined) first appears; it is scoped under the nearest
-    earlier flat section of a higher level, and holds its text up to the
-    next flat section, or to *end*, less trailing whitespace.
-    """
-    flat = [
-        captured
-        for captured in nodes
-        if captured.capture == "doc_section" and "_level" in captured.captures
-    ]
-    ranks: dict[str, int] = {}
-    above: list[tuple[int, str]] = []
-    spans: dict[int, tuple[int, int, list[str]]] = {}
-    for at, captured in enumerate(flat):
-        style = "".join(
-            directives.strip(captured.pattern, "_level", node.text.decode())
-            for node in captured.captures["_level"]
-            if node.text
-        )
-        rank = ranks.setdefault(style, len(ranks))
-        while above and above[-1][0] >= rank:
-            above.pop()
-        scope = [name for _, name in above]
-        above.append((rank, directives.name(captured)))
-        stop = flat[at + 1].node.start_byte if at + 1 < len(flat) else end
-        while stop > captured.node.start_byte and content[stop - 1 : stop] in (
-            b" ",
-            b"\t",
-            b"\r",
-            b"\n",
-        ):
-            stop -= 1
-        spans[captured.node.id] = (stop, content.count(b"\n", 0, stop) + 1, scope)
-    return spans
 
 
 def section_end(node: Node, sections: set[int], content: bytes) -> tuple[int, int]:
@@ -719,33 +703,32 @@ def scope_names(scopes: list[Node], named: Mapping[int, str]) -> list[str]:
 
 
 def fragments(
-    source: Source, extraction: QueryExtraction, captured: list[Capture], named: Mapping[int, str]
+    source: Source,
+    extraction: QueryExtraction,
+    spans: list[tuple[int, int]],
+    named: Mapping[int, str],
 ) -> list[Capture]:
-    """Fragment rows for the code *captured* leaves, so every line reaches a chunk.
+    """Fragment rows for the code the captured *spans* (first and last lines) leave, so every line reaches a chunk.
 
     A line is covered by a captured span, or by a node holding a block
     another language reads (`Source.holders`). The runs of uncovered
-    nodes (`runs`) are fragments, scoped like a capture at their start; a
-    run of anonymous syntax alone (a closing brace) makes none.
+    nodes (`runs`) are fragments, scoped like a capture at their start. A
+    run of anonymous syntax alone (`try:` around captured imports, the
+    `#endif` closing a guard) is a fragment too, with no node types.
     """
     if not extraction.fragments:
         return []
     covered = bytearray(source.content.count(b"\n") + 2)
-    lines = [(c["line_start"], c["line_end"]) for c in captured] + [
-        (holder.start_point[0] + 1, last_line(holder)) for holder in source.holders
-    ]
+    lines = [*spans, *((holder.start_point[0] + 1, last_line(holder)) for holder in source.holders)]
     for start, end in lines:
         covered[start : end + 1] = b"\x01" * (end - start + 1)
     rows: list[Capture] = []
     for run in runs(source.tree.root_node, covered, source.content):
         node_types = list(dict.fromkeys(node.type for node in run if node.is_named))
-        if node_types:
-            scope = scope_names(enclosing_scopes(run[0], extraction.scope_types), named)
-            rows.append(
-                capture(
-                    source, ChunkKind.FRAGMENT, run[0], run[-1], scope=scope, node_types=node_types
-                )
-            )
+        scope = scope_names(enclosing_scopes(run[0], extraction.scope_types), named)
+        rows.append(
+            capture(source, ChunkKind.FRAGMENT, run[0], run[-1], scope=scope, node_types=node_types)
+        )
     return rows
 
 
@@ -754,7 +737,7 @@ def runs(node: Node, covered: bytearray, content: bytes) -> Iterator[list[Node]]
 
     A child no covered line touches is left over; a child one touches only
     in part, or a left-over one longer than `config.chunk_lines`, is
-    looked into. Left-over siblings join one run until a blank line, a
+    looked into, and a leaf touched only in part is a run of its own. Left-over siblings join one run until a blank line, a
     covered node or `config.chunk_lines` lines separate them.
     """
     run: list[Node] = []
@@ -765,8 +748,13 @@ def runs(node: Node, covered: bytearray, content: bytes) -> Iterator[list[Node]]
             if run:
                 yield run
             run = []
-            if 0 in lines:
+            if 0 in lines and child.child_count:
                 yield from runs(child, covered, content)
+            elif 0 in lines:
+                # A leaf has nothing to look into: it is its own run, and its lines
+                # are covered from here on.
+                yield [child]
+                covered[child.start_point[0] + 1 : last_line(child) + 1] = b"\x01" * len(lines)
             continue
         if run and (
             not contiguous(content, run[-1].end_byte, child.start_byte)

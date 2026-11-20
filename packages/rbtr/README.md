@@ -713,23 +713,32 @@ dev = ["rbtr[test]"]   # the test harness (syrupy + pytest-cases)
 
 ### Capture conventions
 
-A capture's name decides the chunk kind. Eight produce chunks:
+A capture's name decides the chunk kind. Nine produce chunks:
 
-| Capture        | Name capture      | Produces                                                                             |
-| -------------- | ----------------- | ------------------------------------------------------------------------------------ |
-| `@function`    | `@_fn_name`       | a function                                                                           |
-| `@method`      | `@_method_name`   | a method (a `@function` whose nearest scope is class-like is promoted automatically) |
-| `@class`       | `@_cls_name`      | a class, struct, enum, trait, or other named collection of declarations              |
-| `@variable`    | `@_var_name`      | a module-level variable or constant                                                  |
-| `@import`      | `@_import_module` | an import, with metadata for the edge graph                                          |
-| `@doc_section` | `@_section_name`  | a prose section                                                                      |
-| `@config_key`  | `@_section_name`  | a config or data key — JSON object keys, TOML tables, YAML mappings, HCL blocks      |
-| `@comment`     | —                 | a comment; see below                                                                 |
+| Capture          | Name capture      | Produces                                                                             |
+| ---------------- | ----------------- | ------------------------------------------------------------------------------------ |
+| `@function`      | `@_fn_name`       | a function                                                                           |
+| `@method`        | `@_method_name`   | a method (a `@function` whose nearest scope is class-like is promoted automatically) |
+| `@class`         | `@_cls_name`      | a class, struct, enum, trait, or other named collection of declarations              |
+| `@variable`      | `@_var_name`      | a module-level variable or constant                                                  |
+| `@test_function` | `@_test_name`     | a test, named by its description (RSpec's `describe` and `it`); no call reaches it   |
+| `@import`        | `@_import_module` | an import, with metadata for the edge graph                                          |
+| `@doc_section`   | `@_section_name`  | a prose section                                                                      |
+| `@config_key`    | `@_section_name`  | a config or data key — JSON object keys, TOML tables, YAML mappings, HCL blocks      |
+| `@comment`       | —                 | a comment; see below                                                                 |
 
 Helper captures do not produce chunks of their own: `@_scope`
 contributes a scope segment that lexical nesting cannot reach (a Go
 method's receiver type), and `@_docstring` marks an interior docstring.
 Any capture starting with `_` is read but never becomes a chunk.
+
+**Headings a grammar leaves flat.** Where a grammar gives a heading no
+node holding its text, state the heading's level and the engine nests it:
+`(#set! level "2")` gives its level as a number (Markdown's `##`, or a
+`-` underline), and an `@_level` capture gives it as a style, ranked by
+the order in which each style is first used in the file (rST's
+adornments). The heading then holds its text up to the next one and is
+scoped under the nearest earlier one of a higher level.
 
 **Calls and bases.** Capture a call's callee as `@_call` and each of a
 class's bases as `@_base`; the engine records them on the innermost
@@ -1030,14 +1039,14 @@ def test_edges_match_snapshot(sample_edges, snapshot_json):
     assert sample_edges == snapshot_json
 
 
-def test_uncovered_lines_match_snapshot(sample_uncovered_lines, snapshot_json):
-    assert sample_uncovered_lines == snapshot_json
+def test_every_line_is_in_a_chunk(sample_uncovered_lines):
+    assert sample_uncovered_lines == []
 ```
 
 `sample_symbols` are the symbols `read-symbol` returns. `sample_edges`
 are the edges, as readable `file::name -> file::name [kind]` lines.
-`sample_uncovered_lines` lists each non-blank line no chunk spans, which
-should be syntax with nothing to search, such as a closing brace.
+`sample_uncovered_lines` lists each non-blank line no chunk spans, and
+must be empty: every line of code belongs to a chunk.
 `sample_parse_errors` names each file that does not parse in the
 language the build read it as.
 

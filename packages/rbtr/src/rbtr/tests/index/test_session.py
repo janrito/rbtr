@@ -406,6 +406,40 @@ def test_update_embeddings_round_trip(index: Index) -> None:
     assert by_id[chunk_b.id] is False
 
 
+def test_extracting_a_blob_again_keeps_the_embeddings_of_unchanged_chunks(index: Index) -> None:
+    """A chunk extracted again with its id and content keeps its embedding.
+
+    One with the same id and other content is embedded afresh, and one the
+    extraction no longer gives is deleted.
+    """
+    kept = make_chunk("kept", path="f.py", blob="blob")
+    changed = make_chunk("changed", path="f.py", blob="blob", content="return 1")
+    gone = make_chunk("gone", path="f.py", blob="blob")
+    rewritten = make_chunk("changed", path="f.py", blob="blob", content="return 2")
+    assert rewritten.id == changed.id
+    repo = index.register("/repo")
+    with index.session(repo) as ws:
+        ws.replace_chunks(staged_chunks(chunk_rows([kept, changed, gone]), {}))
+        ws.replace_snapshots([make_snap("c1", "f.py", "blob")], snapshot_sha="c1")
+    with index.session(repo) as ws:
+        ws.update_embeddings(
+            pl.DataFrame(
+                {
+                    "id": [kept.id, changed.id, gone.id],
+                    "embedding": [[0.1, 0.2]] * 3,
+                    "embedding_truncated": [True] * 3,
+                }
+            ).pipe(EmbeddingStagingRow.validate, cast=True)
+        )
+    with index.session(repo) as ws:
+        ws.replace_chunks(staged_chunks(chunk_rows([kept, rewritten]), {}))
+    chunks = index.chunks(at=repo.at("c1"))
+    assert sorted(chunks.select("name", pl.col("embedding_state").cast(pl.String)).rows()) == [
+        ("changed", EmbeddingState.NONE),
+        ("kept", EmbeddingState.TRUNCATED),
+    ]
+
+
 def test_a_chunks_calls_bases_and_bindings_are_read_as_written(index: Index) -> None:
     """What a class, a method and an import record of other code comes back from storage whole."""
     model = {"kind": "inherits", "lookup": "unqualified", "path": ["models", "Model"], "type": None}

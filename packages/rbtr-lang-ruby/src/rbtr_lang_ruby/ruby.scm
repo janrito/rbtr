@@ -51,17 +51,19 @@
 (assignment
   left: (left_assignment_list (rest_assignment (constant) @_var_name))) @variable
 
+; RSpec's groups and examples are tests, named by their description: a group
+; named after a class (`describe Greeter`) is no definition a call reaches.
 (call
   method: (identifier) @_call_name
-  arguments: (argument_list . (string (string_content) @_cls_name))
-  (#any-of? @_call_name "describe" "context" "feature" "shared_examples" "shared_context")) @class
+  arguments: (argument_list . (string (string_content) @_test_name))
+  (#any-of? @_call_name "describe" "context" "feature" "shared_examples" "shared_context")) @test_function
 
 (call
   method: (identifier) @_call_name
-  arguments: (argument_list . (constant) @_cls_name)
-  (#any-of? @_call_name "describe" "context" "feature")) @class
+  arguments: (argument_list . (constant) @_test_name)
+  (#any-of? @_call_name "describe" "context" "feature")) @test_function
 
 (call
   method: (identifier) @_call_name
-  arguments: (argument_list . (string (string_content) @_fn_name))
-  (#any-of? @_call_name "it" "specify" "example" "scenario")) @function
+  arguments: (argument_list . (string (string_content) @_test_name))
+  (#any-of? @_call_name "it" "specify" "example" "scenario")) @test_function

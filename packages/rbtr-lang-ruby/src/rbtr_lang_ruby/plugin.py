@@ -4,8 +4,8 @@ Provides symbol extraction (methods, classes, modules, constants,
 and the RSpec `describe`/`context`/`it` DSL) and structured import
 metadata from `require` / `require_relative`.  Constants scope to
 their enclosing class/module.  RSpec groups (`describe`/`context`/
-`feature`) are classes and examples (`it`/`specify`/`example`) are
-functions, named by their description string.  A class's bases are
+`feature`) and examples (`it`/`specify`/`example`) are tests, named by
+their description string, which no call reaches.  A class's bases are
 searched last written first (`MemberOrder.REVERSED`): a later `include`
 before an earlier one, and both before the superclass.
 
@@ -44,5 +44,5 @@ ruby = LanguageRegistration(
     source_roots=("", "lib"),
     members_in_scope=True,
     member_order=MemberOrder.REVERSED,
-    extraction_serial=9,
+    extraction_serial=13,
 )

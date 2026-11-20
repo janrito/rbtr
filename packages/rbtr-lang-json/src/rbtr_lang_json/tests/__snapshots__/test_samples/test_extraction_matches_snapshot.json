@@ -1,5 +1,15 @@
 [
   {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "json.json",
+    "scope": "",
+    "language": "json",
+    "content": "{",
+    "line_start": 1,
+    "line_end": 1
+  },
+  {
     "name": "name",
     "kind": "config_key",
     "file_path": "json.json",
@@ -60,6 +70,26 @@
     "line_end": 8
   },
   {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "json.json",
+    "scope": "",
+    "language": "json",
+    "content": "}",
+    "line_start": 9,
+    "line_end": 9
+  },
+  {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "schema/defs.json",
+    "scope": "",
+    "language": "json",
+    "content": "{",
+    "line_start": 1,
+    "line_end": 1
+  },
+  {
     "name": "$comment",
     "kind": "config_key",
     "file_path": "schema/defs.json",
@@ -98,6 +128,26 @@
     "content": "\"minLength\": 1",
     "line_start": 5,
     "line_end": 5
+  },
+  {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "schema/defs.json",
+    "scope": "",
+    "language": "json",
+    "content": "}",
+    "line_start": 7,
+    "line_end": 7
+  },
+  {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "schema/greeting.json",
+    "scope": "",
+    "language": "json",
+    "content": "{",
+    "line_start": 1,
+    "line_end": 1
   },
   {
     "name": "$comment",
@@ -164,5 +214,15 @@
       "language_hint": "",
       "bindings": []
     }
+  },
+  {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "schema/greeting.json",
+    "scope": "",
+    "language": "json",
+    "content": "}",
+    "line_start": 7,
+    "line_end": 7
   }
 ]

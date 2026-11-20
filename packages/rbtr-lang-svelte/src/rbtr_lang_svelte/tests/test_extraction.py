@@ -26,17 +26,17 @@ def test_svelte_template_extracted_as_host_chunk() -> None:
     assert "greeting" in host[0].content
 
 
-def test_svelte_without_template_still_emits_host_chunk() -> None:
-    """A script-only SFC still emits one (empty) host chunk.
+def test_svelte_without_template_still_emits_host_chunks() -> None:
+    """A script-only SFC still has chunks in its own language: its block's tags.
 
-    The host chunk records the host language/version for dedup, so a
-    svelte-plugin bump invalidates the file even with no template markup.
+    A chunk in the host language records the host language/version for
+    dedup, so a svelte-plugin bump invalidates the file even with no
+    template markup.
     """
     src = '<script lang="ts">\n  export const x = 1;\n</script>\n'
     chunks = extract_file(FileEntry("input", "sha1", src.encode()), "svelte")
-    host = [c for c in chunks if c.language == "svelte"]
-    assert len(host) == 1
-    assert host[0].content == ""
+    host = [c.content for c in chunks if c.language == "svelte"]
+    assert host == ['<script lang="ts">', "</script>"]
 
 
 def test_sfc_top_level_comment_is_its_own_chunk() -> None:

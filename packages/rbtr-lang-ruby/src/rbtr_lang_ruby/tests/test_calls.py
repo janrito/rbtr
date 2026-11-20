@@ -4,8 +4,8 @@
   name.
 - `no-parentheses`: a method called with no receiver, parentheses or
   arguments (`check`) is a call, being no local.
-- `describe-block`: an RSpec `describe Greeter` block is a class chunk named
-  `Greeter`, so a call to `Greeter` reaches it as well as the class.
+- `describe-block`: an RSpec `describe Greeter` block is a test, which a
+  call to `Greeter` does not reach.
 - `member-order`: which inherited method a call reaches, by Ruby's
   ancestors: the class, then its modules from the last included, then its
   superclass; a module already among them is not added again.
@@ -36,11 +36,6 @@ def test_a_call_with_no_parentheses_reaches_the_method(sample_edges: list[str]) 
 
 
 @pytest.mark.parametrize("sample_dir", ["describe-block"], indirect=True)
-@pytest.mark.xfail(
-    strict=True,
-    reason="names only: a spec block named after a class is a class chunk of that "
-    "name, and a call reaches every definition of its name",
-)
 def test_a_constructor_call_reaches_the_class_not_its_spec(sample_edges: list[str]) -> None:
     """`Greeter.new` reaches `class Greeter` alone, not `RSpec.describe Greeter`."""
     calls = [edge for edge in sample_edges if edge.startswith("greeter.rb::build ->")]

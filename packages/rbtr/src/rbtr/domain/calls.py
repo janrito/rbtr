@@ -41,8 +41,8 @@ from rbtr.domain.resolution import (
 )
 from rbtr.domain.rules import DEFINITION_KINDS
 
-TARGET_KINDS = [ChunkKind.FUNCTION, ChunkKind.METHOD, ChunkKind.CLASS, ChunkKind.TEST_FUNCTION]
-"""What a call or base can reach."""
+TARGET_KINDS = [ChunkKind.FUNCTION, ChunkKind.METHOD, ChunkKind.CLASS]
+"""What a call or base can reach; a test, called by its runner and named by its description, is none."""
 
 
 def chain(scope: pl.Expr, name: pl.Expr) -> pl.Expr:

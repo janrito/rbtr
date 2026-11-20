@@ -40,4 +40,4 @@ def chunk_id(
     starting line while spanning different lines.
     """
     raw = f"{blob_sha}:{file_language}:{kind}:{name}:{line_start}:{line_end}"
-    return hashlib.blake2b(raw.encode(), digest_size=8).hexdigest()
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]

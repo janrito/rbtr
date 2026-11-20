@@ -264,3 +264,131 @@ void Order::save() {
             ),
         ],
     )
+
+
+@case(tags=["symbol"])
+def case_cpp_functions_returning_pointers_and_references() -> SymbolCase:
+    """A return type's `*`, `**`, `&` or `&&` wraps the declarator; each function is still extracted."""
+    src = """\
+int* top() { return 0; }
+char** names() { return 0; }
+int& ref() { static int x; return x; }
+int&& moved();
+char* prototype();
+namespace shop {
+int* find();
+}
+class K {
+ public:
+  char* m() { return 0; }
+  int& n();
+  char* declared();
+  K& operator=(const K&) { return *this; }
+};
+char* K::declared() { return 0; }
+int& K::n() { static int x; return x; }
+"""
+    return (
+        "cpp",
+        src,
+        [
+            ("function", "top", ""),
+            ("function", "names", ""),
+            ("function", "ref", ""),
+            ("function", "moved", ""),
+            ("function", "prototype", ""),
+            ("function", "find", "shop"),
+            ("method", "m", "K"),
+            ("method", "n", "K"),
+            ("method", "declared", "K"),
+            ("method", "operator=", "K"),
+        ],
+    )
+
+
+@case(tags=["symbol"])
+def case_cpp_definitions_named_other_than_by_an_identifier() -> SymbolCase:
+    """Destructors, operators, template specialisations and functions returning function pointers."""
+    src = """\
+class Order {
+ public:
+  Order();
+  ~Order();
+  bool operator==(const Order& o) const;
+};
+Order::~Order() { close(); }
+Order& Order::operator<<(int x) { return *this; }
+bool Order::operator==(const Order& o) const { return true; }
+template <> void encode<int>(int x) { write(x); }
+void (*handler(int sig))(int) { return reset; }
+class Box {
+ public:
+  ~Box() { drop(); }
+};
+namespace shop {
+class Cart {
+  ~Cart();
+};
+}
+shop::Cart::~Cart() {}
+"""
+    return (
+        "cpp",
+        src,
+        [
+            ("method", "Order", "Order"),
+            ("method", "~Order", "Order"),
+            ("method", "operator==", "Order"),
+            ("function", "~Order", "Order"),
+            ("function", "operator<<", "Order"),
+            ("function", "operator==", "Order"),
+            ("function", "encode", ""),
+            ("function", "handler", ""),
+            ("method", "~Box", "Box"),
+            ("function", "~Cart", "shop::Cart"),
+        ],
+    )
+
+
+@case(tags=["symbol"])
+def case_cpp_a_function_named_by_a_macro() -> SymbolCase:
+    """`double PREFIX(predict)(…)`: the preprocessor builds the name, so it is named as written."""
+    src = """\
+double PREFIX(predict)(const model* m) { return 0; }
+const char *PREFIX(check)(int x) { return 0; }
+"""
+    return (
+        "cpp",
+        src,
+        [("function", "PREFIX(predict)", ""), ("function", "PREFIX(check)", "")],
+    )
+
+
+@case(tags=["symbol"])
+def case_cpp_declarations_inside_guards_and_extern_c() -> SymbolCase:
+    """Prototypes and variables inside `#ifdef` and `extern "C"` are the header's own."""
+    src = """\
+#ifndef API_H
+#define API_H
+#ifdef __cplusplus
+extern "C" {
+#endif
+int api_open(const char *path);
+extern int api_errno;
+#ifdef __cplusplus
+}
+#endif
+namespace shop {
+int count;
+}
+#endif
+"""
+    return (
+        "cpp",
+        src,
+        [
+            ("function", "api_open", ""),
+            ("variable", "api_errno", ""),
+            ("variable", "count", "shop"),
+        ],
+    )

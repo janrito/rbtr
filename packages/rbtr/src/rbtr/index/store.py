@@ -308,6 +308,10 @@ class Store:
             }
             self._registry().execute(_SET_PROJECT_FILE_SQL, params)
             self._sync()
+            # No read uses a waiting file (`_alias_of`), so the one replaced is
+            # deleted now rather than after `retire_delay_s`.
+            self._retired = [(f, at) for f, at in self._retired if f != file]
+            self._detach(file)
             self._waiting = {f: s for f, s in self._waiting.items() if f != file}
             log.info(
                 "index_file_migrated",

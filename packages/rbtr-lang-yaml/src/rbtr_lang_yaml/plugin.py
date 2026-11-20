@@ -28,5 +28,5 @@ yaml = LanguageRegistration(
     extraction=QueryExtraction(
         query=load_query(__package__, "yaml"),
     ),
-    extraction_serial=6,
+    extraction_serial=7,
 )

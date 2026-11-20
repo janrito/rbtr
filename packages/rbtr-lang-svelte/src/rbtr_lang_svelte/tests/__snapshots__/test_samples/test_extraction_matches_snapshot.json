@@ -10,6 +10,16 @@
     "line_end": 8
   },
   {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "Greeting.svelte",
+    "scope": "",
+    "language": "svelte",
+    "content": "<script lang=\"ts\">",
+    "line_start": 9,
+    "line_end": 9
+  },
+  {
     "name": "import { greet } from \"./greeter\";",
     "kind": "import",
     "file_path": "Greeting.svelte",
@@ -51,6 +61,26 @@
     "line_end": 16
   },
   {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "Greeting.svelte",
+    "scope": "",
+    "language": "svelte",
+    "content": "</script>",
+    "line_start": 17,
+    "line_end": 17
+  },
+  {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "Greeting.svelte",
+    "scope": "",
+    "language": "svelte",
+    "content": "<style lang=\"scss\">",
+    "line_start": 19,
+    "line_end": 19
+  },
+  {
     "name": "$accent",
     "kind": "variable",
     "file_path": "Greeting.svelte",
@@ -69,6 +99,16 @@
     "content": ".greeting {\n    color: $accent;\n    font-weight: bold;\n  }",
     "line_start": 22,
     "line_end": 25
+  },
+  {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "Greeting.svelte",
+    "scope": "",
+    "language": "svelte",
+    "content": "</style>",
+    "line_start": 26,
+    "line_end": 26
   },
   {
     "name": "Greeting",
@@ -102,11 +142,11 @@
   },
   {
     "name": "",
-    "kind": "raw_chunk",
+    "kind": "fragment",
     "file_path": "src/A.svelte",
     "scope": "",
     "language": "svelte",
-    "content": "",
+    "content": "<script>",
     "line_start": 1,
     "line_end": 1
   },
@@ -130,6 +170,16 @@
         }
       ]
     }
+  },
+  {
+    "name": "",
+    "kind": "fragment",
+    "file_path": "src/A.svelte",
+    "scope": "",
+    "language": "svelte",
+    "content": "</script>",
+    "line_start": 3,
+    "line_end": 3
   },
   {
     "name": "helper",
