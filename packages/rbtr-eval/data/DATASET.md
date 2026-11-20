@@ -1,7 +1,7 @@
 # rbtr search-quality dataset
 
 Characterisation of the query set **before** measurement — the input
-to the benchmark, not its results. 3641 queries across
+to the benchmark, not its results. 3629 queries across
 5 repos and 14 languages.
 
 The three axes are independent: `symbol_kind` is the target chunk,
@@ -24,20 +24,20 @@ The indexed commit and sampled sizes per repo.
 
 | language   | n   |
 | ---------- | --- |
-| python     | 890 |
+| python     | 887 |
 | typescript | 517 |
-| javascript | 430 |
-| bash       | 392 |
+| javascript | 427 |
+| bash       | 391 |
 | css        | 349 |
-| rust       | 252 |
-| markdown   | 199 |
-| json       | 199 |
+| rust       | 251 |
+| markdown   | 198 |
+| json       | 197 |
 | yaml       | 93  |
 | sql        | 80  |
-| toml       | 72  |
 | rst        | 70  |
+| toml       | 70  |
 | plaintext  | 60  |
-| html       | 38  |
+| html       | 39  |
 
 ## Target coverage — `symbol_kind` × `provenance`
 
@@ -46,13 +46,13 @@ generation strategies. A kind absent here is not measured.
 
 | symbol_kind | body | concept | docstring | name | total |
 | ----------- | ---- | ------- | --------- | ---- | ----- |
-| variable    | 182  | 315     | 76        | 186  | 759   |
-| class       | 136  | 260     | 110       | 137  | 643   |
-| function    | 131  | 259     | 122       | 131  | 643   |
-| method      | 100  | 173     | 60        | 100  | 433   |
+| variable    | 182  | 311     | 76        | 186  | 755   |
+| class       | 136  | 258     | 110       | 137  | 641   |
+| function    | 131  | 255     | 122       | 131  | 639   |
+| method      | 100  | 175     | 60        | 100  | 435   |
 | doc_section | 130  | 198     | 0         | 75   | 403   |
 | comment     | 178  | 178     | 0         | 0    | 356   |
-| config_key  | 80   | 163     | 21        | 80   | 344   |
+| config_key  | 80   | 159     | 21        | 80   | 340   |
 | raw_chunk   | 30   | 30      | 0         | 0    | 60    |
 
 ## Target × request shape — `symbol_kind` × `query_kind`
@@ -62,13 +62,13 @@ axes are independent of provenance.
 
 | symbol_kind | concept | identifier | code | total |
 | ----------- | ------- | ---------- | ---- | ----- |
-| variable    | 333     | 312        | 114  | 759   |
-| class       | 261     | 246        | 136  | 643   |
-| function    | 261     | 250        | 132  | 643   |
-| method      | 174     | 170        | 89   | 433   |
-| doc_section | 208     | 143        | 52   | 403   |
+| variable    | 329     | 312        | 114  | 755   |
+| class       | 258     | 247        | 136  | 641   |
+| function    | 257     | 250        | 132  | 639   |
+| method      | 176     | 170        | 89   | 435   |
+| doc_section | 212     | 139        | 52   | 403   |
 | comment     | 191     | 153        | 12   | 356   |
-| config_key  | 164     | 152        | 28   | 344   |
+| config_key  | 160     | 152        | 28   | 340   |
 | raw_chunk   | 31      | 12         | 17   | 60    |
 
 ## Not measured
@@ -109,7 +109,7 @@ scatter here is that difference made visible.
 | provenance  | concept | identifier | code  | n    |
 | ----------- | ------- | ---------- | ----- | ---- |
 | `body`      | 2.9%    | 40.1%      | 57.0% | 967  |
-| `concept`   | 99.2%   | 0.8%       | 0.0%  | 1576 |
+| `concept`   | 99.4%   | 0.6%       | 0.0%  | 1564 |
 | `docstring` | 5.9%    | 88.7%      | 5.4%  | 389  |
 | `name`      | 1.1%    | 97.7%      | 1.1%  | 709  |
 
@@ -117,6 +117,16 @@ scatter here is that difference made visible.
 
 Sampled queries per provenance — the actual text fed to search,
 verbatim.
+
+**`body` → code** · rust · `class` · MarkerOperator
+
+````text
+impl Display for MarkerOperator {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Equal => "==",
+            Self::NotEqual => "!=",
+````
 
 **`body` → code** · python · `method` · __str__
 
@@ -134,32 +144,22 @@ grpc = [
 ]
 ````
 
-**`body` → code** · rust · `class` · MarkerOperator
+**`concept` → concept** · rust · `method` · with_cache_on_nocow_fs
 
 ````text
-impl Display for MarkerOperator {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Equal => "==",
-            Self::NotEqual => "!=",
+configure the cache to use a copy-on-write filesystem for testing
 ````
 
-**`concept` → concept** · rust · `class` · ExtraBuildDependencies
+**`concept` → concept** · python · `comment` ·
 
 ````text
-provide mutable access to the underlying dependency collection
+how are packages installed through a requirements file or the anyio dependency
 ````
 
-**`concept` → concept** · css · `class` · [data-md-color-scheme="astral-dark"]
+**`concept` → concept** · css · `class` · .toclink:hover
 
 ````text
-apply a dark mode color scheme to a documentation site
-````
-
-**`concept` → concept** · css · `class` · .md-nav--primary .md-nav__title
-
-````text
-disable the shadow on the primary navigation title
+change table of contents link color on hover
 ````
 
 **`docstring` → code** · rust · `class` · InstalledVersion
@@ -180,6 +180,12 @@ disable the shadow on the primary navigation title
 /// Collect hints from a build [`Error`] by inspecting its inner types.
 ````
 
+**`name` → identifier** · rust · `method` · get
+
+````text
+TextStoreMode::get
+````
+
 **`name` → identifier** · python · `method` · interpreter
 
 ````text
@@ -190,10 +196,4 @@ ELFFile::interpreter
 
 ````text
 tests::find_python_from_active_python
-````
-
-**`name` → identifier** · rust · `method` · get
-
-````text
-TextStoreMode::get
 ````
