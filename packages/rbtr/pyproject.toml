@@ -111,10 +111,10 @@ yaml = ["rbtr-lang-yaml"]
 cpu = ["llama-cpp-python>=0.3.36"]
 vulkan = ["llama-cpp-python>=0.3.36"]
 cuda = ["llama-cpp-python>=0.3.36"]
-# Convenience aggregate: `all` pulls every optional plugin (the defaults are
-# already required deps, so `rbtr[all]` installs every language). No `web`
-# grouping — html and javascript are defaults, so it would only add css.
-all = [
+# Convenience aggregate: `languages` pulls every optional plugin (the defaults
+# are already required deps, so `rbtr[languages]` installs every language). No
+# `web` grouping — html and javascript are defaults, so it would only add css.
+languages = [
   "rbtr-lang-css",
   "rbtr-lang-scss",
   "rbtr-lang-less",

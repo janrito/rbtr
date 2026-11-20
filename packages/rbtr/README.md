@@ -28,7 +28,7 @@ For example, install the CUDA 12.4 wheel:
 ```bash
 uv tool install \
   --index https://abetlen.github.io/llama-cpp-python/whl/cu124 \
-  "rbtr[all]"
+  "rbtr[languages]"
 ```
 
 Or install the Vulkan wheel:
@@ -36,7 +36,7 @@ Or install the Vulkan wheel:
 ```bash
 uv tool install \
   --index https://abetlen.github.io/llama-cpp-python/whl/vulkan \
-  "rbtr[all]"
+  "rbtr[languages]"
 ```
 
 Choose a backend compatible with the machine's drivers and platform. See the
