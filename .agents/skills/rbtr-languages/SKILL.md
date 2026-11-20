@@ -322,6 +322,14 @@ Set on the language's `QueryExtraction` (the `extraction` field);
   serves all `.sql`. Tree-sitter error recovery is *local* — a dialect
   construct it can't parse breaks only its own subtree; surrounding
   statements still extract. Treat `has_error` as informational, not a gate.
+- **Put `#set!` before a pattern's predicates.** py-tree-sitter 0.26.1
+  stores the predicate before a `#set!` a second time without a reference
+  of its own (`query_new` in `tree_sitter/binding/query.c` never resets
+  `predicate_obj`), so freeing the query frees it twice and a later query
+  crashes the process at random. Write `(#set! …)` first, then `#eq?`,
+  `#match?`, `#any-of?` or `#strip!`. TODO: drop this rule once
+  py-tree-sitter resets `predicate_obj` for each predicate; the bug is in
+  0.26.1 and on its master branch, and is not reported upstream.
 - **Known-unsupported constructs → strict xfail.** Record a construct that
   *should* extract but can't (grammar/plugin limit) as an `xfail(strict=True)`
   case, so closing the gap flips the test and prompts an update. Reserve for
