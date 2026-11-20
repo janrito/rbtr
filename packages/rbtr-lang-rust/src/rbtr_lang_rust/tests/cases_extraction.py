@@ -380,3 +380,45 @@ def case_rust_import_aliased_in_list() -> ImportCase:
 def case_rust_import_glob() -> ImportCase:
     """use crate::models::*; — every public name, written `*`."""
     return "rust", "use crate::models::*;\n", {"module": "crate::models", "names": "*"}
+
+
+type ReferencesCase = tuple[str, str, list[tuple[str, str, list[str], list[str]]]]
+
+
+@case(tags=["references"])
+def case_rust_calls() -> ReferencesCase:
+    """Each call shape; `self` and `Self` reach the impl's type, a macro is no call."""
+    src = """\
+impl Order {
+    fn save(&self) {
+        self.check();
+        helper();
+        Self::new();
+        Order::new();
+        models::make();
+        foo::<u8>();
+        x.y().z();
+        println!("x");
+    }
+}
+"""
+    return (
+        "rust",
+        src,
+        [
+            (
+                "method",
+                "save",
+                [
+                    "member:check",
+                    "unqualified:helper",
+                    "member:new",
+                    "unqualified:Order.new",
+                    "unqualified:models.make",
+                    "unqualified:foo",
+                    "unqualified:x.y",
+                ],
+                [],
+            ),
+        ],
+    )

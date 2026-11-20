@@ -32,7 +32,7 @@ rust = LanguageRegistration(
     extensions=frozenset({".rs"}),
     grammar_module="tree_sitter_rust",
     extraction=QueryExtraction(
-        query=load_query(__package__, "rust"),
+        query=load_query(__package__, "rust") + load_query(__package__, "references"),
         scope_types=frozenset({"impl_item", "struct_item", "trait_item", "mod_item", "enum_item"}),
         class_scope_types=frozenset({"impl_item", "struct_item", "trait_item"}),
     ),
@@ -42,5 +42,5 @@ rust = LanguageRegistration(
     parent_module="super",
     current_module="self",
     directory_module_files=frozenset({"mod.rs", "lib.rs", "main.rs"}),
-    extraction_serial=11,
+    extraction_serial=12,
 )

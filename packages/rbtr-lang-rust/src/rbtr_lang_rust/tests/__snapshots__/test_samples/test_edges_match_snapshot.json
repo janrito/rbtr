@@ -1,3 +1,7 @@
 [
-  "rust.rs::use crate::config::LOCALE; -> src/config.rs::LOCALE [imports]"
+  "rust.rs::greet_world -> rust.rs::greet [calls]",
+  "rust.rs::use crate::config::LOCALE; -> src/config.rs::LOCALE [imports]",
+  "src/orders.rs::build -> src/orders.rs::new [calls]",
+  "src/orders.rs::check -> src/orders.rs::valid [calls]",
+  "src/orders.rs::use crate::config::LOCALE as locale; -> src/config.rs::LOCALE [imports]"
 ]
