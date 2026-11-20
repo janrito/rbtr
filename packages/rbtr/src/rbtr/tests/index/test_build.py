@@ -713,8 +713,11 @@ def test_build_index_serial_gated_reextraction(
     orig_reg = mgr.get_registration("markdown")
     assert orig_reg is not None
     bumped = replace(orig_reg, extraction_serial=99)
+    registration = mgr.get_registration
     mocker.patch.object(
-        mgr, "get_registration", side_effect=lambda lid: bumped if lid == "markdown" else orig_reg
+        mgr,
+        "get_registration",
+        side_effect=lambda lid: bumped if lid == "markdown" else registration(lid),
     )
 
     r2 = build_index(repo.workdir, sha, index)

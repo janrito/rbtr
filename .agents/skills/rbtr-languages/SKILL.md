@@ -88,14 +88,13 @@ single-dispatch by id). Core's bundled languages register the same way,
 from core's own `pyproject`. `build_index` routes extraction down one of
 three paths:
 
-1. **Chunker** — a chunker attached via `@reg.chunker`: prose (markdown,
-   rst) and SFCs' markup
-   (svelte, vue). The chunker owns extraction. It takes an optional `ranges`
-   and must set `parser.included_ranges` when given it, so it can also serve
-   as an injection target for an embedded block (see below).
+1. **Chunker** — a chunker attached via `@reg.chunker`, for what a query cannot express:
+   rST's sections and SFCs' markup (svelte, vue). The chunker owns extraction. It takes
+   an optional `ranges` and must set `parser.included_ranges` when given it, so it can
+   also serve as an injection target for an embedded block (see below).
 2. **Query** — `reg.grammar_module` + a `QueryExtraction`: code, plus config/data
-   whose scope a query can express (python, rust, …, json, css, html, toml,
-   yaml, hcl, tree_sitter_query). Goes through `extract_symbols`.
+   whose scope a query can express (python, rust, …, markdown, json, css,
+   html, toml, yaml, hcl, tree_sitter_query). Goes through `extract_symbols`.
    HTML captures its semantic elements (`head`, `body`, sectioning content,
    landmarks) as doc sections, named by `id` else tag via a `name_extractor`.
    The `tree_sitter_query` plugin indexes `.scm` files themselves: each

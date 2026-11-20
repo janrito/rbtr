@@ -53,6 +53,7 @@ Changelog = "https://github.com/janrito/rbtr/releases"
 # The value resolves to the language's `LanguageRegistration` (named by its
 # id) — see the rbtr ARCHITECTURE "External plugins" note.
 markdown = "rbtr_lang_markdown.plugin:markdown"
+markdown_inline = "rbtr_lang_markdown.plugin:markdown_inline"
 
 [tool.uv.sources]
 rbtr = { workspace = true }

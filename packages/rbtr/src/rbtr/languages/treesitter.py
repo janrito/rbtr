@@ -10,8 +10,9 @@ resolution back to it.
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from functools import lru_cache
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
 from tree_sitter import Language, Parser, Query, QueryCursor, Range
@@ -26,6 +27,7 @@ from rbtr.domain.models import (
     Fragment,
     FragmentMeta,
     Import,
+    ImportMeta,
     RawSlice,
     Role,
     Section,
@@ -33,6 +35,7 @@ from rbtr.domain.models import (
 )
 from rbtr.languages._resolvers import NAME_CAPTURE_KEY
 from rbtr.languages.chunks import last_line
+from rbtr.languages.manager import get_manager
 from rbtr.languages.registration import QueryExtraction
 
 if TYPE_CHECKING:
@@ -141,14 +144,17 @@ def _enclosing_scopes(node: Node, scope_types: frozenset[str]) -> list[Node]:
     return scopes
 
 
-def _scope_names(scopes: list[Node]) -> list[str]:
+def _scope_names(scopes: list[Node], named: Mapping[int, str]) -> list[str]:
     """Names of enclosing scopes, outermost-first, for the `::` address.
 
-    E.g. `["Outer", "Inner"]`, `["Svc", "start"]` — discovery only, not
+    A scope the query captured is named as its capture names it (a
+    Markdown `section` by its heading); any other by its `name` field. E.g.
+    `["Outer", "Inner"]`, `["Svc", "start"]` — discovery only, not
     composed; the `Chunk.scope` validator forms the `::` address (via
-    `compose_scope`) and drops empty/anonymous segments.
+    `compose_scope`) and drops empty/anonymous segments. *named* maps a
+    captured node's id to its name.
     """
-    return [_scope_name(s) for s in reversed(scopes)]
+    return [named.get(s.id) or _scope_name(s) for s in reversed(scopes)]
 
 
 def _nearest_scope_is_class(scopes: list[Node], class_scope_types: frozenset[str]) -> bool:
@@ -264,25 +270,67 @@ def extract_symbols(
     if included_ranges is not None:
         parser.included_ranges = included_ranges
     tree = parser.parse(content)
-    captured = list(_captured(registered_language, file_path, blob_sha, content, tree, extraction))
+    items = _capture_items(tree, extraction)
+    # A node captured more than once (`a, b = …`) names a scope by its first capture.
+    named: dict[int, str] = {}
+    for node, capture_name, capture_dict in items:
+        if capture_name != "comment":
+            named.setdefault(
+                node.id, registered_language.resolve_name(capture_name, node, capture_dict)
+            )
+    sections = {node.id for node, capture_name, _ in items if capture_name == "doc_section"}
+    captured = list(
+        _captured(
+            registered_language, file_path, blob_sha, content, items, named, sections, extraction
+        )
+    )
     yield from captured
     yield from _fragments(
-        registered_language, file_path, blob_sha, content, tree, extraction, captured
+        registered_language, file_path, blob_sha, content, tree, extraction, captured, named
     )
 
 
-def _captured(
-    registered_language: LanguageRegistration,
-    file_path: str,
-    blob_sha: str,
-    content: bytes,
-    tree: Tree,
-    extraction: QueryExtraction,
-) -> Iterator[Chunk]:
-    """The chunks the query's captures make, in source order."""
-    query = _get_query(tree.language, extraction.query)
+def _section_end(node: Node, sections: set[int], content: bytes) -> tuple[int, int]:
+    """The end byte and 1-based last line of section *node*'s own text.
 
-    # Flatten chunk-producing captures into one source-ordered stream.
+    When the section ends in captured sections (one of *sections*), nothing
+    else after the first of them, its text is what comes before that one: a
+    Markdown `# Title`'s chunk holds its text up to `## Install`, which has
+    a chunk of its own. Any other section keeps its node's span: an HTML
+    element's own content continues past a nested one, to its end tag
+    at least. Trailing whitespace is not the section's.
+    """
+    first = next((i for i, c in enumerate(node.children) if c.id in sections), None)
+    end = node.end_byte
+    if first is not None and all(c.id in sections for c in node.children[first:]):
+        end = node.children[first].start_byte
+    while end > node.start_byte and content[end - 1 : end] in (b" ", b"\t", b"\r", b"\n"):
+        end -= 1
+    return end, content.count(b"\n", 0, end) + 1
+
+
+def _fragment_named(meta: ImportMeta, file_path: str) -> ImportMeta:
+    """*meta* with a URL fragment in its module read as the name it names.
+
+    `page.html#intro` names `intro` in `page.html`; a fragment alone,
+    `#intro`, names it in *file_path* itself.
+    """
+    if "#" not in meta.module:
+        return meta
+    module, _, fragment = meta.module.partition("#")
+    return meta.model_copy(
+        update={
+            "module": module or PurePosixPath(file_path).name,
+            "names": meta.names or fragment,
+        }
+    )
+
+
+def _capture_items(
+    tree: Tree, extraction: QueryExtraction
+) -> list[tuple[Node, str, dict[str, list[Node]]]]:
+    """Each chunk-producing capture of the query, with its match, in source order."""
+    query = _get_query(tree.language, extraction.query)
     items: list[tuple[Node, str, dict[str, list[Node]]]] = []
     for _pattern_idx, capture_dict in QueryCursor(query).matches(tree.root_node):
         for capture_name, nodes in capture_dict.items():
@@ -296,6 +344,25 @@ def _captured(
             for node in nodes:
                 items.append((node, capture_name, capture_dict))
     items.sort(key=lambda it: it[0].start_byte)
+    return items
+
+
+def _captured(
+    registered_language: LanguageRegistration,
+    file_path: str,
+    blob_sha: str,
+    content: bytes,
+    items: list[tuple[Node, str, dict[str, list[Node]]]],
+    named: Mapping[int, str],
+    sections: set[int],
+    extraction: QueryExtraction,
+) -> Iterator[Chunk]:
+    """The chunks *items*, the query's captures in source order, make.
+
+    *named* maps each captured node's id to a name, for the scopes it opens.
+    A captured section, one of *sections*, that ends in captured sections
+    holds only the text before them (`_section_end`).
+    """
 
     seen: list[tuple[int, int]] = []  # emitted symbol node spans (for interior comments)
     pending: list[Node] = []  # the comment block being accumulated
@@ -355,7 +422,7 @@ def _captured(
         # The scope override's segments extend the tree-ancestry scope; the
         # default contributes the `@_scope` capture.
         scope_names = [
-            *_scope_names(scopes),
+            *_scope_names(scopes, named),
             *registered_language.resolve_scope(capture_name, node, capture_dict),
         ]
         name = registered_language.resolve_name(capture_name, node, capture_dict)
@@ -366,7 +433,10 @@ def _captured(
         ):
             case ChunkKind.IMPORT:
                 role = Import(
-                    name=name, meta=registered_language.resolve_import(node, capture_dict)
+                    name=name,
+                    meta=_fragment_named(
+                        registered_language.resolve_import(node, capture_dict), file_path
+                    ),
                 )
             case ChunkKind.DOC_SECTION | ChunkKind.CONFIG_KEY as kind:
                 role = Section(kind=kind, name=name)
@@ -378,7 +448,10 @@ def _captured(
                 role = Fragment(meta=FragmentMeta(node_types=(node.type,)))
             case kind:
                 role = Definition(kind=kind, name=name)
-        seen.append((node.start_byte, node.end_byte))
+        end_byte, line_end = node.end_byte, last_line(node)
+        if capture_name == "doc_section":
+            end_byte, line_end = _section_end(node, sections, content)
+        seen.append((node.start_byte, end_byte))
         yield Chunk.model_validate(
             {
                 "blob_sha": blob_sha,
@@ -386,8 +459,8 @@ def _captured(
                 "role": role,
                 "scope": scope_names,
                 "language": registered_language.id,
-                "content": content[start_byte : node.end_byte].decode("utf-8", errors="replace"),
-                "span": Span(start=line_start, end=last_line(node)),
+                "content": content[start_byte:end_byte].decode("utf-8", errors="replace"),
+                "span": Span(start=line_start, end=line_end),
             }
         )
 
@@ -399,16 +472,24 @@ def injection_holders(registered_language: LanguageRegistration, tree: Tree) -> 
     """The nodes holding a block *registered_language* delegates to another language.
 
     An HTML `<script>` element holds the javascript its injection query
-    hands on: the element's tags belong to that block, not to the host.
+    hands on: the element's tags belong to that block, not to the host. A
+    block handed to a language that makes no fragments is not held: that
+    language does not reach its every line (Markdown's text, handed to its
+    inline half for links).
     """
     if registered_language.injection_query is None:
         return []
     query = _get_query(tree.language, registered_language.injection_query)
-    return [
-        block.parent or block
-        for _pattern, captures in QueryCursor(query).matches(tree.root_node)
-        for block in captures.get("injection.content", [])
-    ]
+    holders: list[Node] = []
+    for pattern, captures in QueryCursor(query).matches(tree.root_node):
+        target = get_manager().get_registration(
+            query.pattern_settings(pattern).get("injection.language") or ""
+        )
+        extraction = target.extraction if target is not None else None
+        if isinstance(extraction, QueryExtraction) and not extraction.fragments:
+            continue
+        holders.extend(block.parent or block for block in captures.get("injection.content", []))
+    return holders
 
 
 def _fragments(
@@ -419,17 +500,20 @@ def _fragments(
     tree: Tree,
     extraction: QueryExtraction,
     captured: list[Chunk],
+    named: Mapping[int, str],
 ) -> Iterator[Chunk]:
     """Fragment chunks for the code *captured* leaves, so every line reaches a chunk.
 
     Walks the tree from the root by lines. A node no captured chunk
-    touches is left over; a node one touches only in part is looked
-    into. Left-over siblings join one fragment until a blank line, a
+    touches is left over; a node one touches only in part, or a left-over
+    one longer than `config.chunk_lines`, is looked into. Left-over siblings join one fragment until a blank line, a
     covered node or `config.chunk_lines` lines separate them, and a run
     of anonymous syntax alone (a closing brace) makes none. A node
     holding an injected block counts as covered: its language's
     extraction reaches it.
     """
+    if not extraction.fragments:
+        return
     covered = bytearray(content.count(b"\n") + 2)
     spans = [(c.line_start, c.line_end) for c in captured] + [
         (holder.start_point[0] + 1, last_line(holder))
@@ -442,7 +526,8 @@ def _fragments(
         run: list[Node] = []
         for child in node.children:
             lines = covered[child.start_point[0] + 1 : last_line(child) + 1]
-            if 1 in lines:
+            too_long = last_line(child) - child.start_point[0] > config.chunk_lines
+            if 1 in lines or (too_long and child.named_child_count):
                 if run:
                     yield run
                 run = []
@@ -469,7 +554,7 @@ def _fragments(
                 "blob_sha": blob_sha,
                 "file_path": file_path,
                 "role": Fragment(meta=FragmentMeta(node_types=node_types)),
-                "scope": _scope_names(_enclosing_scopes(run[0], extraction.scope_types)),
+                "scope": _scope_names(_enclosing_scopes(run[0], extraction.scope_types), named),
                 "language": registered_language.id,
                 "content": text.rstrip("\n"),
                 "span": Span(start=run[0].start_point[0] + 1, end=last_line(run[-1])),
@@ -557,7 +642,7 @@ def extract_doc_spans(
 
                 name = name_nodes[0].text.decode()
                 scopes = _enclosing_scopes(node, scope_types)
-                scope_names = _scope_names(scopes)
+                scope_names = _scope_names(scopes, {})
                 nearest_is_class = _nearest_scope_is_class(scopes, class_scope_types)
                 scope = compose_scope(scope_names)
                 kind = _resolve_kind(

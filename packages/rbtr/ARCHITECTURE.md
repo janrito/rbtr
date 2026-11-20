@@ -265,8 +265,9 @@ by the language plugin:
 
 - **Tree-sitter** - grammar + query → functions, classes,
   methods, variables, imports as structured `Chunk` objects.
-- **Custom chunker** - plugin-provided (e.g. markdown
-  heading-hierarchy splitting).
+- **Custom chunker** - plugin-provided, for what a query cannot
+  express (rST's sections, whose level is the order adornments
+  first appear in a document).
 - **Plaintext fallback** - fixed-size overlapping line
   chunks.
 
@@ -280,8 +281,10 @@ Scope addressing: each chunk's `scope` is the full path of its
 enclosing named scopes, outermost-first, joined by `::` (e.g.
 `Outer::Inner`, `make_adder::handler`), composed by walking the
 parse tree's scope-bearing nodes (per the plugin's
-`QueryExtraction.scope_types`); Markdown/RST compose their heading
-hierarchy the same way. A function becomes a `METHOD` only when its
+`QueryExtraction.scope_types`). A scope node is named by its `name`
+field, or, when the query captures it, as its capture names it: a
+Markdown `section` by its heading. RST composes its heading hierarchy
+the same way in its chunker. A function becomes a `METHOD` only when its
 nearest enclosing scope is class-like
 (`QueryExtraction.class_scope_types`), so a closure inside a function
 or method stays a function.
@@ -336,10 +339,10 @@ order:
 
 1. **Primary extraction** - a registered `chunker` if the
    language has one (`chunker(path, sha, content, grammar,
-   ranges)`; markdown, rst, svelte, vue), else tree-sitter
+   ranges)`; rst, svelte, vue), else tree-sitter
    `extract_symbols` for a `grammar` + `query` (python,
-   rust, go, ...; json, css, html, toml, yaml, hcl; and
-   `tree_sitter_query` itself, indexing `.scm` files).
+   rust, go, ...; markdown; json, css, html, toml, yaml, hcl;
+   and `tree_sitter_query` itself, indexing `.scm` files).
    After the query's chunks, `extract_symbols` walks the
    same tree for the code they leave and emits it as
    `FRAGMENT` chunks (see
@@ -2269,20 +2272,20 @@ tree-walk, so one extraction model covers every language. The cost
 is that tree-sitter cannot see blank lines, so grouping comment
 runs into blocks is one small post-pass in the engine.
 
-**Fragments for code no query names.** A query selects the
-constructs it names; everything else in a file — a module-level
-`if __name__ == "__main__":`, `module.exports = {…}`, a Go `package`
-clause, a parse error — would otherwise reach no chunk, and no search
-could find it. After the query's chunks, the engine walks the tree by
-lines: a node no chunk touches is left over, a node one touches in part
-is looked into, and left-over siblings join one `FRAGMENT` chunk until a
-blank line, a covered node or `chunk_lines` lines separate them. A run
-of punctuation alone makes none, and a node holding a block the host's
-injection query delegates (an HTML `<script>` element) belongs to that
-block. Each fragment records the types of the named nodes it holds, so
-what a language leaves to fragments is counted, and a frequent type is
-a pattern its query should name. Lines, not bytes, decide coverage,
-because a chunk keeps only its line span.
+**Fragments for code no query names.** A query selects the constructs it names;
+everything else in a file — a module-level `if __name__ == "__main__":`,
+`module.exports = {…}`, a Go `package` clause, a parse error — would otherwise reach no
+chunk, and no search could find it. After the query's chunks, the engine walks the tree
+by lines: a node no chunk touches is left over, a node one touches in part, or a
+left-over one longer than `chunk_lines`, is looked into, and left-over siblings join one
+`FRAGMENT` chunk until a blank line, a covered node or `chunk_lines` lines separate
+them. A run of punctuation alone makes none, and a node holding a block the host's
+injection query delegates (an HTML `<script>` element) belongs to that block, unless the
+block's language makes no fragments (`QueryExtraction.fragments`): Markdown hands every
+paragraph to its inline half for links, and that half's text is Markdown's. Each
+fragment records the types of the named nodes it holds, so what a language leaves to
+fragments is counted, and a frequent type is a pattern its query should name. Lines, not
+bytes, decide coverage, because a chunk keeps only its line span.
 
 A fragment is unnamed, weighted 0.5 in search like a comment, left out
 of bare-import fan-out (an importer depends on definitions, not on a
@@ -2292,6 +2295,21 @@ in the engine, which holds the tree and the scope types; a pass in
 parse every file a third time. Revisit a language whose fragments stay
 large once its query names the common shapes: it needs a better grammar
 or query, not a bigger fallback.
+
+**A section that ends in subsections holds its own text.** A captured
+section node spans what nests in it, as a class spans its methods. A
+section that ends in captured sections, nothing else after the first,
+holds only the text before them: that is a Markdown heading's own text.
+Spanning the subsections does not work here: on the eval repositories'
+Markdown it stores 2.5 times the text, and 135 chunks run past the
+embedding context against 3. An HTML element's own content continues past
+a nested element, to its end tag at least, so it keeps its span.
+
+**A reference's URL fragment is a name.** An `@import` whose module
+holds `#` names what follows in the file before it (`page.html#intro`),
+or in its own file when nothing precedes it (`#intro`). `#` is URL
+syntax in every language a fragment appears in, and the engine holds
+the file path the second form needs.
 
 ### Storage
 

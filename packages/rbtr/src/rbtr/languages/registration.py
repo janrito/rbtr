@@ -151,6 +151,10 @@ class QueryExtraction:
     class_scope_types: frozenset[str] = frozenset()
     """Subset of `scope_types` that is class-like — a function directly inside
     one is promoted to a method. Defaults to `scope_types` when unset."""
+    fragments: bool = True
+    """Whether code no capture covers becomes `fragment` chunks. `False` for
+    a grammar whose text another language's chunks already hold: Markdown's
+    inline half, whose text lies in Markdown's sections."""
 
     def __post_init__(self) -> None:
         if not self.class_scope_types:
@@ -209,13 +213,13 @@ class LanguageRegistration:
         Custom chunker without tree-sitter (prose, or a language with no
         grammar)::
 
-            markdown = LanguageRegistration(
-                id="markdown",
-                extensions=frozenset({".md"}),
+            rst = LanguageRegistration(
+                id="rst",
+                extensions=frozenset({".rst"}),
             )
 
-            @markdown.chunker
-            def chunk_markdown(file_path, blob_sha, content, grammar, ranges):
+            @rst.chunker
+            def chunk_rst(file_path, blob_sha, content, grammar, ranges):
                 ...
 
         Grammar but no query (parse tree available, no symbol extraction
