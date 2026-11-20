@@ -1762,8 +1762,9 @@ to finish. That wait lets shutdown account for both native work and the
 output it can still produce before disposing of the transport.
 
 Indexer reports internal typed values rather than public wire messages.
-Daemon translates them for the notification channel; a job's `kind`,
-`repo_path` and `ref` are the protocol's `work` fields. This boundary lets
+Daemon translates them for the notification channel; each job describes
+its work as the domain's `Work`, which the protocol carries as it is. This
+boundary lets
 background indexing have a different output consumer while leaving the
 public protocol under the runtime's control. The protocol reference below
 defines the external messages.

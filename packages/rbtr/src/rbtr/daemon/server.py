@@ -55,6 +55,7 @@ from rbtr.daemon.messages import (
 )
 from rbtr.daemon.rpc import RPC, Handler, RpcResource
 from rbtr.daemon.status import remove_status, write_status
+from rbtr.domain.models import BuildWork, CollectWork, EmbedWork, MigrateWork, Work
 from rbtr.errors import IndexNotBuiltError, MissingSnapshot
 from rbtr.index import watcher
 from rbtr.index.embeddings import Embedder
@@ -74,6 +75,18 @@ from rbtr.index.reranker import Reranker
 from rbtr.languages.manager import get_manager
 
 log = structlog.get_logger(__name__)
+
+
+def _concerns(work: Work, path: str | None) -> bool:
+    """Whether *work* concerns the repository at *path*, or any one at `None`.
+
+    Work on a snapshot names its repository; other work concerns every one.
+    """
+    match work:
+        case BuildWork(repo_path=repo_path) | EmbedWork(repo_path=repo_path):
+            return path is None or repo_path == path
+        case CollectWork() | MigrateWork():
+            return True
 
 
 class Daemon:
@@ -268,7 +281,7 @@ class Daemon:
         from `to_thread`: it reads the store.
         """
         runs = self._indexer.snapshot() if self._indexer is not None else []
-        builds = [run.work for run in runs if isinstance(run.work, BuildJob)]
+        builds = [run.job for run in runs if isinstance(run.job, BuildJob)]
         if missing is None:
             return bool(builds)
         # A snapshot was named, so a handler read the store: it is open.
@@ -287,10 +300,17 @@ class Daemon:
     def _active_jobs(self, path: str | None) -> list[ActiveJob]:
         """The work running for the repository at *path*, or every one at `None`, and work naming none."""
         runs = self._indexer.snapshot() if self._indexer is not None else []
+        described = [(run, run.job.work) for run in runs]
         return [
-            ActiveJob.model_validate(run, from_attributes=True)
-            for run in runs
-            if path is None or run.work.repo_path in (None, path)
+            ActiveJob(
+                work=work,
+                phase=run.phase,
+                current=run.current,
+                total=run.total,
+                elapsed_seconds=run.elapsed_seconds,
+            )
+            for run, work in described
+            if _concerns(work, path)
         ]
 
     def request_shutdown(self) -> None:
@@ -458,7 +478,12 @@ class Daemon:
         notification: Notification
         match output:
             case RunningJob():
-                notification = ProgressNotification.model_validate(output, from_attributes=True)
+                notification = ProgressNotification(
+                    work=output.job.work,
+                    phase=output.phase,
+                    current=output.current,
+                    total=output.total,
+                )
             case BuildReady():
                 notification = ReadyNotification(
                     repo_path=output.at.repo.repo_path,

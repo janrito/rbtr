@@ -14,7 +14,6 @@ import zmq.asyncio
 from pytest_mock import MockerFixture
 
 from rbtr.daemon.messages import (
-    BuildWork,
     GcAllRequest,
     ProgressNotification,
     Request,
@@ -25,7 +24,7 @@ from rbtr.daemon.messages import (
     notification_adapter,
 )
 from rbtr.daemon.server import Daemon
-from rbtr.domain.models import GcMode
+from rbtr.domain.models import BuildWork, GcMode
 from rbtr.index.index import Index
 
 from .conftest import serving

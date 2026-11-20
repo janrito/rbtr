@@ -22,15 +22,12 @@ from pytest_mock import MockerFixture
 from rbtr.config import config
 from rbtr.daemon.client import DaemonClient
 from rbtr.daemon.messages import (
-    CollectWork,
     DaemonConfigRequest,
-    EmbedWork,
     ErrorCode,
     ErrorResponse,
     GcAllRequest,
     GcEndedNotification,
     IndexState,
-    MigrateWork,
     Notification,
     OkResponse,
     ProgressNotification,
@@ -43,7 +40,7 @@ from rbtr.daemon.messages import (
     response_adapter,
 )
 from rbtr.daemon.server import Daemon
-from rbtr.domain.models import GcMode
+from rbtr.domain.models import CollectWork, EmbedWork, GcMode, MigrateWork
 from rbtr.errors import DaemonBusyError, RbtrError
 from rbtr.index.constants import SCHEMA_VERSION
 from rbtr.index.embeddings import Embedder, EmbedResult
