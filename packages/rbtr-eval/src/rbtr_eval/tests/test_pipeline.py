@@ -8,6 +8,7 @@ bugs before the expensive indexing run hits them.
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from pathlib import Path
 
 import dataframely as dy
@@ -23,6 +24,7 @@ from rbtr.index.embed import embed_index
 from rbtr.index.embeddings import Embedder
 from rbtr.index.index import Index
 from rbtr.tests.conftest import StubModel, make_commit
+from rbtr_eval.corpus import corpus_refs
 from rbtr_eval.measure import (
     SearchBatch,
     TruncatedTarget,
@@ -31,7 +33,7 @@ from rbtr_eval.measure import (
     _metrics_file,
     _score_outcomes,
     _target_shapes,
-    _truncated_targets,
+    truncated_targets,
 )
 from rbtr_eval.shared_schemas import RepoHeader
 from rbtr_eval.tests.conftest import hit, outcome_row
@@ -110,8 +112,8 @@ def test_statistics_break_out_symbol_kind(batch: dy.DataFrame[SearchBatch]) -> N
 
 
 @pytest.fixture
-def indexed_copy(tmp_path: Path, mocker: MockerFixture) -> Path:
-    """An index database holding one truncated chunk at two paths.
+def indexed_copy(tmp_path: Path, mocker: MockerFixture) -> Generator[Index]:
+    """An index holding one truncated chunk at two paths, built at its repo's HEAD.
 
     `q.py` is vendored verbatim to `vendor/q.py`, so both snapshot rows
     carry the blob the chunk was extracted from.  Its function, on
@@ -133,11 +135,11 @@ def load():
         embed_index(index, at=index.register(path).at(sha), embedder=embedder)
     finally:
         embedder.close()
+    yield index
     index.close()
-    return tmp_path / "index.duckdb"
 
 
-def test_truncation_marks_every_location_of_the_chunk(indexed_copy: Path) -> None:
+def test_truncation_marks_every_location_of_the_chunk(indexed_copy: Index) -> None:
     """A truncated chunk is truncated wherever it is found.
 
     The measure joins on the path the query names, so a query against
@@ -167,7 +169,8 @@ def test_truncation_marks_every_location_of_the_chunk(indexed_copy: Path) -> Non
         ]
     ).pipe(SearchBatch.validate, cast=True)
 
-    annotated = _score_outcomes(batch, _truncated_targets(indexed_copy)).sort("file_path")
+    truncated = truncated_targets(indexed_copy, corpus_refs(indexed_copy))
+    annotated = _score_outcomes(batch, truncated).sort("file_path")
 
     marked = annotated.filter(pl.col("name") == "load")
     assert marked["file_path"].to_list() == ["q.py", "vendor/q.py"]
