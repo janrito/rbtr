@@ -8,11 +8,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pygit2
 import pytest
 
 from rbtr.domain.models import Edge, EdgeKind
+from rbtr.git import normalise_repo_path
+from rbtr.index.build import build_index
 from rbtr.index.index import Index
-from rbtr_eval.corpus import Corpus
+from rbtr.tests.conftest import make_commit
+from rbtr_eval.corpus import Corpus, corpus_refs
 from rbtr_eval.index_stage import (
     _embedding_counts,
     _kind_counts,
@@ -79,22 +83,19 @@ def index_with_residue(tmp_path: Path) -> Index:
 
 @pytest.fixture
 def index_with_copy(tmp_path: Path) -> Index:
-    """One repo whose `lib.py` is vendored verbatim to `vendor/lib.py`.
+    """One repo, built at HEAD, whose `lib.py` is vendored verbatim to `vendor/lib.py`.
 
     Both paths carry the same blob, so both reach the one chunk the
     content was extracted into.
     """
+    lib = b"""\
+def load():
+    pass
+"""
+    repo = pygit2.init_repository(str(tmp_path / "repo"), bare=False, initial_head="main")
+    sha = str(make_commit(repo, {"lib.py": lib, "vendor/lib.py": lib}))
     index = Index(str(tmp_path / "index" / "index.duckdb"), writable=True)
-    fn = chunk(file_path="lib.py", kind="function", name="load")
-
-    repo = index.register(str(tmp_path / "repo"))
-    with index.session(repo) as ws:
-        ws.add_chunk(fn)
-        ws.insert_snapshots(
-            [snap(INDEXED, fn), snap(INDEXED, fn, path="vendor/lib.py")],
-        )
-        ws.mark_indexed(snapshot_sha=INDEXED)
-
+    build_index(normalise_repo_path(repo.workdir), sha, index)
     return index
 
 
@@ -126,7 +127,7 @@ def test_a_vendored_file_counts_once_as_content_and_twice_as_location(
     index_with_copy: Index,
 ) -> None:
     """One chunk reached from two paths is one chunk in two places."""
-    corpus = corpus_of(index_with_copy)
+    corpus = corpus_refs(index_with_copy)
     assert _repo_counts(index_with_copy, corpus).rows(named=True) == [
         {"repo": "repo", "chunks": 1, "locations": 2, "edges": 0}
     ]
