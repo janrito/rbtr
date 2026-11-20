@@ -119,6 +119,7 @@ export type ChangeKind = "added" | "modified" | "removed";
  *                      until it ends.
  */
 export type IndexState = "no_index" | "repo_not_indexed" | "ref_not_indexed" | "indexed" | "migrating";
+export type Work = BuildWork | EmbedWork | CollectWork | MigrateWork;
 export type JsonValue = unknown;
 export type Notification =
   | ProgressNotification
@@ -665,7 +666,7 @@ export interface IndexedRef {
  * CLI doesn't need to reason about clock boundaries.
  */
 export interface ActiveJob {
-  work: BuildWork | EmbedWork | CollectWork | MigrateWork;
+  work: Work;
   phase: string;
   current: number;
   total: number;
@@ -771,7 +772,7 @@ export interface ForgetResponse {
  */
 export interface ProgressNotification {
   kind: "progress";
-  work: BuildWork | EmbedWork | CollectWork | MigrateWork;
+  work: Work;
   phase: string;
   current: number;
   total: number;
