@@ -2,11 +2,12 @@ setup: setup-py setup-js
 
 setup-ci: setup-ci-py setup-ci-js
 
+# The llama.cpp backend extras conflict, so each sync picks at most one.
 setup-py:
-    uv sync --all-packages --all-extras --group debug
+    uv sync --all-packages --all-extras --no-extra cpu --no-extra vulkan --no-extra cuda --group debug
 
 setup-ci-py:
-    uv sync --frozen --all-packages --all-extras --group llama-cpp-cpu
+    uv sync --frozen --all-packages --all-extras --no-extra vulkan --no-extra cuda
 
 setup-js:
     npm install

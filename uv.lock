@@ -2,18 +2,25 @@ version = 1
 revision = 5
 requires-python = ">=3.13"
 resolution-markers = [
-    "python_full_version >= '3.15' and extra != 'group-4-rbtr-llama-cpp-cpu' and extra == 'group-4-rbtr-llama-cpp-source'",
-    "python_full_version < '3.15' and extra != 'group-4-rbtr-llama-cpp-cpu' and extra == 'group-4-rbtr-llama-cpp-source'",
-    "python_full_version >= '3.15' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'group-4-rbtr-llama-cpp-cpu' and extra != 'group-4-rbtr-llama-cpp-source'",
-    "python_full_version < '3.15' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'group-4-rbtr-llama-cpp-cpu' and extra != 'group-4-rbtr-llama-cpp-source'",
-    "(python_full_version >= '3.15' and platform_machine != 'x86_64' and extra == 'group-4-rbtr-llama-cpp-cpu' and extra != 'group-4-rbtr-llama-cpp-source') or (python_full_version >= '3.15' and sys_platform != 'linux' and extra == 'group-4-rbtr-llama-cpp-cpu' and extra != 'group-4-rbtr-llama-cpp-source')",
-    "(python_full_version < '3.15' and platform_machine != 'x86_64' and extra == 'group-4-rbtr-llama-cpp-cpu' and extra != 'group-4-rbtr-llama-cpp-source') or (python_full_version < '3.15' and sys_platform != 'linux' and extra == 'group-4-rbtr-llama-cpp-cpu' and extra != 'group-4-rbtr-llama-cpp-source')",
-    "python_full_version >= '3.15' and extra != 'group-4-rbtr-llama-cpp-cpu' and extra != 'group-4-rbtr-llama-cpp-source'",
-    "python_full_version < '3.15' and extra != 'group-4-rbtr-llama-cpp-cpu' and extra != 'group-4-rbtr-llama-cpp-source'",
+    "(python_full_version >= '3.15' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra == 'extra-4-rbtr-vulkan') or (python_full_version >= '3.15' and platform_machine == 'AMD64' and sys_platform == 'win32' and extra != 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra == 'extra-4-rbtr-vulkan')",
+    "(python_full_version < '3.15' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra == 'extra-4-rbtr-vulkan') or (python_full_version < '3.15' and platform_machine == 'AMD64' and sys_platform == 'win32' and extra != 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra == 'extra-4-rbtr-vulkan')",
+    "(python_full_version >= '3.15' and platform_machine != 'AMD64' and platform_machine != 'x86_64' and extra != 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra == 'extra-4-rbtr-vulkan') or (python_full_version >= '3.15' and platform_machine == 'AMD64' and sys_platform == 'linux' and extra != 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra == 'extra-4-rbtr-vulkan') or (python_full_version >= '3.15' and platform_machine == 'x86_64' and sys_platform == 'win32' and extra != 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra == 'extra-4-rbtr-vulkan') or (python_full_version >= '3.15' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra == 'extra-4-rbtr-vulkan')",
+    "(python_full_version < '3.15' and platform_machine != 'AMD64' and platform_machine != 'x86_64' and extra != 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra == 'extra-4-rbtr-vulkan') or (python_full_version < '3.15' and platform_machine == 'AMD64' and sys_platform == 'linux' and extra != 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra == 'extra-4-rbtr-vulkan') or (python_full_version < '3.15' and platform_machine == 'x86_64' and sys_platform == 'win32' and extra != 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra == 'extra-4-rbtr-vulkan') or (python_full_version < '3.15' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra == 'extra-4-rbtr-vulkan')",
+    "(python_full_version >= '3.15' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan') or (python_full_version >= '3.15' and platform_machine == 'AMD64' and sys_platform == 'win32' and extra != 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan')",
+    "(python_full_version < '3.15' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan') or (python_full_version < '3.15' and platform_machine == 'AMD64' and sys_platform == 'win32' and extra != 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan')",
+    "(python_full_version >= '3.15' and platform_machine != 'AMD64' and platform_machine != 'x86_64' and extra != 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan') or (python_full_version >= '3.15' and platform_machine == 'AMD64' and sys_platform == 'linux' and extra != 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan') or (python_full_version >= '3.15' and platform_machine == 'x86_64' and sys_platform == 'win32' and extra != 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan') or (python_full_version >= '3.15' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan')",
+    "(python_full_version < '3.15' and platform_machine != 'AMD64' and platform_machine != 'x86_64' and extra != 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan') or (python_full_version < '3.15' and platform_machine == 'AMD64' and sys_platform == 'linux' and extra != 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan') or (python_full_version < '3.15' and platform_machine == 'x86_64' and sys_platform == 'win32' and extra != 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan') or (python_full_version < '3.15' and sys_platform != 'linux' and sys_platform != 'win32' and extra != 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan')",
+    "(python_full_version >= '3.15' and platform_machine in 'x86_64 aarch64' and sys_platform == 'linux' and extra == 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan') or (python_full_version >= '3.15' and platform_machine == 'AMD64' and sys_platform == 'win32' and extra == 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan')",
+    "(python_full_version < '3.15' and platform_machine in 'x86_64 aarch64' and sys_platform == 'linux' and extra == 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan') or (python_full_version < '3.15' and platform_machine == 'AMD64' and sys_platform == 'win32' and extra == 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan')",
+    "(python_full_version >= '3.15' and platform_machine not in 'x86_64 aarch64' and sys_platform == 'linux' and extra == 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan') or (python_full_version >= '3.15' and platform_machine != 'AMD64' and sys_platform == 'win32' and extra == 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan') or (python_full_version >= '3.15' and sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan')",
+    "(python_full_version < '3.15' and platform_machine not in 'x86_64 aarch64' and sys_platform == 'linux' and extra == 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan') or (python_full_version < '3.15' and platform_machine != 'AMD64' and sys_platform == 'win32' and extra == 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan') or (python_full_version < '3.15' and sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan')",
+    "python_full_version >= '3.15' and extra != 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan'",
+    "python_full_version < '3.15' and extra != 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan'",
 ]
 conflicts = [[
-    { package = "rbtr", group = "llama-cpp-cpu" },
-    { package = "rbtr", group = "llama-cpp-source" },
+    { package = "rbtr", extra = "cpu" },
+    { package = "rbtr", extra = "cuda" },
+    { package = "rbtr", extra = "vulkan" },
 ]]
 
 [manifest]
@@ -1799,16 +1806,16 @@ name = "llama-cpp-python"
 version = "0.3.36"
 source = { registry = "https://abetlen.github.io/llama-cpp-python/whl/cpu" }
 resolution-markers = [
-    "python_full_version >= '3.15' and platform_machine == 'x86_64' and sys_platform == 'linux'",
-    "python_full_version < '3.15' and platform_machine == 'x86_64' and sys_platform == 'linux'",
-    "(python_full_version >= '3.15' and platform_machine != 'x86_64') or (python_full_version >= '3.15' and sys_platform != 'linux')",
-    "(python_full_version < '3.15' and platform_machine != 'x86_64') or (python_full_version < '3.15' and sys_platform != 'linux')",
+    "(python_full_version >= '3.15' and platform_machine in 'x86_64 aarch64' and sys_platform == 'linux') or (python_full_version >= '3.15' and platform_machine == 'AMD64' and sys_platform == 'win32')",
+    "(python_full_version < '3.15' and platform_machine in 'x86_64 aarch64' and sys_platform == 'linux') or (python_full_version < '3.15' and platform_machine == 'AMD64' and sys_platform == 'win32')",
+    "(python_full_version >= '3.15' and platform_machine not in 'x86_64 aarch64' and sys_platform == 'linux') or (python_full_version >= '3.15' and platform_machine != 'AMD64' and sys_platform == 'win32') or (python_full_version >= '3.15' and sys_platform != 'linux' and sys_platform != 'win32')",
+    "(python_full_version < '3.15' and platform_machine not in 'x86_64 aarch64' and sys_platform == 'linux') or (python_full_version < '3.15' and platform_machine != 'AMD64' and sys_platform == 'win32') or (python_full_version < '3.15' and sys_platform != 'linux' and sys_platform != 'win32')",
 ]
 dependencies = [
-    { name = "diskcache", marker = "extra == 'group-4-rbtr-llama-cpp-cpu'" },
-    { name = "jinja2", marker = "extra == 'group-4-rbtr-llama-cpp-cpu'" },
-    { name = "numpy", marker = "extra == 'group-4-rbtr-llama-cpp-cpu'" },
-    { name = "typing-extensions", marker = "extra == 'group-4-rbtr-llama-cpp-cpu'" },
+    { name = "diskcache", marker = "extra == 'extra-4-rbtr-cpu' or (extra == 'extra-4-rbtr-cuda' and extra == 'extra-4-rbtr-vulkan')" },
+    { name = "jinja2", marker = "extra == 'extra-4-rbtr-cpu' or (extra == 'extra-4-rbtr-cuda' and extra == 'extra-4-rbtr-vulkan')" },
+    { name = "numpy", marker = "extra == 'extra-4-rbtr-cpu' or (extra == 'extra-4-rbtr-cuda' and extra == 'extra-4-rbtr-vulkan')" },
+    { name = "typing-extensions", marker = "extra == 'extra-4-rbtr-cpu' or (extra == 'extra-4-rbtr-cuda' and extra == 'extra-4-rbtr-vulkan')" },
 ]
 wheels = [
     { url = "https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.36/llama_cpp_python-0.3.36-py3-none-linux_riscv64.whl" },
@@ -1824,16 +1831,58 @@ wheels = [
 [[package]]
 name = "llama-cpp-python"
 version = "0.3.36"
+source = { registry = "https://abetlen.github.io/llama-cpp-python/whl/cu124" }
+resolution-markers = [
+    "(python_full_version >= '3.15' and platform_machine == 'x86_64' and sys_platform == 'linux') or (python_full_version >= '3.15' and platform_machine == 'AMD64' and sys_platform == 'win32')",
+    "(python_full_version < '3.15' and platform_machine == 'x86_64' and sys_platform == 'linux') or (python_full_version < '3.15' and platform_machine == 'AMD64' and sys_platform == 'win32')",
+    "(python_full_version >= '3.15' and platform_machine != 'AMD64' and platform_machine != 'x86_64') or (python_full_version >= '3.15' and platform_machine == 'AMD64' and sys_platform == 'linux') or (python_full_version >= '3.15' and platform_machine == 'x86_64' and sys_platform == 'win32') or (python_full_version >= '3.15' and sys_platform != 'linux' and sys_platform != 'win32')",
+    "(python_full_version < '3.15' and platform_machine != 'AMD64' and platform_machine != 'x86_64') or (python_full_version < '3.15' and platform_machine == 'AMD64' and sys_platform == 'linux') or (python_full_version < '3.15' and platform_machine == 'x86_64' and sys_platform == 'win32') or (python_full_version < '3.15' and sys_platform != 'linux' and sys_platform != 'win32')",
+]
+dependencies = [
+    { name = "diskcache", marker = "extra == 'extra-4-rbtr-cuda' or (extra == 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-vulkan')" },
+    { name = "jinja2", marker = "extra == 'extra-4-rbtr-cuda' or (extra == 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-vulkan')" },
+    { name = "numpy", marker = "extra == 'extra-4-rbtr-cuda' or (extra == 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-vulkan')" },
+    { name = "typing-extensions", marker = "extra == 'extra-4-rbtr-cuda' or (extra == 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-vulkan')" },
+]
+wheels = [
+    { url = "https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.36-cu124/llama_cpp_python-0.3.36-py3-none-manylinux_2_35_x86_64.whl" },
+    { url = "https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.36-cu124/llama_cpp_python-0.3.36-py3-none-win_amd64.whl" },
+]
+
+[[package]]
+name = "llama-cpp-python"
+version = "0.3.36"
+source = { registry = "https://abetlen.github.io/llama-cpp-python/whl/vulkan" }
+resolution-markers = [
+    "(python_full_version >= '3.15' and platform_machine == 'x86_64' and sys_platform == 'linux') or (python_full_version >= '3.15' and platform_machine == 'AMD64' and sys_platform == 'win32')",
+    "(python_full_version < '3.15' and platform_machine == 'x86_64' and sys_platform == 'linux') or (python_full_version < '3.15' and platform_machine == 'AMD64' and sys_platform == 'win32')",
+    "(python_full_version >= '3.15' and platform_machine != 'AMD64' and platform_machine != 'x86_64') or (python_full_version >= '3.15' and platform_machine == 'AMD64' and sys_platform == 'linux') or (python_full_version >= '3.15' and platform_machine == 'x86_64' and sys_platform == 'win32') or (python_full_version >= '3.15' and sys_platform != 'linux' and sys_platform != 'win32')",
+    "(python_full_version < '3.15' and platform_machine != 'AMD64' and platform_machine != 'x86_64') or (python_full_version < '3.15' and platform_machine == 'AMD64' and sys_platform == 'linux') or (python_full_version < '3.15' and platform_machine == 'x86_64' and sys_platform == 'win32') or (python_full_version < '3.15' and sys_platform != 'linux' and sys_platform != 'win32')",
+]
+dependencies = [
+    { name = "diskcache", marker = "extra == 'extra-4-rbtr-vulkan' or (extra == 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-cuda')" },
+    { name = "jinja2", marker = "extra == 'extra-4-rbtr-vulkan' or (extra == 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-cuda')" },
+    { name = "numpy", marker = "extra == 'extra-4-rbtr-vulkan' or (extra == 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-cuda')" },
+    { name = "typing-extensions", marker = "extra == 'extra-4-rbtr-vulkan' or (extra == 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-cuda')" },
+]
+wheels = [
+    { url = "https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.36-vulkan/llama_cpp_python-0.3.36-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl" },
+    { url = "https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.36-vulkan/llama_cpp_python-0.3.36-py3-none-win_amd64.whl" },
+]
+
+[[package]]
+name = "llama-cpp-python"
+version = "0.3.36"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.15'",
     "python_full_version < '3.15'",
 ]
 dependencies = [
-    { name = "diskcache" },
-    { name = "jinja2" },
-    { name = "numpy" },
-    { name = "typing-extensions" },
+    { name = "diskcache", marker = "(extra == 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-cuda') or (extra == 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-vulkan') or (extra == 'extra-4-rbtr-cuda' and extra == 'extra-4-rbtr-vulkan') or (extra != 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan')" },
+    { name = "jinja2", marker = "(extra == 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-cuda') or (extra == 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-vulkan') or (extra == 'extra-4-rbtr-cuda' and extra == 'extra-4-rbtr-vulkan') or (extra != 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan')" },
+    { name = "numpy", marker = "(extra == 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-cuda') or (extra == 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-vulkan') or (extra == 'extra-4-rbtr-cuda' and extra == 'extra-4-rbtr-vulkan') or (extra != 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan')" },
+    { name = "typing-extensions", marker = "(extra == 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-cuda') or (extra == 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-vulkan') or (extra == 'extra-4-rbtr-cuda' and extra == 'extra-4-rbtr-vulkan') or (extra != 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/ec/e9/e7de2b0463ea3ffbf0ede6cb21b58c1258a8f6521aae45ca773a59fe7cf3/llama_cpp_python-0.3.36.tar.gz", hash = "sha256:832db0699007f1be95a7e41ef12e88926b02ba836461e36a36372db2760c1a2e", size = 76589250, upload-time = "2026-10-01T05:48:01.345Z" }
 
@@ -3137,8 +3186,10 @@ dependencies = [
     { name = "dataframely" },
     { name = "duckdb" },
     { name = "huggingface-hub" },
-    { name = "llama-cpp-python", version = "0.3.36", source = { registry = "https://abetlen.github.io/llama-cpp-python/whl/cpu" }, marker = "extra == 'group-4-rbtr-llama-cpp-cpu'" },
-    { name = "llama-cpp-python", version = "0.3.36", source = { registry = "https://pypi.org/simple" }, marker = "extra != 'group-4-rbtr-llama-cpp-cpu' or extra == 'group-4-rbtr-llama-cpp-source'" },
+    { name = "llama-cpp-python", version = "0.3.36", source = { registry = "https://abetlen.github.io/llama-cpp-python/whl/cpu" }, marker = "extra == 'extra-4-rbtr-cpu' or (extra == 'extra-4-rbtr-cuda' and extra == 'extra-4-rbtr-vulkan')" },
+    { name = "llama-cpp-python", version = "0.3.36", source = { registry = "https://abetlen.github.io/llama-cpp-python/whl/cu124" }, marker = "extra == 'extra-4-rbtr-cuda' or (extra == 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-vulkan')" },
+    { name = "llama-cpp-python", version = "0.3.36", source = { registry = "https://abetlen.github.io/llama-cpp-python/whl/vulkan" }, marker = "extra == 'extra-4-rbtr-vulkan' or (extra == 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-cuda')" },
+    { name = "llama-cpp-python", version = "0.3.36", source = { registry = "https://pypi.org/simple" }, marker = "(extra == 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-cuda') or (extra == 'extra-4-rbtr-cpu' and extra == 'extra-4-rbtr-vulkan') or (extra == 'extra-4-rbtr-cuda' and extra == 'extra-4-rbtr-vulkan') or (extra != 'extra-4-rbtr-cpu' and extra != 'extra-4-rbtr-cuda' and extra != 'extra-4-rbtr-vulkan')" },
     { name = "pathspec" },
     { name = "platformdirs" },
     { name = "polars" },
@@ -3179,8 +3230,14 @@ all = [
     { name = "rbtr-lang-vue" },
     { name = "rbtr-lang-yaml" },
 ]
+cpu = [
+    { name = "llama-cpp-python", version = "0.3.36", source = { registry = "https://abetlen.github.io/llama-cpp-python/whl/cpu" } },
+]
 css = [
     { name = "rbtr-lang-css" },
+]
+cuda = [
+    { name = "llama-cpp-python", version = "0.3.36", source = { registry = "https://abetlen.github.io/llama-cpp-python/whl/cu124" } },
 ]
 go = [
     { name = "rbtr-lang-go" },
@@ -3226,6 +3283,9 @@ tree-sitter-query = [
 vue = [
     { name = "rbtr-lang-vue" },
 ]
+vulkan = [
+    { name = "llama-cpp-python", version = "0.3.36", source = { registry = "https://abetlen.github.io/llama-cpp-python/whl/vulkan" } },
+]
 yaml = [
     { name = "rbtr-lang-yaml" },
 ]
@@ -3237,12 +3297,6 @@ dev = [
     { name = "pytest-xdist" },
     { name = "rbtr", extra = ["test"] },
 ]
-llama-cpp-cpu = [
-    { name = "llama-cpp-python", version = "0.3.36", source = { registry = "https://abetlen.github.io/llama-cpp-python/whl/cpu" } },
-]
-llama-cpp-source = [
-    { name = "llama-cpp-python", version = "0.3.36", source = { registry = "https://pypi.org/simple" } },
-]
 
 [package.metadata]
 requires-dist = [
@@ -3250,6 +3304,12 @@ requires-dist = [
     { name = "duckdb", specifier = ">=2.0.0" },
     { name = "huggingface-hub", specifier = ">=2.2.0" },
     { name = "llama-cpp-python", specifier = ">=0.3.36" },
+    { name = "llama-cpp-python", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'cuda') or (platform_machine == 'AMD64' and sys_platform == 'win32' and extra == 'cuda')", specifier = ">=0.3.36", index = "https://abetlen.github.io/llama-cpp-python/whl/cu124", conflict = { package = "rbtr", extra = "cuda" } },
+    { name = "llama-cpp-python", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'vulkan') or (platform_machine == 'AMD64' and sys_platform == 'win32' and extra == 'vulkan')", specifier = ">=0.3.36", index = "https://abetlen.github.io/llama-cpp-python/whl/vulkan", conflict = { package = "rbtr", extra = "vulkan" } },
+    { name = "llama-cpp-python", marker = "(platform_machine in 'x86_64 aarch64' and sys_platform == 'linux' and extra == 'cpu') or (platform_machine == 'AMD64' and sys_platform == 'win32' and extra == 'cpu')", specifier = ">=0.3.36", index = "https://abetlen.github.io/llama-cpp-python/whl/cpu", conflict = { package = "rbtr", extra = "cpu" } },
+    { name = "llama-cpp-python", marker = "(platform_machine not in 'x86_64 aarch64' and sys_platform == 'linux' and extra == 'cpu') or (platform_machine != 'AMD64' and sys_platform == 'win32' and extra == 'cpu') or (sys_platform != 'linux' and sys_platform != 'win32' and extra == 'cpu')", specifier = ">=0.3.36" },
+    { name = "llama-cpp-python", marker = "(platform_machine != 'AMD64' and platform_machine != 'x86_64' and extra == 'cuda') or (platform_machine == 'AMD64' and sys_platform == 'linux' and extra == 'cuda') or (platform_machine == 'x86_64' and sys_platform == 'win32' and extra == 'cuda') or (sys_platform != 'linux' and sys_platform != 'win32' and extra == 'cuda')", specifier = ">=0.3.36" },
+    { name = "llama-cpp-python", marker = "(platform_machine != 'AMD64' and platform_machine != 'x86_64' and extra == 'vulkan') or (platform_machine == 'AMD64' and sys_platform == 'linux' and extra == 'vulkan') or (platform_machine == 'x86_64' and sys_platform == 'win32' and extra == 'vulkan') or (sys_platform != 'linux' and sys_platform != 'win32' and extra == 'vulkan')", specifier = ">=0.3.36" },
     { name = "pathspec", specifier = ">=1.1.1" },
     { name = "platformdirs", specifier = ">=4.13.0" },
     { name = "polars", specifier = ">=2.1.0" },
@@ -3304,7 +3364,7 @@ requires-dist = [
     { name = "syrupy", marker = "extra == 'test'", specifier = ">=6.1.1" },
     { name = "tree-sitter", specifier = ">=0.26.0" },
 ]
-provides-extras = ["css", "go", "hcl", "java", "json", "less", "ruby", "rust", "scss", "sql", "svelte", "toml", "tree-sitter-query", "vue", "yaml", "all", "test"]
+provides-extras = ["css", "go", "hcl", "java", "json", "less", "ruby", "rust", "scss", "sql", "svelte", "toml", "tree-sitter-query", "vue", "yaml", "cpu", "vulkan", "cuda", "all", "test"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -3313,11 +3373,6 @@ dev = [
     { name = "pytest-xdist", specifier = ">=3.8.0" },
     { name = "rbtr", extras = ["test"] },
 ]
-llama-cpp-cpu = [
-    { name = "llama-cpp-python", marker = "platform_machine != 'x86_64' or sys_platform != 'linux'", specifier = ">=0.3.24" },
-    { name = "llama-cpp-python", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = ">=0.3.24", index = "https://abetlen.github.io/llama-cpp-python/whl/cpu", conflict = { package = "rbtr", group = "llama-cpp-cpu" } },
-]
-llama-cpp-source = [{ name = "llama-cpp-python", specifier = ">=0.3.24" }]
 
 [[package]]
 name = "rbtr-eval"

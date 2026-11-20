@@ -973,6 +973,14 @@ just setup    # uv sync + npm install
 just check    # lint, typecheck, and every test suite
 ```
 
+`just setup` builds `llama-cpp-python` from PyPI; on macOS that build
+already uses Metal. On Linux or Windows, add an extra to sync a prebuilt
+backend instead, one of `cpu`, `vulkan` or `cuda` (CUDA 12.4):
+
+```bash
+uv sync --all-packages --extra cuda
+```
+
 See [ARCHITECTURE.md][arch] for internals.
 
 ## License
